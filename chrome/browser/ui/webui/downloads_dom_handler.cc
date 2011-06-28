@@ -9,7 +9,7 @@
 
 #include "base/basictypes.h"
 #include "base/callback.h"
-#include "base/singleton.h"
+#include "base/memory/singleton.h"
 #include "base/string_piece.h"
 #include "base/threading/thread.h"
 #include "base/utf_string_conversions.h"
@@ -108,7 +108,7 @@ void DownloadsDOMHandler::OnDownloadUpdated(DownloadItem* download) {
 
   ListValue results_value;
   results_value.Append(download_util::CreateDownloadItemValue(download, id));
-  web_ui_->CallJavascriptFunction(L"downloadUpdated", results_value);
+  web_ui_->CallJavascriptFunction("downloadUpdated", results_value);
 }
 
 // A download has started or been deleted. Query our DownloadManager for the
@@ -126,7 +126,7 @@ void DownloadsDOMHandler::ModelChanged() {
       break;
 
     DownloadItem* download = *it;
-    if (download->state() == DownloadItem::IN_PROGRESS) {
+    if (download->IsInProgress()) {
       // We want to know what happens as the download progresses.
       download->AddObserver(this);
     } else if (download->safety_state() == DownloadItem::DANGEROUS) {
@@ -139,7 +139,7 @@ void DownloadsDOMHandler::ModelChanged() {
 }
 
 void DownloadsDOMHandler::HandleGetDownloads(const ListValue* args) {
-  std::wstring new_search = ExtractStringValue(args);
+  std::wstring new_search = UTF16ToWideHack(ExtractStringValue(args));
   if (search_text_.compare(new_search) != 0) {
     search_text_ = new_search;
     ModelChanged();
@@ -174,7 +174,7 @@ void DownloadsDOMHandler::HandleSaveDangerous(const ListValue* args) {
 void DownloadsDOMHandler::HandleDiscardDangerous(const ListValue* args) {
   DownloadItem* file = GetDownloadByValue(args);
   if (file)
-    file->Remove(true);
+    file->Delete(DownloadItem::DELETE_DUE_TO_USER_DISCARD);
 }
 
 void DownloadsDOMHandler::HandleShow(const ListValue* args) {
@@ -192,7 +192,7 @@ void DownloadsDOMHandler::HandlePause(const ListValue* args) {
 void DownloadsDOMHandler::HandleRemove(const ListValue* args) {
   DownloadItem* file = GetDownloadByValue(args);
   if (file)
-    file->Remove(false);
+    file->Remove();
 }
 
 void DownloadsDOMHandler::HandleCancel(const ListValue* args) {
@@ -217,7 +217,7 @@ void DownloadsDOMHandler::SendCurrentDownloads() {
     results_value.Append(download_util::CreateDownloadItemValue(*it, index));
   }
 
-  web_ui_->CallJavascriptFunction(L"downloadsList", results_value);
+  web_ui_->CallJavascriptFunction("downloadsList", results_value);
 }
 
 void DownloadsDOMHandler::ClearDownloadItems() {

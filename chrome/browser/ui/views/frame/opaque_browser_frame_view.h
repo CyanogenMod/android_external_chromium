@@ -31,42 +31,70 @@ class OpaqueBrowserFrameView : public BrowserNonClientFrameView,
   virtual ~OpaqueBrowserFrameView();
 
   // Overridden from BrowserNonClientFrameView:
-  virtual gfx::Rect GetBoundsForTabStrip(views::View* tabstrip) const;
-  virtual int GetHorizontalTabStripVerticalOffset(bool restored) const;
-  virtual void UpdateThrobber(bool running);
-  virtual gfx::Size GetMinimumSize();
+  virtual gfx::Rect GetBoundsForTabStrip(views::View* tabstrip) const OVERRIDE;
+  virtual int GetHorizontalTabStripVerticalOffset(bool restored) const OVERRIDE;
+  virtual void UpdateThrobber(bool running) OVERRIDE;
+  virtual gfx::Size GetMinimumSize() OVERRIDE;
 
  protected:
   BrowserView* browser_view() const { return browser_view_; }
+  views::ImageButton* minimize_button() const { return minimize_button_; }
+  views::ImageButton* maximize_button() const { return maximize_button_; }
+  views::ImageButton* restore_button() const { return restore_button_; }
+  views::ImageButton* close_button() const { return close_button_; }
 
   // Used to allow subclasses to reserve height for other components they
   // will add.  The space is reserved below the ClientView.
   virtual int GetReservedHeight() const;
   virtual gfx::Rect GetBoundsForReservedArea() const;
 
+  // Returns the height of the entire nonclient top border, including the window
+  // frame, any title area, and any connected client edge.  If |restored| is
+  // true, acts as if the window is restored regardless of the real mode.  If
+  // |ignore_vertical_tabs| is true, acts as if vertical tabs are off regardless
+  // of the real state.
+  int NonClientTopBorderHeight(bool restored, bool ignore_vertical_tabs) const;
+
+  // Allows a subclass to tweak the frame. Chromeos uses this to support
+  // drawing themes correctly. |theme_offset| is used to adjust the y offset
+  // of the theme frame bitmap, so they start at the right location.
+  // |left_corner| and |right_corner| will be used on the left and right of
+  // the tabstrip area as opposed to the theme frame.
+  virtual void ModifyMaximizedFramePainting(
+      int* theme_offset,
+      SkBitmap** left_corner,
+      SkBitmap** right_corner);
+
+  // Expose these to subclasses.
+  BrowserFrame* frame() { return frame_; }
+  BrowserView* browser_view() { return browser_view_; }
+
   // Overridden from views::NonClientFrameView:
-  virtual gfx::Rect GetBoundsForClientView() const;
-  virtual bool AlwaysUseNativeFrame() const;
-  virtual bool AlwaysUseCustomFrame() const;
+  virtual gfx::Rect GetBoundsForClientView() const OVERRIDE;
+  virtual bool AlwaysUseNativeFrame() const OVERRIDE;
+  virtual bool AlwaysUseCustomFrame() const OVERRIDE;
   virtual gfx::Rect GetWindowBoundsForClientBounds(
-      const gfx::Rect& client_bounds) const;
-  virtual int NonClientHitTest(const gfx::Point& point);
-  virtual void GetWindowMask(const gfx::Size& size, gfx::Path* window_mask);
-  virtual void EnableClose(bool enable);
-  virtual void ResetWindowControls();
+      const gfx::Rect& client_bounds) const OVERRIDE;
+  virtual int NonClientHitTest(const gfx::Point& point) OVERRIDE;
+  virtual void GetWindowMask(const gfx::Size& size, gfx::Path* window_mask)
+      OVERRIDE;
+  virtual void EnableClose(bool enable) OVERRIDE;
+  virtual void ResetWindowControls() OVERRIDE;
+  virtual void UpdateWindowIcon() OVERRIDE;
 
   // Overridden from views::View:
-  virtual void OnPaint(gfx::Canvas* canvas);
-  virtual void Layout();
-  virtual bool HitTest(const gfx::Point& l) const;
-  virtual AccessibilityTypes::Role GetAccessibleRole();
+  virtual void OnPaint(gfx::Canvas* canvas) OVERRIDE;
+  virtual void Layout() OVERRIDE;
+  virtual bool HitTest(const gfx::Point& l) const OVERRIDE;
+  virtual void GetAccessibleState(ui::AccessibleViewState* state) OVERRIDE;
 
   // Overridden from views::ButtonListener:
-  virtual void ButtonPressed(views::Button* sender, const views::Event& event);
+  virtual void ButtonPressed(views::Button* sender, const views::Event& event)
+      OVERRIDE;
 
   // Overridden from TabIconView::TabIconViewModel:
-  virtual bool ShouldTabIconViewAnimate() const;
-  virtual SkBitmap GetFavIconForTabIconView();
+  virtual bool ShouldTabIconViewAnimate() const OVERRIDE;
+  virtual SkBitmap GetFaviconForTabIconView() OVERRIDE;
 
  private:
   // Returns the thickness of the border that makes up the window frame edges.
@@ -81,13 +109,6 @@ class OpaqueBrowserFrameView : public BrowserNonClientFrameView,
   // Returns the thickness of the entire nonclient left, right, and bottom
   // borders, including both the window frame and any client edge.
   int NonClientBorderThickness() const;
-
-  // Returns the height of the entire nonclient top border, including the window
-  // frame, any title area, and any connected client edge.  If |restored| is
-  // true, acts as if the window is restored regardless of the real mode.  If
-  // |ignore_vertical_tabs| is true, acts as if vertical tabs are off regardless
-  // of the real state.
-  int NonClientTopBorderHeight(bool restored, bool ignore_vertical_tabs) const;
 
   // Returns the y-coordinate of the caption buttons.  If |restored| is true,
   // acts as if the window is restored regardless of the real mode.

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,14 +10,11 @@
 #include "chrome/browser/sync/engine/syncapi.h"
 #include "chrome/browser/sync/glue/change_processor.h"
 #include "chrome/browser/sync/glue/extension_sync_traits.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_type.h"
-#include "chrome/common/notification_registrar.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
+#include "content/common/notification_type.h"
 
-class ExtensionService;
-class NotificationDetails;
-class NotificationSource;
-class Profile;
+class ExtensionServiceInterface;
 
 namespace browser_sync {
 
@@ -60,8 +57,11 @@ class ExtensionChangeProcessor : public ChangeProcessor,
 
   NotificationRegistrar notification_registrar_;
   const ExtensionSyncTraits traits_;
-  // Owner of the ExtensionService.  Non-NULL iff |running()| is true.
+
+  // Non-NULL iff |running()| is true.
   Profile* profile_;
+  ExtensionServiceInterface* extension_service_;
+  sync_api::UserShare* user_share_;
 
   DISALLOW_COPY_AND_ASSIGN(ExtensionChangeProcessor);
 };

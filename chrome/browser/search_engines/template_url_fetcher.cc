@@ -14,10 +14,10 @@
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/browser/search_engines/template_url_parser.h"
 #include "chrome/common/net/url_fetcher.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
-#include "chrome/common/notification_source.h"
-#include "chrome/common/notification_type.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
+#include "content/common/notification_source.h"
+#include "content/common/notification_type.h"
 #include "net/url_request/url_request_status.h"
 
 // RequestDelegate ------------------------------------------------------------
@@ -227,8 +227,8 @@ void TemplateURLFetcher::RequestDelegate::AddSearchProvider() {
   template_url_->set_originating_url(osdd_url_);
 
   // The page may have specified a URL to use for favicons, if not, set it.
-  if (!template_url_->GetFavIconURL().is_valid())
-    template_url_->SetFavIconURL(favicon_url_);
+  if (!template_url_->GetFaviconURL().is_valid())
+    template_url_->SetFaviconURL(favicon_url_);
 
   switch (provider_type_) {
     case AUTODETECTED_PROVIDER:

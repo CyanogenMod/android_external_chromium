@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,11 +14,11 @@
 #include "chrome/browser/sync/glue/preference_model_associator.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/protocol/preference_specifics.pb.h"
-#include "chrome/common/json_value_serializer.h"
-#include "chrome/common/notification_details.h"
-#include "chrome/common/notification_source.h"
 #include "chrome/common/pref_names.h"
 #include "content/browser/browser_thread.h"
+#include "content/common/json_value_serializer.h"
+#include "content/common/notification_details.h"
+#include "content/common/notification_source.h"
 
 namespace browser_sync {
 
@@ -143,7 +143,7 @@ void PreferenceChangeProcessor::ApplyChangesFromSyncModel(
     // It is possible that we may receive a change to a preference we
     // do not want to sync.  For example if the user is syncing a Mac
     // client and a Windows client, the Windows client does not
-    // support kShowPageOptionsButtons.  Ignore updates from these
+    // support kConfirmToQuitEnabled.  Ignore updates from these
     // preferences.
     const char* pref_name = name.c_str();
     if (model_associator_->synced_preferences().count(pref_name) == 0)

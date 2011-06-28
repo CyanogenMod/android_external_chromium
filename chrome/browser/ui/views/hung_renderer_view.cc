@@ -6,14 +6,14 @@
 
 #include "base/i18n/rtl.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/browser_list.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/logging_chrome.h"
-#include "chrome/common/result_codes.h"
 #include "content/browser/renderer_host/render_process_host.h"
 #include "content/browser/renderer_host/render_view_host.h"
 #include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/result_codes.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
@@ -75,8 +75,9 @@ HungPagesTableModel::~HungPagesTableModel() {
 void HungPagesTableModel::InitForTabContents(TabContents* hung_contents) {
   tab_contentses_.clear();
   for (TabContentsIterator it; !it.done(); ++it) {
-    if (it->GetRenderProcessHost() == hung_contents->GetRenderProcessHost())
-      tab_contentses_.push_back(*it);
+    if (it->tab_contents()->GetRenderProcessHost() ==
+        hung_contents->GetRenderProcessHost())
+      tab_contentses_.push_back((*it)->tab_contents());
   }
   // The world is different.
   if (observer_)
@@ -104,7 +105,7 @@ string16 HungPagesTableModel::GetText(int row, int column_id) {
 
 SkBitmap HungPagesTableModel::GetIcon(int row) {
   DCHECK(row >= 0 && row < RowCount());
-  return tab_contentses_.at(row)->GetFavIcon();
+  return tab_contentses_.at(row)->GetFavicon();
 }
 
 void HungPagesTableModel::SetObserver(ui::TableModelObserver* observer) {
@@ -261,7 +262,7 @@ void HungRendererDialogView::EndForTabContents(TabContents* contents) {
   DCHECK(contents);
   if (contents_ && contents_->GetRenderProcessHost() ==
       contents->GetRenderProcessHost()) {
-    window()->Close();
+    window()->CloseWindow();
     // Since we're closing, we no longer need this TabContents.
     contents_ = NULL;
   }

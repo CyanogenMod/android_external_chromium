@@ -72,6 +72,10 @@
   [self configureBookmarkButtonCell];
 }
 
+- (BOOL)isFolderButtonCell {
+  return NO;
+}
+
 // Perform all normal init routines specific to the BookmarkButtonCell.
 - (void)configureBookmarkButtonCell {
   [self setButtonType:NSMomentaryPushInButton];
@@ -145,7 +149,7 @@
   const BookmarkNode* node =
       static_cast<const BookmarkNode*>([[self representedObject] pointerValue]);
 
-  if (node->GetParent() && node->GetParent()->type() == BookmarkNode::FOLDER) {
+  if (node->parent() && node->parent()->type() == BookmarkNode::FOLDER) {
     UserMetrics::RecordAction(UserMetricsAction("BookmarkBarFolder_CtxMenu"));
   } else {
     UserMetrics::RecordAction(UserMetricsAction("BookmarkBar_CtxMenu"));

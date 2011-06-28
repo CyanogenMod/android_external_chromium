@@ -1,17 +1,19 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef NET_URL_REQUEST_URL_REQUEST_THROTTLER_MANAGER_H_
 #define NET_URL_REQUEST_URL_REQUEST_THROTTLER_MANAGER_H_
+#pragma once
 
 #include <map>
+#include <set>
 #include <string>
 
 #include "base/basictypes.h"
-#include "base/scoped_ptr.h"
-#include "base/singleton.h"
-#include "base/threading/thread_checker_impl.h"
+#include "base/memory/scoped_ptr.h"
+#include "base/memory/singleton.h"
+#include "base/threading/non_thread_safe.h"
 #include "googleurl/src/gurl.h"
 #include "net/url_request/url_request_throttler_entry.h"
 
@@ -27,12 +29,10 @@ namespace net {
 // clean out outdated entries. URL ID consists of lowercased scheme, host, port
 // and path. All URLs converted to the same ID will share the same entry.
 //
-// NOTE: All usage of the singleton object of this class should be on the same
-// thread.
-//
-// TODO(joi): Switch back to NonThreadSafe (and remove checks in release builds)
-// once crbug.com/71721 has been tracked down.
-class URLRequestThrottlerManager {
+// NOTE: All usage of this singleton object must be on the same thread,
+// although to allow it to be used as a singleton, construction and destruction
+// can occur on a separate thread.
+class URLRequestThrottlerManager : public base::NonThreadSafe {
  public:
   static URLRequestThrottlerManager* GetInstance();
 
@@ -42,6 +42,11 @@ class URLRequestThrottlerManager {
   // informations.
   scoped_refptr<URLRequestThrottlerEntryInterface> RegisterRequestUrl(
       const GURL& url);
+
+  // Adds the given host to a list of sites for which exponential back-off
+  // throttling will be disabled.  Subdomains are not included, so they
+  // must be added separately.
+  void AddToOptOutList(const std::string& host);
 
   // Registers a new entry in this service and overrides the existing entry (if
   // any) for the URL. The service will hold a reference to the entry.
@@ -54,9 +59,15 @@ class URLRequestThrottlerManager {
   // It is only used by unit tests.
   void EraseEntryForTests(const GURL& url);
 
-  void InitializeOptions(bool enforce_throttling);
+  // Turns threading model verification on or off.  Any code that correctly
+  // uses the network stack should preferably call this function to enable
+  // verification of correct adherence to the network stack threading model.
+  void set_enable_thread_checks(bool enable);
+  bool enable_thread_checks() const;
 
-  bool enforce_throttling() const { return enforce_throttling_; }
+  // Whether throttling is enabled or not.
+  void set_enforce_throttling(bool enforce);
+  bool enforce_throttling();
 
  protected:
   URLRequestThrottlerManager();
@@ -88,24 +99,21 @@ class URLRequestThrottlerManager {
   typedef std::map<std::string, scoped_refptr<URLRequestThrottlerEntry> >
       UrlEntryMap;
 
+  // We maintain a set of hosts that have opted out of exponential
+  // back-off throttling.
+  typedef std::set<std::string> OptOutHosts;
+
   // Maximum number of entries that we are willing to collect in our map.
   static const unsigned int kMaximumNumberOfEntries;
   // Number of requests that will be made between garbage collection.
   static const unsigned int kRequestsBetweenCollecting;
 
-  // Constructor copies the string "MAGICZZ\0" into this buffer; using it
-  // to try to detect memory overwrites affecting url_entries_ in the wild.
-  // TODO(joi): Remove once crbug.com/71721 is figured out.
-  char magic_buffer_1_[8];
-
   // Map that contains a list of URL ID and their matching
   // URLRequestThrottlerEntry.
   UrlEntryMap url_entries_;
 
-  // Constructor copies the string "GOOGYZZ\0" into this buffer; using it
-  // to try to detect memory overwrites affecting url_entries_ in the wild.
-  // TODO(joi): Remove once crbug.com/71721 is figured out.
-  char magic_buffer_2_[8];
+  // Set of hosts that have opted out.
+  OptOutHosts opt_out_hosts_;
 
   // This keeps track of how many requests have been made. Used with
   // GarbageCollectEntries.
@@ -124,9 +132,7 @@ class URLRequestThrottlerManager {
   //
   // TODO(joi): See if we can fix the offending unit tests and remove this
   // workaround.
-  bool being_tested_;
-
-  base::ThreadCheckerImpl thread_checker_;
+  bool enable_thread_checks_;
 
   DISALLOW_COPY_AND_ASSIGN(URLRequestThrottlerManager);
 };

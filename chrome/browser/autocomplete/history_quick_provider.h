@@ -8,11 +8,13 @@
 
 #include <string>
 
+#include "chrome/browser/autocomplete/autocomplete_match.h"
 #include "chrome/browser/autocomplete/history_provider.h"
 #include "chrome/browser/history/history_types.h"
 #include "chrome/browser/history/in_memory_url_index.h"
 
 class Profile;
+class TermMatches;
 
 namespace history {
 class HistoryBackend;
@@ -40,16 +42,13 @@ class HistoryQuickProvider : public HistoryProvider {
 
  private:
   friend class HistoryQuickProviderTest;
+  FRIEND_TEST_ALL_PREFIXES(HistoryQuickProviderTest, Spans);
 
   AutocompleteMatch QuickMatchToACMatch(
       const history::ScoredHistoryMatch& history_match,
-      MatchType match_type,
-      size_t match_number);
-
-  // Breaks a string down into individual words and return as a vector with
-  // the individual words in their original order.
-  static history::InMemoryURLIndex::String16Vector WordVectorFromString16(
-      const string16& uni_string);
+      size_t match_number,
+      bool prevent_inline_autocomplete,
+      int* next_dont_inline_score);
 
   // Determines the relevance for some input, given its type and which match it
   // is.  If |match_type| is NORMAL, |match_number| is a number
@@ -63,10 +62,15 @@ class HistoryQuickProvider : public HistoryProvider {
   // Returns the index that should be used for history lookups.
   history::InMemoryURLIndex* GetIndex();
 
+  // Fill and return an ACMatchClassifications structure given the term
+  // matches (|matches|) to highlight where terms were found.
+  static ACMatchClassifications SpansFromTermMatch(
+      const history::TermMatches& matches,
+      size_t text_length);
+
   // Only for use in unittests.  Takes ownership of |index|.
   void SetIndexForTesting(history::InMemoryURLIndex* index);
   AutocompleteInput autocomplete_input_;
-  bool trim_http_;
   std::string languages_;
 
   // Only used for testing.

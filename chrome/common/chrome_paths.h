@@ -39,6 +39,7 @@ enum {
                                 // should check that the path exists before
                                 // using it.
   DIR_INTERNAL_PLUGINS,         // Directory where internal plugins reside.
+  DIR_MEDIA_LIBS,               // Directory where the Media libraries reside.
 #if !defined(OS_MACOSX) && defined(OS_POSIX)
   DIR_POLICY_FILES,             // Directory for system-wide read-only
                                 // policy files that allow sys-admins
@@ -63,7 +64,6 @@ enum {
   FILE_RECORDED_SCRIPT,         // Full path to the script.log file that
                                 // contains recorded browser events for
                                 // playback.
-  FILE_GEARS_PLUGIN,            // Full path to the gears.dll plugin file.
   FILE_FLASH_PLUGIN,            // Full path to the internal Flash plugin file.
   FILE_PDF_PLUGIN,              // Full path to the internal PDF plugin file.
   FILE_NACL_PLUGIN,             // Full path to the internal NaCl plugin file.

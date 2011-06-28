@@ -9,11 +9,12 @@
 #include "base/metrics/stats_table.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
-#include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/browser_window.h"
 #include "chrome/browser/memory_purger.h"
 #include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/prefs/scoped_user_pref_update.h"
+#include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/views/browser_dialogs.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
@@ -222,7 +223,7 @@ bool TaskManagerTableModel::IsBackgroundResource(int row) {
 class BackgroundColorGroupTableView : public views::GroupTableView {
  public:
   BackgroundColorGroupTableView(TaskManagerTableModel* model,
-                                std::vector<ui::TableColumn> columns,
+                                const std::vector<ui::TableColumn>& columns,
                                 bool highlight_background_resources)
       : views::GroupTableView(model, columns, views::ICON_AND_TEXT,
                               false, true, true, true),
@@ -559,7 +560,7 @@ void TaskManagerView::Show(bool highlight_background_resources) {
   if (instance_) {
     if (instance_->highlight_background_resources_ !=
         highlight_background_resources) {
-      instance_->window()->Close();
+      instance_->window()->CloseWindow();
     } else {
       // If there's a Task manager window open already, just activate it.
       instance_->window()->Activate();
@@ -622,9 +623,9 @@ bool TaskManagerView::ExecuteWindowsCommand(int command_id) {
 
     // Save the state.
     if (g_browser_process->local_state()) {
-      DictionaryValue* window_preferences =
-          g_browser_process->local_state()->GetMutableDictionary(
-              WideToUTF8(GetWindowName()).c_str());
+      DictionaryPrefUpdate update(g_browser_process->local_state(),
+                                  WideToUTF8(GetWindowName()).c_str());
+      DictionaryValue* window_preferences = update.Get();
       window_preferences->SetBoolean("always_on_top", is_always_on_top_);
     }
     return true;
@@ -646,7 +647,10 @@ int TaskManagerView::GetDialogButtons() const {
 
 void TaskManagerView::WindowClosing() {
   // Now that the window is closed, we can allow a new one to be opened.
-  instance_ = NULL;
+  // (WindowClosing comes in asynchronously from the call to Close() and we
+  // may have already opened a new instance).
+  if (instance_ == this)
+    instance_ = NULL;
   task_manager_->OnWindowClosed();
 }
 

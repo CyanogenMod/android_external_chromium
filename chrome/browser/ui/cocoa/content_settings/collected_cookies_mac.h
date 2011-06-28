@@ -1,18 +1,19 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import <Cocoa/Cocoa.h>
 
 #import "base/mac/cocoa_protocols.h"
-#include "base/scoped_nsobject.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_nsobject.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/cookies_tree_model.h"
 #include "chrome/browser/ui/cocoa/constrained_window_mac.h"
 #import "chrome/browser/ui/cocoa/content_settings/cookie_tree_node.h"
-#include "chrome/common/notification_registrar.h"
+#include "content/common/notification_registrar.h"
 
 @class CollectedCookiesWindowController;
+@class CookieDetailsViewController;
 @class VerticalGradientView;
 class TabContents;
 
@@ -54,6 +55,7 @@ class CollectedCookiesMac : public ConstrainedWindowMacDelegateCustomSheet,
 // very thin bridge (see cookies_window_controller.h).
 @interface CollectedCookiesWindowController : NSWindowController
                                               <NSOutlineViewDelegate,
+                                               NSTabViewDelegate,
                                                NSWindowDelegate> {
  @private
   // Platform-independent model.
@@ -77,15 +79,20 @@ class CollectedCookiesMac : public ConstrainedWindowMacDelegateCustomSheet,
   IBOutlet VerticalGradientView* infoBar_;
   IBOutlet NSImageView* infoBarIcon_;
   IBOutlet NSTextField* infoBarText_;
-  IBOutlet NSSplitView* splitView_;
-  IBOutlet NSScrollView* lowerScrollView_;
+  IBOutlet NSTabView* tabView_;
+  IBOutlet NSScrollView* blockedScrollView_;
   IBOutlet NSTextField* blockedCookiesText_;
+  IBOutlet NSView* cookieDetailsViewPlaceholder_;
 
   scoped_nsobject<NSViewAnimation> animation_;
+
+  scoped_nsobject<CookieDetailsViewController> detailsViewController_;
 
   TabContents* tabContents_;  // weak
 
   BOOL infoBarVisible_;
+
+  BOOL contentSettingsChanged_;
 }
 @property(readonly, nonatomic) NSTreeController* allowedTreeController;
 @property(readonly, nonatomic) NSTreeController* blockedTreeController;
@@ -103,19 +110,13 @@ class CollectedCookiesMac : public ConstrainedWindowMacDelegateCustomSheet,
 - (IBAction)allowForSessionFromOrigin:(id)sender;
 - (IBAction)blockOrigin:(id)sender;
 
-// NSSplitView delegate methods:
-- (CGFloat)    splitView:(NSSplitView *)sender
-  constrainMinCoordinate:(CGFloat)proposedMin
-             ofSubviewAt:(NSInteger)offset;
-- (BOOL)splitView:(NSSplitView *)sender canCollapseSubview:(NSView *)subview;
-
-// Returns the cocoaAllowedTreeModel_ and cocoaBlockedTreeModel_.
+// Returns the |cocoaAllowedTreeModel_| and |cocoaBlockedTreeModel_|.
 - (CocoaCookieTreeNode*)cocoaAllowedTreeModel;
 - (CocoaCookieTreeNode*)cocoaBlockedTreeModel;
 - (void)setCocoaAllowedTreeModel:(CocoaCookieTreeNode*)model;
 - (void)setCocoaBlockedTreeModel:(CocoaCookieTreeNode*)model;
 
-// Returns the allowedTreeModel_ and blockedTreeModel_.
+// Returns the |allowedTreeModel_| and |blockedTreeModel_|.
 - (CookiesTreeModel*)allowedTreeModel;
 - (CookiesTreeModel*)blockedTreeModel;
 

@@ -68,7 +68,7 @@ class ExtensionIconSource : public ChromeURLDataManager::DataSource,
   virtual std::string GetMimeType(const std::string&) const;
 
   virtual void StartDataRequest(const std::string& path,
-                                bool is_off_the_record,
+                                bool is_incognito,
                                 int request_id);
 
 
@@ -92,7 +92,7 @@ class ExtensionIconSource : public ChromeURLDataManager::DataSource,
 
   // Loads the extension's |icon| for the given |request_id| and returns the
   // image to the client.
-  void LoadExtensionImage(ExtensionResource icon, int request_id);
+  void LoadExtensionImage(const ExtensionResource& icon, int request_id);
 
   // Loads the favicon image for the app associated with the |request_id|. If
   // the image does not exist, we fall back to the default image.
@@ -100,15 +100,20 @@ class ExtensionIconSource : public ChromeURLDataManager::DataSource,
 
   // FaviconService callback
   void OnFaviconDataAvailable(FaviconService::Handle request_handle,
-                              bool know_favicon,
-                              scoped_refptr<RefCountedMemory> data,
-                              bool expired,
-                              GURL icon_url);
+                              history::FaviconData favicon);
 
   // ImageLoadingTracker::Observer
   virtual void OnImageLoaded(SkBitmap* image,
-                             ExtensionResource resource,
+                             const ExtensionResource& resource,
                              int id);
+
+  // Called when the extension doesn't have an icon. We fall back to multiple
+  // sources, using the following order:
+  //  1) The icons as listed in the extension / app manifests.
+  //  2) If a 16px icon and the extension has a launch URL, see if Chrome
+  //     has a corresponding favicon.
+  //  3) If still no matches, load the default extension / application icon.
+  void LoadIconFailed(int request_id);
 
   // Parses and savse an ExtensionIconRequest for the URL |path| for the
   // specified |request_id|.

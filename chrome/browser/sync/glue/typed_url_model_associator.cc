@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -177,7 +177,7 @@ bool TypedUrlModelAssociator::AssociateModels() {
   // the history database after closing the write transaction, since
   // this is the only thread that writes to the database.  We also don't have
   // to worry about the sync model getting out of sync, because changes are
-  // propogated to the ChangeProcessor on this thread.
+  // propagated to the ChangeProcessor on this thread.
   return WriteToHistoryBackend(&titles, &new_urls, &updated_urls,
                                &new_visits, NULL);
 }
@@ -485,6 +485,15 @@ void TypedUrlModelAssociator::DiffVisits(
   for ( ; right < right_visit_count; ++right) {
     new_visits->push_back(base::Time::FromInternalValue(new_url.visit(right)));
   }
+}
+
+bool TypedUrlModelAssociator::CryptoReadyIfNecessary() {
+  // We only access the cryptographer while holding a transaction.
+  sync_api::ReadTransaction trans(sync_service_->GetUserShare());
+  syncable::ModelTypeSet encrypted_types;
+  sync_service_->GetEncryptedDataTypes(&encrypted_types);
+  return encrypted_types.count(syncable::TYPED_URLS) == 0 ||
+         sync_service_->IsCryptographerReady(&trans);
 }
 
 }  // namespace browser_sync

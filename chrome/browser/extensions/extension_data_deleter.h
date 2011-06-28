@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 #define CHROME_BROWSER_EXTENSIONS_EXTENSION_DATA_DELETER_H_
 #pragma once
 
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
 #include "base/string16.h"
 #include "content/browser/browser_thread.h"
 #include "googleurl/src/gurl.h"
@@ -20,8 +20,11 @@ class FileSystemContext;
 }
 
 class Profile;
-class URLRequestContextGetter;
 class WebKitContext;
+
+namespace net {
+class URLRequestContextGetter;
+}
 
 // A helper class that takes care of removing local storage, databases and
 // cookies for a given extension. This is used by
@@ -68,7 +71,7 @@ class ExtensionDataDeleter
   scoped_refptr<webkit_database::DatabaseTracker> database_tracker_;
 
   // Provides access to the extension request context.
-  scoped_refptr<URLRequestContextGetter> extension_request_context_;
+  scoped_refptr<net::URLRequestContextGetter> extension_request_context_;
 
   // The URL of the extension we're removing data for.
   GURL extension_url_;

@@ -19,7 +19,7 @@
 #include "chrome/browser/webdata/web_data_service.h"
 #include "chrome/browser/webdata/web_database.h"
 #include "chrome/common/guid.h"
-#include "chrome/common/notification_service.h"
+#include "content/common/notification_service.h"
 
 namespace browser_sync {
 
@@ -108,7 +108,7 @@ void AutofillChangeProcessor::ObserveAutofillEntriesChanged(
           }
 
           std::vector<base::Time> timestamps;
-          if (!web_database_->GetAutofillTimestamps(
+          if (!web_database_->GetAutofillTable()->GetAutofillTimestamps(
                   change->key().name(),
                   change->key().value(),
                   &timestamps)) {
@@ -145,7 +145,7 @@ void AutofillChangeProcessor::ObserveAutofillEntriesChanged(
           }
 
           std::vector<base::Time> timestamps;
-          if (!web_database_->GetAutofillTimestamps(
+          if (!web_database_->GetAutofillTable()->GetAutofillTimestamps(
                    change->key().name(),
                    change->key().value(),
                    &timestamps)) {
@@ -173,8 +173,10 @@ void AutofillChangeProcessor::RemoveSyncNode(const std::string& tag,
   sync_api::WriteNode sync_node(trans);
   int64 sync_id = model_associator_->GetSyncIdFromChromeId(tag);
   if (sync_api::kInvalidId == sync_id) {
-    std::string err = "Unexpected notification for: " + tag;
-    error_handler()->OnUnrecoverableError(FROM_HERE, err);
+    // This could happen because web db might have duplicates and when an entry
+    // and its duplicate is deleted.
+    LOG(WARNING) <<
+        "Bogus delete notification generate for autofill entry " + tag;
     return;
   } else {
     if (!sync_node.InitByIdLookup(sync_id)) {
@@ -288,7 +290,7 @@ void AutofillChangeProcessor::CommitChangesFromSyncModel() {
   autofill_changes_.clear();
 
   // Make changes
-  if (!web_database_->UpdateAutofillEntries(new_entries)) {
+  if (!web_database_->GetAutofillTable()->UpdateAutofillEntries(new_entries)) {
     error_handler()->OnUnrecoverableError(FROM_HERE,
                                           "Could not update autofill entries.");
     return;
@@ -301,7 +303,7 @@ void AutofillChangeProcessor::CommitChangesFromSyncModel() {
 
 void AutofillChangeProcessor::ApplySyncAutofillEntryDelete(
       const sync_pb::AutofillSpecifics& autofill) {
-  if (!web_database_->RemoveFormElement(
+  if (!web_database_->GetAutofillTable()->RemoveFormElement(
       UTF8ToUTF16(autofill.name()), UTF8ToUTF16(autofill.value()))) {
     error_handler()->OnUnrecoverableError(FROM_HERE,
         "Could not remove autofill node.");
@@ -344,11 +346,11 @@ void AutofillChangeProcessor::ApplySyncAutofillProfileChange(
         DCHECK(false) << "Guid generated is invalid " << guid;
         return;
       }
-      scoped_ptr<AutoFillProfile> p(new AutoFillProfile);
+      scoped_ptr<AutofillProfile> p(new AutofillProfile);
       p->set_guid(guid);
       AutofillModelAssociator::FillProfileWithServerData(p.get(),
                                                               profile);
-      if (!web_database_->AddAutoFillProfile(*p.get())) {
+      if (!web_database_->GetAutofillTable()->AddAutofillProfile(*p.get())) {
         NOTREACHED() << "Couldn't add autofill profile: " << guid;
         return;
       }
@@ -364,16 +366,18 @@ void AutofillChangeProcessor::ApplySyncAutofillProfileChange(
             "model association has not happened");
         return;
       }
-      AutoFillProfile *temp_ptr;
-      if (!web_database_->GetAutoFillProfile(*guid, &temp_ptr)) {
+      AutofillProfile *temp_ptr;
+      if (!web_database_->GetAutofillTable()->GetAutofillProfile(
+          *guid, &temp_ptr)) {
         LOG(ERROR) << "Autofill profile not found for " << *guid;
         return;
       }
 
-      scoped_ptr<AutoFillProfile> p(temp_ptr);
+      scoped_ptr<AutofillProfile> p(temp_ptr);
 
       AutofillModelAssociator::FillProfileWithServerData(p.get(), profile);
-      if (!web_database_->UpdateAutoFillProfile(*(p.get()))) {
+      if (!web_database_->GetAutofillTable()->UpdateAutofillProfile(
+          *(p.get()))) {
         LOG(ERROR) << "Couldn't update autofill profile: " << guid;
         return;
       }
@@ -393,7 +397,7 @@ void AutofillChangeProcessor::ApplySyncAutofillProfileDelete(
     return;
   }
 
-  if (!web_database_->RemoveAutoFillProfile(*guid)) {
+  if (!web_database_->GetAutofillTable()->RemoveAutofillProfile(*guid)) {
     LOG(ERROR) << "Could not remove the profile";
     return;
   }

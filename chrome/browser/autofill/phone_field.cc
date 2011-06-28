@@ -5,7 +5,7 @@
 #include "chrome/browser/autofill/phone_field.h"
 
 #include "base/logging.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/string16.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
@@ -281,9 +281,9 @@ bool PhoneField::ParseInternal(
                      &parsed_fields[phone_field_grammars_[i].phone_part]))
         break;
       if (phone_field_grammars_[i].max_size &&
-          (!parsed_fields[phone_field_grammars_[i].phone_part]->max_length() ||
+          (!parsed_fields[phone_field_grammars_[i].phone_part]->max_length ||
             phone_field_grammars_[i].max_size <
-            parsed_fields[phone_field_grammars_[i].phone_part]->max_length())) {
+            parsed_fields[phone_field_grammars_[i].phone_part]->max_length)) {
         break;
       }
     }

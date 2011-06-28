@@ -8,16 +8,22 @@
 
 namespace net {
 
-void NetworkDelegate::NotifyBeforeURLRequest(URLRequest* request) {
+int NetworkDelegate::NotifyBeforeURLRequest(URLRequest* request,
+                                            CompletionCallback* callback,
+                                            GURL* new_url) {
   DCHECK(CalledOnValidThread());
   DCHECK(request);
-  OnBeforeURLRequest(request);
+  DCHECK(callback);
+  return OnBeforeURLRequest(request, callback, new_url);
 }
 
-void NetworkDelegate::NotifySendHttpRequest(HttpRequestHeaders* headers) {
+int NetworkDelegate::NotifyBeforeSendHeaders(uint64 request_id,
+                                             CompletionCallback* callback,
+                                             HttpRequestHeaders* headers) {
   DCHECK(CalledOnValidThread());
   DCHECK(headers);
-  OnSendHttpRequest(headers);
+  DCHECK(callback);
+  return OnBeforeSendHeaders(request_id, callback, headers);
 }
 
 void NetworkDelegate::NotifyResponseStarted(URLRequest* request) {
@@ -30,6 +36,17 @@ void NetworkDelegate::NotifyReadCompleted(URLRequest* request, int bytes_read) {
   DCHECK(CalledOnValidThread());
   DCHECK(request);
   OnReadCompleted(request, bytes_read);
+}
+
+void NetworkDelegate::NotifyURLRequestDestroyed(URLRequest* request) {
+  DCHECK(request);
+  return OnURLRequestDestroyed(request);
+}
+
+URLRequestJob* NetworkDelegate::MaybeCreateURLRequestJob(URLRequest* request) {
+  DCHECK(CalledOnValidThread());
+  DCHECK(request);
+  return OnMaybeCreateURLRequestJob(request);
 }
 
 }  // namespace net

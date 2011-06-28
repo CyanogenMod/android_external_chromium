@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,8 @@
 #include <string>
 
 #include "base/basictypes.h"
-#include "base/ref_counted.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/time.h"
 #include "net/base/host_port_pair.h"
 #include "net/http/http_auth.h"
@@ -29,27 +29,28 @@ class SSLClientSocketPool;
 class SSLSocketParams;
 class SpdySessionPool;
 class SpdyStream;
-class TCPClientSocketPool;
-class TCPSocketParams;
+class TransportClientSocketPool;
+class TransportSocketParams;
 
 // HttpProxySocketParams only needs the socket params for one of the proxy
 // types.  The other param must be NULL.  When using an HTTP Proxy,
-// |tcp_params| must be set.  When using an HTTPS Proxy, |ssl_params|
+// |transport_params| must be set.  When using an HTTPS Proxy, |ssl_params|
 // must be set.
 class HttpProxySocketParams : public base::RefCounted<HttpProxySocketParams> {
  public:
-  HttpProxySocketParams(const scoped_refptr<TCPSocketParams>& tcp_params,
-                        const scoped_refptr<SSLSocketParams>& ssl_params,
-                        const GURL& request_url,
-                        const std::string& user_agent,
-                        HostPortPair endpoint,
-                        HttpAuthCache* http_auth_cache,
-                        HttpAuthHandlerFactory* http_auth_handler_factory,
-                        SpdySessionPool* spdy_session_pool,
-                        bool tunnel);
+  HttpProxySocketParams(
+      const scoped_refptr<TransportSocketParams>& transport_params,
+      const scoped_refptr<SSLSocketParams>& ssl_params,
+      const GURL& request_url,
+      const std::string& user_agent,
+      HostPortPair endpoint,
+      HttpAuthCache* http_auth_cache,
+      HttpAuthHandlerFactory* http_auth_handler_factory,
+      SpdySessionPool* spdy_session_pool,
+      bool tunnel);
 
-  const scoped_refptr<TCPSocketParams>& tcp_params() const {
-    return tcp_params_;
+  const scoped_refptr<TransportSocketParams>& transport_params() const {
+    return transport_params_;
   }
   const scoped_refptr<SSLSocketParams>& ssl_params() const {
     return ssl_params_;
@@ -66,15 +67,19 @@ class HttpProxySocketParams : public base::RefCounted<HttpProxySocketParams> {
   }
   const HostResolver::RequestInfo& destination() const;
   bool tunnel() const { return tunnel_; }
+<<<<<<< HEAD
 #ifdef ANDROID
   bool ignore_limits() const { return ignore_limits_; }
 #endif
+=======
+  bool ignore_limits() const { return ignore_limits_; }
+>>>>>>> chromium.org at r12.0.742.93
 
  private:
   friend class base::RefCounted<HttpProxySocketParams>;
   ~HttpProxySocketParams();
 
-  const scoped_refptr<TCPSocketParams> tcp_params_;
+  const scoped_refptr<TransportSocketParams> transport_params_;
   const scoped_refptr<SSLSocketParams> ssl_params_;
   SpdySessionPool* spdy_session_pool_;
   const GURL request_url_;
@@ -83,9 +88,13 @@ class HttpProxySocketParams : public base::RefCounted<HttpProxySocketParams> {
   HttpAuthCache* const http_auth_cache_;
   HttpAuthHandlerFactory* const http_auth_handler_factory_;
   const bool tunnel_;
+<<<<<<< HEAD
 #ifdef ANDROID
   bool ignore_limits_;
 #endif
+=======
+  bool ignore_limits_;
+>>>>>>> chromium.org at r12.0.742.93
 
   DISALLOW_COPY_AND_ASSIGN(HttpProxySocketParams);
 };
@@ -97,7 +106,7 @@ class HttpProxyConnectJob : public ConnectJob {
   HttpProxyConnectJob(const std::string& group_name,
                       const scoped_refptr<HttpProxySocketParams>& params,
                       const base::TimeDelta& timeout_duration,
-                      TCPClientSocketPool* tcp_pool,
+                      TransportClientSocketPool* transport_pool,
                       SSLClientSocketPool* ssl_pool,
                       HostResolver* host_resolver,
                       Delegate* delegate,
@@ -129,8 +138,8 @@ class HttpProxyConnectJob : public ConnectJob {
   int DoLoop(int result);
 
   // Connecting to HTTP Proxy
-  int DoTCPConnect();
-  int DoTCPConnectComplete(int result);
+  int DoTransportConnect();
+  int DoTransportConnectComplete(int result);
   // Connecting to HTTPS Proxy
   int DoSSLConnect();
   int DoSSLConnectComplete(int result);
@@ -151,7 +160,7 @@ class HttpProxyConnectJob : public ConnectJob {
   virtual int ConnectInternal();
 
   scoped_refptr<HttpProxySocketParams> params_;
-  TCPClientSocketPool* const tcp_pool_;
+  TransportClientSocketPool* const transport_pool_;
   SSLClientSocketPool* const ssl_pool_;
   HostResolver* const resolver_;
 
@@ -175,7 +184,7 @@ class HttpProxyClientSocketPool : public ClientSocketPool {
       int max_sockets_per_group,
       ClientSocketPoolHistograms* histograms,
       HostResolver* host_resolver,
-      TCPClientSocketPool* tcp_pool,
+      TransportClientSocketPool* transport_pool,
       SSLClientSocketPool* ssl_pool,
       NetLog* net_log);
 
@@ -226,7 +235,7 @@ class HttpProxyClientSocketPool : public ClientSocketPool {
   class HttpProxyConnectJobFactory : public PoolBase::ConnectJobFactory {
    public:
     HttpProxyConnectJobFactory(
-        TCPClientSocketPool* tcp_pool,
+        TransportClientSocketPool* transport_pool,
         SSLClientSocketPool* ssl_pool,
         HostResolver* host_resolver,
         NetLog* net_log);
@@ -239,7 +248,7 @@ class HttpProxyClientSocketPool : public ClientSocketPool {
     virtual base::TimeDelta ConnectionTimeout() const { return timeout_; }
 
    private:
-    TCPClientSocketPool* const tcp_pool_;
+    TransportClientSocketPool* const transport_pool_;
     SSLClientSocketPool* const ssl_pool_;
     HostResolver* const host_resolver_;
     NetLog* net_log_;
@@ -248,7 +257,7 @@ class HttpProxyClientSocketPool : public ClientSocketPool {
     DISALLOW_COPY_AND_ASSIGN(HttpProxyConnectJobFactory);
   };
 
-  TCPClientSocketPool* const tcp_pool_;
+  TransportClientSocketPool* const transport_pool_;
   SSLClientSocketPool* const ssl_pool_;
   PoolBase base_;
 

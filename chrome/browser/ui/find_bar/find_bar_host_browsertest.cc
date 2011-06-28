@@ -633,16 +633,8 @@ IN_PROC_BROWSER_TEST_F(FindInPageControllerTest,
   EXPECT_FALSE(fully_visible);
 }
 
-// TODO(rohitrao): The FindMovesWhenObscuring test does not pass on mac.
-// http://crbug.com/22036
-#if defined(OS_MACOSX)
-#define MAYBE_FindMovesWhenObscuring FAILS_FindMovesWhenObscuring
-#else
-#define MAYBE_FindMovesWhenObscuring FindMovesWhenObscuring
-#endif
-
 // Make sure Find box moves out of the way if it is obscuring the active match.
-IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, MAYBE_FindMovesWhenObscuring) {
+IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, FindMovesWhenObscuring) {
   ASSERT_TRUE(test_server()->Start());
 
   GURL url = test_server()->GetURL(kMoveIfOver);
@@ -737,16 +729,7 @@ IN_PROC_BROWSER_TEST_F(FindInPageControllerTest,
 
 #if defined(TOOLKIT_VIEWS)
 // Make sure Find box grabs the Esc accelerator and restores it again.
-#if defined(OS_LINUX)
-// TODO(oshima): On Gtk/Linux, a focus out event is asynchronous and
-// hiding a find bar does not immediately update the target
-// accelerator. The last condition fails in most cases due to this
-// behavior. See http://crbug.com/26870.
-IN_PROC_BROWSER_TEST_F(FindInPageControllerTest,
-                       DISABLED_AcceleratorRestoring) {
-#else
-  IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, AcceleratorRestoring) {
-#endif
+IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, AcceleratorRestoring) {
   ASSERT_TRUE(test_server()->Start());
 
   // First we navigate to any page.
@@ -860,7 +843,7 @@ IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, PreferPreviousSearch) {
   params.disposition = NEW_BACKGROUND_TAB;
   params.tabstrip_add_types = TabStripModel::ADD_NONE;
   browser::Navigate(&params);
-  browser()->SelectTabContentsAt(1, false);
+  browser()->ActivateTabAt(1, false);
   TabContentsWrapper* tab2 = browser()->GetSelectedTabContentsWrapper();
   EXPECT_NE(tab1, tab2);
 
@@ -868,7 +851,7 @@ IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, PreferPreviousSearch) {
   FindInPageWchar(tab2, L"given", kFwd, kIgnoreCase, &ordinal);
 
   // Switch back to first tab.
-  browser()->SelectTabContentsAt(0, false);
+  browser()->ActivateTabAt(0, false);
   browser()->GetFindBarController()->EndFindSession(
       FindBarController::kKeepSelection);
   // Simulate F3.
@@ -984,7 +967,7 @@ IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, PrepopulatePreserveLast) {
   params.disposition = NEW_BACKGROUND_TAB;
   params.tabstrip_add_types = TabStripModel::ADD_NONE;
   browser::Navigate(&params);
-  browser()->SelectTabContentsAt(1, false);
+  browser()->ActivateTabAt(1, false);
   TabContentsWrapper* tab2 = browser()->GetSelectedTabContentsWrapper();
   EXPECT_NE(tab1, tab2);
 
@@ -993,7 +976,7 @@ IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, PrepopulatePreserveLast) {
 
   // Go back to the first tab and make sure we have NOT switched the prepopulate
   // text to "text".
-  browser()->SelectTabContentsAt(0, false);
+  browser()->ActivateTabAt(0, false);
 
   // Open the Find box.
   EnsureFindBoxOpen();

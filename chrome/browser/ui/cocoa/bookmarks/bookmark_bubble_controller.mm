@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,9 +12,9 @@
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_button.h"
 #import "chrome/browser/ui/cocoa/browser_window_controller.h"
 #import "chrome/browser/ui/cocoa/info_bubble_view.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
-#include "chrome/common/notification_service.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
+#include "content/common/notification_service.h"
 #include "grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util_mac.h"
 
@@ -116,7 +116,7 @@ void BookmarkBubbleNotificationBridge::Observe(
 // until we find something visible to pulse.
 - (void)startPulsingBookmarkButton:(const BookmarkNode*)node  {
   while (node) {
-    if ((node->GetParent() == model_->GetBookmarkBarNode()) ||
+    if ((node->parent() == model_->GetBookmarkBarNode()) ||
         (node == model_->other_node())) {
       pulsingBookmarkNode_ = node;
       NSValue *value = [NSValue valueWithPointer:node];
@@ -132,7 +132,7 @@ void BookmarkBubbleNotificationBridge::Observe(
                     userInfo:dict];
       return;
     }
-    node = node->GetParent();
+    node = node->parent();
   }
 }
 
@@ -332,7 +332,7 @@ void BookmarkBubbleNotificationBridge::Observe(
         model_->profile());
   }
   // Then the parent folder.
-  const BookmarkNode* oldParent = node_->GetParent();
+  const BookmarkNode* oldParent = node_->parent();
   NSMenuItem* selectedItem = [folderPopUpButton_ selectedItem];
   id representedObject = [selectedItem representedObject];
   if ([representedObject isEqual:[[self class] chooseAnotherFolderObject]]) {
@@ -343,7 +343,7 @@ void BookmarkBubbleNotificationBridge::Observe(
       static_cast<const BookmarkNode*>([representedObject pointerValue]);
   DCHECK(newParent);
   if (oldParent != newParent) {
-    int index = newParent->GetChildCount();
+    int index = newParent->child_count();
     model_->Move(node_, newParent, index);
     UserMetrics::RecordAction(UserMetricsAction("BookmarkBubble_ChangeParent"),
                               model_->profile());
@@ -365,7 +365,7 @@ void BookmarkBubbleNotificationBridge::Observe(
   ChooseAnotherFolder* obj = [[self class] chooseAnotherFolderObject];
   [item setRepresentedObject:obj];
   // Finally, select the current parent.
-  NSValue* parentValue = [NSValue valueWithPointer:node_->GetParent()];
+  NSValue* parentValue = [NSValue valueWithPointer:node_->parent()];
   NSInteger idx = [menu indexOfItemWithRepresentedObject:parentValue];
   [folderPopUpButton_ selectItemAtIndex:idx];
 }
@@ -395,7 +395,7 @@ void BookmarkBubbleNotificationBridge::Observe(
     [item setIndentationLevel:indentation];
     ++indentation;
   }
-  for (int i = 0; i < parent->GetChildCount(); i++) {
+  for (int i = 0; i < parent->child_count(); i++) {
     const BookmarkNode* child = parent->GetChild(i);
     if (child->is_folder())
       [self addFolderNodes:child

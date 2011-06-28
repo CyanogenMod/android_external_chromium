@@ -44,7 +44,7 @@ html[dir=rtl] #remove-all-cookies-search-column {
   /* it would be nice if we could make this expand as necessary up to the height
    * of the window, but the panel doesn't have a known height and that would
    * probably confuse cr.ui.List (which doesn't expect that) anyway */
-  height: 700px;
+  height: 600px;
   margin: 0;
 }
 
@@ -83,8 +83,16 @@ html[dir=rtl] list.cookie-list > .deletable-item > .close-button {
   width: 11em;
 }
 
+list.cookie-list > .deletable-item[selected] .cookie-site {
+  -webkit-user-select: text;
+}
+
 .cookie-data {
   display: inline-block;
+}
+
+list.cookie-list > .deletable-item[selected] .cookie-data {
+  -webkit-user-select: text;
 }
 
 
@@ -149,6 +157,10 @@ html[dir=rtl] list.cookie-list > .deletable-item > .close-button {
   border: 1px solid #B2B2B2;
   margin-top: 2px;
   padding: 5px;
+}
+
+list.cookie-list > .deletable-item[selected] .cookie-details {
+  -webkit-user-select: text;
 }
 
 .cookie-details-table {

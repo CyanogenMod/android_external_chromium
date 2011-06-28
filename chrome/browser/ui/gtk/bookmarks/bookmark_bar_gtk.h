@@ -11,9 +11,10 @@
 #include <vector>
 
 #include "base/gtest_prod_util.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/bookmarks/bookmark_context_menu_controller.h"
 #include "chrome/browser/bookmarks/bookmark_model_observer.h"
+#include "chrome/browser/prefs/pref_member.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/ui/gtk/bookmarks/bookmark_bar_instructions_gtk.h"
 #include "chrome/browser/ui/gtk/menu_bar_helper.h"
@@ -21,7 +22,9 @@
 #include "chrome/browser/ui/gtk/view_id_util.h"
 #include "content/common/notification_observer.h"
 #include "content/common/notification_registrar.h"
+#include "ui/base/animation/animation.h"
 #include "ui/base/animation/animation_delegate.h"
+#include "ui/base/animation/slide_animation.h"
 #include "ui/base/gtk/gtk_signal.h"
 #include "ui/gfx/point.h"
 #include "ui/gfx/size.h"
@@ -30,15 +33,11 @@ class BookmarkMenuController;
 class Browser;
 class BrowserWindowGtk;
 class CustomContainerButton;
-class GtkThemeProvider;
+class GtkThemeService;
 class MenuGtk;
 class PageNavigator;
 class Profile;
 class TabstripOriginProvider;
-
-namespace ui {
-class SlideAnimation;
-}
 
 class BookmarkBarGtk : public ui::AnimationDelegate,
                        public ProfileSyncServiceObserver,
@@ -114,6 +113,8 @@ class BookmarkBarGtk : public ui::AnimationDelegate,
   // BookmarkContextMenuController::Delegate implementation --------------------
   virtual void CloseMenu();
 
+  const ui::Animation* animation() { return &slide_animation_; }
+
  private:
   FRIEND_TEST_ALL_PREFIXES(BookmarkBarGtkUnittest, DisplaysHelpMessageOnEmpty);
   FRIEND_TEST_ALL_PREFIXES(BookmarkBarGtkUnittest,
@@ -133,7 +134,7 @@ class BookmarkBarGtk : public ui::AnimationDelegate,
   // Helper function which destroys all the bookmark buttons in the GtkToolbar.
   void RemoveAllBookmarkButtons();
 
-  // Returns the number of buttons corresponding to starred urls/groups. This
+  // Returns the number of buttons corresponding to starred urls/folders. This
   // is equivalent to the number of children the bookmark bar node from the
   // bookmark bar model has.
   int GetBookmarkButtonCount();
@@ -226,7 +227,7 @@ class BookmarkBarGtk : public ui::AnimationDelegate,
   virtual void BookmarkNodeChanged(BookmarkModel* model,
                                    const BookmarkNode* node);
   // Invoked when a favicon has finished loading.
-  virtual void BookmarkNodeFavIconLoaded(BookmarkModel* model,
+  virtual void BookmarkNodeFaviconLoaded(BookmarkModel* model,
                                          const BookmarkNode* node);
   virtual void BookmarkNodeChildrenReordered(BookmarkModel* model,
                                              const BookmarkNode* node);
@@ -298,6 +299,9 @@ class BookmarkBarGtk : public ui::AnimationDelegate,
   // Overriden from BookmarkBarInstructionsGtk::Delegate.
   virtual void ShowImportDialog();
 
+  // Updates the drag&drop state when |edit_bookmarks_enabled_| changes.
+  void OnEditBookmarksEnabledChanged();
+
   Profile* profile_;
 
   // Used for opening urls.
@@ -309,7 +313,7 @@ class BookmarkBarGtk : public ui::AnimationDelegate,
   // Provides us with the offset into the background theme image.
   TabstripOriginProvider* tabstrip_origin_provider_;
 
-  // Model providing details as to the starred entries/groups that should be
+  // Model providing details as to the starred entries/folders that should be
   // shown. This is owned by the Profile.
   BookmarkModel* model_;
 
@@ -361,7 +365,7 @@ class BookmarkBarGtk : public ui::AnimationDelegate,
   GtkToolItem* toolbar_drop_item_;
 
   // Theme provider for building buttons.
-  GtkThemeProvider* theme_provider_;
+  GtkThemeService* theme_service_;
 
   // Whether we should show the instructional text in the bookmark bar.
   bool show_instructions_;
@@ -379,7 +383,7 @@ class BookmarkBarGtk : public ui::AnimationDelegate,
   // displayed yet.
   scoped_ptr<BookmarkMenuController> current_menu_;
 
-  scoped_ptr<ui::SlideAnimation> slide_animation_;
+  ui::SlideAnimation slide_animation_;
 
   // Whether we are currently configured as floating (detached from the
   // toolbar). This reflects our actual state, and can be out of sync with
@@ -403,6 +407,9 @@ class BookmarkBarGtk : public ui::AnimationDelegate,
   // The currently throbbing widget. This is NULL if no widget is throbbing.
   // We track it because we only want to allow one widget to throb at a time.
   GtkWidget* throbbing_widget_;
+
+  // Tracks whether bookmarks can be modified.
+  BooleanPrefMember edit_bookmarks_enabled_;
 
   ScopedRunnableMethodFactory<BookmarkBarGtk> method_factory_;
 };

@@ -10,8 +10,8 @@
 #include <string>
 
 #include "base/basictypes.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/observer_list.h"
-#include "base/scoped_ptr.h"
 #include "base/values.h"
 #include "chrome/browser/policy/configuration_policy_provider.h"
 #include "chrome/browser/policy/configuration_policy_store_interface.h"
@@ -38,7 +38,8 @@ class ConfigurationPolicyPrefStore
   virtual void AddObserver(PrefStore::Observer* observer);
   virtual void RemoveObserver(PrefStore::Observer* observer);
   virtual bool IsInitializationComplete() const;
-  virtual ReadResult GetValue(const std::string& key, Value** result) const;
+  virtual ReadResult GetValue(const std::string& key,
+                              const Value** result) const;
 
   // ConfigurationPolicyProvider::Observer methods:
   virtual void OnUpdatePolicy();

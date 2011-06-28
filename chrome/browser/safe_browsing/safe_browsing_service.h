@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -15,8 +15,8 @@
 #include <vector>
 
 #include "base/hash_tables.h"
-#include "base/ref_counted.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/synchronization/lock.h"
 #include "base/task.h"
 #include "base/time.h"
@@ -29,10 +29,13 @@ class PrefService;
 class SafeBrowsingDatabase;
 class SafeBrowsingProtocolManager;
 class SafeBrowsingServiceFactory;
-class URLRequestContextGetter;
 
 namespace base {
 class Thread;
+}
+
+namespace net {
+class URLRequestContextGetter;
 }
 
 // Construction needs to happen on the main thread.
@@ -71,8 +74,8 @@ class SafeBrowsingService
     SafeBrowsingCheck();
     ~SafeBrowsingCheck();
 
-    // Either |url| or |prefix| is used to lookup database.
-    scoped_ptr<GURL> url;
+    // Either |urls| or |prefix| is used to lookup database.
+    std::vector<GURL> urls;
     scoped_ptr<SBFullHash> full_hash;
 
     Client* client;
@@ -111,7 +114,7 @@ class SafeBrowsingService
                                         UrlCheckResult result) {}
 
     // Called when the result of checking a download URL is known.
-    virtual void OnDownloadUrlCheckResult(const GURL& url,
+    virtual void OnDownloadUrlCheckResult(const std::vector<GURL>& url_chain,
                                           UrlCheckResult result) {}
 
     // Called when the result of checking a download binary hash is known.
@@ -154,11 +157,18 @@ class SafeBrowsingService
 
   // Check if the prefix for |url| is in safebrowsing download add lists.
   // Result will be passed to callback in |client|.
-  bool CheckDownloadUrl(const GURL& url, Client* client);
+  bool CheckDownloadUrl(const std::vector<GURL>& url_chain, Client* client);
 
   // Check if the prefix for |full_hash| is in safebrowsing binhash add lists.
   // Result will be passed to callback in |client|.
   virtual bool CheckDownloadHash(const std::string& full_hash, Client* client);
+
+  // Check if the |url| matches any of the full-length hashes from the
+  // client-side phishing detection whitelist.  Returns true if there was a
+  // match and false otherwise.  To make sure we are conservative we will return
+  // true if an error occurs. This method is expected to be called on the IO
+  // thread.
+  virtual bool MatchCsdWhitelistUrl(const GURL& url);
 
   // Called on the IO thread to cancel a pending check if the result is no
   // longer needed.
@@ -209,6 +219,10 @@ class SafeBrowsingService
 
   bool enabled() const { return enabled_; }
 
+  bool download_protection_enabled() const {
+    return enabled_ && enable_download_protection_;
+  }
+
   // Preference handling.
   static void RegisterPrefs(PrefService* prefs);
 
@@ -229,17 +243,19 @@ class SafeBrowsingService
   // the current page is 'safe'.
   void LogPauseDelay(base::TimeDelta time);
 
-  // When a safebrowsing blocking page goes away, it calls this method
-  // so the service can serialize and send MalwareDetails.
-  virtual void ReportMalwareDetails(scoped_refptr<MalwareDetails> details);
+  // Called on the IO thread by the MalwareDetails with the serialized
+  // protocol buffer, so the service can send it over.
+  virtual void SendSerializedMalwareDetails(const std::string& serialized);
 
   // Report hits to the unsafe contents (malware, phishing, unsafe download URL)
-  // to the server. Can only be called on UI thread.
+  // to the server. Can only be called on UI thread.  If |post_data| is
+  // non-empty, the request will be sent as a POST instead of a GET.
   void ReportSafeBrowsingHit(const GURL& malicious_url,
                              const GURL& page_url,
                              const GURL& referrer_url,
                              bool is_subresource,
-                             UrlCheckResult threat_type);
+                             UrlCheckResult threat_type,
+                             const std::string& post_data);
 
  protected:
   // Creates the safe browsing service.  Need to initialize before using.
@@ -270,7 +286,7 @@ class SafeBrowsingService
   // Called to initialize objects that are used on the io_thread.
   void OnIOInitialize(const std::string& client_key,
                       const std::string& wrapped_key,
-                      URLRequestContextGetter* request_context_getter);
+                      net::URLRequestContextGetter* request_context_getter);
 
   // Called to shutdown operations on the io_thread.
   void OnIOShutdown();
@@ -353,7 +369,8 @@ class SafeBrowsingService
                                        const GURL& page_url,
                                        const GURL& referrer_url,
                                        bool is_subresource,
-                                       UrlCheckResult threat_type);
+                                       UrlCheckResult threat_type,
+                                       const std::string& post_data);
 
   // Checks the download hash on safe_browsing_thread_.
   void CheckDownloadHashOnSBThread(SafeBrowsingCheck* check);
@@ -412,6 +429,10 @@ class SafeBrowsingService
   // Indicate if download_protection is enabled by command switch
   // so we allow this feature to be exersized.
   bool enable_download_protection_;
+
+  // Indicate if client-side phishing detection whitelist should be enabled
+  // or not.
+  bool enable_csd_whitelist_;
 
   // The SafeBrowsing thread that runs database operations.
   //

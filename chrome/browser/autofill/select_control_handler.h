@@ -6,12 +6,13 @@
 #define CHROME_BROWSER_AUTOFILL_SELECT_CONTROL_HANDLER_H_
 #pragma once
 
-#include "chrome/browser/autofill/autofill_type.h"
+#include "chrome/browser/autofill/field_types.h"
+#include "base/string16.h"
 
 class FormGroup;
 
 namespace webkit_glue {
-class FormField;
+struct FormField;
 }  // namespace webkit_glue
 
 namespace autofill {
@@ -21,8 +22,12 @@ namespace autofill {
 // variations of a value, e.g., (tx, TX, Texas) or credit card expiration
 // months, e.g., (04, April).
 void FillSelectControl(const FormGroup& form_group,
-                       AutofillType type,
+                       AutofillFieldType type,
                        webkit_glue::FormField* field);
+
+// Returns true if |value| is a valid US state name or abbreviation.  It is case
+// insensitive.  Valid for US states only.
+bool IsValidState(const string16& value);
 
 }  // namespace autofill
 

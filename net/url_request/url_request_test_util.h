@@ -47,28 +47,20 @@ class TestCookiePolicy : public net::CookiePolicy {
   enum Options {
     NO_GET_COOKIES = 1 << 0,
     NO_SET_COOKIE  = 1 << 1,
-    ASYNC          = 1 << 2,
-    FORCE_SESSION  = 1 << 3,
+    FORCE_SESSION  = 1 << 2,
   };
 
   explicit TestCookiePolicy(int options_bit_mask);
   virtual ~TestCookiePolicy();
 
   // net::CookiePolicy:
-  virtual int CanGetCookies(const GURL& url, const GURL& first_party,
-                            net::CompletionCallback* callback);
-  virtual int CanSetCookie(const GURL& url, const GURL& first_party,
-                           const std::string& cookie_line,
-                           net::CompletionCallback* callback);
+  virtual int CanGetCookies(const GURL& url, const GURL& first_party) const;
+  virtual int CanSetCookie(const GURL& url,
+                           const GURL& first_party,
+                           const std::string& cookie_line) const;
 
  private:
-  void DoGetCookiesPolicy(const GURL& url, const GURL& first_party);
-  void DoSetCookiePolicy(const GURL& url, const GURL& first_party,
-                         const std::string& cookie_line);
-
-  ScopedRunnableMethodFactory<TestCookiePolicy> method_factory_;
   int options_;
-  net::CompletionCallback* callback_;
 };
 
 //-----------------------------------------------------------------------------
@@ -198,16 +190,27 @@ class TestNetworkDelegate : public net::NetworkDelegate {
 
   int last_os_error() const { return last_os_error_; }
   int error_count() const { return error_count_; }
+  int created_requests() const { return created_requests_; }
+  int destroyed_requests() const { return destroyed_requests_; }
 
- private:
+ protected:
   // net::NetworkDelegate:
-  virtual void OnBeforeURLRequest(net::URLRequest* request);
-  virtual void OnSendHttpRequest(net::HttpRequestHeaders* headers);
+  virtual int OnBeforeURLRequest(net::URLRequest* request,
+                                 net::CompletionCallback* callback,
+                                 GURL* new_url);
+  virtual int OnBeforeSendHeaders(uint64 request_id,
+                                  net::CompletionCallback* callback,
+                                  net::HttpRequestHeaders* headers);
   virtual void OnResponseStarted(net::URLRequest* request);
   virtual void OnReadCompleted(net::URLRequest* request, int bytes_read);
+  virtual void OnURLRequestDestroyed(net::URLRequest* request);
+  virtual net::URLRequestJob* OnMaybeCreateURLRequestJob(
+      net::URLRequest* request);
 
   int last_os_error_;
   int error_count_;
+  int created_requests_;
+  int destroyed_requests_;
 };
 
 #endif  // NET_URL_REQUEST_URL_REQUEST_TEST_UTIL_H_

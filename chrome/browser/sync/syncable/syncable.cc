@@ -30,22 +30,25 @@
 #include "base/hash_tables.h"
 #include "base/file_util.h"
 #include "base/logging.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/perftimer.h"
-#include "base/scoped_ptr.h"
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
 #include "base/stl_util-inl.h"
 #include "base/time.h"
+#include "base/values.h"
 #include "chrome/browser/sync/engine/syncer.h"
 #include "chrome/browser/sync/engine/syncer_util.h"
+#include "chrome/browser/sync/protocol/proto_value_conversions.h"
 #include "chrome/browser/sync/protocol/service_constants.h"
-#include "chrome/browser/sync/protocol/theme_specifics.pb.h"
-#include "chrome/browser/sync/protocol/typed_url_specifics.pb.h"
 #include "chrome/browser/sync/syncable/directory_backing_store.h"
+#include "chrome/browser/sync/syncable/directory_change_listener.h"
 #include "chrome/browser/sync/syncable/directory_manager.h"
+#include "chrome/browser/sync/syncable/model_type.h"
 #include "chrome/browser/sync/syncable/syncable-inl.h"
 #include "chrome/browser/sync/syncable/syncable_changes_version.h"
 #include "chrome/browser/sync/syncable/syncable_columns.h"
+#include "chrome/browser/sync/syncable/syncable_enum_conversions.h"
 #include "chrome/browser/sync/util/crypto_helpers.h"
 #include "chrome/common/deprecated/event_sys-inl.h"
 #include "net/base/escape.h"
@@ -177,11 +180,95 @@ EntryKernel::EntryKernel() : dirty_(false) {
 
 EntryKernel::~EntryKernel() {}
 
+namespace {
+
+// Utility function to loop through a set of enum values and add the
+// field keys/values in the kernel to the given dictionary.
+//
+// V should be convertible to Value.
+template <class T, class U, class V>
+void SetFieldValues(const EntryKernel& kernel,
+                    DictionaryValue* dictionary_value,
+                    const char* (*enum_key_fn)(T),
+                    V* (*enum_value_fn)(U),
+                    int field_key_min, int field_key_max) {
+  DCHECK_LE(field_key_min, field_key_max);
+  for (int i = field_key_min; i <= field_key_max; ++i) {
+    T field = static_cast<T>(i);
+    const std::string& key = enum_key_fn(field);
+    V* value = enum_value_fn(kernel.ref(field));
+    dictionary_value->Set(key, value);
+  }
+}
+
+// Helper functions for SetFieldValues().
+
+StringValue* Int64ToValue(int64 i) {
+  return Value::CreateStringValue(base::Int64ToString(i));
+}
+
+StringValue* IdToValue(const Id& id) {
+  return id.ToValue();
+}
+
+}  // namespace
+
+DictionaryValue* EntryKernel::ToValue() const {
+  DictionaryValue* kernel_info = new DictionaryValue();
+  kernel_info->SetBoolean("isDirty", is_dirty());
+
+  // Int64 fields.
+  SetFieldValues(*this, kernel_info,
+                 &GetMetahandleFieldString, &Int64ToValue,
+                 INT64_FIELDS_BEGIN, META_HANDLE);
+  SetFieldValues(*this, kernel_info,
+                 &GetBaseVersionString, &Int64ToValue,
+                 META_HANDLE + 1, BASE_VERSION);
+  SetFieldValues(*this, kernel_info,
+                 &GetInt64FieldString, &Int64ToValue,
+                 BASE_VERSION + 1, INT64_FIELDS_END - 1);
+
+  // ID fields.
+  SetFieldValues(*this, kernel_info,
+                 &GetIdFieldString, &IdToValue,
+                 ID_FIELDS_BEGIN, ID_FIELDS_END - 1);
+
+  // Bit fields.
+  SetFieldValues(*this, kernel_info,
+                 &GetIndexedBitFieldString, &Value::CreateBooleanValue,
+                 BIT_FIELDS_BEGIN, INDEXED_BIT_FIELDS_END - 1);
+  SetFieldValues(*this, kernel_info,
+                 &GetIsDelFieldString, &Value::CreateBooleanValue,
+                 INDEXED_BIT_FIELDS_END, IS_DEL);
+  SetFieldValues(*this, kernel_info,
+                 &GetBitFieldString, &Value::CreateBooleanValue,
+                 IS_DEL + 1, BIT_FIELDS_END - 1);
+
+  // String fields.
+  {
+    // Pick out the function overload we want.
+    StringValue* (*string_to_value)(const std::string&) =
+        &Value::CreateStringValue;
+    SetFieldValues(*this, kernel_info,
+                   &GetStringFieldString, string_to_value,
+                   STRING_FIELDS_BEGIN, STRING_FIELDS_END - 1);
+  }
+
+  // Proto fields.
+  SetFieldValues(*this, kernel_info,
+                 &GetProtoFieldString, &browser_sync::EntitySpecificsToValue,
+                 PROTO_FIELDS_BEGIN, PROTO_FIELDS_END - 1);
+
+  // Bit temps.
+  SetFieldValues(*this, kernel_info,
+                 &GetBitTempString, &Value::CreateBooleanValue,
+                 BIT_TEMPS_BEGIN, BIT_TEMPS_END - 1);
+
+  return kernel_info;
+}
+
 ///////////////////////////////////////////////////////////////////////////
 // Directory
-
-static const DirectoryChangeEvent kShutdownChangesEvent =
-    { DirectoryChangeEvent::SHUTDOWN, 0, 0 };
 
 void Directory::init_kernel(const std::string& name) {
   DCHECK(kernel_ == NULL);
@@ -229,6 +316,7 @@ Directory::Kernel::Kernel(const FilePath& db_path,
       dirty_metahandles(new MetahandleSet),
       metahandles_to_purge(new MetahandleSet),
       channel(new Directory::Channel(syncable::DIRECTORY_DESTROYED)),
+      change_listener_(NULL),
       info_status(Directory::KERNEL_SHARE_INFO_VALID),
       persisted_info(info.kernel_info),
       cache_guid(info.cache_guid),
@@ -247,7 +335,6 @@ void Directory::Kernel::Release() {
 Directory::Kernel::~Kernel() {
   CHECK_EQ(0, refcount);
   delete channel;
-  changes_channel.Notify(kShutdownChangesEvent);
   delete unsynced_metahandles;
   delete unapplied_update_metahandles;
   delete dirty_metahandles;
@@ -687,6 +774,7 @@ void Directory::SetDownloadProgress(
     const sync_pb::DataTypeProgressMarker& new_progress) {
   ScopedKernelLock lock(this);
   kernel_->persisted_info.download_progress[model_type].CopyFrom(new_progress);
+  kernel_->info_status = KERNEL_SHARE_INFO_DIRTY;
 }
 
 bool Directory::initial_sync_ended_for_type(ModelType type) const {
@@ -725,14 +813,6 @@ void Directory::set_autofill_migration_state_debug_info(
       TestAndSet<int64>(
           &debug_info.autofill_migration_time,
           &info.autofill_migration_time);
-      break;
-    }
-    case AutofillMigrationDebugInfo::BOOKMARK_ADDED: {
-      AutofillMigrationDebugInfo& debug_info =
-        kernel_->persisted_info.autofill_migration_debug_info;
-      TestAndSet<int>(
-          &debug_info.bookmarks_added_during_migration,
-          &info.bookmarks_added_during_migration);
       break;
     }
     case AutofillMigrationDebugInfo::ENTRIES_ADDED: {
@@ -797,7 +877,7 @@ string Directory::store_birthday() const {
   return kernel_->persisted_info.store_birthday;
 }
 
-void Directory::set_store_birthday(string store_birthday) {
+void Directory::set_store_birthday(const string& store_birthday) {
   ScopedKernelLock lock(this);
   if (kernel_->persisted_info.store_birthday == store_birthday)
     return;
@@ -921,9 +1001,7 @@ void Directory::CheckTreeInvariants(syncable::BaseTransaction* trans,
 void Directory::CheckTreeInvariants(syncable::BaseTransaction* trans,
                                     const MetahandleSet& handles,
                                     const IdFilter& idfilter) {
-  int64 max_ms = kInvariantCheckMaxMs;
-  if (max_ms < 0)
-    max_ms = std::numeric_limits<int64>::max();
+  const int64 max_ms = kInvariantCheckMaxMs;
   PerfTimer check_timer;
   MetahandleSet::const_iterator i;
   int entries_done = 0;
@@ -1008,9 +1086,9 @@ void Directory::CheckTreeInvariants(syncable::BaseTransaction* trans,
   }
 }
 
-browser_sync::ChannelHookup<DirectoryChangeEvent>* Directory::AddChangeObserver(
-    browser_sync::ChannelEventHandler<DirectoryChangeEvent>* observer) {
-  return kernel_->changes_channel.AddObserver(observer);
+void Directory::SetChangeListener(DirectoryChangeListener* listener) {
+  DCHECK(!kernel_->change_listener_);
+  kernel_->change_listener_ = listener;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1058,23 +1136,22 @@ BaseTransaction::BaseTransaction(Directory* directory)
 
 BaseTransaction::~BaseTransaction() {}
 
-void BaseTransaction::UnlockAndLog(OriginalEntries* originals_arg) {
-  // Triggers the CALCULATE_CHANGES and TRANSACTION_ENDING events while
-  // holding dir_kernel_'s transaction_mutex and changes_channel mutex.
-  // Releases all mutexes upon completion.
-  if (!NotifyTransactionChangingAndEnding(originals_arg)) {
+void BaseTransaction::UnlockAndLog(OriginalEntries* entries) {
+  // Work while trasnaction mutex is held
+  ModelTypeBitSet models_with_changes;
+  if (!NotifyTransactionChangingAndEnding(entries, &models_with_changes))
     return;
-  }
 
-  // Triggers the TRANSACTION_COMPLETE event (and does not hold any mutexes).
-  NotifyTransactionComplete();
+  // Work after mutex is relased.
+  NotifyTransactionComplete(models_with_changes);
 }
 
 bool BaseTransaction::NotifyTransactionChangingAndEnding(
-    OriginalEntries* originals_arg) {
+    OriginalEntries* entries,
+    ModelTypeBitSet* models_with_changes) {
   dirkernel_->transaction_mutex.AssertAcquired();
 
-  scoped_ptr<OriginalEntries> originals(originals_arg);
+  scoped_ptr<OriginalEntries> originals(entries);
   const base::TimeDelta elapsed = base::TimeTicks::Now() - time_acquired_;
   if (LOG_IS_ON(INFO) &&
       (1 <= logging::GetVlogLevelHelper(
@@ -1085,43 +1162,40 @@ bool BaseTransaction::NotifyTransactionChangingAndEnding(
         << " seconds.";
   }
 
-  if (NULL == originals.get() || originals->empty()) {
+  if (NULL == originals.get() || originals->empty() ||
+      !dirkernel_->change_listener_) {
     dirkernel_->transaction_mutex.Release();
     return false;
   }
 
-
-  {
-    // Scoped_lock is only active through the calculate_changes and
-    // transaction_ending events.
-    base::AutoLock scoped_lock(dirkernel_->changes_channel_mutex);
-
-    // Tell listeners to calculate changes while we still have the mutex.
-    DirectoryChangeEvent event = { DirectoryChangeEvent::CALCULATE_CHANGES,
-                                   originals.get(), this, writer_ };
-    dirkernel_->changes_channel.Notify(event);
-
-    // Necessary for reads to be performed prior to transaction mutex release.
-    // Allows the listener to use the current transaction to perform reads.
-    DirectoryChangeEvent ending_event =
-        { DirectoryChangeEvent::TRANSACTION_ENDING,
-          NULL, this, INVALID };
-    dirkernel_->changes_channel.Notify(ending_event);
-
-    dirkernel_->transaction_mutex.Release();
+  if (writer_ == syncable::SYNCAPI) {
+    dirkernel_->change_listener_->HandleCalculateChangesChangeEventFromSyncApi(
+        *originals.get(),
+        writer_,
+        this);
+  } else {
+    dirkernel_->change_listener_->HandleCalculateChangesChangeEventFromSyncer(
+        *originals.get(),
+        writer_,
+        this);
   }
 
+  *models_with_changes = dirkernel_->change_listener_->
+      HandleTransactionEndingChangeEvent(this);
+
+  // Release the transaction. Note, once the transaction is released this thread
+  // can be interrupted by another that was waiting for the transaction,
+  // resulting in this code possibly being interrupted with another thread
+  // performing following the same code path. From this point foward, only
+  // local state can be touched.
+  dirkernel_->transaction_mutex.Release();
   return true;
 }
 
-void BaseTransaction::NotifyTransactionComplete() {
-  // Transaction is no longer holding any locks/mutexes, notify that we're
-  // complete (and commit any outstanding changes that should not be performed
-  // while holding mutexes).
-  DirectoryChangeEvent complete_event =
-      { DirectoryChangeEvent::TRANSACTION_COMPLETE,
-        NULL, NULL, INVALID };
-  dirkernel_->changes_channel.Notify(complete_event);
+void BaseTransaction::NotifyTransactionComplete(
+    ModelTypeBitSet models_with_changes) {
+  dirkernel_->change_listener_->HandleTransactionCompleteChangeEvent(
+      models_with_changes);
 }
 
 ReadTransaction::ReadTransaction(Directory* directory, const char* file,
@@ -1208,21 +1282,33 @@ Id Entry::ComputePrevIdFromServerPosition(const Id& parent_id) const {
   return dir()->ComputePrevIdFromServerPosition(kernel_, parent_id);
 }
 
+DictionaryValue* Entry::ToValue() const {
+  DictionaryValue* entry_info = new DictionaryValue();
+  entry_info->SetBoolean("good", good());
+  if (good()) {
+    entry_info->Set("kernel", kernel_->ToValue());
+    entry_info->Set("serverModelType",
+                    ModelTypeToValue(GetServerModelTypeHelper()));
+    entry_info->Set("modelType",
+                    ModelTypeToValue(GetModelType()));
+    entry_info->SetBoolean("shouldMaintainPosition",
+                           ShouldMaintainPosition());
+    entry_info->SetBoolean("existsOnClientBecauseNameIsNonEmpty",
+                           ExistsOnClientBecauseNameIsNonEmpty());
+    entry_info->SetBoolean("isRoot", IsRoot());
+  }
+  return entry_info;
+}
+
 const string& Entry::Get(StringField field) const {
   DCHECK(kernel_);
   return kernel_->ref(field);
 }
 
 syncable::ModelType Entry::GetServerModelType() const {
-  ModelType specifics_type = GetModelTypeFromSpecifics(Get(SERVER_SPECIFICS));
+  ModelType specifics_type = GetServerModelTypeHelper();
   if (specifics_type != UNSPECIFIED)
     return specifics_type;
-  if (IsRoot())
-    return TOP_LEVEL_FOLDER;
-  // Loose check for server-created top-level folders that aren't
-  // bound to a particular model type.
-  if (!Get(UNIQUE_SERVER_TAG).empty() && Get(SERVER_IS_DIR))
-    return TOP_LEVEL_FOLDER;
 
   // Otherwise, we don't have a server type yet.  That should only happen
   // if the item is an uncommitted locally created item.
@@ -1233,6 +1319,20 @@ syncable::ModelType Entry::GetServerModelType() const {
   DCHECK(Get(SERVER_IS_DEL));
   // Note: can't enforce !Get(ID).ServerKnows() here because that could
   // actually happen if we hit AttemptReuniteLostCommitResponses.
+  return UNSPECIFIED;
+}
+
+syncable::ModelType Entry::GetServerModelTypeHelper() const {
+  ModelType specifics_type = GetModelTypeFromSpecifics(Get(SERVER_SPECIFICS));
+  if (specifics_type != UNSPECIFIED)
+    return specifics_type;
+  if (IsRoot())
+    return TOP_LEVEL_FOLDER;
+  // Loose check for server-created top-level folders that aren't
+  // bound to a particular model type.
+  if (!Get(UNIQUE_SERVER_TAG).empty() && Get(SERVER_IS_DIR))
+    return TOP_LEVEL_FOLDER;
+
   return UNSPECIFIED;
 }
 
@@ -1413,6 +1513,15 @@ bool MutableEntry::Put(ProtoField field,
   return true;
 }
 
+bool MutableEntry::Put(BitField field, bool value) {
+  DCHECK(kernel_);
+  if (kernel_->ref(field) != value) {
+    kernel_->put(field, value);
+    kernel_->mark_dirty(GetDirtyIndexHelper());
+  }
+  return true;
+}
+
 MetahandleSet* MutableEntry::GetDirtyIndexHelper() {
   return dir()->kernel_->dirty_metahandles;
 }
@@ -1565,6 +1674,11 @@ bool MutableEntry::PutPredecessor(const Id& predecessor_id) {
   return true;
 }
 
+bool MutableEntry::Put(BitTemp field, bool value) {
+  DCHECK(kernel_);
+  kernel_->put(field, value);
+  return true;
+}
 
 ///////////////////////////////////////////////////////////////////////////
 // High-level functions

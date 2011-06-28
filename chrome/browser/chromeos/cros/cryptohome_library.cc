@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -162,6 +162,54 @@ class CryptohomeLibraryImpl : public CryptohomeLibrary {
     chromeos::CryptohomeTpmClearStoredPassword();
   }
 
+  bool InstallAttributesGet(const std::string& name, std::string* value) {
+    char* local_value;
+    bool done =
+        chromeos::CryptohomeInstallAttributesGet(name.c_str(), &local_value);
+    if (done) {
+      *value = local_value;
+      chromeos::CryptohomeFreeString(local_value);
+    }
+    return done;
+  }
+
+  bool InstallAttributesSet(const std::string& name, const std::string& value) {
+    return chromeos::CryptohomeInstallAttributesSet(name.c_str(),
+                                                    value.c_str());
+  }
+
+  int InstallAttributesCount() {
+    return chromeos::CryptohomeInstallAttributesCount();
+  }
+
+  bool InstallAttributesFinalize() {
+    return chromeos::CryptohomeInstallAttributesFinalize();
+  }
+
+  bool InstallAttributesIsReady() {
+    return chromeos::CryptohomeInstallAttributesIsReady();
+  }
+
+  bool InstallAttributesIsSecure() {
+    return chromeos::CryptohomeInstallAttributesIsSecure();
+  }
+
+  bool InstallAttributesIsInvalid() {
+    return chromeos::CryptohomeInstallAttributesIsInvalid();
+  }
+
+  bool InstallAttributesIsFirstInstall() {
+    return chromeos::CryptohomeInstallAttributesIsFirstInstall();
+  }
+
+  void Pkcs11GetTpmTokenInfo(std::string* label, std::string* user_pin) {
+    chromeos::CryptohomePkcs11GetTpmTokenInfo(label, user_pin);
+  }
+
+  bool Pkcs11IsTpmTokenReady() {
+    return chromeos::CryptohomePkcs11IsTpmTokenReady();
+  }
+
  private:
   static void Handler(const chromeos::CryptohomeAsyncCallStatus& event,
                       void* cryptohome_library) {
@@ -205,7 +253,8 @@ class CryptohomeLibraryImpl : public CryptohomeLibrary {
 
 class CryptohomeLibraryStubImpl : public CryptohomeLibrary {
  public:
-  CryptohomeLibraryStubImpl() {}
+  CryptohomeLibraryStubImpl()
+    : locked_(false) {}
   virtual ~CryptohomeLibraryStubImpl() {}
 
   bool CheckKey(const std::string& user_email, const std::string& passhash) {
@@ -332,13 +381,65 @@ class CryptohomeLibraryStubImpl : public CryptohomeLibrary {
 
   void TpmClearStoredPassword() {}
 
+  bool InstallAttributesGet(const std::string& name, std::string* value) {
+    if (install_attrs_.find(name) != install_attrs_.end()) {
+      *value = install_attrs_[name];
+      return true;
+    }
+    return false;
+  }
+
+  bool InstallAttributesSet(const std::string& name, const std::string& value) {
+    install_attrs_[name] = value;
+    return true;
+  }
+
+  int InstallAttributesCount() {
+    return install_attrs_.size();
+  }
+
+  bool InstallAttributesFinalize() {
+    locked_ = true;
+    return true;
+  }
+
+  bool InstallAttributesIsReady() {
+    return true;
+  }
+
+  bool InstallAttributesIsSecure() {
+    return false;
+  }
+
+  bool InstallAttributesIsInvalid() {
+    return false;
+  }
+
+  bool InstallAttributesIsFirstInstall() {
+    return !locked_;
+  }
+
+  void Pkcs11GetTpmTokenInfo(std::string* label,
+                             std::string* user_pin) {
+    *label = "Stub TPM Token";
+    *user_pin = "012345";
+  }
+
+  bool Pkcs11IsTpmTokenReady() { return true; }
+
  private:
   static void DoStubCallback(Delegate* callback) {
     if (callback)
       callback->OnComplete(true, kCryptohomeMountErrorNone);
   }
+
+  std::map<std::string, std::string> install_attrs_;
+  bool locked_;
   DISALLOW_COPY_AND_ASSIGN(CryptohomeLibraryStubImpl);
 };
+
+CryptohomeLibrary::CryptohomeLibrary() {}
+CryptohomeLibrary::~CryptohomeLibrary() {}
 
 // static
 CryptohomeLibrary* CryptohomeLibrary::GetImpl(bool stub) {

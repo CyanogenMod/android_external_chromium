@@ -7,9 +7,9 @@
 #include "webkit/glue/weburlloader_impl.h"
 
 #include "base/file_path.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/message_loop.h"
 #include "base/process_util.h"
-#include "base/scoped_ptr.h"
 #include "base/string_util.h"
 #include "base/time.h"
 #include "net/base/data_url.h"
@@ -135,6 +135,8 @@ ResourceType::Type FromTargetType(WebURLRequest::TargetType type) {
       return ResourceType::SHARED_WORKER;
     case WebURLRequest::TargetIsPrefetch:
       return ResourceType::PREFETCH;
+    case WebURLRequest::TargetIsFavicon:
+      return ResourceType::FAVICON;
     default:
       NOTREACHED();
       return ResourceType::SUB_RESOURCE;
@@ -157,6 +159,8 @@ bool GetInfoFromDataURL(const GURL& url,
     info->charset.swap(charset);
     info->security_info.clear();
     info->content_length = -1;
+    info->encoded_data_length = 0;
+    info->load_timing.base_time = Time::Now();
 
     return true;
   }
@@ -194,22 +198,24 @@ void PopulateURLResponse(
   response->setConnectionReused(info.connection_reused);
   response->setDownloadFilePath(FilePathToWebString(info.download_file_path));
 
-  WebURLLoadTiming timing;
-  timing.initialize();
   const ResourceLoadTimingInfo& timing_info = info.load_timing;
-  timing.setRequestTime(timing_info.base_time.ToDoubleT());
-  timing.setProxyStart(timing_info.proxy_start);
-  timing.setProxyEnd(timing_info.proxy_end);
-  timing.setDNSStart(timing_info.dns_start);
-  timing.setDNSEnd(timing_info.dns_end);
-  timing.setConnectStart(timing_info.connect_start);
-  timing.setConnectEnd(timing_info.connect_end);
-  timing.setSSLStart(timing_info.ssl_start);
-  timing.setSSLEnd(timing_info.ssl_end);
-  timing.setSendStart(timing_info.send_start);
-  timing.setSendEnd(timing_info.send_end);
-  timing.setReceiveHeadersEnd(timing_info.receive_headers_end);
-  response->setLoadTiming(timing);
+  if (!timing_info.base_time.is_null()) {
+    WebURLLoadTiming timing;
+    timing.initialize();
+    timing.setRequestTime(timing_info.base_time.ToDoubleT());
+    timing.setProxyStart(timing_info.proxy_start);
+    timing.setProxyEnd(timing_info.proxy_end);
+    timing.setDNSStart(timing_info.dns_start);
+    timing.setDNSEnd(timing_info.dns_end);
+    timing.setConnectStart(timing_info.connect_start);
+    timing.setConnectEnd(timing_info.connect_end);
+    timing.setSSLStart(timing_info.ssl_start);
+    timing.setSSLEnd(timing_info.ssl_end);
+    timing.setSendStart(timing_info.send_start);
+    timing.setSendEnd(timing_info.send_end);
+    timing.setReceiveHeadersEnd(timing_info.receive_headers_end);
+    response->setLoadTiming(timing);
+  }
 
   if (info.devtools_info.get()) {
     WebHTTPLoadInfo load_info;
@@ -217,6 +223,7 @@ void PopulateURLResponse(
     load_info.setHTTPStatusCode(info.devtools_info->http_status_code);
     load_info.setHTTPStatusText(WebString::fromUTF8(
         info.devtools_info->http_status_text));
+    load_info.setEncodedDataLength(info.encoded_data_length);
 
     const HeadersVector& request_headers = info.devtools_info->request_headers;
     for (HeadersVector::const_iterator it = request_headers.begin();
@@ -294,7 +301,9 @@ class WebURLLoaderImpl::Context : public base::RefCounted<Context>,
       GURL* new_first_party_for_cookies);
   virtual void OnReceivedResponse(const ResourceResponseInfo& info);
   virtual void OnDownloadedData(int len);
-  virtual void OnReceivedData(const char* data, int len);
+  virtual void OnReceivedData(const char* data,
+                              int data_length,
+                              int encoded_data_length);
   virtual void OnReceivedCachedMetadata(const char* data, int len);
   virtual void OnCompletedRequest(const net::URLRequestStatus& status,
                                   const std::string& security_info,
@@ -590,23 +599,25 @@ void WebURLLoaderImpl::Context::OnDownloadedData(int len) {
     client_->didDownloadData(loader_, len);
 }
 
-void WebURLLoaderImpl::Context::OnReceivedData(const char* data, int len) {
+void WebURLLoaderImpl::Context::OnReceivedData(const char* data,
+                                               int data_length,
+                                               int encoded_data_length) {
   if (!client_)
     return;
 
   // Temporary logging, see site_isolation_metrics.h/cc.
-  SiteIsolationMetrics::SniffCrossOriginHTML(response_url_, data, len);
+  SiteIsolationMetrics::SniffCrossOriginHTML(response_url_, data, data_length);
 
   if (ftp_listing_delegate_.get()) {
     // The FTP listing delegate will make the appropriate calls to
     // client_->didReceiveData and client_->didReceiveResponse.
-    ftp_listing_delegate_->OnReceivedData(data, len);
+    ftp_listing_delegate_->OnReceivedData(data, data_length);
   } else if (multipart_delegate_.get()) {
     // The multipart delegate will make the appropriate calls to
     // client_->didReceiveData and client_->didReceiveResponse.
-    multipart_delegate_->OnReceivedData(data, len);
+    multipart_delegate_->OnReceivedData(data, data_length, encoded_data_length);
   } else {
-    client_->didReceiveData(loader_, data, len);
+    client_->didReceiveData(loader_, data, data_length, encoded_data_length);
   }
 }
 
@@ -693,7 +704,7 @@ void WebURLLoaderImpl::Context::HandleDataURL() {
   if (GetInfoFromDataURL(request_.url(), &info, &data, &status)) {
     OnReceivedResponse(info);
     if (!data.empty())
-      OnReceivedData(data.data(), data.size());
+      OnReceivedData(data.data(), data.size(), 0);
   }
 
   OnCompletedRequest(status, info.security_info, base::Time::Now());

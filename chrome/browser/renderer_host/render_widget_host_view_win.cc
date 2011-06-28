@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,18 +10,16 @@
 #include "base/i18n/rtl.h"
 #include "base/metrics/histogram.h"
 #include "base/process_util.h"
-#include "base/scoped_comptr_win.h"
 #include "base/threading/thread.h"
+#include "base/win/scoped_comptr.h"
 #include "base/win/scoped_gdi_object.h"
-#include "chrome/browser/accessibility/browser_accessibility_win.h"
+#include "base/win/wrapped_window_proc.h"
 #include "chrome/browser/accessibility/browser_accessibility_manager.h"
 #include "chrome/browser/accessibility/browser_accessibility_state.h"
+#include "chrome/browser/accessibility/browser_accessibility_win.h"
 #include "chrome/browser/browser_trial.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/native_web_keyboard_event.h"
-#include "chrome/common/notification_service.h"
-#include "chrome/common/plugin_messages.h"
 #include "chrome/common/render_messages.h"
 #include "content/browser/browser_thread.h"
 #include "content/browser/plugin_process_host.h"
@@ -29,10 +27,16 @@
 #include "content/browser/renderer_host/backing_store_win.h"
 #include "content/browser/renderer_host/render_process_host.h"
 #include "content/browser/renderer_host/render_widget_host.h"
+#include "content/common/native_web_keyboard_event.h"
+#include "content/common/notification_service.h"
+#include "content/common/plugin_messages.h"
+#include "content/common/view_messages.h"
 #include "grit/webkit_resources.h"
 #include "skia/ext/skia_utils_win.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebCompositionUnderline.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebInputEvent.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/win/WebInputEventFactory.h"
+#include "ui/base/ime/composition_text.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/l10n/l10n_util_win.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -42,7 +46,7 @@
 #include "ui/gfx/canvas_skia.h"
 #include "ui/gfx/gdi_util.h"
 #include "ui/gfx/rect.h"
-#include "views/accessibility/view_accessibility.h"
+#include "views/accessibility/native_view_accessibility_win.h"
 #include "views/focus/focus_manager.h"
 #include "views/focus/focus_util_win.h"
 // Included for views::kReflectedMessage - TODO(beng): move this to win_util.h!
@@ -50,8 +54,8 @@
 #include "webkit/glue/webaccessibility.h"
 #include "webkit/glue/webcursor.h"
 #include "webkit/plugins/npapi/plugin_constants_win.h"
-#include "webkit/plugins/npapi/webplugin_delegate_impl.h"
 #include "webkit/plugins/npapi/webplugin.h"
+#include "webkit/plugins/npapi/webplugin_delegate_impl.h"
 
 using base::TimeDelta;
 using base::TimeTicks;
@@ -76,6 +80,10 @@ const int kMaxTooltipLength = 1024;
 // listening for MSAA events.
 const int kIdCustom = 1;
 
+// The delay before the compositor host window is destroyed. This gives the GPU
+// process a grace period to stop referencing it.
+const int kDestroyCompositorHostWindowDelay = 10000;
+
 const char* const kRenderWidgetHostViewKey = "__RENDER_WIDGET_HOST_VIEW__";
 
 // A callback function for EnumThreadWindows to enumerate and dismiss
@@ -91,97 +99,6 @@ BOOL CALLBACK DismissOwnedPopups(HWND window, LPARAM arg) {
   }
 
   return TRUE;
-}
-
-// Enumerates the installed keyboard layouts in this system and returns true
-// if an RTL keyboard layout is installed.
-// TODO(hbono): to be moved to "src/chrome/common/l10n_util.cc"?
-static bool IsRTLKeyboardLayoutInstalled() {
-  static enum {
-    RTL_KEYBOARD_LAYOUT_NOT_INITIALIZED,
-    RTL_KEYBOARD_LAYOUT_INSTALLED,
-    RTL_KEYBOARD_LAYOUT_NOT_INSTALLED,
-    RTL_KEYBOARD_LAYOUT_ERROR,
-  } layout = RTL_KEYBOARD_LAYOUT_NOT_INITIALIZED;
-
-  // Cache the result value.
-  if (layout != RTL_KEYBOARD_LAYOUT_NOT_INITIALIZED)
-    return layout == RTL_KEYBOARD_LAYOUT_INSTALLED;
-
-  // Retrieve the number of layouts installed in this system.
-  int size = GetKeyboardLayoutList(0, NULL);
-  if (size <= 0) {
-    layout = RTL_KEYBOARD_LAYOUT_ERROR;
-    return false;
-  }
-
-  // Retrieve the keyboard layouts in an array and check if there is an RTL
-  // layout in it.
-  scoped_array<HKL> layouts(new HKL[size]);
-  GetKeyboardLayoutList(size, layouts.get());
-  for (int i = 0; i < size; ++i) {
-    if (PRIMARYLANGID(layouts[i]) == LANG_ARABIC ||
-        PRIMARYLANGID(layouts[i]) == LANG_HEBREW ||
-        PRIMARYLANGID(layouts[i]) == LANG_PERSIAN) {
-      layout = RTL_KEYBOARD_LAYOUT_INSTALLED;
-      return true;
-    }
-  }
-
-  layout = RTL_KEYBOARD_LAYOUT_NOT_INSTALLED;
-  return false;
-}
-
-// Returns the text direction according to the keyboard status.
-// This function retrieves the status of all keys and returns the following
-// values:
-// * WEB_TEXT_DIRECTION_RTL
-//   If only a control key and a right-shift key are down.
-// * WEB_TEXT_DIRECTION_LTR
-//   If only a control key and a left-shift key are down.
-
-static bool GetNewTextDirection(WebTextDirection* direction) {
-  uint8_t keystate[256];
-  if (!GetKeyboardState(&keystate[0]))
-    return false;
-
-  // To check if a user is pressing only a control key and a right-shift key
-  // (or a left-shift key), we use the steps below:
-  // 1. Check if a user is pressing a control key and a right-shift key (or
-  //    a left-shift key).
-  // 2. If the condition 1 is true, we should check if there are any other
-  //    keys pressed at the same time.
-  //    To ignore the keys checked in 1, we set their status to 0 before
-  //    checking the key status.
-  const int kKeyDownMask = 0x80;
-  if ((keystate[VK_CONTROL] & kKeyDownMask) == 0)
-    return false;
-
-  if (keystate[VK_RSHIFT] & kKeyDownMask) {
-    keystate[VK_RSHIFT] = 0;
-    *direction = WebKit::WebTextDirectionRightToLeft;
-  } else if (keystate[VK_LSHIFT] & kKeyDownMask) {
-    keystate[VK_LSHIFT] = 0;
-    *direction = WebKit::WebTextDirectionLeftToRight;
-  } else {
-    return false;
-  }
-
-  // Scan the key status to find pressed keys. We should adandon changing the
-  // text direction when there are other pressed keys.
-  // This code is executed only when a user is pressing a control key and a
-  // right-shift key (or a left-shift key), i.e. we should ignore the status of
-  // the keys: VK_SHIFT, VK_CONTROL, VK_RCONTROL, and VK_LCONTROL.
-  // So, we reset their status to 0 and ignore them.
-  keystate[VK_SHIFT] = 0;
-  keystate[VK_CONTROL] = 0;
-  keystate[VK_RCONTROL] = 0;
-  keystate[VK_LCONTROL] = 0;
-  for (int i = 0; i <= VK_PACKET; ++i) {
-    if (keystate[i] & kKeyDownMask)
-      return false;
-  }
-  return true;
 }
 
 class NotifyPluginProcessHostTask : public Task {
@@ -304,6 +221,7 @@ RenderWidgetHostView* RenderWidgetHostView::CreateViewForWidget(
 RenderWidgetHostViewWin::RenderWidgetHostViewWin(RenderWidgetHost* widget)
     : render_widget_host_(widget),
       compositor_host_window_(NULL),
+      hide_compositor_window_at_next_paint_(false),
       track_mouse_leave_(false),
       ime_notification_(false),
       capture_enter_key_(false),
@@ -386,21 +304,25 @@ void RenderWidgetHostViewWin::WasHidden() {
 }
 
 void RenderWidgetHostViewWin::SetSize(const gfx::Size& size) {
+  SetBounds(gfx::Rect(GetViewBounds().origin(), size));
+}
+
+void RenderWidgetHostViewWin::SetBounds(const gfx::Rect& rect) {
   if (is_hidden_)
     return;
 
-  // No SWP_NOREDRAW as autofill popups can resize and the underneath window
+  // No SWP_NOREDRAW as autofill popups can move and the underneath window
   // should redraw in that case.
   UINT swp_flags = SWP_NOSENDCHANGING | SWP_NOOWNERZORDER | SWP_NOCOPYBITS |
-      SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_DEFERERASE;
-  SetWindowPos(NULL, 0, 0, size.width(), size.height(), swp_flags);
-  if (compositor_host_window_) {
-    ::SetWindowPos(compositor_host_window_,
-        NULL,
-        0, 0,
-        size.width(), size.height(),
-        SWP_NOSENDCHANGING | SWP_NOCOPYBITS | SWP_NOZORDER | SWP_NOACTIVATE);
-  }
+      SWP_NOZORDER | SWP_NOACTIVATE | SWP_DEFERERASE;
+
+  // If the style is not popup, you have to convert the point to client
+  // coordinate.
+  POINT point = { rect.x(), rect.y() };
+  if (GetStyle() & WS_CHILD)
+    ScreenToClient(&point);
+
+  SetWindowPos(NULL, point.x, point.y, rect.width(), rect.height(), swp_flags);
   render_widget_host_->WasResized();
   EnsureTooltip();
 }
@@ -502,7 +424,7 @@ HWND RenderWidgetHostViewWin::ReparentWindow(HWND window) {
     WNDCLASSEX wcex;
     wcex.cbSize         = sizeof(WNDCLASSEX);
     wcex.style          = CS_DBLCLKS;
-    wcex.lpfnWndProc    = PluginWrapperWindowProc;
+    wcex.lpfnWndProc    = base::win::WrappedWindowProc<PluginWrapperWindowProc>;
     wcex.cbClsExtra     = 0;
     wcex.cbWndExtra     = 0;
     wcex.hInstance      = GetModuleHandle(NULL);
@@ -516,18 +438,12 @@ HWND RenderWidgetHostViewWin::ReparentWindow(HWND window) {
   }
   DCHECK(window_class);
 
-  // TODO(apatrick): the parent window is disabled if the plugin window is
-  // disabled so that mouse messages from the plugin window are passed on to the
-  // browser window. This does not work for regular plugins because it prevents
-  // them from receiving mouse and keyboard input. WS_DISABLED is not
-  // needed when the GPU process stops using child windows for 3D rendering.
-  DWORD enabled_style = ::GetWindowLong(window, GWL_STYLE) & WS_DISABLED;
   HWND parent = CreateWindowEx(
       WS_EX_LEFT | WS_EX_LTRREADING | WS_EX_RIGHTSCROLLBAR,
       MAKEINTATOM(window_class), 0,
-      WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS | enabled_style,
+      WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
       0, 0, 0, 0, ::GetParent(window), 0, GetModuleHandle(NULL), 0);
-  DCHECK(parent);
+  ui::CheckWindowCreated(parent);
   ::SetParent(window, parent);
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
@@ -545,14 +461,20 @@ void RenderWidgetHostViewWin::CleanupCompositorWindow() {
   if (!compositor_host_window_)
     return;
 
-  std::vector<HWND> all_child_windows;
-  ::EnumChildWindows(compositor_host_window_, AddChildWindowToVector,
-    reinterpret_cast<LPARAM>(&all_child_windows));
-  if (all_child_windows.size()) {
-    DCHECK(all_child_windows.size() == 1);
-    ::ShowWindow(all_child_windows[0], SW_HIDE);
-    ::SetParent(all_child_windows[0], NULL);
-  }
+  // Hide the compositor and parent it to the desktop rather than destroying
+  // it immediately. The GPU process has a grace period to stop accessing the
+  // window. TODO(apatrick): the GPU process should acknowledge that it has
+  // finished with the window handle and the browser process should destroy it
+  // at that point.
+  ::ShowWindow(compositor_host_window_, SW_HIDE);
+  ::SetParent(compositor_host_window_, NULL);
+
+  BrowserThread::PostDelayedTask(
+      BrowserThread::UI,
+      FROM_HERE,
+      NewRunnableFunction(::DestroyWindow, compositor_host_window_),
+      kDestroyCompositorHostWindowDelay);
+
   compositor_host_window_ = NULL;
 }
 
@@ -586,9 +508,10 @@ void RenderWidgetHostViewWin::Show() {
 
   // Save away our HWND in the parent window as a property so that the
   // accessibility code can find it.
-  accessibility_prop_.reset(new ViewProp(GetParent(),
-                                         kViewsNativeHostPropForAccessibility,
-                                         m_hWnd));
+  accessibility_prop_.reset(new ViewProp(
+      GetParent(),
+      views::kViewsNativeHostPropForAccessibility,
+      m_hWnd));
 
   DidBecomeSelected();
 }
@@ -863,9 +786,10 @@ LRESULT RenderWidgetHostViewWin::OnCreate(CREATESTRUCT* create_struct) {
                                 static_cast<RenderWidgetHostView*>(this)));
   // Save away our HWND in the parent window as a property so that the
   // accessibility code can find it.
-  accessibility_prop_.reset(new ViewProp(GetParent(),
-                                         kViewsNativeHostPropForAccessibility,
-                                         m_hWnd));
+  accessibility_prop_.reset(new ViewProp(
+      GetParent(),
+      views::kViewsNativeHostPropForAccessibility,
+      m_hWnd));
 
   return 0;
 }
@@ -932,6 +856,11 @@ void RenderWidgetHostViewWin::OnPaint(HDC unused_dc) {
   // damage region.
   base::win::ScopedGDIObject<HRGN> damage_region(CreateRectRgn(0, 0, 0, 0));
   GetUpdateRgn(damage_region, FALSE);
+
+  if (hide_compositor_window_at_next_paint_) {
+    ::ShowWindow(compositor_host_window_, SW_HIDE);
+    hide_compositor_window_at_next_paint_ = false;
+  }
 
   CPaintDC paint_dc(m_hWnd);
 
@@ -1190,8 +1119,8 @@ LRESULT RenderWidgetHostViewWin::OnImeSetContext(
     ime_input_.CreateImeWindow(m_hWnd);
 
   ime_input_.CleanupComposition(m_hWnd);
-  ime_input_.SetImeWindowStyle(m_hWnd, message, wparam, lparam, &handled);
-  return 0;
+  return ime_input_.SetImeWindowStyle(
+      m_hWnd, message, wparam, lparam, &handled);
 }
 
 LRESULT RenderWidgetHostViewWin::OnImeStartComposition(
@@ -1217,11 +1146,17 @@ LRESULT RenderWidgetHostViewWin::OnImeComposition(
   // At first, update the position of the IME window.
   ime_input_.UpdateImeWindow(m_hWnd);
 
+  // ui::CompositionUnderline should be identical to
+  // WebKit::WebCompositionUnderline, so that we can do reinterpret_cast safely.
+  COMPILE_ASSERT(sizeof(ui::CompositionUnderline) ==
+                 sizeof(WebKit::WebCompositionUnderline),
+                 ui_CompositionUnderline__WebKit_WebCompositionUnderline_diff);
+
   // Retrieve the result string and its attributes of the ongoing composition
   // and send it to a renderer process.
-  ImeComposition composition;
-  if (ime_input_.GetResult(m_hWnd, lparam, &composition)) {
-    render_widget_host_->ImeConfirmComposition(composition.ime_string);
+  ui::CompositionText composition;
+  if (ime_input_.GetResult(m_hWnd, lparam, &composition.text)) {
+    render_widget_host_->ImeConfirmComposition(composition.text);
     ime_input_.ResetComposition(m_hWnd);
     // Fall though and try reading the composition string.
     // Japanese IMEs send a message containing both GCS_RESULTSTR and
@@ -1231,9 +1166,18 @@ LRESULT RenderWidgetHostViewWin::OnImeComposition(
   // Retrieve the composition string and its attributes of the ongoing
   // composition and send it to a renderer process.
   if (ime_input_.GetComposition(m_hWnd, lparam, &composition)) {
+    // TODO(suzhe): due to a bug of webkit, we can't use selection range with
+    // composition string. See: https://bugs.webkit.org/show_bug.cgi?id=37788
+    composition.selection = ui::Range(composition.selection.end());
+
+    // TODO(suzhe): convert both renderer_host and renderer to use
+    // ui::CompositionText.
+    const std::vector<WebKit::WebCompositionUnderline>& underlines =
+        reinterpret_cast<const std::vector<WebKit::WebCompositionUnderline>&>(
+            composition.underlines);
     render_widget_host_->ImeSetComposition(
-        composition.ime_string, composition.underlines,
-        composition.selection_start, composition.selection_end);
+        composition.text, underlines,
+        composition.selection.start(), composition.selection.end());
   }
   // We have to prevent WTL from calling ::DefWindowProc() because we do not
   // want for the IMM (Input Method Manager) to send WM_IME_CHAR messages.
@@ -1349,12 +1293,16 @@ LRESULT RenderWidgetHostViewWin::OnKeyEvent(UINT message, WPARAM wparam,
   // Bug 9718: http://crbug.com/9718 To investigate IE and notepad, this
   // shortcut is enabled only on a PC having RTL keyboard layouts installed.
   // We should emulate them.
-  if (IsRTLKeyboardLayoutInstalled()) {
+  if (ui::ImeInput::IsRTLKeyboardLayoutInstalled()) {
     if (message == WM_KEYDOWN) {
       if (wparam == VK_SHIFT) {
-        WebTextDirection direction;
-        if (GetNewTextDirection(&direction))
-          render_widget_host_->UpdateTextDirection(direction);
+        base::i18n::TextDirection dir;
+        if (ui::ImeInput::IsCtrlShiftPressed(&dir)) {
+          render_widget_host_->UpdateTextDirection(
+              dir == base::i18n::RIGHT_TO_LEFT ?
+              WebKit::WebTextDirectionRightToLeft :
+              WebKit::WebTextDirectionLeftToRight);
+        }
       } else if (wparam != VK_CONTROL) {
         // Bug 9762: http://crbug.com/9762 A user pressed a key except shift
         // and control keys.
@@ -1523,31 +1471,10 @@ void RenderWidgetHostViewWin::Observe(NotificationType type,
   browser_accessibility_manager_.reset(NULL);
 }
 
-// Looks through the children windows of the CompositorHostWindow. If the
-// compositor child window is found, its size is checked against the host
-// window's size. If the child is smaller in either dimensions, we fill
-// the host window with white to avoid unseemly cracks.
 static void PaintCompositorHostWindow(HWND hWnd) {
   PAINTSTRUCT paint;
   BeginPaint(hWnd, &paint);
 
-  std::vector<HWND> child_windows;
-  EnumChildWindows(hWnd, AddChildWindowToVector,
-      reinterpret_cast<LPARAM>(&child_windows));
-
-  if (child_windows.size()) {
-    HWND child = child_windows[0];
-
-    RECT host_rect, child_rect;
-    GetClientRect(hWnd, &host_rect);
-    if (GetClientRect(child, &child_rect)) {
-      if (child_rect.right < host_rect.right ||
-         child_rect.bottom != host_rect.bottom) {
-          FillRect(paint.hdc, &host_rect,
-              static_cast<HBRUSH>(GetStockObject(WHITE_BRUSH)));
-      }
-    }
-  }
   EndPaint(hWnd, &paint);
 }
 
@@ -1571,7 +1498,7 @@ static LRESULT CALLBACK CompositorHostWindowProc(HWND hWnd, UINT message,
 // Creates a HWND within the RenderWidgetHostView that will serve as a host
 // for a HWND that the GPU process will create. The host window is used
 // to Z-position the GPU's window relative to other plugin windows.
-gfx::PluginWindowHandle RenderWidgetHostViewWin::AcquireCompositingSurface() {
+gfx::PluginWindowHandle RenderWidgetHostViewWin::GetCompositingSurface() {
   // If the window has been created, don't recreate it a second time
   if (compositor_host_window_)
     return compositor_host_window_;
@@ -1581,7 +1508,8 @@ gfx::PluginWindowHandle RenderWidgetHostViewWin::AcquireCompositingSurface() {
     WNDCLASSEX wcex;
     wcex.cbSize         = sizeof(WNDCLASSEX);
     wcex.style          = 0;
-    wcex.lpfnWndProc    = CompositorHostWindowProc;
+    wcex.lpfnWndProc    =
+        base::win::WrappedWindowProc<CompositorHostWindowProc>;
     wcex.cbClsExtra     = 0;
     wcex.cbWndExtra     = 0;
     wcex.hInstance      = GetModuleHandle(NULL);
@@ -1605,14 +1533,9 @@ gfx::PluginWindowHandle RenderWidgetHostViewWin::AcquireCompositingSurface() {
     MAKEINTATOM(window_class), 0,
     WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS | WS_DISABLED,
     0, 0, width, height, m_hWnd, 0, GetModuleHandle(NULL), 0);
-  DCHECK(compositor_host_window_);
+  ui::CheckWindowCreated(compositor_host_window_);
 
   return static_cast<gfx::PluginWindowHandle>(compositor_host_window_);
-}
-
-void RenderWidgetHostViewWin::ReleaseCompositingSurface(
-    gfx::PluginWindowHandle surface) {
-  ShowCompositorHostWindow(false);
 }
 
 void RenderWidgetHostViewWin::ShowCompositorHostWindow(bool show) {
@@ -1623,12 +1546,7 @@ void RenderWidgetHostViewWin::ShowCompositorHostWindow(bool show) {
     return;
 
   if (show) {
-    UINT flags = SWP_NOSENDCHANGING | SWP_NOCOPYBITS | SWP_NOZORDER |
-      SWP_NOACTIVATE | SWP_DEFERERASE | SWP_SHOWWINDOW;
-    gfx::Rect rect = GetViewBounds();
-    ::SetWindowPos(compositor_host_window_, NULL, 0, 0,
-        rect.width(), rect.height(),
-        flags);
+    ::ShowWindow(compositor_host_window_, SW_SHOW);
 
     // Get all the child windows of this view, including the compositor window.
     std::vector<HWND> all_child_windows;
@@ -1658,7 +1576,7 @@ void RenderWidgetHostViewWin::ShowCompositorHostWindow(bool show) {
           SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE);
     }
   } else {
-    ::ShowWindow(compositor_host_window_, SW_HIDE);
+    hide_compositor_window_at_next_paint_ = true;
   }
 }
 
@@ -1715,7 +1633,7 @@ LRESULT RenderWidgetHostViewWin::OnGetObject(UINT message, WPARAM wparam,
       BrowserAccessibilityManager::Create(m_hWnd, loading_tree, this));
   }
 
-  ScopedComPtr<IAccessible> root(
+  base::win::ScopedComPtr<IAccessible> root(
       browser_accessibility_manager_->GetRoot()->toBrowserAccessibilityWin());
   if (root.get())
     return LresultFromObject(IID_IAccessible, wparam, root.Detach());
@@ -1798,6 +1716,7 @@ void RenderWidgetHostViewWin::EnsureTooltip() {
         WS_EX_TRANSPARENT | l10n_util::GetExtendedTooltipStyles(),
         TOOLTIPS_CLASS, NULL, TTS_NOPREFIX, 0, 0, 0, 0, m_hWnd, NULL,
         NULL, NULL);
+    ui::CheckWindowCreated(tooltip_hwnd_);
     ti.uFlags = TTF_TRANSPARENT;
     ti.lpszText = LPSTR_TEXTCALLBACK;
   }

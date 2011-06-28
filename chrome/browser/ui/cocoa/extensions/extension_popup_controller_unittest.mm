@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/memory/scoped_nsobject.h"
 #include "base/message_loop.h"
-#include "base/scoped_nsobject.h"
 #include "chrome/browser/extensions/extension_pref_value_map.h"
 #include "chrome/browser/extensions/extension_prefs.h"
 #include "chrome/browser/extensions/extension_process_manager.h"
@@ -36,7 +36,8 @@ class ExtensionTestingProfile : public TestingProfile {
                                      CommandLine::ForCurrentProcess(),
                                      GetExtensionsInstallDir(),
                                      extension_prefs_.get(),
-                                     false);
+                                     false,
+                                     true);
     service_->set_extensions_enabled(true);
     service_->set_show_extensions_prompts(false);
     service_->ClearProvidersForTesting();

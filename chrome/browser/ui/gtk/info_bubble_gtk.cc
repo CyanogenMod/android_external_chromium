@@ -9,10 +9,11 @@
 
 #include "base/basictypes.h"
 #include "base/logging.h"
-#include "chrome/browser/ui/gtk/gtk_theme_provider.h"
+#include "chrome/browser/ui/gtk/gtk_theme_service.h"
 #include "chrome/browser/ui/gtk/gtk_util.h"
 #include "chrome/browser/ui/gtk/info_bubble_accelerators_gtk.h"
 #include "content/common/notification_service.h"
+#include "ui/base/gtk/gtk_windowing.h"
 #include "ui/gfx/gtk_util.h"
 #include "ui/gfx/path.h"
 #include "ui/gfx/rect.h"
@@ -51,7 +52,7 @@ InfoBubbleGtk* InfoBubbleGtk::Show(GtkWidget* anchor_widget,
                                    ArrowLocationGtk arrow_location,
                                    bool match_system_theme,
                                    bool grab_input,
-                                   GtkThemeProvider* provider,
+                                   GtkThemeService* provider,
                                    InfoBubbleGtkDelegate* delegate) {
   InfoBubbleGtk* bubble = new InfoBubbleGtk(provider, match_system_theme);
   bubble->Init(anchor_widget, rect, content, arrow_location, grab_input);
@@ -59,11 +60,11 @@ InfoBubbleGtk* InfoBubbleGtk::Show(GtkWidget* anchor_widget,
   return bubble;
 }
 
-InfoBubbleGtk::InfoBubbleGtk(GtkThemeProvider* provider,
+InfoBubbleGtk::InfoBubbleGtk(GtkThemeService* provider,
                              bool match_system_theme)
     : delegate_(NULL),
       window_(NULL),
-      theme_provider_(provider),
+      theme_service_(provider),
       accel_group_(gtk_accel_group_new()),
       toplevel_window_(NULL),
       anchor_widget_(NULL),
@@ -182,7 +183,7 @@ void InfoBubbleGtk::Init(GtkWidget* anchor_widget,
 
   registrar_.Add(this, NotificationType::BROWSER_THEME_CHANGED,
                  NotificationService::AllSources());
-  theme_provider_->InitThemesFor(this);
+  theme_service_->InitThemesFor(this);
 }
 
 // NOTE: This seems a bit overcomplicated, but it requires a bunch of careful
@@ -339,14 +340,14 @@ void InfoBubbleGtk::MoveWindow() {
 void InfoBubbleGtk::StackWindow() {
   // Stack our window directly above the toplevel window.
   if (toplevel_window_)
-    gtk_util::StackPopupWindow(window_, GTK_WIDGET(toplevel_window_));
+    ui::StackPopupWindow(window_, GTK_WIDGET(toplevel_window_));
 }
 
 void InfoBubbleGtk::Observe(NotificationType type,
                             const NotificationSource& source,
                             const NotificationDetails& details) {
   DCHECK_EQ(type.value, NotificationType::BROWSER_THEME_CHANGED);
-  if (theme_provider_->UseGtkTheme() && match_system_theme_) {
+  if (theme_service_->UseGtkTheme() && match_system_theme_) {
     gtk_widget_modify_bg(window_, GTK_STATE_NORMAL, NULL);
   } else {
     // Set the background color, so we don't need to paint it manually.

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -49,9 +49,9 @@
 #include "base/basictypes.h"
 #include "base/format_macros.h"
 #include "base/logging.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/message_loop.h"
 #include "base/metrics/histogram.h"
-#include "base/scoped_ptr.h"
 #include "base/string_tokenizer.h"
 #include "base/string_util.h"
 #include "base/stringprintf.h"
@@ -199,7 +199,7 @@ bool GetCookieDomainWithString(const GURL& url,
   // also treats domain=.....my.domain.com like domain=.my.domain.com, but
   // neither IE nor Safari do this, and we don't either.
   url_canon::CanonHostInfo ignored;
-  std::string cookie_domain(net::CanonicalizeHost(domain_string, &ignored));
+  std::string cookie_domain(CanonicalizeHost(domain_string, &ignored));
   if (cookie_domain.empty())
     return false;
   if (cookie_domain[0] != '.')
@@ -346,6 +346,40 @@ bool FindLeastRecentlyAccessed(
   return false;
 }
 
+// Mapping between DeletionCause and Delegate::ChangeCause; the mapping also
+// provides a boolean that specifies whether or not an OnCookieChanged
+// notification ought to be generated.
+typedef struct ChangeCausePair_struct {
+  CookieMonster::Delegate::ChangeCause cause;
+  bool notify;
+} ChangeCausePair;
+ChangeCausePair ChangeCauseMapping[] = {
+  // DELETE_COOKIE_EXPLICIT
+  { CookieMonster::Delegate::CHANGE_COOKIE_EXPLICIT, true },
+  // DELETE_COOKIE_OVERWRITE
+  { CookieMonster::Delegate::CHANGE_COOKIE_OVERWRITE, true },
+  // DELETE_COOKIE_EXPIRED
+  { CookieMonster::Delegate::CHANGE_COOKIE_EXPIRED, true },
+  // DELETE_COOKIE_EVICTED
+  { CookieMonster::Delegate::CHANGE_COOKIE_EVICTED, true },
+  // DELETE_COOKIE_DUPLICATE_IN_BACKING_STORE
+  { CookieMonster::Delegate::CHANGE_COOKIE_EXPLICIT, false },
+  // DELETE_COOKIE_DONT_RECORD
+  { CookieMonster::Delegate::CHANGE_COOKIE_EXPLICIT, false },
+  // DELETE_COOKIE_EVICTED_DOMAIN
+  { CookieMonster::Delegate::CHANGE_COOKIE_EVICTED, true },
+  // DELETE_COOKIE_EVICTED_GLOBAL
+  { CookieMonster::Delegate::CHANGE_COOKIE_EVICTED, true },
+  // DELETE_COOKIE_EVICTED_DOMAIN_PRE_SAFE
+  { CookieMonster::Delegate::CHANGE_COOKIE_EVICTED, true },
+  // DELETE_COOKIE_EVICTED_DOMAIN_POST_SAFE
+  { CookieMonster::Delegate::CHANGE_COOKIE_EVICTED, true },
+  // DELETE_COOKIE_EXPIRED_OVERWRITE
+  { CookieMonster::Delegate::CHANGE_COOKIE_EXPIRED_OVERWRITE, true },
+  // DELETE_COOKIE_LAST_ENTRY
+  { CookieMonster::Delegate::CHANGE_COOKIE_EXPLICIT, false }
+};
+
 }  // namespace
 
 // static
@@ -358,7 +392,8 @@ CookieMonster::CookieMonster(PersistentCookieStore* store, Delegate* delegate)
       last_access_threshold_(
           TimeDelta::FromSeconds(kDefaultAccessUpdateThresholdSeconds)),
       delegate_(delegate),
-      last_statistic_record_time_(Time::Now()) {
+      last_statistic_record_time_(Time::Now()),
+      keep_expired_cookies_(false) {
   InitializeHistograms();
   SetDefaultCookieableSchemes();
 }
@@ -372,7 +407,8 @@ CookieMonster::CookieMonster(PersistentCookieStore* store,
       last_access_threshold_(base::TimeDelta::FromMilliseconds(
           last_access_threshold_milliseconds)),
       delegate_(delegate),
-      last_statistic_record_time_(base::Time::Now()) {
+      last_statistic_record_time_(base::Time::Now()),
+      keep_expired_cookies_(false) {
   InitializeHistograms();
   SetDefaultCookieableSchemes();
 }
@@ -694,6 +730,10 @@ void CookieMonster::SetExpiryAndKeyScheme(ExpiryAndKeyScheme key_scheme) {
   expiry_and_key_scheme_ = key_scheme;
 }
 
+void CookieMonster::SetKeepExpiredCookies() {
+  keep_expired_cookies_ = true;
+}
+
 void CookieMonster::SetClearPersistentStoreOnExit(bool clear_local_store) {
   if (store_)
     store_->SetClearLocalStateOnExit(clear_local_store);
@@ -979,10 +1019,15 @@ int CookieMonster::TrimDuplicateCookiesForKey(
   return num_duplicates;
 }
 
+// Note: file must be the last scheme.
+const char* CookieMonster::kDefaultCookieableSchemes[] =
+    { "http", "https", "file" };
+const int CookieMonster::kDefaultCookieableSchemesCount =
+    arraysize(CookieMonster::kDefaultCookieableSchemes);
+
 void CookieMonster::SetDefaultCookieableSchemes() {
-  // Note: file must be the last scheme.
-  static const char* kDefaultCookieableSchemes[] = { "http", "https", "file" };
-  int num_schemes = enable_file_scheme_ ? 3 : 2;
+  int num_schemes = enable_file_scheme_ ?
+      kDefaultCookieableSchemesCount : kDefaultCookieableSchemesCount - 1;
   SetCookieableSchemes(kDefaultCookieableSchemes, num_schemes);
 }
 
@@ -1057,7 +1102,7 @@ void CookieMonster::FindCookiesForKey(
     ++its.first;
 
     // If the cookie is expired, delete it.
-    if (cc->IsExpired(current)) {
+    if (cc->IsExpired(current) && !keep_expired_cookies_) {
       InternalDeleteCookie(curit, true, DELETE_COOKIE_EXPIRED);
       continue;
     }
@@ -1089,7 +1134,8 @@ void CookieMonster::FindCookiesForKey(
 
 bool CookieMonster::DeleteAnyEquivalentCookie(const std::string& key,
                                               const CanonicalCookie& ecc,
-                                              bool skip_httponly) {
+                                              bool skip_httponly,
+                                              bool already_expired) {
   lock_.AssertAcquired();
 
   bool found_equivalent_cookie = false;
@@ -1108,7 +1154,8 @@ bool CookieMonster::DeleteAnyEquivalentCookie(const std::string& key,
       if (skip_httponly && cc->IsHttpOnly()) {
         skipped_httponly = true;
       } else {
-        InternalDeleteCookie(curit, true, DELETE_COOKIE_OVERWRITE);
+        InternalDeleteCookie(curit, true, already_expired ?
+            DELETE_COOKIE_EXPIRED_OVERWRITE : DELETE_COOKIE_OVERWRITE);
       }
       found_equivalent_cookie = true;
     }
@@ -1124,8 +1171,10 @@ void CookieMonster::InternalInsertCookie(const std::string& key,
   if (cc->IsPersistent() && store_ && sync_to_store)
     store_->AddCookie(*cc);
   cookies_.insert(CookieMap::value_type(key, cc));
-  if (delegate_.get())
-    delegate_->OnCookieChanged(*cc, false);
+  if (delegate_.get()) {
+    delegate_->OnCookieChanged(
+        *cc, false, CookieMonster::Delegate::CHANGE_COOKIE_EXPLICIT);
+  }
 }
 
 bool CookieMonster::SetCookieWithCreationTimeAndOptions(
@@ -1166,11 +1215,10 @@ bool CookieMonster::SetCookieWithCreationTimeAndOptions(
   scoped_ptr<CanonicalCookie> cc;
   Time cookie_expires = CanonExpiration(pc, creation_time, options);
 
-  cc.reset(new CanonicalCookie(url, pc.Name(),
-                               pc.Value(), cookie_domain, cookie_path,
-                               pc.IsSecure(), pc.IsHttpOnly(), creation_time,
-                               creation_time, !cookie_expires.is_null(),
-                               cookie_expires));
+  cc.reset(new CanonicalCookie(url, pc.Name(), pc.Value(), cookie_domain,
+                               cookie_path, creation_time, cookie_expires,
+                               creation_time, pc.IsSecure(), pc.IsHttpOnly(),
+                               !cookie_expires.is_null()));
 
   if (!cc.get()) {
     VLOG(kVlogSetCookies) << "WARNING: Failed to allocate CanonicalCookie";
@@ -1183,7 +1231,9 @@ bool CookieMonster::SetCanonicalCookie(scoped_ptr<CanonicalCookie>* cc,
                                        const Time& creation_time,
                                        const CookieOptions& options) {
   const std::string key(GetKey((*cc)->Domain()));
-  if (DeleteAnyEquivalentCookie(key, **cc, options.exclude_httponly())) {
+  bool already_expired = (*cc)->IsExpired(creation_time);
+  if (DeleteAnyEquivalentCookie(key, **cc, options.exclude_httponly(),
+                                already_expired)) {
     VLOG(kVlogSetCookies) << "SetCookie() not clobbering httponly cookie";
     return false;
   }
@@ -1193,10 +1243,13 @@ bool CookieMonster::SetCanonicalCookie(scoped_ptr<CanonicalCookie>* cc,
 
   // Realize that we might be setting an expired cookie, and the only point
   // was to delete the cookie which we've already done.
-  if (!(*cc)->IsExpired(creation_time)) {
+  if (!already_expired || keep_expired_cookies_) {
     // See InitializeHistograms() for details.
-    histogram_expiration_duration_minutes_->Add(
-        ((*cc)->ExpiryDate() - creation_time).InMinutes());
+    if ((*cc)->DoesExpire()) {
+      histogram_expiration_duration_minutes_->Add(
+          ((*cc)->ExpiryDate() - creation_time).InMinutes());
+    }
+
     InternalInsertCookie(key, cc->release(), true);
   }
 
@@ -1235,6 +1288,12 @@ void CookieMonster::InternalDeleteCookie(CookieMap::iterator it,
                                          DeletionCause deletion_cause) {
   lock_.AssertAcquired();
 
+  // Ideally, this would be asserted up where we define ChangeCauseMapping,
+  // but DeletionCause's visibility (or lack thereof) forces us to make
+  // this check here.
+  COMPILE_ASSERT(arraysize(ChangeCauseMapping) == DELETE_COOKIE_LAST_ENTRY + 1,
+                 ChangeCauseMapping_size_not_eq_DeletionCause_enum_size);
+
   // See InitializeHistograms() for details.
   if (deletion_cause != DELETE_COOKIE_DONT_RECORD)
     histogram_cookie_deletion_cause_->Add(deletion_cause);
@@ -1244,8 +1303,12 @@ void CookieMonster::InternalDeleteCookie(CookieMap::iterator it,
 
   if (cc->IsPersistent() && store_ && sync_to_store)
     store_->DeleteCookie(*cc);
-  if (delegate_.get())
-    delegate_->OnCookieChanged(*cc, true);
+  if (delegate_.get()) {
+    ChangeCausePair mapping = ChangeCauseMapping[deletion_cause];
+
+    if (mapping.notify)
+      delegate_->OnCookieChanged(*cc, true, mapping.cause);
+  }
   cookies_.erase(it);
   delete cc;
 }
@@ -1338,6 +1401,9 @@ int CookieMonster::GarbageCollectExpired(
     const Time& current,
     const CookieMapItPair& itpair,
     std::vector<CookieMap::iterator>* cookie_its) {
+  if (keep_expired_cookies_)
+    return 0;
+
   lock_.AssertAcquired();
 
   int num_deleted = 0;
@@ -1866,9 +1932,9 @@ void CookieMonster::ParsedCookie::SetupAttributes() {
 }
 
 CookieMonster::CanonicalCookie::CanonicalCookie()
-    : has_expires_(false),
-      secure_(false),
-      httponly_(false) {
+    : secure_(false),
+      httponly_(false),
+      has_expires_(false) {
 }
 
 CookieMonster::CanonicalCookie::CanonicalCookie(const GURL& url,
@@ -1876,23 +1942,23 @@ CookieMonster::CanonicalCookie::CanonicalCookie(const GURL& url,
                                                 const std::string& value,
                                                 const std::string& domain,
                                                 const std::string& path,
+                                                const base::Time& creation,
+                                                const base::Time& expiration,
+                                                const base::Time& last_access,
                                                 bool secure,
                                                 bool httponly,
-                                                const base::Time& creation,
-                                                const base::Time& last_access,
-                                                bool has_expires,
-                                                const base::Time& expires)
+                                                bool has_expires)
     : source_(GetCookieSourceFromURL(url)),
       name_(name),
       value_(value),
       domain_(domain),
       path_(path),
       creation_date_(creation),
+      expiry_date_(expiration),
       last_access_date_(last_access),
-      expiry_date_(expires),
-      has_expires_(has_expires),
       secure_(secure),
-      httponly_(httponly) {
+      httponly_(httponly),
+      has_expires_(has_expires) {
 }
 
 CookieMonster::CanonicalCookie::CanonicalCookie(const GURL& url,
@@ -1903,9 +1969,9 @@ CookieMonster::CanonicalCookie::CanonicalCookie(const GURL& url,
       path_(CanonPath(url, pc)),
       creation_date_(Time::Now()),
       last_access_date_(Time()),
-      has_expires_(pc.HasExpires()),
       secure_(pc.IsSecure()),
-      httponly_(pc.IsHttpOnly()) {
+      httponly_(pc.IsHttpOnly()),
+      has_expires_(pc.HasExpires()) {
   if (has_expires_)
     expiry_date_ = CanonExpiration(pc, creation_date_, CookieOptions());
 
@@ -1940,10 +2006,15 @@ std::string CookieMonster::CanonicalCookie::GetCookieSourceFromURL(
 }
 
 CookieMonster::CanonicalCookie* CookieMonster::CanonicalCookie::Create(
-      const GURL& url, const std::string& name, const std::string& value,
-      const std::string& domain, const std::string& path,
-      const base::Time& creation_time, const base::Time& expiration_time,
-      bool secure, bool http_only) {
+      const GURL& url,
+      const std::string& name,
+      const std::string& value,
+      const std::string& domain,
+      const std::string& path,
+      const base::Time& creation,
+      const base::Time& expiration,
+      bool secure,
+      bool http_only) {
   // Expect valid attribute tokens and values, as defined by the ParsedCookie
   // logic, otherwise don't create the cookie.
   std::string parsed_name = ParsedCookie::ParseTokenString(name);
@@ -1977,10 +2048,9 @@ CookieMonster::CanonicalCookie* CookieMonster::CanonicalCookie::Create(
   cookie_path = std::string(canon_path.data() + canon_path_component.begin,
                             canon_path_component.len);
 
-  return new CanonicalCookie(url, parsed_name,
-                             parsed_value, cookie_domain, cookie_path, secure,
-                             http_only, creation_time, creation_time,
-                             !expiration_time.is_null(), expiration_time);
+  return new CanonicalCookie(url, parsed_name, parsed_value, cookie_domain,
+                             cookie_path, creation, expiration, creation,
+                             secure, http_only, !expiration.is_null());
 }
 
 bool CookieMonster::CanonicalCookie::IsOnPath(

@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,7 @@
 #include <vector>
 
 #include "base/gtest_prod_util.h"
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
 #include "base/string_piece.h"
 #include "base/time.h"
 #include "net/base/x509_cert_types.h"
@@ -36,9 +36,10 @@ struct CERTCertificateStr;
 
 class Pickle;
 
-namespace base {
+namespace crypto {
+class StringPiece;
 class RSAPrivateKey;
-}  // namespace base
+}  // namespace crypto
 
 namespace net {
 
@@ -78,8 +79,11 @@ class X509Certificate : public base::RefCountedThreadSafe<X509Certificate> {
   enum Source {
     SOURCE_UNUSED = 0,            // The source_ member is not used.
     SOURCE_LONE_CERT_IMPORT = 1,  // From importing a certificate without
-                                  // its intermediate CA certificates.
-    SOURCE_FROM_NETWORK = 2,      // From the network.
+                                  // any intermediate CA certificates.
+    SOURCE_FROM_CACHE = 2,        // From the disk cache - which contains
+                                  // intermediate CA certificates, but may be
+                                  // stale.
+    SOURCE_FROM_NETWORK = 3,      // From the network.
   };
 
   enum VerifyFlags {
@@ -109,6 +113,17 @@ class X509Certificate : public base::RefCountedThreadSafe<X509Certificate> {
                   FORMAT_PKCS7,
   };
 
+  enum PickleType {
+    // When reading a certificate from a Pickle, the Pickle only contains a
+    // single certificate.
+    PICKLETYPE_SINGLE_CERTIFICATE,
+
+    // When reading a certificate from a Pickle, the Pickle contains the
+    // the certificate plus any certificates that were stored in
+    // |intermediate_ca_certificates_| at the time it was serialized.
+    PICKLETYPE_CERTIFICATE_CHAIN,
+  };
+
   // Creates a X509Certificate from the ground up.  Used by tests that simulate
   // SSL connections.
   X509Certificate(const std::string& subject, const std::string& issuer,
@@ -122,8 +137,8 @@ class X509Certificate : public base::RefCountedThreadSafe<X509Certificate> {
   // (http://crbug.com/7065).
   // The returned pointer must be stored in a scoped_refptr<X509Certificate>.
   static X509Certificate* CreateFromHandle(OSCertHandle cert_handle,
-      Source source,
-      const OSCertHandles& intermediates);
+                                           Source source,
+                                           const OSCertHandles& intermediates);
 
   // Create an X509Certificate from a chain of DER encoded certificates. The
   // first certificate in the chain is the end-entity certificate to which a
@@ -147,7 +162,8 @@ class X509Certificate : public base::RefCountedThreadSafe<X509Certificate> {
   //
   // The returned pointer must be stored in a scoped_refptr<X509Certificate>.
   static X509Certificate* CreateFromPickle(const Pickle& pickle,
-                                           void** pickle_iter);
+                                           void** pickle_iter,
+                                           PickleType type);
 
   // Parses all of the certificates possible from |data|. |format| is a
   // bit-wise OR of Format, indicating the possible formats the
@@ -167,7 +183,7 @@ class X509Certificate : public base::RefCountedThreadSafe<X509Certificate> {
   // An example:
   // CN=Michael Wong,O=FooBar Corporation,DC=foobar,DC=com
   //
-  // SECURUITY WARNING
+  // SECURITY WARNING
   //
   // Using self-signed certificates has the following security risks:
   // 1. Encryption without authentication and thus vulnerable to
@@ -175,7 +191,7 @@ class X509Certificate : public base::RefCountedThreadSafe<X509Certificate> {
   // 2. Self-signed certificates cannot be revoked.
   //
   // Use this certificate only after the above risks are acknowledged.
-  static X509Certificate* CreateSelfSigned(base::RSAPrivateKey* key,
+  static X509Certificate* CreateSelfSigned(crypto::RSAPrivateKey* key,
                                            const std::string& subject,
                                            uint32 serial_number,
                                            base::TimeDelta valid_duration);
@@ -334,6 +350,8 @@ class X509Certificate : public base::RefCountedThreadSafe<X509Certificate> {
   friend class TestRootCerts;  // For unit tests
   FRIEND_TEST_ALL_PREFIXES(X509CertificateTest, Cache);
   FRIEND_TEST_ALL_PREFIXES(X509CertificateTest, IntermediateCertificates);
+  FRIEND_TEST_ALL_PREFIXES(X509CertificateTest, SerialNumbers);
+  FRIEND_TEST_ALL_PREFIXES(X509CertificateNameVerifyTest, VerifyHostname);
 
   // Construct an X509Certificate from a handle to the certificate object
   // in the underlying crypto library.
@@ -348,6 +366,10 @@ class X509Certificate : public base::RefCountedThreadSafe<X509Certificate> {
 #if defined(OS_WIN)
   bool CheckEV(PCCERT_CHAIN_CONTEXT chain_context,
                const char* policy_oid) const;
+  static bool IsIssuedByKnownRoot(PCCERT_CHAIN_CONTEXT chain_context);
+#endif
+#if defined(OS_MACOSX)
+  static bool IsIssuedByKnownRoot(CFArrayRef chain);
 #endif
   bool VerifyEV() const;
 
@@ -371,6 +393,7 @@ class X509Certificate : public base::RefCountedThreadSafe<X509Certificate> {
   static bool VerifyHostname(const std::string& hostname,
                              const std::vector<std::string>& cert_names);
 
+<<<<<<< HEAD
 #ifdef ANDROID
 #if defined(USE_OPENSSL)
   // Returns the certificate in DER-encoded form, using the application DER
@@ -379,6 +402,35 @@ class X509Certificate : public base::RefCountedThreadSafe<X509Certificate> {
   static std::string GetDEREncodedBytes(OSCertHandle handle);
 #endif
 #endif
+=======
+  // The serial number, DER encoded.
+  // NOTE: keep this method private, used by IsBlacklisted only.  To simplify
+  // IsBlacklisted, we strip the leading 0 byte of a serial number, used to
+  // encode a positive DER INTEGER (a signed type) with a most significant bit
+  // of 1.  Other code must not use this method for general purpose until this
+  // is fixed.
+  const std::string& serial_number() const { return serial_number_; }
+
+  // IsBlacklisted returns true if this certificate is explicitly blacklisted.
+  bool IsBlacklisted() const;
+
+  // IsSHA1HashInSortedArray returns true iff |hash| is in |array|, a sorted
+  // array of SHA1 hashes.
+  static bool IsSHA1HashInSortedArray(const SHA1Fingerprint& hash,
+                                      const uint8* array,
+                                      size_t array_byte_len);
+
+  // Reads a single certificate from |pickle| and returns a platform-specific
+  // certificate handle. The format of the certificate stored in |pickle| is
+  // not guaranteed to be the same across different underlying cryptographic
+  // libraries, nor acceptable to CreateFromBytes(). Returns an invalid
+  // handle, NULL, on failure.
+  static OSCertHandle ReadCertHandleFromPickle(const Pickle& pickle,
+                                               void** pickle_iter);
+
+  // Writes a single certificate to |pickle|. Returns false on failure.
+  static bool WriteCertHandleToPickle(OSCertHandle handle, Pickle* pickle);
+>>>>>>> chromium.org at r12.0.742.93
 
   // The subject of the certificate.
   CertPrincipal subject_;
@@ -394,6 +446,9 @@ class X509Certificate : public base::RefCountedThreadSafe<X509Certificate> {
 
   // The fingerprint of this certificate.
   SHA1Fingerprint fingerprint_;
+
+  // The serial number of this certificate, DER encoded.
+  std::string serial_number_;
 
   // A handle to the certificate object in the underlying crypto library.
   OSCertHandle cert_handle_;

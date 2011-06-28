@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,5 +19,23 @@ bool SetUpdateUrlDataFunction::RunImpl() {
   EXTENSION_FUNCTION_VALIDATE(args_->GetString(0, &data));
 
   extension_prefs()->SetUpdateUrlData(extension_id(), data);
+  return true;
+}
+
+bool IsAllowedIncognitoAccessFunction::RunImpl() {
+  ExtensionService* ext_service = profile()->GetExtensionService();
+  const Extension* extension = GetExtension();
+
+  result_.reset(Value::CreateBooleanValue(
+      ext_service->IsIncognitoEnabled(extension->id())));
+  return true;
+}
+
+bool IsAllowedFileSchemeAccessFunction::RunImpl() {
+  ExtensionService* ext_service = profile()->GetExtensionService();
+  const Extension* extension = GetExtension();
+
+  result_.reset(Value::CreateBooleanValue(
+        ext_service->AllowFileAccess(extension)));
   return true;
 }

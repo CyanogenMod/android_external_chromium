@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -30,8 +30,8 @@
 #include <string>
 
 #include "base/basictypes.h"
-#include "base/ref_counted.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/task.h"
 #include "base/time.h"
 #include "base/timer.h"
@@ -171,9 +171,13 @@ class ClientSocketPoolBaseHelper
     Request(ClientSocketHandle* handle,
             CompletionCallback* callback,
             RequestPriority priority,
+<<<<<<< HEAD
 #ifdef ANDROID
             bool ignore_limits,
 #endif
+=======
+            bool ignore_limits,
+>>>>>>> chromium.org at r12.0.742.93
             Flags flags,
             const BoundNetLog& net_log);
 
@@ -182,9 +186,13 @@ class ClientSocketPoolBaseHelper
     ClientSocketHandle* handle() const { return handle_; }
     CompletionCallback* callback() const { return callback_; }
     RequestPriority priority() const { return priority_; }
+<<<<<<< HEAD
 #ifdef ANDROID
     bool ignore_limits() const { return ignore_limits_; }
 #endif
+=======
+    bool ignore_limits() const { return ignore_limits_; }
+>>>>>>> chromium.org at r12.0.742.93
     Flags flags() const { return flags_; }
     const BoundNetLog& net_log() const { return net_log_; }
 
@@ -192,9 +200,13 @@ class ClientSocketPoolBaseHelper
     ClientSocketHandle* const handle_;
     CompletionCallback* const callback_;
     const RequestPriority priority_;
+<<<<<<< HEAD
 #ifdef ANDROID
     bool ignore_limits_;
 #endif
+=======
+    bool ignore_limits_;
+>>>>>>> chromium.org at r12.0.742.93
     const Flags flags_;
     BoundNetLog net_log_;
 
@@ -292,7 +304,9 @@ class ClientSocketPoolBaseHelper
     return connect_job_factory_->ConnectionTimeout();
   }
 
-  static void set_connect_backup_jobs_enabled(bool enabled);
+  static bool connect_backup_jobs_enabled();
+  static bool set_connect_backup_jobs_enabled(bool enabled);
+
   void EnableConnectBackupJobs();
 
   // ConnectJob::Delegate methods:
@@ -416,7 +430,7 @@ class ClientSocketPoolBaseHelper
 
   static void InsertRequestIntoQueue(const Request* r,
                                      RequestQueue* pending_requests);
-  static const Request* RemoveRequestFromQueue(RequestQueue::iterator it,
+  static const Request* RemoveRequestFromQueue(const RequestQueue::iterator& it,
                                                Group* group);
 
   Group* GetOrCreateGroup(const std::string& group_name);
@@ -543,7 +557,7 @@ class ClientSocketPoolBaseHelper
 
   const scoped_ptr<ConnectJobFactory> connect_job_factory_;
 
-  // TODO(vandebo) Remove when backup jobs move to TCPClientSocketPool
+  // TODO(vandebo) Remove when backup jobs move to TransportClientSocketPool
   bool connect_backup_jobs_enabled_;
 
   // A unique id for the pool.  It gets incremented every time we Flush() the
@@ -573,6 +587,7 @@ class ClientSocketPoolBase {
             bool ignore_limits,
 #endif
             internal::ClientSocketPoolBaseHelper::Flags flags,
+            bool ignore_limits,
             const scoped_refptr<SocketParams>& params,
             const BoundNetLog& net_log)
         : internal::ClientSocketPoolBaseHelper::Request(
@@ -640,6 +655,7 @@ class ClientSocketPoolBase {
                     ignore_limits,
 #endif
                     internal::ClientSocketPoolBaseHelper::NORMAL,
+                    params->ignore_limits(),
                     params, net_log);
     return helper_.RequestSocket(group_name, request);
   }
@@ -661,6 +677,7 @@ class ClientSocketPoolBase {
                           ignore_limits,
 #endif
                           internal::ClientSocketPoolBaseHelper::NO_IDLE_SOCKETS,
+                          params->ignore_limits(),
                           params,
                           net_log);
     helper_.RequestSockets(group_name, request, num_sockets);

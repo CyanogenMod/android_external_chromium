@@ -35,7 +35,7 @@
         <label>
           <input id="dnsPrefetchingEnabled" pref="dns_prefetching.enabled"
               metric="Options_DnsPrefetchCheckbox" type="checkbox">
-          <span i18n-content="networkDNSPrefetchEnabledDescription"></span>
+          <span i18n-content="networkPredictionEnabledDescription"></span>
         </label>
       </div>
       <div class="checkbox">
@@ -107,10 +107,6 @@
         <button id="language-button"
             i18n-content="languageAndSpellCheckSettingsButton"></button>
 </if>
-<if expr="os == 'win32'">
-        <button id="gearSettingsConfigureGearsButton"
-            i18n-content="gearSettingsConfigureGearsButton"></button>
-</if>
 <if expr="not pp_ifdef('chromeos') or os == 'win32'">
       </div>
 </if>
@@ -179,8 +175,6 @@
     <div>
       <div><button id="certificatesManageButton"
           i18n-content="certificatesManageButton"></button></div>
-<if expr="os == 'win32'">
-      <!-- Configure these options for manual handling on windows -->
       <div class="checkbox">
         <label>
           <input id="sslCheckRevocation" type="checkbox">
@@ -199,31 +193,6 @@
           <span i18n-content="sslUseTLS1"></span>
         </label>
       </div>
-</if>
-<if expr="os == 'linux2' or os.find('bsd') != -1">
-      <!-- Configure these options for CrOS/Linux/BSD as preference keys -->
-      <div class="checkbox">
-        <label>
-          <input id="sslCheckRevocation" pref="ssl.rev_checking.enabled"
-              metric="Options_CheckCertRevocation" type="checkbox">
-          <span i18n-content="sslCheckRevocation"></span>
-        </label>
-      </div>
-      <div class="checkbox">
-        <label>
-          <input id="sslUseSSL3" pref="ssl.ssl3.enabled" metric="Options_SSL3"
-              type="checkbox">
-          <span i18n-content="sslUseSSL3"></span>
-        </label>
-      </div>
-      <div class="checkbox">
-        <label>
-          <input id="sslUseTLS1" pref="ssl.tls1.enabled" metric="Options_TLS1"
-              type="checkbox">
-          <span i18n-content="sslUseTLS1"></span>
-        </label>
-      </div>
-</if>
     </div>
   </section>
 <if expr="not pp_ifdef('chromeos')">

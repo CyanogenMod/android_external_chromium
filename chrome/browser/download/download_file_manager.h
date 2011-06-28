@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -43,8 +43,9 @@
 #include <map>
 
 #include "base/basictypes.h"
+#include "base/gtest_prod_util.h"
 #include "base/hash_tables.h"
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
 #include "base/timer.h"
 #include "ui/gfx/native_widget_types.h"
 
@@ -56,15 +57,14 @@ class DownloadManager;
 class FilePath;
 class GURL;
 class ResourceDispatcherHost;
+
+namespace net {
 class URLRequestContextGetter;
+}
 
 // Manages all in progress downloads.
 class DownloadFileManager
     : public base::RefCountedThreadSafe<DownloadFileManager> {
-
-  // For testing.
-  friend class DownloadManagerTest;
-
  public:
   explicit DownloadFileManager(ResourceDispatcherHost* rdh);
 
@@ -78,26 +78,52 @@ class DownloadFileManager
   void StartDownload(DownloadCreateInfo* info);
 
   // Handlers for notifications sent from the IO thread and run on the
-  // download thread.
+  // FILE thread.
   void UpdateDownload(int id, DownloadBuffer* buffer);
+  // |os_error| is 0 for normal completions, and non-0 for errors.
+  // |security_info| contains SSL information (cert_id, cert_status,
+  // security_bits, ssl_connection_status), which can be used to
+  // fine-tune the error message.  It is empty if the transaction
+  // was not performed securely.
+  void OnResponseCompleted(int id,
+                           DownloadBuffer* buffer,
+                           int os_error,
+                           const std::string& security_info);
+
+  // Handlers for notifications sent from the UI thread and run on the
+  // FILE thread.  These are both terminal actions with respect to the
+  // download file, as far as the DownloadFileManager is concerned -- if
+  // anything happens to the download file after they are called, it will
+  // be ignored.
   void CancelDownload(int id);
-  void OnResponseCompleted(int id, DownloadBuffer* buffer);
+  void CompleteDownload(int id);
 
   // Called on FILE thread by DownloadManager at the beginning of its shutdown.
   void OnDownloadManagerShutdown(DownloadManager* manager);
 
   // The DownloadManager in the UI thread has provided an intermediate
-  // .crdownload name for the download specified by 'id'.
-  void OnIntermediateDownloadName(int id, const FilePath& full_path,
-                                  DownloadManager* download_manager);
+  // .crdownload name for the download specified by |id|.
+  void RenameInProgressDownloadFile(int id, const FilePath& full_path);
 
-  // The download manager has provided a final name for a download. Sent from
-  // the UI thread and run on the download thread.
-  void OnFinalDownloadName(int id, const FilePath& full_path,
-                           DownloadManager* download_manager);
+  // The DownloadManager in the UI thread has provided a final name for the
+  // download specified by |id|.
+  // |overwrite_existing_file| prevents uniquification, and is used for SAFE
+  // downloads, as the user may have decided to overwrite the file.
+  // Sent from the UI thread and run on the FILE thread.
+  void RenameCompletingDownloadFile(int id,
+                                    const FilePath& full_path,
+                                    bool overwrite_existing_file);
+
+  // The number of downloads currently active on the DownloadFileManager.
+  // Primarily for testing.
+  int NumberOfActiveDownloads() const {
+    return downloads_.size();
+  }
 
  private:
   friend class base::RefCountedThreadSafe<DownloadFileManager>;
+  friend class DownloadManagerTest;
+  FRIEND_TEST_ALL_PREFIXES(DownloadManagerTest, StartDownload);
 
   ~DownloadFileManager();
 
@@ -122,8 +148,8 @@ class DownloadFileManager
   // Called only on the download thread.
   DownloadFile* GetDownloadFile(int id);
 
-  // Called only from OnFinalDownloadName or OnIntermediateDownloadName
-  // on the FILE thread.
+  // Called only from RenameInProgressDownloadFile and
+  // RenameCompletingDownloadFile on the FILE thread.
   void CancelDownloadOnRename(int id);
 
   // Erases the download file with the given the download |id| and removes
@@ -135,12 +161,8 @@ class DownloadFileManager
 
   typedef base::hash_map<int, DownloadFile*> DownloadFileMap;
 
-  // A map of all in progress downloads.  It owns the download files,
-  // although they may also show up in |downloads_with_final_name_|.
+  // A map of all in progress downloads.  It owns the download files.
   DownloadFileMap downloads_;
-
-  // download files are owned by |downloads_|.
-  DownloadFileMap downloads_with_final_name_;
 
   // Schedule periodic updates of the download progress. This timer
   // is controlled from the FILE thread, and posts updates to the UI thread.

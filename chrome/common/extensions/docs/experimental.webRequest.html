@@ -16,7 +16,7 @@
     <script type="text/javascript" src="js/api_page_generator.js"></script>
     <script type="text/javascript" src="js/bootstrap.js"></script>
     <script type="text/javascript" src="js/sidebar.js"></script>
-  <title>chrome.experimental.webRequest - Google Chrome Extensions - Google Code</title></head>
+  <title>WebRequest API - Google Chrome Extensions - Google Code</title></head>
   <body>  <div id="gc-container" class="labs">
       <div id="devModeWarning">
         You are viewing extension docs in chrome via the 'file:' scheme: are you expecting to see local changes when you refresh? You'll need run chrome with --allow-file-access-from-files.
@@ -251,16 +251,16 @@
 
     <div class="g-unit" id="gc-pagecontent">
       <div id="pageTitle">
-        <h1 class="page_title">chrome.experimental.webRequest</h1>
+        <h1 class="page_title">WebRequest API</h1>
       </div>
         <!-- TABLE OF CONTENTS -->
         <div id="toc">
           <h2>Contents</h2>
           <ol>
-            <li style="display: none; ">
-              <a>h2Name</a>
+            <li>
+              <a href="#H2-0">A note about timestamps</a>
               <ol>
-                <li>
+                <li style="display: none; ">
                   <a>h3Name</a>
                 </li>
               </ol>
@@ -281,6 +281,8 @@
                     <ol>
                       <li style="display: none; ">
                         <a href="#method-anchor">methodName</a>
+                      </li><li style="display: none; ">
+                        <a href="#method-anchor">methodName</a>
                       </li>
                     </ol>
                   </li>
@@ -291,6 +293,8 @@
                         <a href="#event-onBeforeRedirect">onBeforeRedirect</a>
                       </li><li>
                         <a href="#event-onBeforeRequest">onBeforeRequest</a>
+                      </li><li>
+                        <a href="#event-onBeforeSendHeaders">onBeforeSendHeaders</a>
                       </li><li>
                         <a href="#event-onCompleted">onCompleted</a>
                       </li><li>
@@ -307,6 +311,8 @@
                     <ol>
                       <li>
                         <a href="#type-RequestFilter">RequestFilter</a>
+                      </li><li>
+                        <a href="#type-BlockingResponse">BlockingResponse</a>
                       </li>
                     </ol>
                   </li>
@@ -317,12 +323,34 @@
         <!-- /TABLE OF CONTENTS -->
 
         <!-- Standard content lead-in for experimental API pages -->
-        <p id="classSummary">
+        <p id="classSummary" style="display: none; ">
           For information on how to use experimental APIs, see the <a href="experimental.html">chrome.experimental.* APIs</a> page.
         </p>
 
         <!-- STATIC CONTENT PLACEHOLDER -->
-        <div id="static"></div>
+        <div id="static"><div id="pageData-name" class="pageData">WebRequest API</div>
+
+<!-- BEGIN AUTHORED CONTENT -->
+<p id="classSummary">
+Use the <code>chrome.experimental.webRequest</code> module to intercept, block,
+or modify requests in-flight. This module is still very much experimental. For
+information on how to use experimental APIs, see the
+<a href="experimental.html">chrome.experimental.* APIs</a> page.
+</p>
+
+<a name="H2-0"></a><h2>A note about timestamps</h2>
+<p>
+It's important to note that some technical oddities in the OS's handling
+of distinct Chrome processes can cause the clock to be skewed between the
+browser itself and extension processes. That means that WebRequest's events'
+<code>timeStamp</code> property is only guaranteed to be <i>internally</i>
+consistent. Comparing one event to another event will give you the correct
+offset between them, but comparing them to the current time inside the
+extension (via <code>(new Date()).getTime()</code>, for instance) might give
+unexpected results.
+</p>
+<!-- END AUTHORED CONTENT -->
+</div>
 
         <!-- API PAGE -->
         <div class="apiPage">
@@ -354,6 +382,72 @@
 
             <!-- iterates over all functions -->
             <div class="apiItem" style="display: none; ">
+              <a></a> <!-- method-anchor -->
+              <h4>method name</h4>
+
+              <div class="summary"><span>void</span>
+                  <!-- Note: intentionally longer 80 columns -->
+                  <span>chrome.module.methodName</span>(<span><span>, </span><span></span>
+                      <var><span></span></var></span>)</div>
+
+              <div class="description">
+                <p class="todo">Undocumented.</p>
+                <p>
+                  A description from the json schema def of the function goes here.
+                </p>
+
+                <!-- PARAMETERS -->
+                <h4>Parameters</h4>
+                <dl>
+                  <div>
+                    <div>
+                    </div>
+                  </div>
+                </dl>
+
+                <!-- RETURNS -->
+                <h4>Returns</h4>
+                <dl>
+                  <div>
+                    <div>
+                    </div>
+                  </div>
+                </dl>
+
+                <!-- CALLBACK -->
+                <div>
+                  <div>
+                  <h4>Callback function</h4>
+                  <p>
+                    The callback <em>parameter</em> should specify a function
+                    that looks like this:
+                  </p>
+                  <p>
+                    If you specify the <em>callback</em> parameter, it should
+                    specify a function that looks like this:
+                  </p>
+
+                  <!-- Note: intentionally longer 80 columns -->
+                  <pre>function(<span>Type param1, Type param2</span>) <span class="subdued">{...}</span>;</pre>
+                  <dl>
+                    <div>
+                      <div>
+                      </div>
+                    </div>
+                  </dl>
+                  </div>
+                </div>
+
+                <!-- MIN_VERSION -->
+                <p>
+                  This function was added in version <b><span></span></b>.
+                  If you require this function, the manifest key
+                  <a href="manifest.html#minimum_chrome_version">minimum_chrome_version</a>
+                  can ensure that your extension won't be run in an earlier browser version.
+                </p>
+              </div> <!-- /description -->
+
+            </div><div class="apiItem" style="display: none; ">
               <a></a> <!-- method-anchor -->
               <h4>method name</h4>
 
@@ -511,7 +605,7 @@
                         <span style="display: none; ">
                           array of <span><span></span></span>
                         </span>
-                        <span>integer</span>
+                        <span>string</span>
                         <span style="display: none; "></span>
                       </span>
                     </span>
@@ -940,7 +1034,7 @@
                         <span style="display: none; ">
                           array of <span><span></span></span>
                         </span>
-                        <span>integer</span>
+                        <span>string</span>
                         <span style="display: none; "></span>
                       </span>
                     </span>
@@ -1357,6 +1451,301 @@
               </div> <!-- /decription -->
 
             </div><div class="apiItem">
+              <a name="event-onBeforeSendHeaders"></a>
+              <h4>onBeforeSendHeaders</h4>
+
+              <div class="summary">
+                <!-- Note: intentionally longer 80 columns -->
+                <span class="subdued">chrome.experimental.webRequest.</span><span>onBeforeSendHeaders</span><span class="subdued">.addListener</span>(function(<span>object details</span>) <span class="subdued">{...}</span>);
+              </div>
+
+              <div class="description">
+                <p class="todo" style="display: none; ">Undocumented.</p>
+                <p>Fires before sending an HTTP request, once the request headers are available.</p>
+
+                <!-- PARAMETERS -->
+                <div>
+                  <h4>Parameters</h4>
+                  <dl>
+                    <div>
+                      <div>
+          <dt>
+            <var>details</var>
+              <em>
+
+                <!-- TYPE -->
+                <div style="display:inline">
+                  (
+                    <span class="optional" style="display: none; ">optional</span>
+                    <span class="enum" style="display: none; ">enumerated</span>
+                    <span id="typeTemplate">
+                      <span style="display: none; ">
+                        <a> Type</a>
+                      </span>
+                      <span>
+                        <span style="display: none; ">
+                          array of <span><span></span></span>
+                        </span>
+                        <span>object</span>
+                        <span style="display: none; "></span>
+                      </span>
+                    </span>
+                  )
+                </div>
+
+              </em>
+          </dt>
+          <dd class="todo">
+            Undocumented.
+          </dd>
+          <dd style="display: none; ">
+            Description of this parameter from the json schema.
+          </dd>
+          <dd style="display: none; ">
+            This parameter was added in version
+            <b><span></span></b>.
+            You must omit this parameter in earlier versions,
+            and you may omit it in any version.  If you require this
+            parameter, the manifest key
+            <a href="manifest.html#minimum_chrome_version">minimum_chrome_version</a>
+            can ensure that your extension won't be run in an earlier browser version.
+          </dd>
+
+          <!-- OBJECT PROPERTIES -->
+          <dd>
+            <dl>
+              <div>
+                <div>
+          <dt>
+            <var>requestId</var>
+              <em>
+
+                <!-- TYPE -->
+                <div style="display:inline">
+                  (
+                    <span class="optional" style="display: none; ">optional</span>
+                    <span class="enum" style="display: none; ">enumerated</span>
+                    <span id="typeTemplate">
+                      <span style="display: none; ">
+                        <a> Type</a>
+                      </span>
+                      <span>
+                        <span style="display: none; ">
+                          array of <span><span></span></span>
+                        </span>
+                        <span>string</span>
+                        <span style="display: none; "></span>
+                      </span>
+                    </span>
+                  )
+                </div>
+
+              </em>
+          </dt>
+          <dd class="todo" style="display: none; ">
+            Undocumented.
+          </dd>
+          <dd>The ID of the request. Request IDs are unique within a browser session. As a result, they could be used to relate different events of the same request.</dd>
+          <dd style="display: none; ">
+            This parameter was added in version
+            <b><span></span></b>.
+            You must omit this parameter in earlier versions,
+            and you may omit it in any version.  If you require this
+            parameter, the manifest key
+            <a href="manifest.html#minimum_chrome_version">minimum_chrome_version</a>
+            can ensure that your extension won't be run in an earlier browser version.
+          </dd>
+
+          <!-- OBJECT PROPERTIES -->
+          <dd style="display: none; ">
+            <dl>
+              <div>
+                <div>
+                </div>
+              </div>
+            </dl>
+          </dd>
+
+          <!-- OBJECT METHODS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- OBJECT EVENT FIELDS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- FUNCTION PARAMETERS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+        </div>
+              </div><div>
+                <div>
+          <dt>
+            <var>url</var>
+              <em>
+
+                <!-- TYPE -->
+                <div style="display:inline">
+                  (
+                    <span class="optional" style="display: none; ">optional</span>
+                    <span class="enum" style="display: none; ">enumerated</span>
+                    <span id="typeTemplate">
+                      <span style="display: none; ">
+                        <a> Type</a>
+                      </span>
+                      <span>
+                        <span style="display: none; ">
+                          array of <span><span></span></span>
+                        </span>
+                        <span>string</span>
+                        <span style="display: none; "></span>
+                      </span>
+                    </span>
+                  )
+                </div>
+
+              </em>
+          </dt>
+          <dd class="todo">
+            Undocumented.
+          </dd>
+          <dd style="display: none; ">
+            Description of this parameter from the json schema.
+          </dd>
+          <dd style="display: none; ">
+            This parameter was added in version
+            <b><span></span></b>.
+            You must omit this parameter in earlier versions,
+            and you may omit it in any version.  If you require this
+            parameter, the manifest key
+            <a href="manifest.html#minimum_chrome_version">minimum_chrome_version</a>
+            can ensure that your extension won't be run in an earlier browser version.
+          </dd>
+
+          <!-- OBJECT PROPERTIES -->
+          <dd style="display: none; ">
+            <dl>
+              <div>
+                <div>
+                </div>
+              </div>
+            </dl>
+          </dd>
+
+          <!-- OBJECT METHODS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- OBJECT EVENT FIELDS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- FUNCTION PARAMETERS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+        </div>
+              </div><div>
+                <div>
+          <dt>
+            <var>timeStamp</var>
+              <em>
+
+                <!-- TYPE -->
+                <div style="display:inline">
+                  (
+                    <span class="optional" style="display: none; ">optional</span>
+                    <span class="enum" style="display: none; ">enumerated</span>
+                    <span id="typeTemplate">
+                      <span style="display: none; ">
+                        <a> Type</a>
+                      </span>
+                      <span>
+                        <span style="display: none; ">
+                          array of <span><span></span></span>
+                        </span>
+                        <span>number</span>
+                        <span style="display: none; "></span>
+                      </span>
+                    </span>
+                  )
+                </div>
+
+              </em>
+          </dt>
+          <dd class="todo" style="display: none; ">
+            Undocumented.
+          </dd>
+          <dd>The time when the browser was about to send headers, in milliseconds since the epoch.</dd>
+          <dd style="display: none; ">
+            This parameter was added in version
+            <b><span></span></b>.
+            You must omit this parameter in earlier versions,
+            and you may omit it in any version.  If you require this
+            parameter, the manifest key
+            <a href="manifest.html#minimum_chrome_version">minimum_chrome_version</a>
+            can ensure that your extension won't be run in an earlier browser version.
+          </dd>
+
+          <!-- OBJECT PROPERTIES -->
+          <dd style="display: none; ">
+            <dl>
+              <div>
+                <div>
+                </div>
+              </div>
+            </dl>
+          </dd>
+
+          <!-- OBJECT METHODS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- OBJECT EVENT FIELDS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- FUNCTION PARAMETERS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+        </div>
+              </div>
+            </dl>
+          </dd>
+
+          <!-- OBJECT METHODS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- OBJECT EVENT FIELDS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- FUNCTION PARAMETERS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+        </div>
+                    </div>
+                  </dl>
+                </div>
+              </div> <!-- /decription -->
+
+            </div><div class="apiItem">
               <a name="event-onCompleted"></a>
               <h4>onCompleted</h4>
 
@@ -1439,7 +1828,7 @@
                         <span style="display: none; ">
                           array of <span><span></span></span>
                         </span>
-                        <span>integer</span>
+                        <span>string</span>
                         <span style="display: none; "></span>
                       </span>
                     </span>
@@ -1800,7 +2189,7 @@
                         <span style="display: none; ">
                           array of <span><span></span></span>
                         </span>
-                        <span>integer</span>
+                        <span>string</span>
                         <span style="display: none; "></span>
                       </span>
                     </span>
@@ -2161,7 +2550,7 @@
                         <span style="display: none; ">
                           array of <span><span></span></span>
                         </span>
-                        <span>integer</span>
+                        <span>string</span>
                         <span style="display: none; "></span>
                       </span>
                     </span>
@@ -2524,7 +2913,7 @@
                         <span style="display: none; ">
                           array of <span><span></span></span>
                         </span>
-                        <span>integer</span>
+                        <span>string</span>
                         <span style="display: none; "></span>
                       </span>
                     </span>
@@ -3124,6 +3513,211 @@
           <dd style="display: none; ">
             Description of this parameter from the json schema.
           </dd>
+          <dd style="display: none; ">
+            This parameter was added in version
+            <b><span></span></b>.
+            You must omit this parameter in earlier versions,
+            and you may omit it in any version.  If you require this
+            parameter, the manifest key
+            <a href="manifest.html#minimum_chrome_version">minimum_chrome_version</a>
+            can ensure that your extension won't be run in an earlier browser version.
+          </dd>
+
+          <!-- OBJECT PROPERTIES -->
+          <dd style="display: none; ">
+            <dl>
+              <div>
+                <div>
+                </div>
+              </div>
+            </dl>
+          </dd>
+
+          <!-- OBJECT METHODS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- OBJECT EVENT FIELDS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- FUNCTION PARAMETERS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+        </div>
+              </div>
+            </dl>
+          </dd>
+
+          <!-- OBJECT METHODS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- OBJECT EVENT FIELDS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- FUNCTION PARAMETERS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+        </div>
+
+            </div><div class="apiItem">
+              <a name="type-BlockingResponse"></a>
+              <h4>BlockingResponse</h4>
+
+              <div>
+          <dt>
+            <var style="display: none; ">paramName</var>
+              <em>
+
+                <!-- TYPE -->
+                <div style="display:inline">
+                  (
+                    <span class="optional" style="display: none; ">optional</span>
+                    <span class="enum" style="display: none; ">enumerated</span>
+                    <span id="typeTemplate">
+                      <span style="display: none; ">
+                        <a> Type</a>
+                      </span>
+                      <span>
+                        <span style="display: none; ">
+                          array of <span><span></span></span>
+                        </span>
+                        <span>object</span>
+                        <span style="display: none; "></span>
+                      </span>
+                    </span>
+                  )
+                </div>
+
+              </em>
+          </dt>
+          <dd class="todo" style="display: none; ">
+            Undocumented.
+          </dd>
+          <dd>Return value for event handlers that have the 'blocking' extraInfoSpec applied. Allows the event handler to modify network requests.</dd>
+          <dd style="display: none; ">
+            This parameter was added in version
+            <b><span></span></b>.
+            You must omit this parameter in earlier versions,
+            and you may omit it in any version.  If you require this
+            parameter, the manifest key
+            <a href="manifest.html#minimum_chrome_version">minimum_chrome_version</a>
+            can ensure that your extension won't be run in an earlier browser version.
+          </dd>
+
+          <!-- OBJECT PROPERTIES -->
+          <dd>
+            <dl>
+              <div>
+                <div>
+          <dt>
+            <var>cancel</var>
+              <em>
+
+                <!-- TYPE -->
+                <div style="display:inline">
+                  (
+                    <span class="optional">optional</span>
+                    <span class="enum" style="display: none; ">enumerated</span>
+                    <span id="typeTemplate">
+                      <span style="display: none; ">
+                        <a> Type</a>
+                      </span>
+                      <span>
+                        <span style="display: none; ">
+                          array of <span><span></span></span>
+                        </span>
+                        <span>boolean</span>
+                        <span style="display: none; "></span>
+                      </span>
+                    </span>
+                  )
+                </div>
+
+              </em>
+          </dt>
+          <dd class="todo" style="display: none; ">
+            Undocumented.
+          </dd>
+          <dd>If true, the request is cancelled. Used in onBeforeRequest, this prevents the request from being sent.</dd>
+          <dd style="display: none; ">
+            This parameter was added in version
+            <b><span></span></b>.
+            You must omit this parameter in earlier versions,
+            and you may omit it in any version.  If you require this
+            parameter, the manifest key
+            <a href="manifest.html#minimum_chrome_version">minimum_chrome_version</a>
+            can ensure that your extension won't be run in an earlier browser version.
+          </dd>
+
+          <!-- OBJECT PROPERTIES -->
+          <dd style="display: none; ">
+            <dl>
+              <div>
+                <div>
+                </div>
+              </div>
+            </dl>
+          </dd>
+
+          <!-- OBJECT METHODS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- OBJECT EVENT FIELDS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- FUNCTION PARAMETERS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+        </div>
+              </div><div>
+                <div>
+          <dt>
+            <var>redirectUrl</var>
+              <em>
+
+                <!-- TYPE -->
+                <div style="display:inline">
+                  (
+                    <span class="optional">optional</span>
+                    <span class="enum" style="display: none; ">enumerated</span>
+                    <span id="typeTemplate">
+                      <span style="display: none; ">
+                        <a> Type</a>
+                      </span>
+                      <span>
+                        <span style="display: none; ">
+                          array of <span><span></span></span>
+                        </span>
+                        <span>string</span>
+                        <span style="display: none; "></span>
+                      </span>
+                    </span>
+                  )
+                </div>
+
+              </em>
+          </dt>
+          <dd class="todo" style="display: none; ">
+            Undocumented.
+          </dd>
+          <dd>If set, the original request is prevented from being sent and is instead redirected to the given URL.</dd>
           <dd style="display: none; ">
             This parameter was added in version
             <b><span></span></b>.

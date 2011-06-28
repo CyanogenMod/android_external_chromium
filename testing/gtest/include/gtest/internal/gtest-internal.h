@@ -40,10 +40,10 @@
 #include "gtest/internal/gtest-port.h"
 
 #if GTEST_OS_LINUX
-#include <stdlib.h>
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <unistd.h>
+# include <stdlib.h>
+# include <sys/types.h>
+# include <sys/wait.h>
+# include <unistd.h>
 #endif  // GTEST_OS_LINUX
 
 #include <ctype.h>
@@ -156,9 +156,9 @@ char (&IsNullLiteralHelper(...))[2];  // NOLINT
 #ifdef GTEST_ELLIPSIS_NEEDS_POD_
 // We lose support for NULL detection where the compiler doesn't like
 // passing non-POD classes through ellipsis (...).
-#define GTEST_IS_NULL_LITERAL_(x) false
+# define GTEST_IS_NULL_LITERAL_(x) false
 #else
-#define GTEST_IS_NULL_LITERAL_(x) \
+# define GTEST_IS_NULL_LITERAL_(x) \
     (sizeof(::testing::internal::IsNullLiteralHelper(x)) == 1)
 #endif  // GTEST_ELLIPSIS_NEEDS_POD_
 
@@ -536,20 +536,6 @@ GTEST_API_ AssertionResult IsHRESULTFailure(const char* expr,
 
 #endif  // GTEST_OS_WINDOWS
 
-// Formats a source file path and a line number as they would appear
-// in a compiler error message.
-inline String FormatFileLocation(const char* file, int line) {
-  const char* const file_name = file == NULL ? "unknown file" : file;
-  if (line < 0) {
-    return String::Format("%s:", file_name);
-  }
-#ifdef _MSC_VER
-  return String::Format("%s(%d):", file_name, line);
-#else
-  return String::Format("%s:%d:", file_name, line);
-#endif  // _MSC_VER
-}
-
 // Types of SetUpTestCase() and TearDownTestCase() functions.
 typedef void (*SetUpTestCaseFunc)();
 typedef void (*TearDownTestCaseFunc)();
@@ -802,16 +788,16 @@ struct RemoveConst { typedef T type; };  // NOLINT
 template <typename T>
 struct RemoveConst<const T> { typedef T type; };  // NOLINT
 
-// MSVC 8.0 has a bug which causes the above definition to fail to
-// remove the const in 'const int[3]'.  The following specialization
-// works around the bug.  However, it causes trouble with gcc and thus
-// needs to be conditionally compiled.
-#ifdef _MSC_VER
+// MSVC 8.0 and Sun C++ have a bug which causes the above definition
+// to fail to remove the const in 'const int[3]'.  The following
+// specialization works around the bug.  However, it causes trouble
+// with GCC and thus needs to be conditionally compiled.
+#if defined(_MSC_VER) || defined(__SUNPRO_CC)
 template <typename T, size_t N>
 struct RemoveConst<T[N]> {
   typedef typename RemoveConst<T>::type type[N];
 };
-#endif  // _MSC_VER
+#endif
 
 // A handy wrapper around RemoveConst that works when the argument
 // T depends on template parameters.
@@ -881,11 +867,17 @@ class ImplicitlyConvertible {
   // possible loss of data, so we need to temporarily disable the
   // warning.
 #ifdef _MSC_VER
-#pragma warning(push)          // Saves the current warning state.
-#pragma warning(disable:4244)  // Temporarily disables warning 4244.
+# pragma warning(push)          // Saves the current warning state.
+# pragma warning(disable:4244)  // Temporarily disables warning 4244.
+
   static const bool value =
       sizeof(Helper(ImplicitlyConvertible::MakeFrom())) == 1;
-#pragma warning(pop)           // Restores the warning state.
+# pragma warning(pop)           // Restores the warning state.
+#elif defined(__BORLANDC__)
+  // C++Builder cannot use member overload resolution during template
+  // instantiation.  The simplest workaround is to use its C++0x type traits
+  // functions (C++Builder 2009 and above only).
+  static const bool value = __is_convertible(From, To);
 #else
   static const bool value =
       sizeof(Helper(ImplicitlyConvertible::MakeFrom())) == 1;
@@ -904,21 +896,38 @@ struct IsAProtocolMessage
   ImplicitlyConvertible<const T*, const ::proto2::Message*>::value> {
 };
 
-// When the compiler sees expression IsContainerTest<C>(0), the first
-// overload of IsContainerTest will be picked if C is an STL-style
-// container class (since C::const_iterator* is a valid type and 0 can
-// be converted to it), while the second overload will be picked
-// otherwise (since C::const_iterator will be an invalid type in this
-// case).  Therefore, we can determine whether C is a container class
-// by checking the type of IsContainerTest<C>(0).  The value of the
-// expression is insignificant.
+// When the compiler sees expression IsContainerTest<C>(0), if C is an
+// STL-style container class, the first overload of IsContainerTest
+// will be viable (since both C::iterator* and C::const_iterator* are
+// valid types and NULL can be implicitly converted to them).  It will
+// be picked over the second overload as 'int' is a perfect match for
+// the type of argument 0.  If C::iterator or C::const_iterator is not
+// a valid type, the first overload is not viable, and the second
+// overload will be picked.  Therefore, we can determine whether C is
+// a container class by checking the type of IsContainerTest<C>(0).
+// The value of the expression is insignificant.
+//
+// Note that we look for both C::iterator and C::const_iterator.  The
+// reason is that C++ injects the name of a class as a member of the
+// class itself (e.g. you can refer to class iterator as either
+// 'iterator' or 'iterator::iterator').  If we look for C::iterator
+// only, for example, we would mistakenly think that a class named
+// iterator is an STL container.
+//
+// Also note that the simpler approach of overloading
+// IsContainerTest(typename C::const_iterator*) and
+// IsContainerTest(...) doesn't work with Visual Age C++ and Sun C++.
 typedef int IsContainer;
 template <class C>
-IsContainer IsContainerTest(typename C::const_iterator*) { return 0; }
+IsContainer IsContainerTest(int /* dummy */,
+                            typename C::iterator* /* it */ = NULL,
+                            typename C::const_iterator* /* const_it */ = NULL) {
+  return 0;
+}
 
 typedef char IsNotContainer;
 template <class C>
-IsNotContainer IsContainerTest(...) { return '\0'; }
+IsNotContainer IsContainerTest(long /* dummy */) { return '\0'; }
 
 // EnableIf<condition>::type is void when 'Cond' is true, and
 // undefined when 'Cond' is false.  To use SFINAE to make a function
@@ -1017,6 +1026,7 @@ class NativeArray {
  public:
   // STL-style container typedefs.
   typedef Element value_type;
+  typedef Element* iterator;
   typedef const Element* const_iterator;
 
   // Constructs from a native array.

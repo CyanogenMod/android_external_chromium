@@ -10,8 +10,8 @@
 #include "chrome/browser/prefs/pref_change_registrar.h"
 #include "chrome/browser/ui/webui/options/options_ui.h"
 #include "chrome/common/content_settings_types.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
 
 class HostContentSettingsMap;
 
@@ -40,8 +40,6 @@ class ContentSettingsHandler : public OptionsPageUIHandler {
 
   // Updates the page with the default settings (allow, ask, block, etc.)
   void UpdateSettingDefaultFromModel(ContentSettingsType type);
-  // Updates the state of the "Clear plugin LSO data on exit" checkbox.
-  void UpdateClearPluginLSOData();
 
   // Clobbers and rebuilds the specific content setting type exceptions table.
   void UpdateExceptionsViewFromModel(ContentSettingsType type);
@@ -107,7 +105,6 @@ class ContentSettingsHandler : public OptionsPageUIHandler {
 
   NotificationRegistrar notification_registrar_;
   PrefChangeRegistrar pref_change_registrar_;
-  PluginDataRemoverHelper clear_plugin_lso_data_enabled_;
 
   DISALLOW_COPY_AND_ASSIGN(ContentSettingsHandler);
 };

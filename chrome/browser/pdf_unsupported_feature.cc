@@ -11,8 +11,8 @@
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tab_contents/confirm_infobar_delegate.h"
+#include "chrome/common/chrome_content_client.h"
 #include "chrome/common/jstemplate_builder.h"
-#include "chrome/common/pepper_plugin_registry.h"
 #include "chrome/common/pref_names.h"
 #include "content/browser/plugin_service.h"
 #include "content/browser/renderer_host/render_process_host.h"
@@ -31,10 +31,13 @@ using webkit::npapi::PluginGroup;
 using webkit::npapi::PluginList;
 using webkit::npapi::WebPluginInfo;
 
+namespace {
+
 // Only launch Adobe Reader X or later.
 static const uint16 kMinReaderVersionToUse = 10;
 
-namespace {
+static const char kReaderUpdateUrl[] =
+    "http://www.adobe.com/go/getreader_chrome";
 
 // The info bar delegate used to ask the user if they want to use Adobe Reader
 // by default.  We want the infobar to have [No][Yes], so we swap the text on
@@ -102,7 +105,7 @@ class PDFEnableAdobeReaderConfirmInfoBarDelegate
     UserMetrics::RecordAction(
         UserMetricsAction("PDF_EnableReaderInfoBarOK"));
     webkit::npapi::PluginList::Singleton()->EnableGroup(
-        false, ASCIIToUTF16(PepperPluginRegistry::kPDFPluginName));
+        false, ASCIIToUTF16(chrome::ChromeContentClient::kPDFPluginName));
     webkit::npapi::PluginList::Singleton()->EnableGroup(
         true, ASCIIToUTF16(webkit::npapi::PluginGroup::kAdobeReaderGroupName));
     return true;
@@ -121,7 +124,7 @@ class PDFEnableAdobeReaderConfirmInfoBarDelegate
 
 // Launch the url to get the latest Adbobe Reader installer.
 void OpenReaderUpdateURL(TabContents* tab) {
-  tab->OpenURL(GURL(PluginGroup::kAdobeReaderUpdateURL), GURL(), CURRENT_TAB,
+  tab->OpenURL(GURL(kReaderUpdateUrl), GURL(), CURRENT_TAB,
                PageTransition::LINK);
 }
 

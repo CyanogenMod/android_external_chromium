@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -263,15 +263,10 @@ bool URLRequestFileJob::IsRedirectResponse(GURL* location,
 #endif
 }
 
-bool URLRequestFileJob::GetContentEncodings(
-    std::vector<Filter::FilterType>* encoding_types) {
-  DCHECK(encoding_types->empty());
-
+Filter* URLRequestFileJob::SetupFilter() const {
   // Bug 9936 - .svgz files needs to be decompressed.
-  if (LowerCaseEqualsASCII(file_path_.Extension(), ".svgz"))
-    encoding_types->push_back(Filter::FILTER_TYPE_GZIP);
-
-  return !encoding_types->empty();
+  return LowerCaseEqualsASCII(file_path_.Extension(), ".svgz")
+      ? Filter::GZipFactory() : NULL;
 }
 
 bool URLRequestFileJob::GetMimeType(std::string* mime_type) const {
@@ -359,14 +354,19 @@ void URLRequestFileJob::DidResolve(
                      byte_range_.first_byte_position() + 1;
   DCHECK_GE(remaining_bytes_, 0);
 
-  // Do the seek at the beginning of the request.
-  if (remaining_bytes_ > 0 &&
-      byte_range_.first_byte_position() != 0 &&
-      byte_range_.first_byte_position() !=
-          stream_.Seek(FROM_BEGIN, byte_range_.first_byte_position())) {
-    NotifyDone(URLRequestStatus(URLRequestStatus::FAILED,
-               ERR_REQUEST_RANGE_NOT_SATISFIABLE));
-    return;
+  // URL requests should not block on the disk!
+  //   http://code.google.com/p/chromium/issues/detail?id=59849
+  {
+    base::ThreadRestrictions::ScopedAllowIO allow_io;
+    // Do the seek at the beginning of the request.
+    if (remaining_bytes_ > 0 &&
+        byte_range_.first_byte_position() != 0 &&
+        byte_range_.first_byte_position() !=
+        stream_.Seek(FROM_BEGIN, byte_range_.first_byte_position())) {
+      NotifyDone(URLRequestStatus(URLRequestStatus::FAILED,
+                                  ERR_REQUEST_RANGE_NOT_SATISFIABLE));
+      return;
+    }
   }
 
   set_expected_content_size(remaining_bytes_);

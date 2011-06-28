@@ -1,8 +1,10 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "net/base/x509_certificate.h"
+
+#include <stdlib.h>
 
 #include <map>
 #include <string>
@@ -10,8 +12,10 @@
 
 #include "base/lazy_instance.h"
 #include "base/logging.h"
+#include "base/memory/singleton.h"
 #include "base/metrics/histogram.h"
-#include "base/singleton.h"
+#include "base/pickle.h"
+#include "base/sha1.h"
 #include "base/string_piece.h"
 #include "base/string_util.h"
 #include "base/time.h"
@@ -112,6 +116,12 @@ X509Certificate* X509CertificateCache::Find(
 
   return pos->second;
 };
+
+// CompareSHA1Hashes is a helper function for using bsearch() with an array of
+// SHA1 hashes.
+static int CompareSHA1Hashes(const void* a, const void* b) {
+  return memcmp(a, b, base::SHA1_LENGTH);
+}
 
 }  // namespace
 
@@ -222,6 +232,52 @@ X509Certificate* X509Certificate::CreateFromBytes(const char* data,
   return cert;
 }
 
+// static
+X509Certificate* X509Certificate::CreateFromPickle(const Pickle& pickle,
+                                                   void** pickle_iter,
+                                                   PickleType type) {
+  OSCertHandle cert_handle = ReadCertHandleFromPickle(pickle, pickle_iter);
+  OSCertHandles intermediates;
+
+  // Even if a certificate fails to parse, whether the server certificate in
+  // |cert_handle| or one of the optional intermediates, continue reading
+  // the data from |pickle| so that |pickle_iter| is kept in sync for any
+  // other reads the caller may perform after this method returns.
+  if (type == PICKLETYPE_CERTIFICATE_CHAIN) {
+    size_t num_intermediates;
+    if (!pickle.ReadSize(pickle_iter, &num_intermediates)) {
+      FreeOSCertHandle(cert_handle);
+      return NULL;
+    }
+
+    bool ok = !!cert_handle;
+    for (size_t i = 0; i < num_intermediates; ++i) {
+      OSCertHandle intermediate = ReadCertHandleFromPickle(pickle,
+                                                           pickle_iter);
+      // If an intermediate fails to load, it and any certificates after it
+      // will not be added. However, any intermediates that were successfully
+      // parsed before the failure can be safely returned.
+      ok &= !!intermediate;
+      if (ok) {
+        intermediates.push_back(intermediate);
+      } else if (intermediate) {
+        FreeOSCertHandle(intermediate);
+      }
+    }
+  }
+
+  if (!cert_handle)
+    return NULL;
+  X509Certificate* cert = CreateFromHandle(cert_handle, SOURCE_FROM_CACHE,
+                                           intermediates);
+  FreeOSCertHandle(cert_handle);
+  for (size_t i = 0; i < intermediates.size(); ++i)
+    FreeOSCertHandle(intermediates[i]);
+
+  return cert;
+}
+
+// static
 CertificateList X509Certificate::CreateCertificateListFromBytes(
     const char* data, int length, int format) {
   OSCertHandles certificates;
@@ -299,6 +355,26 @@ CertificateList X509Certificate::CreateCertificateListFromBytes(
   return results;
 }
 
+void X509Certificate::Persist(Pickle* pickle) {
+  DCHECK(cert_handle_);
+  if (!WriteCertHandleToPickle(cert_handle_, pickle)) {
+    NOTREACHED();
+    return;
+  }
+
+  if (!pickle->WriteSize(intermediate_ca_certs_.size())) {
+    NOTREACHED();
+    return;
+  }
+
+  for (size_t i = 0; i < intermediate_ca_certs_.size(); ++i) {
+    if (!WriteCertHandleToPickle(intermediate_ca_certs_[i], pickle)) {
+      NOTREACHED();
+      return;
+    }
+  }
+}
+
 bool X509Certificate::HasExpired() const {
   return base::Time::Now() > valid_expiry();
 }
@@ -308,15 +384,11 @@ bool X509Certificate::Equals(const X509Certificate* other) const {
 }
 
 bool X509Certificate::HasIntermediateCertificate(OSCertHandle cert) {
-#if defined(OS_MACOSX) || defined(OS_WIN) || defined(USE_OPENSSL)
   for (size_t i = 0; i < intermediate_ca_certs_.size(); ++i) {
     if (IsSameOSCert(cert, intermediate_ca_certs_[i]))
       return true;
   }
   return false;
-#else
-  return true;
-#endif
 }
 
 bool X509Certificate::HasIntermediateCertificates(const OSCertHandles& certs) {
@@ -472,6 +544,70 @@ X509Certificate::~X509Certificate() {
     FreeOSCertHandle(cert_handle_);
   for (size_t i = 0; i < intermediate_ca_certs_.size(); ++i)
     FreeOSCertHandle(intermediate_ca_certs_[i]);
+}
+
+bool X509Certificate::IsBlacklisted() const {
+  static const unsigned kNumSerials = 10;
+  static const unsigned kSerialBytes = 16;
+  static const uint8 kSerials[kNumSerials][kSerialBytes] = {
+    // Not a real certificate. For testing only.
+    {0x07,0x7a,0x59,0xbc,0xd5,0x34,0x59,0x60,0x1c,0xa6,0x90,0x72,0x67,0xa6,0xdd,0x1c},
+
+    // The next nine certificates all expire on Fri Mar 14 23:59:59 2014.
+    // Some serial numbers actually have a leading 0x00 byte required to
+    // encode a positive integer in DER if the most significant bit is 0.
+    // We omit the leading 0x00 bytes to make all serial numbers 16 bytes.
+
+    // Subject: CN=mail.google.com
+    // subjectAltName dNSName: mail.google.com, www.mail.google.com
+    {0x04,0x7e,0xcb,0xe9,0xfc,0xa5,0x5f,0x7b,0xd0,0x9e,0xae,0x36,0xe1,0x0c,0xae,0x1e},
+    // Subject: CN=global trustee
+    // subjectAltName dNSName: global trustee
+    // Note: not a CA certificate.
+    {0xd8,0xf3,0x5f,0x4e,0xb7,0x87,0x2b,0x2d,0xab,0x06,0x92,0xe3,0x15,0x38,0x2f,0xb0},
+    // Subject: CN=login.live.com
+    // subjectAltName dNSName: login.live.com, www.login.live.com
+    {0xb0,0xb7,0x13,0x3e,0xd0,0x96,0xf9,0xb5,0x6f,0xae,0x91,0xc8,0x74,0xbd,0x3a,0xc0},
+    // Subject: CN=addons.mozilla.org
+    // subjectAltName dNSName: addons.mozilla.org, www.addons.mozilla.org
+    {0x92,0x39,0xd5,0x34,0x8f,0x40,0xd1,0x69,0x5a,0x74,0x54,0x70,0xe1,0xf2,0x3f,0x43},
+    // Subject: CN=login.skype.com
+    // subjectAltName dNSName: login.skype.com, www.login.skype.com
+    {0xe9,0x02,0x8b,0x95,0x78,0xe4,0x15,0xdc,0x1a,0x71,0x0a,0x2b,0x88,0x15,0x44,0x47},
+    // Subject: CN=login.yahoo.com
+    // subjectAltName dNSName: login.yahoo.com, www.login.yahoo.com
+    {0xd7,0x55,0x8f,0xda,0xf5,0xf1,0x10,0x5b,0xb2,0x13,0x28,0x2b,0x70,0x77,0x29,0xa3},
+    // Subject: CN=www.google.com
+    // subjectAltName dNSName: www.google.com, google.com
+    {0xf5,0xc8,0x6a,0xf3,0x61,0x62,0xf1,0x3a,0x64,0xf5,0x4f,0x6d,0xc9,0x58,0x7c,0x06},
+    // Subject: CN=login.yahoo.com
+    // subjectAltName dNSName: login.yahoo.com
+    {0x39,0x2a,0x43,0x4f,0x0e,0x07,0xdf,0x1f,0x8a,0xa3,0x05,0xde,0x34,0xe0,0xc2,0x29},
+    // Subject: CN=login.yahoo.com
+    // subjectAltName dNSName: login.yahoo.com
+    {0x3e,0x75,0xce,0xd4,0x6b,0x69,0x30,0x21,0x21,0x88,0x30,0xae,0x86,0xa8,0x2a,0x71},
+  };
+
+  if (serial_number_.size() == kSerialBytes) {
+    for (unsigned i = 0; i < kNumSerials; i++) {
+      if (memcmp(kSerials[i], serial_number_.data(), kSerialBytes) == 0) {
+        UMA_HISTOGRAM_ENUMERATION("Net.SSLCertBlacklisted", i, kNumSerials);
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+// static
+bool X509Certificate::IsSHA1HashInSortedArray(const SHA1Fingerprint& hash,
+                                              const uint8* array,
+                                              size_t array_byte_len) {
+  DCHECK_EQ(0u, array_byte_len % base::SHA1_LENGTH);
+  const unsigned arraylen = array_byte_len / base::SHA1_LENGTH;
+  return NULL != bsearch(hash.data, array, arraylen, base::SHA1_LENGTH,
+                         CompareSHA1Hashes);
 }
 
 }  // namespace net

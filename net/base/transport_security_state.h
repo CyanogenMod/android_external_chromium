@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,11 +8,13 @@
 
 #include <map>
 #include <string>
+#include <vector>
 
 #include "base/basictypes.h"
 #include "base/gtest_prod_util.h"
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
 #include "base/time.h"
+#include "net/base/x509_cert_types.h"
 
 namespace net {
 
@@ -42,18 +44,25 @@ class TransportSecurityState :
       //   * We'll request HTTP URLs over HTTPS iff we have SPDY support.
       //   * Certificate issues are fatal.
       MODE_SPDY_ONLY = 2,
+      // None means there is no HSTS for this domain.
+      MODE_NONE = 3,
     };
 
-    DomainState()
-        : mode(MODE_STRICT),
-          created(base::Time::Now()),
-          include_subdomains(false),
-          preloaded(false) { }
+    DomainState();
+    ~DomainState();
+
+    // IsChainOfPublicKeysPermitted takes a set of public key hashes and
+    // returns true if:
+    //   1) |public_key_hashes| is empty, i.e. no public keys have been pinned.
+    //   2) |hashes| and |public_key_hashes| are not disjoint.
+    bool IsChainOfPublicKeysPermitted(
+        const std::vector<SHA1Fingerprint>& hashes);
 
     Mode mode;
     base::Time created;  // when this host entry was first created
     base::Time expiry;  // the absolute time (UTC) when this record expires
     bool include_subdomains;  // subdomains included?
+    std::vector<SHA1Fingerprint> public_key_hashes;  // optional; permitted keys
 
     // The follow members are not valid when stored in |enabled_hosts_|.
     bool preloaded;  // is this a preloaded entry?
@@ -67,9 +76,11 @@ class TransportSecurityState :
   // action is taken. Returns true iff an entry was deleted.
   bool DeleteHost(const std::string& host);
 
-  // Returns true if |host| has TransportSecurity enabled. If that case,
-  // *result is filled out.
-  bool IsEnabledForHost(DomainState* result, const std::string& host);
+  // Returns true if |host| has TransportSecurity enabled, in the context of
+  // |sni_available|. In that case, *result is filled out.
+  bool IsEnabledForHost(DomainState* result,
+                        const std::string& host,
+                        bool sni_available);
 
   // Deletes all records created since a given time.
   void DeleteSince(const base::Time& time);
@@ -95,7 +106,9 @@ class TransportSecurityState :
   void SetDelegate(Delegate*);
 
   bool Serialise(std::string* output);
-  bool Deserialise(const std::string& state, bool* dirty);
+  // Existing non-preloaded entries are cleared and repopulated from the
+  // passed JSON string.
+  bool LoadEntries(const std::string& state, bool* dirty);
 
   // The maximum number of seconds for which we'll cache an HSTS request.
   static const long int kMaxHSTSAgeSecs;
@@ -112,7 +125,11 @@ class TransportSecurityState :
 
   static std::string CanonicalizeHost(const std::string& host);
   static bool IsPreloadedSTS(const std::string& canonicalized_host,
-                             bool* out_include_subdomains);
+                             bool sni_available,
+                             DomainState* out);
+  static bool Deserialise(const std::string& state,
+                          bool* dirty,
+                          std::map<std::string, DomainState>* out);
 
   // The set of hosts that have enabled TransportSecurity. The keys here
   // are SHA256(DNSForm(domain)) where DNSForm converts from dotted form

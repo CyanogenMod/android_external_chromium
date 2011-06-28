@@ -11,13 +11,13 @@
 #include <vector>
 
 #include "base/basictypes.h"
-#include "base/id_map.h"
 #include "base/callback.h"
+#include "base/id_map.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/process.h"
-#include "base/scoped_ptr.h"
 #include "base/task.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
 #include "ipc/ipc_sync_channel.h"
 
 class Profile;
@@ -95,7 +95,7 @@ class ServiceProcessControl : public IPC::Channel::Sender,
 
   // Message handlers
   void OnCloudPrintProxyIsEnabled(bool enabled, std::string email);
-  void OnRemotingHostInfo(remoting::ChromotingHostInfo host_info);
+  void OnRemotingHostInfo(const remoting::ChromotingHostInfo& host_info);
 
   // Send a shutdown message to the service process. IPC channel will be
   // destroyed after calling this method.

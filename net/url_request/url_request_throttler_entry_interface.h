@@ -1,12 +1,13 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef NET_URL_REQUEST_URL_REQUEST_THROTTLER_ENTRY_INTERFACE_H_
 #define NET_URL_REQUEST_URL_REQUEST_THROTTLER_ENTRY_INTERFACE_H_
+#pragma once
 
 #include "base/basictypes.h"
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
 #include "base/time.h"
 
 namespace net {
@@ -21,7 +22,7 @@ class URLRequestThrottlerEntryInterface
 
   // Returns true when we have encountered server errors and are doing
   // exponential back-off.
-  // net::URLRequestHttpJob checks this method prior to every request; it
+  // URLRequestHttpJob checks this method prior to every request; it
   // cancels requests if this method returns true.
   virtual bool IsDuringExponentialBackoff() const = 0;
 
@@ -42,6 +43,7 @@ class URLRequestThrottlerEntryInterface
 
   // This method needs to be called each time a response is received.
   virtual void UpdateWithResponse(
+      const std::string& host,
       const URLRequestThrottlerHeaderInterface* response) = 0;
 
   // Lets higher-level modules, that know how to parse particular response
@@ -49,9 +51,6 @@ class URLRequestThrottlerEntryInterface
   // be handled by the throttler as if an HTTP 5xx response had been received to
   // the request, i.e. it will count as a failure.
   virtual void ReceivedContentWasMalformed() = 0;
-
-  // For unit testing only.
-  virtual void SetEntryLifetimeMsForTest(int lifetime_ms) = 0;
 
  protected:
   friend class base::RefCountedThreadSafe<URLRequestThrottlerEntryInterface>;

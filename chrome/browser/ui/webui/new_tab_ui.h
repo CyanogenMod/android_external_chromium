@@ -12,9 +12,9 @@
 #include "base/timer.h"
 #include "chrome/browser/sessions/tab_restore_service.h"
 #include "chrome/browser/ui/webui/chrome_url_data_manager.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
 #include "content/browser/webui/web_ui.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
 
 class GURL;
 class MessageLoop;
@@ -36,9 +36,6 @@ class NewTabUI : public WebUI,
   static void RegisterUserPrefs(PrefService* prefs);
   static void MigrateUserPrefs(PrefService* prefs, int old_pref_version,
                                int new_pref_version);
-
-  // Whether we should disable the web resources backend service
-  static bool WebResourcesEnabled();
 
   // Whether we should disable the first run notification based on the command
   // line switch.
@@ -66,7 +63,7 @@ class NewTabUI : public WebUI,
     // Called when the network layer has requested a resource underneath
     // the path we registered.
     virtual void StartDataRequest(const std::string& path,
-                                  bool is_off_the_record,
+                                  bool is_incognito,
                                   int request_id);
 
     virtual std::string GetMimeType(const std::string&) const;

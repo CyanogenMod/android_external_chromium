@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,11 +13,11 @@
 #include "base/file_util.h"
 #include "base/message_loop.h"
 #include "base/path_service.h"
-#include "base/scoped_comptr_win.h"
 #include "base/string_util.h"
 #include "base/task.h"
 #include "base/utf_string_conversions.h"
 #include "base/win/registry.h"
+#include "base/win/scoped_comptr.h"
 #include "base/win/windows_version.h"
 #include "chrome/browser/web_applications/web_app.h"
 #include "chrome/common/chrome_constants.h"
@@ -48,8 +48,10 @@ std::wstring GetProfileIdFromPath(const FilePath& profile_path) {
   // dir and is the default profile.
   if (chrome::GetDefaultUserDataDirectory(&default_user_data_dir) &&
       profile_path.DirName() == default_user_data_dir &&
-      profile_path.BaseName().value() == chrome::kNotSignedInProfile)
+      profile_path.BaseName().value() ==
+          ASCIIToUTF16(chrome::kNotSignedInProfile)) {
     return std::wstring();
+  }
 
   // Get joined basenames of user data dir and profile.
   std::wstring basenames = profile_path.DirName().BaseName().value() +
@@ -152,7 +154,7 @@ void MigrateChromiumShortcutsTask::MigrateWin7ShortcutsInPath(
   for (FilePath shortcut = shortcuts_enum.Next(); !shortcut.empty();
        shortcut = shortcuts_enum.Next()) {
     // Load the shortcut.
-    ScopedComPtr<IShellLink> shell_link;
+    base::win::ScopedComPtr<IShellLink> shell_link;
     if (FAILED(shell_link.CreateInstance(CLSID_ShellLink,
                                          NULL,
                                          CLSCTX_INPROC_SERVER))) {
@@ -160,7 +162,7 @@ void MigrateChromiumShortcutsTask::MigrateWin7ShortcutsInPath(
       return;
     }
 
-    ScopedComPtr<IPersistFile> persist_file;
+    base::win::ScopedComPtr<IPersistFile> persist_file;
     if (FAILED(persist_file.QueryFrom(shell_link)) ||
         FAILED(persist_file->Load(shortcut.value().c_str(), STGM_READ))) {
       NOTREACHED();
@@ -219,7 +221,7 @@ bool MigrateChromiumShortcutsTask::GetExpectedAppId(
   FilePath profile_path;
   if (command_line.HasSwitch(switches::kUserDataDir)) {
     profile_path =
-        command_line.GetSwitchValuePath(switches::kUserDataDir).Append(
+        command_line.GetSwitchValuePath(switches::kUserDataDir).AppendASCII(
             chrome::kNotSignedInProfile);
   }
 
@@ -246,7 +248,7 @@ bool MigrateChromiumShortcutsTask::GetShortcutAppId(
 
   app_id->clear();
 
-  ScopedComPtr<IPropertyStore> property_store;
+  base::win::ScopedComPtr<IPropertyStore> property_store;
   if (FAILED(property_store.QueryFrom(shell_link)))
     return false;
 

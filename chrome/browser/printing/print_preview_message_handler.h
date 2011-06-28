@@ -8,7 +8,7 @@
 
 #include "content/browser/tab_contents/tab_contents_observer.h"
 
-struct ViewHostMsg_DidPreviewDocument_Params;
+struct PrintHostMsg_DidPreviewDocument_Params;
 
 namespace printing {
 
@@ -20,15 +20,18 @@ class PrintPreviewMessageHandler : public TabContentsObserver {
   explicit PrintPreviewMessageHandler(TabContents* tab_contents);
   virtual ~PrintPreviewMessageHandler();
 
-  void OnPagesReadyForPreview(
-      const ViewHostMsg_DidPreviewDocument_Params& params);
-
   // TabContentsObserver implementation.
   virtual bool OnMessageReceived(const IPC::Message& message);
+  virtual void DidStartLoading();
 
  private:
   // Gets the print preview tab associated with |owner_|.
   TabContents* GetPrintPreviewTab();
+
+  void OnPagesReadyForPreview(
+      const PrintHostMsg_DidPreviewDocument_Params& params);
+  void OnPrintPreviewNodeUnderContextMenu();
+  void OnScriptInitiatedPrintPreview();
 
   DISALLOW_COPY_AND_ASSIGN(PrintPreviewMessageHandler);
 };

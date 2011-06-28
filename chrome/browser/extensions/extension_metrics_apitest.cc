@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,8 @@
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/extension.h"
-#include "chrome/common/notification_registrar.h"
-#include "chrome/common/notification_service.h"
+#include "content/common/notification_registrar.h"
+#include "content/common/notification_service.h"
 
 namespace {
 
@@ -123,7 +123,7 @@ void ValidateHistograms(const Extension* extension,
 
     size_t j = 0;
     for (j = 0; j < histograms.size(); ++j) {
-      scoped_refptr<base::Histogram> histogram(histograms[j]);
+      base::Histogram* histogram(histograms[j]);
 
       if (name == histogram->histogram_name()) {
         EXPECT_EQ(r.type, histogram->histogram_type());

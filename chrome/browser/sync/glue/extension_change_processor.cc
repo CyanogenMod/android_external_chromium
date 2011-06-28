@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,15 +9,17 @@
 
 #include "base/logging.h"
 #include "base/stl_util-inl.h"
-#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/extensions/extension_service.h"
+#include "chrome/browser/extensions/extension_sync_data.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/glue/extension_sync.h"
 #include "chrome/browser/sync/glue/extension_util.h"
+#include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/protocol/extension_specifics.pb.h"
 #include "chrome/common/extensions/extension.h"
-#include "chrome/common/notification_details.h"
-#include "chrome/common/notification_source.h"
 #include "content/browser/browser_thread.h"
+#include "content/common/notification_details.h"
+#include "content/common/notification_source.h"
 
 namespace browser_sync {
 
@@ -26,7 +28,9 @@ ExtensionChangeProcessor::ExtensionChangeProcessor(
     UnrecoverableErrorHandler* error_handler)
     : ChangeProcessor(error_handler),
       traits_(traits),
-      profile_(NULL) {
+      profile_(NULL),
+      extension_service_(NULL),
+      user_share_(NULL) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   DCHECK(error_handler);
 }
@@ -65,7 +69,7 @@ void ExtensionChangeProcessor::Observe(NotificationType type,
       const std::string& id = uninstalled_extension_info->extension_id;
       VLOG(1) << "Removing server data for uninstalled extension " << id
               << " of type " << uninstalled_extension_info->extension_type;
-      RemoveServerData(traits_, id, profile_->GetProfileSyncService());
+      RemoveServerData(traits_, id, user_share_);
     }
   } else {
     const Extension* extension = NULL;
@@ -81,8 +85,8 @@ void ExtensionChangeProcessor::Observe(NotificationType type,
       return;
     }
     std::string error;
-    if (!UpdateServerData(traits_, *extension,
-                          profile_->GetProfileSyncService(), &error)) {
+    if (!UpdateServerData(traits_, *extension, *extension_service_,
+                          user_share_, &error)) {
       error_handler()->OnUnrecoverableError(FROM_HERE, error);
     }
   }
@@ -96,10 +100,9 @@ void ExtensionChangeProcessor::ApplyChangesFromSyncModel(
   if (!running()) {
     return;
   }
-  ExtensionService* extensions_service =
-      GetExtensionServiceFromProfile(profile_);
   for (int i = 0; i < change_count; ++i) {
     const sync_api::SyncManager::ChangeRecord& change = changes[i];
+    sync_pb::ExtensionSpecifics specifics;
     switch (change.action) {
       case sync_api::SyncManager::ChangeRecord::ACTION_ADD:
       case sync_api::SyncManager::ChangeRecord::ACTION_UPDATE: {
@@ -112,30 +115,14 @@ void ExtensionChangeProcessor::ApplyChangesFromSyncModel(
           return;
         }
         DCHECK_EQ(node.GetModelType(), traits_.model_type);
-        const sync_pb::ExtensionSpecifics& specifics =
-            (*traits_.extension_specifics_getter)(node);
-        if (!IsExtensionSpecificsValid(specifics)) {
-          std::string error =
-              std::string("Invalid server specifics: ") +
-              ExtensionSpecificsToString(specifics);
-          error_handler()->OnUnrecoverableError(FROM_HERE, error);
-          return;
-        }
-        StopObserving();
-        UpdateClient(traits_, specifics, extensions_service);
-        StartObserving();
+        specifics = (*traits_.extension_specifics_getter)(node);
         break;
       }
       case sync_api::SyncManager::ChangeRecord::ACTION_DELETE: {
-        sync_pb::ExtensionSpecifics specifics;
-        if ((*traits_.extension_specifics_entity_getter)(
+        if (!(*traits_.extension_specifics_entity_getter)(
                 change.specifics, &specifics)) {
-          StopObserving();
-          RemoveFromClient(traits_, specifics.id(), extensions_service);
-          StartObserving();
-        } else {
           std::stringstream error;
-          error << "Could not get extension ID for deleted node "
+          error << "Could not get extension specifics from deleted node "
                 << change.id;
           error_handler()->OnUnrecoverableError(FROM_HERE, error.str());
           LOG(DFATAL) << error.str();
@@ -143,13 +130,32 @@ void ExtensionChangeProcessor::ApplyChangesFromSyncModel(
         break;
       }
     }
+    ExtensionSyncData sync_data;
+    if (!GetExtensionSyncData(specifics, &sync_data)) {
+      // TODO(akalin): Should probably recover or drop.
+      std::string error =
+          std::string("Invalid server specifics: ") +
+          ExtensionSpecificsToString(specifics);
+      error_handler()->OnUnrecoverableError(FROM_HERE, error);
+      return;
+    }
+    sync_data.uninstalled =
+        (change.action == sync_api::SyncManager::ChangeRecord::ACTION_DELETE);
+    StopObserving();
+    extension_service_->ProcessSyncData(sync_data,
+                                        traits_.is_valid_and_syncable);
+    StartObserving();
   }
 }
 
 void ExtensionChangeProcessor::StartImpl(Profile* profile) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-  DCHECK(profile);
   profile_ = profile;
+  extension_service_ = profile_->GetExtensionService();
+  user_share_ = profile_->GetProfileSyncService()->GetUserShare();
+  DCHECK(profile_);
+  DCHECK(extension_service_);
+  DCHECK(user_share_);
   StartObserving();
 }
 
@@ -157,6 +163,8 @@ void ExtensionChangeProcessor::StopImpl() {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   StopObserving();
   profile_ = NULL;
+  extension_service_ = NULL;
+  user_share_ = NULL;
 }
 
 void ExtensionChangeProcessor::StartObserving() {

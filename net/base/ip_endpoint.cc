@@ -5,6 +5,7 @@
 #include "net/base/ip_endpoint.h"
 
 #include "base/logging.h"
+#include "base/string_number_conversions.h"
 #if defined(OS_WIN)
 #include <winsock2.h>
 #elif defined(OS_POSIX)
@@ -12,9 +13,6 @@
 #endif
 
 namespace net {
-
-const size_t kIPv4AddressSize = 4;
-const size_t kIPv6AddressSize = 16;
 
 IPEndPoint::IPEndPoint() : port_(0) {}
 
@@ -29,7 +27,22 @@ IPEndPoint::IPEndPoint(const IPEndPoint& endpoint) {
   port_ = endpoint.port_;
 }
 
-bool IPEndPoint::ToSockaddr(struct sockaddr* address,
+int IPEndPoint::GetFamily() const {
+  switch (address_.size()) {
+    case kIPv4AddressSize: {
+      return AF_INET;
+    }
+    case kIPv6AddressSize: {
+      return AF_INET6;
+    }
+    default: {
+      NOTREACHED() << "Bad IP address";
+      return AF_UNSPEC;
+    }
+  }
+}
+
+bool IPEndPoint::ToSockAddr(struct sockaddr* address,
                             size_t* address_length) const {
   DCHECK(address);
   DCHECK(address_length);
@@ -93,8 +106,25 @@ bool IPEndPoint::FromSockAddr(const struct sockaddr* address,
   return true;
 }
 
+std::string IPEndPoint::ToString() const {
+  struct sockaddr_storage addr_storage;
+  size_t addr_len = sizeof(addr_storage);
+  struct sockaddr* addr = reinterpret_cast<struct sockaddr*>(&addr_storage);
+  if (!ToSockAddr(addr, &addr_len)) {
+    return "";
+  }
+  return NetAddressToStringWithPort(addr, addr_len);
+}
+
 bool IPEndPoint::operator<(const IPEndPoint& that) const {
-  return address_ < that.address_ || port_ < that.port_;
+  // Sort IPv4 before IPv6.
+  if (address_.size() != that.address_.size()) {
+    return address_.size() < that.address_.size();
+  }
+  if (address_ != that.address_) {
+    return address_ < that.address_;
+  }
+  return port_ < that.port_;
 }
 
 bool IPEndPoint::operator==(const IPEndPoint& that) const {

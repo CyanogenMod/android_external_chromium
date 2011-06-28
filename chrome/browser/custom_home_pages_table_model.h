@@ -59,7 +59,7 @@ class CustomHomePagesTableModel : public ui::TableModel {
   struct Entry;
 
   // Loads the title and favicon for the specified entry.
-  void LoadTitleAndFavIcon(Entry* entry);
+  void LoadTitleAndFavicon(Entry* entry);
 
   // Callback from history service. Updates the title of the Entry whose
   // |title_handle| matches |handle| and notifies the observer of the change.
@@ -69,23 +69,15 @@ class CustomHomePagesTableModel : public ui::TableModel {
                   history::VisitVector* visits);
 
   // Callback from history service. Updates the icon of the Entry whose
-  // |fav_icon_handle| matches |handle| and notifies the observer of the change.
-  void OnGotFavIcon(FaviconService::Handle handle,
-                    bool know_fav_icon,
-                    scoped_refptr<RefCountedMemory> image_data,
-                    bool is_expired,
-                    GURL icon_url);
+  // |favicon_handle| matches |handle| and notifies the observer of the change.
+  void OnGotFavicon(FaviconService::Handle handle,
+                    history::FaviconData favicon);
 
   // Returns the entry whose |member| matches |handle| and sets |entry_index| to
   // the index of the entry.
   Entry* GetEntryByLoadHandle(CancelableRequestProvider::Handle Entry::* member,
                               CancelableRequestProvider::Handle handle,
                               int* entry_index);
-
-  // Returns the entry whose |fav_icon_handle| matches |handle| and sets
-  // |entry_index| to the index of the entry.
-  Entry* GetEntryByFavIconHandle(FaviconService::Handle handle,
-                                 int* entry_index);
 
   // Returns the URL for a particular row, formatted for display to the user.
   string16 FormattedURL(int row) const;

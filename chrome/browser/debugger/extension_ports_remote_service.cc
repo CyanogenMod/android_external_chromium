@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,8 +21,7 @@
 #include "chrome/browser/debugger/inspectable_tab_proxy.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/devtools_messages.h"
-#include "chrome/common/render_messages.h"
-#include "chrome/common/render_messages_params.h"
+#include "chrome/common/extensions/extension_messages.h"
 #include "content/browser/tab_contents/tab_contents.h"
 
 namespace {
@@ -122,12 +121,11 @@ ExtensionPortsRemoteService::ExtensionPortsRemoteService(
     LOG(WARNING) << "No profile manager for ExtensionPortsRemoteService";
     return;
   }
-  for (ProfileManager::ProfileVector::const_iterator it
-           = profile_manager->begin();
-       it != profile_manager->end();
-       ++it) {
-    if (!(*it)->IsOffTheRecord()) {
-      service_ = (*it)->GetExtensionMessageService();
+
+  std::vector<Profile*> profiles(profile_manager->GetLoadedProfiles());
+  for (size_t i = 0; i < profiles.size(); ++i) {
+    if (!profiles[i]->IsOffTheRecord()) {
+      service_ = profiles[i]->GetExtensionMessageService();
       break;
     }
   }
@@ -226,8 +224,7 @@ bool ExtensionPortsRemoteService::Send(IPC::Message *message) {
   DCHECK_EQ(MessageLoop::current()->type(), MessageLoop::TYPE_UI);
 
   IPC_BEGIN_MESSAGE_MAP(ExtensionPortsRemoteService, *message)
-    IPC_MESSAGE_HANDLER(ViewMsg_ExtensionMessageInvoke,
-                        OnExtensionMessageInvoke)
+    IPC_MESSAGE_HANDLER(ExtensionMsg_MessageInvoke, OnExtensionMessageInvoke)
     IPC_MESSAGE_UNHANDLED_ERROR()
   IPC_END_MESSAGE_MAP()
 

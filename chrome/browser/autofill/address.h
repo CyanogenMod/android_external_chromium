@@ -10,24 +10,25 @@
 #include <vector>
 
 #include "base/string16.h"
+#include "chrome/browser/autofill/autofill_type.h"
+#include "chrome/browser/autofill/field_types.h"
 #include "chrome/browser/autofill/form_group.h"
 
 // A form group that stores address information.
 class Address : public FormGroup {
  public:
   Address();
+  Address(const Address& address);
   virtual ~Address();
 
+  Address& operator=(const Address& address);
+
   // FormGroup:
-  virtual FormGroup* Clone() const;
   virtual void GetPossibleFieldTypes(const string16& text,
                                      FieldTypeSet* possible_types) const;
   virtual void GetAvailableFieldTypes(FieldTypeSet* available_types) const;
-  virtual void FindInfoMatches(const AutofillType& type,
-                               const string16& info,
-                               std::vector<string16>* matched_text) const;
-  virtual string16 GetFieldText(const AutofillType& type) const;
-  virtual void SetInfo(const AutofillType& type, const string16& value);
+  virtual string16 GetInfo(AutofillFieldType type) const;
+  virtual void SetInfo(AutofillFieldType type, const string16& value);
 
   const std::string& country_code() const { return country_code_; }
   void set_country_code(const std::string& country_code) {
@@ -40,10 +41,6 @@ class Address : public FormGroup {
  private:
   // Vector of tokens in an address line.
   typedef std::vector<string16> LineTokens;
-
-  explicit Address(const Address& address);
-
-  void operator=(const Address& address);
 
   // Returns the localized country name corresponding to |country_code_|.
   string16 Country() const;
@@ -63,12 +60,6 @@ class Address : public FormGroup {
   virtual bool IsState(const string16& text) const;
   virtual bool IsCountry(const string16& text) const;
   virtual bool IsZipCode(const string16& text) const;
-
-  // A helper function for FindInfoMatches that only handles matching |info|
-  // with the requested field subgroup.
-  bool FindInfoMatchesHelper(const FieldTypeSubGroup& subgroup,
-                             const string16& info,
-                             string16* match) const;
 
   // Returns true if all of the tokens in |text| match the tokens in
   // |line_tokens|.

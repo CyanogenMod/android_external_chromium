@@ -1,12 +1,13 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/notifications/desktop_notification_service.h"
 
+#include "base/memory/ref_counted.h"
 #include "base/message_loop.h"
-#include "base/ref_counted.h"
 #include "base/synchronization/waitable_event.h"
+#include "chrome/browser/notifications/desktop_notification_service_factory.h"
 #include "chrome/browser/notifications/notifications_prefs_cache.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/prefs/scoped_user_pref_update.h"
@@ -102,7 +103,7 @@ class DesktopNotificationServiceTest : public RenderViewHostTestHarness {
 
     // Creates the service, calls InitPrefs() on it which loads data from the
     // profile into the cache and then puts the cache in io thread mode.
-    service_ = profile()->GetDesktopNotificationService();
+    service_ = DesktopNotificationServiceFactory::GetForProfile(profile());
     cache_ = service_->prefs_cache();
   }
 
@@ -137,6 +138,42 @@ TEST_F(DesktopNotificationServiceTest, DefaultContentSettingSentToCache) {
   EXPECT_EQ(CONTENT_SETTING_BLOCK, cache_->CachedDefaultContentSetting());
 }
 
+TEST_F(DesktopNotificationServiceTest, SettingsForSchemes) {
+  GURL url("file:///html/test.html");
+
+  EXPECT_EQ(CONTENT_SETTING_ASK, cache_->CachedDefaultContentSetting());
+  EXPECT_EQ(WebKit::WebNotificationPresenter::PermissionNotAllowed,
+            proxy_->CacheHasPermission(cache_, url));
+
+  service_->GrantPermission(url);
+  EXPECT_EQ(WebKit::WebNotificationPresenter::PermissionAllowed,
+            proxy_->CacheHasPermission(cache_, url));
+
+  service_->DenyPermission(url);
+  EXPECT_EQ(WebKit::WebNotificationPresenter::PermissionDenied,
+            proxy_->CacheHasPermission(cache_, url));
+
+  GURL https_url("https://testurl");
+  GURL http_url("http://testurl");
+  EXPECT_EQ(CONTENT_SETTING_ASK, cache_->CachedDefaultContentSetting());
+  EXPECT_EQ(WebKit::WebNotificationPresenter::PermissionNotAllowed,
+            proxy_->CacheHasPermission(cache_, http_url));
+  EXPECT_EQ(WebKit::WebNotificationPresenter::PermissionNotAllowed,
+            proxy_->CacheHasPermission(cache_, https_url));
+
+  service_->GrantPermission(https_url);
+  EXPECT_EQ(WebKit::WebNotificationPresenter::PermissionAllowed,
+            proxy_->CacheHasPermission(cache_, https_url));
+  EXPECT_EQ(WebKit::WebNotificationPresenter::PermissionNotAllowed,
+            proxy_->CacheHasPermission(cache_, http_url));
+
+  service_->DenyPermission(http_url);
+  EXPECT_EQ(WebKit::WebNotificationPresenter::PermissionDenied,
+            proxy_->CacheHasPermission(cache_, http_url));
+  EXPECT_EQ(WebKit::WebNotificationPresenter::PermissionAllowed,
+            proxy_->CacheHasPermission(cache_, https_url));
+}
+
 TEST_F(DesktopNotificationServiceTest, GrantPermissionSentToCache) {
   GURL url("http://allowed.com");
   EXPECT_EQ(WebKit::WebNotificationPresenter::PermissionNotAllowed,
@@ -162,20 +199,18 @@ TEST_F(DesktopNotificationServiceTest, DenyPermissionSentToCache) {
 TEST_F(DesktopNotificationServiceTest, PrefChangesSentToCache) {
   PrefService* prefs = profile()->GetPrefs();
 
-  ListValue* allowed_sites =
-      prefs->GetMutableList(prefs::kDesktopNotificationAllowedOrigins);
   {
-    allowed_sites->Append(new StringValue(GURL("http://allowed.com").spec()));
-    ScopedUserPrefUpdate updateAllowed(
+    ListPrefUpdate update_allowed_origins(
         prefs, prefs::kDesktopNotificationAllowedOrigins);
+    ListValue* allowed_origins = update_allowed_origins.Get();
+    allowed_origins->Append(new StringValue(GURL("http://allowed.com").spec()));
   }
 
-  ListValue* denied_sites =
-      prefs->GetMutableList(prefs::kDesktopNotificationDeniedOrigins);
   {
-    denied_sites->Append(new StringValue(GURL("http://denied.com").spec()));
-    ScopedUserPrefUpdate updateDenied(
+    ListPrefUpdate update_denied_origins(
         prefs, prefs::kDesktopNotificationDeniedOrigins);
+    ListValue* denied_origins = update_denied_origins.Get();
+    denied_origins->Append(new StringValue(GURL("http://denied.com").spec()));
   }
 
   EXPECT_EQ(WebKit::WebNotificationPresenter::PermissionAllowed,

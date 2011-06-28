@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,21 +9,13 @@
 #include "chrome/browser/sync/engine/syncapi.h"
 #include "chrome/browser/sync/glue/theme_util.h"
 #include "chrome/browser/sync/protocol/theme_specifics.pb.h"
-#include "chrome/browser/themes/browser_theme_provider.h"
+#include "chrome/browser/themes/theme_service.h"
+#include "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/common/extensions/extension.h"
-#include "chrome/common/notification_details.h"
-#include "chrome/common/notification_source.h"
+#include "content/common/notification_details.h"
+#include "content/common/notification_source.h"
 
 namespace browser_sync {
-
-namespace {
-std::string GetThemeId(const Extension* current_theme) {
-  if (current_theme) {
-    DCHECK(current_theme->is_theme());
-  }
-  return current_theme ? current_theme->id() : "default/system";
-}
-}  // namespace
 
 ThemeChangeProcessor::ThemeChangeProcessor(
     UnrecoverableErrorHandler* error_handler)
@@ -39,79 +31,7 @@ void ThemeChangeProcessor::Observe(NotificationType type,
                                    const NotificationDetails& details) {
   DCHECK(running());
   DCHECK(profile_);
-  const Extension* extension = NULL;
-  if (type == NotificationType::EXTENSION_UNLOADED) {
-    extension = Details<UnloadedExtensionInfo>(details)->extension;
-  } else {
-    extension = Details<const Extension>(details).ptr();
-  }
-  std::string current_or_future_theme_id =
-      profile_->GetThemeProvider()->GetThemeID();
-  const Extension* current_theme = profile_->GetTheme();
-  switch (type.value) {
-    case NotificationType::BROWSER_THEME_CHANGED:
-      // We pay attention to this notification only when it signifies
-      // that a user changed the theme to the default/system theme, or
-      // when it signifies that a user changed the theme to a custom
-      // one that was already installed.  Otherwise, current_theme
-      // still points to the previous theme until it gets installed
-      // and loaded (and we get an EXTENSION_LOADED notification).
-      VLOG(1) << "Got BROWSER_THEME_CHANGED notification for theme "
-              << GetThemeId(extension);
-      DCHECK_EQ(Source<BrowserThemeProvider>(source).ptr(),
-                profile_->GetThemeProvider());
-      if (extension != NULL) {
-        DCHECK(extension->is_theme());
-        DCHECK_EQ(extension->id(), current_or_future_theme_id);
-        if (!current_theme || (current_theme->id() != extension->id())) {
-          return;
-        }
-      }
-      break;
-    case NotificationType::EXTENSION_LOADED:
-      // We pay attention to this notification only when it signifies
-      // that a theme extension has been loaded because that means
-      // that the user set the current theme to a custom theme that
-      // needed to be downloaded and installed and that it was
-      // installed successfully.
-      DCHECK_EQ(Source<Profile>(source).ptr(), profile_);
-      CHECK(extension);
-      if (!extension->is_theme()) {
-        return;
-      }
-      VLOG(1) << "Got EXTENSION_LOADED notification for theme "
-              << extension->id();
-      DCHECK_EQ(extension->id(), current_or_future_theme_id);
-      DCHECK_EQ(extension, current_theme);
-      break;
-    case NotificationType::EXTENSION_UNLOADED:
-      // We pay attention to this notification only when it signifies
-      // that a theme extension has been unloaded because that means
-      // that the user set the current theme to a custom theme and then
-      // changed his mind and undid it (reverting to the previous
-      // theme).
-      DCHECK_EQ(Source<Profile>(source).ptr(), profile_);
-      CHECK(extension);
-      if (!extension->is_theme()) {
-        return;
-      }
-      VLOG(1) << "Got EXTENSION_UNLOADED notification for theme "
-              << extension->id();
-      extension = current_theme;
-      break;
-    default:
-      LOG(DFATAL) << "Unexpected notification received: " << type.value;
-      break;
-  }
-
-  DCHECK_EQ(extension, current_theme);
-  if (extension) {
-    DCHECK(extension->is_theme());
-  }
-  VLOG(1) << "Theme changed to " << GetThemeId(extension);
-
-  // Here, we know that a theme is being set; the theme is a custom
-  // theme iff extension is non-NULL.
+  DCHECK(type == NotificationType::BROWSER_THEME_CHANGED);
 
   sync_api::WriteTransaction trans(share_handle());
   sync_api::WriteNode node(&trans);
@@ -198,17 +118,11 @@ void ThemeChangeProcessor::StopImpl() {
 
 void ThemeChangeProcessor::StartObserving() {
   DCHECK(profile_);
-  VLOG(1) << "Observing BROWSER_THEME_CHANGED, EXTENSION_LOADED, and "
-             "EXTENSION_UNLOADED";
+  VLOG(1) << "Observing BROWSER_THEME_CHANGED";
   notification_registrar_.Add(
       this, NotificationType::BROWSER_THEME_CHANGED,
-      Source<BrowserThemeProvider>(profile_->GetThemeProvider()));
-  notification_registrar_.Add(
-      this, NotificationType::EXTENSION_LOADED,
-      Source<Profile>(profile_));
-  notification_registrar_.Add(
-      this, NotificationType::EXTENSION_UNLOADED,
-      Source<Profile>(profile_));
+      Source<ThemeService>(
+          ThemeServiceFactory::GetForProfile(profile_)));
 }
 
 void ThemeChangeProcessor::StopObserving() {

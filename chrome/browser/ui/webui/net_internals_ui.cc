@@ -9,13 +9,15 @@
 #include <utility>
 #include <vector>
 
+#include "base/base64.h"
 #include "base/command_line.h"
 #include "base/file_util.h"
+#include "base/memory/singleton.h"
 #include "base/message_loop.h"
 #include "base/path_service.h"
-#include "base/singleton.h"
 #include "base/string_number_conversions.h"
 #include "base/string_piece.h"
+#include "base/string_split.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
@@ -26,17 +28,19 @@
 #include "chrome/browser/net/passive_log_collector.h"
 #include "chrome/browser/net/url_fixer_upper.h"
 #include "chrome/browser/platform_util.h"
+#include "chrome/browser/prefs/pref_member.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/shell_dialogs.h"
 #include "chrome/browser/ui/webui/chrome_url_data_manager.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_version_info.h"
 #include "chrome/common/jstemplate_builder.h"
-#include "chrome/common/net/url_request_context_getter.h"
+#include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "content/browser/browser_thread.h"
 #include "content/browser/tab_contents/tab_contents.h"
 #include "content/browser/tab_contents/tab_contents_view.h"
+#include "content/common/notification_details.h"
 #include "grit/generated_resources.h"
 #include "grit/net_internals_resources.h"
 #include "net/base/escape.h"
@@ -44,6 +48,7 @@
 #include "net/base/net_errors.h"
 #include "net/base/net_util.h"
 #include "net/base/sys_addrinfo.h"
+#include "net/base/x509_cert_types.h"
 #include "net/disk_cache/disk_cache.h"
 #include "net/http/http_alternate_protocols.h"
 #include "net/http/http_cache.h"
@@ -52,6 +57,7 @@
 #include "net/http/http_stream_factory.h"
 #include "net/proxy/proxy_service.h"
 #include "net/url_request/url_request_context.h"
+#include "net/url_request/url_request_context_getter.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 
@@ -122,7 +128,7 @@ class NetInternalsHTMLSource : public ChromeURLDataManager::DataSource {
   // Called when the network layer has requested a resource underneath
   // the path we registered.
   virtual void StartDataRequest(const std::string& path,
-                                bool is_off_the_record,
+                                bool is_incognito,
                                 int request_id);
   virtual std::string GetMimeType(const std::string&) const;
 
@@ -136,14 +142,15 @@ class NetInternalsHTMLSource : public ChromeURLDataManager::DataSource {
 // this class's methods are expected to run on the UI thread.
 //
 // Since the network code we want to run lives on the IO thread, we proxy
-// everything over to NetInternalsMessageHandler::IOThreadImpl, which runs
-// on the IO thread.
+// almost everything over to NetInternalsMessageHandler::IOThreadImpl, which
+// runs on the IO thread.
 //
 // TODO(eroman): Can we start on the IO thread to begin with?
 class NetInternalsMessageHandler
     : public WebUIMessageHandler,
       public SelectFileDialog::Listener,
-      public base::SupportsWeakPtr<NetInternalsMessageHandler> {
+      public base::SupportsWeakPtr<NetInternalsMessageHandler>,
+      public NotificationObserver {
  public:
   NetInternalsMessageHandler();
   virtual ~NetInternalsMessageHandler();
@@ -156,6 +163,15 @@ class NetInternalsMessageHandler
   // it the argument |value|.
   void CallJavascriptFunction(const std::wstring& function_name,
                               const Value* value);
+
+  // NotificationObserver implementation.
+  virtual void Observe(NotificationType type,
+                       const NotificationSource& source,
+                       const NotificationDetails& details);
+
+  // Javascript message handlers.
+  void OnRendererReady(const ListValue* list);
+  void OnEnableHttpThrottling(const ListValue* list);
 
   // SelectFileDialog::Listener implementation
   virtual void FileSelected(const FilePath& path, int index, void* params);
@@ -187,6 +203,14 @@ class NetInternalsMessageHandler
     // Path of the file to open.
     const FilePath path_;
   };
+
+  // The pref member about whether HTTP throttling is enabled, which needs to
+  // be accessed on the UI thread.
+  BooleanPrefMember http_throttling_enabled_;
+
+  // OnRendererReady invokes this callback to do the part of message handling
+  // that needs to happen on the IO thread.
+  scoped_ptr<WebUI::MessageCallback> renderer_ready_io_callback_;
 
   // This is the "real" message handler, which lives on the IO thread.
   scoped_refptr<IOThreadImpl> proxy_;
@@ -220,7 +244,7 @@ class NetInternalsMessageHandler::IOThreadImpl
   IOThreadImpl(
       const base::WeakPtr<NetInternalsMessageHandler>& handler,
       IOThread* io_thread,
-      URLRequestContextGetter* context_getter);
+      net::URLRequestContextGetter* context_getter);
 
   // Creates a callback that will run |method| on the IO thread.
   //
@@ -259,6 +283,8 @@ class NetInternalsMessageHandler::IOThreadImpl
   void OnHSTSDelete(const ListValue* list);
   void OnGetHttpCacheInfo(const ListValue* list);
   void OnGetSocketPoolInfo(const ListValue* list);
+  void OnCloseIdleSockets(const ListValue* list);
+  void OnFlushSocketPools(const ListValue* list);
   void OnGetSpdySessionInfo(const ListValue* list);
   void OnGetSpdyStatus(const ListValue* list);
   void OnGetSpdyAlternateProtocolMappings(const ListValue* list);
@@ -318,7 +344,7 @@ class NetInternalsMessageHandler::IOThreadImpl
   // The global IOThread, which contains the global NetLog to observer.
   IOThread* io_thread_;
 
-  scoped_refptr<URLRequestContextGetter> context_getter_;
+  scoped_refptr<net::URLRequestContextGetter> context_getter_;
 
   // Helper that runs the suite of connection tests.
   scoped_ptr<ConnectionTester> connection_tester_;
@@ -340,7 +366,7 @@ class NetInternalsMessageHandler::IOThreadImpl
   scoped_ptr<ListValue> pending_entries_;
 };
 
-// Helper class for a WebUI::MessageCallback which when excuted calls
+// Helper class for a WebUI::MessageCallback which when executed calls
 // instance->*method(value) on the IO thread.
 class NetInternalsMessageHandler::IOThreadImpl::CallbackHelper
     : public WebUI::MessageCallback {
@@ -385,7 +411,7 @@ NetInternalsHTMLSource::NetInternalsHTMLSource()
 }
 
 void NetInternalsHTMLSource::StartDataRequest(const std::string& path,
-                                              bool is_off_the_record,
+                                              bool is_incognito,
                                               int request_id) {
   DictionaryValue localized_strings;
   SetFontAndTextDirection(&localized_strings);
@@ -449,8 +475,16 @@ NetInternalsMessageHandler::~NetInternalsMessageHandler() {
 
 WebUIMessageHandler* NetInternalsMessageHandler::Attach(WebUI* web_ui) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+
+  PrefService* pref_service = web_ui->GetProfile()->GetPrefs();
+  http_throttling_enabled_.Init(prefs::kHttpThrottlingEnabled, pref_service,
+                                this);
+
   proxy_ = new IOThreadImpl(this->AsWeakPtr(), g_browser_process->io_thread(),
                             web_ui->GetProfile()->GetRequestContext());
+  renderer_ready_io_callback_.reset(
+      proxy_->CreateCallback(&IOThreadImpl::OnRendererReady));
+
   WebUIMessageHandler* result = WebUIMessageHandler::Attach(web_ui);
   return result;
 }
@@ -474,7 +508,7 @@ void NetInternalsMessageHandler::OnLoadLogFile(const ListValue* list) {
   select_log_file_dialog_ = SelectFileDialog::Create(this);
   select_log_file_dialog_->SelectFile(
       SelectFileDialog::SELECT_OPEN_FILE, string16(), FilePath(), NULL, 0,
-      FILE_PATH_LITERAL(""),
+      FILE_PATH_LITERAL(""), web_ui_->tab_contents(),
       web_ui_->tab_contents()->view()->GetTopLevelNativeWindow(), NULL);
 }
 
@@ -487,7 +521,7 @@ void NetInternalsMessageHandler::RegisterMessages() {
 
   web_ui_->RegisterMessageCallback(
       "notifyReady",
-      proxy_->CreateCallback(&IOThreadImpl::OnRendererReady));
+      NewCallback(this, &NetInternalsMessageHandler::OnRendererReady));
   web_ui_->RegisterMessageCallback(
       "getProxySettings",
       proxy_->CreateCallback(&IOThreadImpl::OnGetProxySettings));
@@ -528,6 +562,12 @@ void NetInternalsMessageHandler::RegisterMessages() {
       "getSocketPoolInfo",
       proxy_->CreateCallback(&IOThreadImpl::OnGetSocketPoolInfo));
   web_ui_->RegisterMessageCallback(
+      "closeIdleSockets",
+      proxy_->CreateCallback(&IOThreadImpl::OnCloseIdleSockets));
+  web_ui_->RegisterMessageCallback(
+      "flushSocketPools",
+      proxy_->CreateCallback(&IOThreadImpl::OnFlushSocketPools));
+  web_ui_->RegisterMessageCallback(
       "getSpdySessionInfo",
       proxy_->CreateCallback(&IOThreadImpl::OnGetSpdySessionInfo));
   web_ui_->RegisterMessageCallback(
@@ -546,6 +586,10 @@ void NetInternalsMessageHandler::RegisterMessages() {
   web_ui_->RegisterMessageCallback(
       "setLogLevel",
       proxy_->CreateCallback(&IOThreadImpl::OnSetLogLevel));
+
+  web_ui_->RegisterMessageCallback(
+      "enableHttpThrottling",
+      NewCallback(this, &NetInternalsMessageHandler::OnEnableHttpThrottling));
 }
 
 void NetInternalsMessageHandler::CallJavascriptFunction(
@@ -553,10 +597,48 @@ void NetInternalsMessageHandler::CallJavascriptFunction(
     const Value* value) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   if (value) {
-    web_ui_->CallJavascriptFunction(function_name, *value);
+    web_ui_->CallJavascriptFunction(WideToASCII(function_name), *value);
   } else {
-    web_ui_->CallJavascriptFunction(function_name);
+    web_ui_->CallJavascriptFunction(WideToASCII(function_name));
   }
+}
+
+void NetInternalsMessageHandler::Observe(NotificationType type,
+                                         const NotificationSource& source,
+                                         const NotificationDetails& details) {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_EQ(type.value, NotificationType::PREF_CHANGED);
+
+  std::string* pref_name = Details<std::string>(details).ptr();
+  if (*pref_name == prefs::kHttpThrottlingEnabled) {
+    scoped_ptr<Value> enabled(
+        Value::CreateBooleanValue(*http_throttling_enabled_));
+
+    CallJavascriptFunction(
+        L"g_browser.receivedHttpThrottlingEnabledPrefChanged", enabled.get());
+  }
+}
+
+void NetInternalsMessageHandler::OnRendererReady(const ListValue* list) {
+  CHECK(renderer_ready_io_callback_.get());
+  renderer_ready_io_callback_->Run(list);
+
+  scoped_ptr<Value> enabled(
+      Value::CreateBooleanValue(*http_throttling_enabled_));
+  CallJavascriptFunction(
+      L"g_browser.receivedHttpThrottlingEnabledPrefChanged", enabled.get());
+}
+
+void NetInternalsMessageHandler::OnEnableHttpThrottling(const ListValue* list) {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+
+  bool enable = false;
+  if (!list->GetBoolean(0, &enable)) {
+    NOTREACHED();
+    return;
+  }
+
+  http_throttling_enabled_.SetValue(enable);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -587,7 +669,7 @@ void NetInternalsMessageHandler::ReadLogFileTask::Run() {
 NetInternalsMessageHandler::IOThreadImpl::IOThreadImpl(
     const base::WeakPtr<NetInternalsMessageHandler>& handler,
     IOThread* io_thread,
-    URLRequestContextGetter* context_getter)
+    net::URLRequestContextGetter* context_getter)
     : ThreadSafeObserver(net::NetLog::LOG_ALL_BUT_BYTES),
       handler_(handler),
       io_thread_(io_thread),
@@ -986,7 +1068,7 @@ void NetInternalsMessageHandler::IOThreadImpl::OnHSTSQuery(
     } else {
       net::TransportSecurityState::DomainState state;
       const bool found = transport_security_state->IsEnabledForHost(
-          &state, domain);
+          &state, domain, true);
 
       result->SetBoolean("result", found);
       if (found) {
@@ -994,6 +1076,20 @@ void NetInternalsMessageHandler::IOThreadImpl::OnHSTSQuery(
         result->SetBoolean("subdomains", state.include_subdomains);
         result->SetBoolean("preloaded", state.preloaded);
         result->SetString("domain", state.domain);
+
+        std::vector<std::string> parts;
+        for (std::vector<net::SHA1Fingerprint>::const_iterator
+             i = state.public_key_hashes.begin();
+             i != state.public_key_hashes.end(); i++) {
+          std::string part = "sha1/";
+          std::string hash_str(reinterpret_cast<const char*>(i->data),
+                               sizeof(i->data));
+          std::string b64;
+          base::Base64Encode(hash_str, &b64);
+          part += b64;
+          parts.push_back(part);
+        }
+        result->SetString("public_key_hashes", JoinString(parts, ','));
       }
     }
   }
@@ -1003,7 +1099,7 @@ void NetInternalsMessageHandler::IOThreadImpl::OnHSTSQuery(
 
 void NetInternalsMessageHandler::IOThreadImpl::OnHSTSAdd(
     const ListValue* list) {
-  // |list| should be: [<domain to query>, <include subdomains>].
+  // |list| should be: [<domain to query>, <include subdomains>, <cert pins>].
   std::string domain;
   CHECK(list->GetString(0, &domain));
   if (!IsStringASCII(domain)) {
@@ -1013,6 +1109,8 @@ void NetInternalsMessageHandler::IOThreadImpl::OnHSTSAdd(
   }
   bool include_subdomains;
   CHECK(list->GetBoolean(1, &include_subdomains));
+  std::string hashes_str;
+  CHECK(list->GetString(2, &hashes_str));
 
   net::TransportSecurityState* transport_security_state =
       context_getter_->GetURLRequestContext()->transport_security_state();
@@ -1022,6 +1120,27 @@ void NetInternalsMessageHandler::IOThreadImpl::OnHSTSAdd(
   net::TransportSecurityState::DomainState state;
   state.expiry = state.created + base::TimeDelta::FromDays(1000);
   state.include_subdomains = include_subdomains;
+  state.public_key_hashes.clear();
+  if (!hashes_str.empty()) {
+    std::vector<std::string> type_and_b64s;
+    base::SplitString(hashes_str, ',', &type_and_b64s);
+    for (std::vector<std::string>::const_iterator
+         i = type_and_b64s.begin(); i != type_and_b64s.end(); i++) {
+      std::string type_and_b64;
+      RemoveChars(*i, " \t\r\n", &type_and_b64);
+      if (type_and_b64.find("sha1/") != 0)
+        continue;
+      std::string b64 = type_and_b64.substr(5, type_and_b64.size() - 5);
+      std::string hash_str;
+      if (!base::Base64Decode(b64, &hash_str))
+        continue;
+      net::SHA1Fingerprint hash;
+      if (hash_str.size() != sizeof(hash.data))
+        continue;
+      memcpy(hash.data, hash_str.data(), sizeof(hash.data));
+      state.public_key_hashes.push_back(hash);
+    }
+  }
 
   transport_security_state->EnableHost(domain, state);
 }
@@ -1076,6 +1195,25 @@ void NetInternalsMessageHandler::IOThreadImpl::OnGetSocketPoolInfo(
     socket_pool_info = http_network_session->SocketPoolInfoToValue();
 
   CallJavascriptFunction(L"g_browser.receivedSocketPoolInfo", socket_pool_info);
+}
+
+
+void NetInternalsMessageHandler::IOThreadImpl::OnFlushSocketPools(
+    const ListValue* list) {
+  net::HttpNetworkSession* http_network_session =
+      GetHttpNetworkSession(context_getter_->GetURLRequestContext());
+
+  if (http_network_session)
+    http_network_session->CloseAllConnections();
+}
+
+void NetInternalsMessageHandler::IOThreadImpl::OnCloseIdleSockets(
+    const ListValue* list) {
+  net::HttpNetworkSession* http_network_session =
+      GetHttpNetworkSession(context_getter_->GetURLRequestContext());
+
+  if (http_network_session)
+    http_network_session->CloseIdleConnections();
 }
 
 void NetInternalsMessageHandler::IOThreadImpl::OnGetSpdySessionInfo(

@@ -6,10 +6,9 @@
 #define CHROME_BROWSER_UI_VIEWS_TABS_BASE_TAB_H_
 #pragma once
 
-#include "base/ref_counted.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/ui/views/tabs/tab_renderer_data.h"
-#include "ui/base/animation/animation_container.h"
 #include "ui/base/animation/animation_delegate.h"
 #include "views/controls/button/button.h"
 #include "views/view.h"
@@ -62,9 +61,7 @@ class BaseTab : public ui::AnimationDelegate,
   bool dragging() const { return dragging_; }
 
   // Sets the container all animations run from.
-  void set_animation_container(ui::AnimationContainer* container) {
-    animation_container_ = container;
-  }
+  void set_animation_container(ui::AnimationContainer* container);
   ui::AnimationContainer* animation_container() const {
     return animation_container_.get();
   }
@@ -76,22 +73,26 @@ class BaseTab : public ui::AnimationDelegate,
     theme_provider_ = provider;
   }
 
-  // Returns true if the tab is selected.
-  virtual bool IsSelected() const;
-
   // Returns true if the tab is closeable.
   bool IsCloseable() const;
 
-  // views::View overrides:
-  virtual void OnMouseEntered(const views::MouseEvent& event);
-  virtual void OnMouseExited(const views::MouseEvent& event);
-  virtual bool OnMousePressed(const views::MouseEvent& event);
-  virtual bool OnMouseDragged(const views::MouseEvent& event);
-  virtual void OnMouseReleased(const views::MouseEvent& event,
-                               bool canceled);
-  virtual bool GetTooltipText(const gfx::Point& p, std::wstring* tooltip);
-  virtual AccessibilityTypes::Role GetAccessibleRole();
-  virtual ThemeProvider* GetThemeProvider();
+  // Returns true if this tab is the active tab.
+  bool IsActive() const;
+
+  // Returns true if the tab is selected.
+  virtual bool IsSelected() const;
+
+  // Overridden from views::View:
+  virtual ThemeProvider* GetThemeProvider() const OVERRIDE;
+  virtual bool OnMousePressed(const views::MouseEvent& event) OVERRIDE;
+  virtual bool OnMouseDragged(const views::MouseEvent& event) OVERRIDE;
+  virtual void OnMouseReleased(const views::MouseEvent& event) OVERRIDE;
+  virtual void OnMouseCaptureLost() OVERRIDE;
+  virtual void OnMouseEntered(const views::MouseEvent& event) OVERRIDE;
+  virtual void OnMouseExited(const views::MouseEvent& event) OVERRIDE;
+  virtual bool GetTooltipText(const gfx::Point& p,
+                              std::wstring* tooltip) OVERRIDE;
+  virtual void GetAccessibleState(ui::AccessibleViewState* state) OVERRIDE;
 
  protected:
   // Invoked from SetData after |data_| has been updated to the new data.
@@ -119,18 +120,18 @@ class BaseTab : public ui::AnimationDelegate,
   void PaintTitle(gfx::Canvas* canvas, SkColor title_color);
 
   // Overridden from AnimationDelegate:
-  virtual void AnimationProgressed(const ui::Animation* animation);
-  virtual void AnimationCanceled(const ui::Animation* animation);
-  virtual void AnimationEnded(const ui::Animation* animation);
+  virtual void AnimationProgressed(const ui::Animation* animation) OVERRIDE;
+  virtual void AnimationCanceled(const ui::Animation* animation) OVERRIDE;
+  virtual void AnimationEnded(const ui::Animation* animation) OVERRIDE;
 
-  // views::ButtonListener overrides:
+  // Overridden from views::ButtonListener:
   virtual void ButtonPressed(views::Button* sender,
-                             const views::Event& event);
+                             const views::Event& event) OVERRIDE;
 
-  // views::ContextMenuController overrides:
+  // Overridden from views::ContextMenuController:
   virtual void ShowContextMenuForView(views::View* source,
                                       const gfx::Point& p,
-                                      bool is_mouse_gesture);
+                                      bool is_mouse_gesture) OVERRIDE;
 
   // Returns the bounds of the title and icon.
   virtual const gfx::Rect& GetTitleBounds() const = 0;
@@ -138,21 +139,21 @@ class BaseTab : public ui::AnimationDelegate,
 
   virtual int loading_animation_frame() const;
   virtual bool should_display_crashed_favicon() const;
-  virtual int fav_icon_hiding_offset() const;
+  virtual int favicon_hiding_offset() const;
 
   static gfx::Font* font() { return font_; }
   static int font_height() { return font_height_; }
 
  private:
   // The animation object used to swap the favicon with the sad tab icon.
-  class FavIconCrashAnimation;
+  class FaviconCrashAnimation;
 
   // Set the temporary offset for the favicon. This is used during the crash
   // animation.
-  void SetFavIconHidingOffset(int offset);
+  void SetFaviconHidingOffset(int offset);
 
-  void DisplayCrashedFavIcon();
-  void ResetCrashedFavIcon();
+  void DisplayCrashedFavicon();
+  void ResetCrashedFavicon();
 
   // Starts/Stops the crash animation.
   void StartCrashAnimation();
@@ -180,7 +181,7 @@ class BaseTab : public ui::AnimationDelegate,
 
   // The offset used to animate the favicon location. This is used when the tab
   // crashes.
-  int fav_icon_hiding_offset_;
+  int favicon_hiding_offset_;
 
   // The current index of the loading animation.
   int loading_animation_frame_;
@@ -194,7 +195,7 @@ class BaseTab : public ui::AnimationDelegate,
   scoped_ptr<ui::SlideAnimation> hover_animation_;
 
   // Crash animation.
-  scoped_ptr<FavIconCrashAnimation> crash_animation_;
+  scoped_ptr<FaviconCrashAnimation> crash_animation_;
 
   scoped_refptr<ui::AnimationContainer> animation_container_;
 

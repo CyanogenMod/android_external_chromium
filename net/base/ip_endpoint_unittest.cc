@@ -4,6 +4,7 @@
 
 #include "net/base/ip_endpoint.h"
 
+#include "base/string_number_conversions.h"
 #include "net/base/net_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/platform_test.h"
@@ -19,13 +20,14 @@ namespace {
 
 struct TestData {
   std::string host;
+  std::string host_normalized;
   bool ipv6;
   IPAddressNumber ip_address;
 } tests[] = {
-  { "127.0.00.1", false},
-  { "192.168.1.1", false },
-  { "::1", true },
-  { "2001:db8:0::42", true },
+  { "127.0.00.1", "127.0.0.1", false},
+  { "192.168.1.1", "192.168.1.1", false },
+  { "::1", "[::1]", true },
+  { "2001:db8:0::42", "[2001:db8::42]", true },
 };
 int test_count = ARRAYSIZE_UNSAFE(tests);
 
@@ -71,7 +73,7 @@ TEST_F(IPEndPointTest, Copy) {
   }
 }
 
-TEST_F(IPEndPointTest, ToFromSockaddr) {
+TEST_F(IPEndPointTest, ToFromSockAddr) {
   for (int index = 0; index < test_count; ++index) {
     IPEndPoint ip_endpoint(tests[index].ip_address, index);
 
@@ -79,7 +81,7 @@ TEST_F(IPEndPointTest, ToFromSockaddr) {
     struct sockaddr_storage addr;
     size_t addr_len = sizeof(addr);
     struct sockaddr* sockaddr = reinterpret_cast<struct sockaddr*>(&addr);
-    EXPECT_TRUE(ip_endpoint.ToSockaddr(sockaddr, &addr_len));
+    EXPECT_TRUE(ip_endpoint.ToSockAddr(sockaddr, &addr_len));
 
     // Basic verification.
     size_t expected_size = tests[index].ipv6 ?
@@ -95,14 +97,14 @@ TEST_F(IPEndPointTest, ToFromSockaddr) {
   }
 }
 
-TEST_F(IPEndPointTest, ToSockaddrBufTooSmall) {
+TEST_F(IPEndPointTest, ToSockAddrBufTooSmall) {
   for (int index = 0; index < test_count; ++index) {
     IPEndPoint ip_endpoint(tests[index].ip_address, index);
 
     struct sockaddr_storage addr;
     size_t addr_len = index;  // size is too small!
     struct sockaddr* sockaddr = reinterpret_cast<struct sockaddr*>(&addr);
-    EXPECT_FALSE(ip_endpoint.ToSockaddr(sockaddr, &addr_len));
+    EXPECT_FALSE(ip_endpoint.ToSockAddr(sockaddr, &addr_len));
   }
 }
 
@@ -119,21 +121,48 @@ TEST_F(IPEndPointTest, LessThan) {
   IPEndPoint ip_endpoint1(tests[0].ip_address, 100);
   IPEndPoint ip_endpoint2(tests[0].ip_address, 1000);
   EXPECT_TRUE(ip_endpoint1 < ip_endpoint2);
+  EXPECT_FALSE(ip_endpoint2 < ip_endpoint1);
 
   // IPv4 vs IPv6
-  ip_endpoint1 = IPEndPoint(tests[0].ip_address, 80);
+  ip_endpoint1 = IPEndPoint(tests[0].ip_address, 81);
   ip_endpoint2 = IPEndPoint(tests[2].ip_address, 80);
-  EXPECT_FALSE(ip_endpoint1 < ip_endpoint2);
+  EXPECT_TRUE(ip_endpoint1 < ip_endpoint2);
+  EXPECT_FALSE(ip_endpoint2 < ip_endpoint1);
 
   // IPv4 vs IPv4
-  ip_endpoint1 = IPEndPoint(tests[0].ip_address, 80);
+  ip_endpoint1 = IPEndPoint(tests[0].ip_address, 81);
   ip_endpoint2 = IPEndPoint(tests[1].ip_address, 80);
   EXPECT_TRUE(ip_endpoint1 < ip_endpoint2);
+  EXPECT_FALSE(ip_endpoint2 < ip_endpoint1);
 
   // IPv6 vs IPv6
-  ip_endpoint1 = IPEndPoint(tests[2].ip_address, 80);
+  ip_endpoint1 = IPEndPoint(tests[2].ip_address, 81);
   ip_endpoint2 = IPEndPoint(tests[3].ip_address, 80);
   EXPECT_TRUE(ip_endpoint1 < ip_endpoint2);
+  EXPECT_FALSE(ip_endpoint2 < ip_endpoint1);
+
+  // Compare equivalent endpoints.
+  ip_endpoint1 = IPEndPoint(tests[0].ip_address, 80);
+  ip_endpoint2 = IPEndPoint(tests[0].ip_address, 80);
+  EXPECT_FALSE(ip_endpoint1 < ip_endpoint2);
+  EXPECT_FALSE(ip_endpoint2 < ip_endpoint1);
+}
+
+TEST_F(IPEndPointTest, ToString) {
+  IPEndPoint endpoint;
+  EXPECT_EQ(0, endpoint.port());
+
+  for (int index = 0; index < test_count; ++index) {
+    int port = 100 + index;
+    IPEndPoint endpoint(tests[index].ip_address, port);
+    const std::string result = endpoint.ToString();
+    if (tests[index].ipv6 && result.empty()) {
+      // NetAddressToStringWithPort may fail on systems without IPv6.
+      continue;
+    }
+    EXPECT_EQ(tests[index].host_normalized + ":" + base::IntToString(port),
+              result);
+  }
 }
 
 }  // namespace

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 #include <string>
 #include "base/basictypes.h"
 #include "base/command_line.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/common/chrome_switches.h"
 
 namespace base {
@@ -22,7 +22,6 @@ class BrightnessLibrary;
 class BurnLibrary;
 class CryptohomeLibrary;
 class InputMethodLibrary;
-class KeyboardLibrary;
 class LibCrosServiceLibrary;
 class LibraryLoader;
 class LoginLibrary;
@@ -32,7 +31,6 @@ class PowerLibrary;
 class ScreenLockLibrary;
 class SpeechSynthesisLibrary;
 class SyslogsLibrary;
-class SystemLibrary;
 class TouchpadLibrary;
 class UpdateLibrary;
 
@@ -61,7 +59,6 @@ class CrosLibrary {
     void SetBrightnessLibrary(BrightnessLibrary* library, bool own);
     void SetBurnLibrary(BurnLibrary* library, bool own);
     void SetCryptohomeLibrary(CryptohomeLibrary* library, bool own);
-    void SetKeyboardLibrary(KeyboardLibrary* library, bool own);
     void SetInputMethodLibrary(InputMethodLibrary* library, bool own);
     void SetLibCrosServiceLibrary(LibCrosServiceLibrary* library, bool own);
     void SetLoginLibrary(LoginLibrary* library, bool own);
@@ -71,7 +68,6 @@ class CrosLibrary {
     void SetScreenLockLibrary(ScreenLockLibrary* library, bool own);
     void SetSpeechSynthesisLibrary(SpeechSynthesisLibrary* library, bool own);
     void SetSyslogsLibrary(SyslogsLibrary* library, bool own);
-    void SetSystemLibrary(SystemLibrary* library, bool own);
     void SetTouchpadLibrary(TouchpadLibrary* library, bool own);
     void SetUpdateLibrary(UpdateLibrary* library, bool own);
 
@@ -89,7 +85,6 @@ class CrosLibrary {
   CryptohomeLibrary* GetCryptohomeLibrary();
   InputMethodLibrary* GetInputMethodLibrary();
   LibCrosServiceLibrary* GetLibCrosServiceLibrary();
-  KeyboardLibrary* GetKeyboardLibrary();
   LoginLibrary* GetLoginLibrary();
   MountLibrary* GetMountLibrary();
   NetworkLibrary* GetNetworkLibrary();
@@ -97,7 +92,6 @@ class CrosLibrary {
   ScreenLockLibrary* GetScreenLockLibrary();
   SpeechSynthesisLibrary* GetSpeechSynthesisLibrary();
   SyslogsLibrary* GetSyslogsLibrary();
-  SystemLibrary* GetSystemLibrary();
   TouchpadLibrary* GetTouchpadLibrary();
   UpdateLibrary* GetUpdateLibrary();
 
@@ -164,7 +158,6 @@ class CrosLibrary {
   Library<BrightnessLibrary> brightness_lib_;
   Library<BurnLibrary> burn_lib_;
   Library<CryptohomeLibrary> crypto_lib_;
-  Library<KeyboardLibrary> keyboard_lib_;
   Library<InputMethodLibrary> input_method_lib_;
   Library<LibCrosServiceLibrary> libcros_service_lib_;
   Library<LoginLibrary> login_lib_;
@@ -174,7 +167,6 @@ class CrosLibrary {
   Library<ScreenLockLibrary> screen_lock_lib_;
   Library<SpeechSynthesisLibrary> speech_synthesis_lib_;
   Library<SyslogsLibrary> syslogs_lib_;
-  Library<SystemLibrary> system_lib_;
   Library<TouchpadLibrary> touchpad_lib_;
   Library<UpdateLibrary> update_lib_;
 

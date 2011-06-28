@@ -5,20 +5,14 @@
 #include "chrome/browser/policy/browser_policy_connector.h"
 
 #include "base/command_line.h"
-#include "base/file_util.h"
 #include "base/path_service.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/policy/cloud_policy_identity_strategy.h"
 #include "chrome/browser/policy/cloud_policy_subsystem.h"
 #include "chrome/browser/policy/configuration_policy_pref_store.h"
 #include "chrome/browser/policy/configuration_policy_provider.h"
 #include "chrome/browser/policy/dummy_configuration_policy_provider.h"
-#include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/notification_service.h"
-#include "chrome/common/pref_names.h"
 
 #if defined(OS_WIN)
 #include "chrome/browser/policy/configuration_policy_provider_win.h"
@@ -29,40 +23,34 @@
 #endif
 
 #if defined(OS_CHROMEOS)
+#include "chrome/browser/chromeos/cros/cros_library.h"
+#include "chrome/browser/policy/device_policy_cache.h"
 #include "chrome/browser/policy/device_policy_identity_strategy.h"
+#include "chrome/browser/policy/enterprise_install_attributes.h"
 #endif
-
-namespace {
-
-const FilePath::CharType kDevicePolicyCacheFile[] =
-    FILE_PATH_LITERAL("Policy");
-
-}  // namespace
 
 namespace policy {
 
-BrowserPolicyConnector::BrowserPolicyConnector() {
+BrowserPolicyConnector::BrowserPolicyConnector()
+    : ALLOW_THIS_IN_INITIALIZER_LIST(method_factory_(this)) {
   managed_platform_provider_.reset(CreateManagedPlatformProvider());
   recommended_platform_provider_.reset(CreateRecommendedPlatformProvider());
-  registrar_.Add(this, NotificationType::DEFAULT_REQUEST_CONTEXT_AVAILABLE,
-                 NotificationService::AllSources());
 
 #if defined(OS_CHROMEOS)
   CommandLine* command_line = CommandLine::ForCurrentProcess();
-  if (command_line->HasSwitch(switches::kDevicePolicyCacheDir)) {
-    FilePath cache_dir(command_line->GetSwitchValuePath(
-        switches::kDevicePolicyCacheDir));
+  if (command_line->HasSwitch(switches::kEnableDevicePolicy)) {
+    identity_strategy_.reset(new DevicePolicyIdentityStrategy());
+    install_attributes_.reset(new EnterpriseInstallAttributes(
+        chromeos::CrosLibrary::Get()->GetCryptohomeLibrary()));
+    cloud_policy_subsystem_.reset(new CloudPolicySubsystem(
+        identity_strategy_.get(),
+        new DevicePolicyCache(identity_strategy_.get(),
+                              install_attributes_.get())));
 
-    if (!file_util::CreateDirectory(cache_dir)) {
-      LOG(WARNING) << "Device policy cache directory "
-                   << cache_dir.value()
-                   << " is not accessible, skipping initialization.";
-    } else {
-      identity_strategy_.reset(new DevicePolicyIdentityStrategy());
-      cloud_policy_subsystem_.reset(
-          new CloudPolicySubsystem(cache_dir.Append(kDevicePolicyCacheFile),
-                                   identity_strategy_.get()));
-    }
+    // Initialize the subsystem once the message loops are spinning.
+    MessageLoop::current()->PostTask(
+        FROM_HERE,
+        method_factory_.NewRunnableMethod(&BrowserPolicyConnector::Initialize));
   }
 #endif
 }
@@ -71,13 +59,16 @@ BrowserPolicyConnector::BrowserPolicyConnector(
     ConfigurationPolicyProvider* managed_platform_provider,
     ConfigurationPolicyProvider* recommended_platform_provider)
     : managed_platform_provider_(managed_platform_provider),
-      recommended_platform_provider_(recommended_platform_provider) {}
+      recommended_platform_provider_(recommended_platform_provider),
+      ALLOW_THIS_IN_INITIALIZER_LIST(method_factory_(this)) {}
 
 BrowserPolicyConnector::~BrowserPolicyConnector() {
   if (cloud_policy_subsystem_.get())
     cloud_policy_subsystem_->Shutdown();
   cloud_policy_subsystem_.reset();
+#if defined(OS_CHROMEOS)
   identity_strategy_.reset();
+#endif
 }
 
 ConfigurationPolicyProvider*
@@ -146,33 +137,59 @@ ConfigurationPolicyProvider*
 #endif
 }
 
-// static
-void BrowserPolicyConnector::RegisterPrefs(PrefService* local_state) {
-  local_state->RegisterIntegerPref(prefs::kPolicyDevicePolicyRefreshRate,
-                                   kDefaultPolicyRefreshRateInMilliseconds);
+void BrowserPolicyConnector::SetCredentials(const std::string& owner_email,
+                                            const std::string& gaia_token) {
+#if defined(OS_CHROMEOS)
+  if (identity_strategy_.get())
+    identity_strategy_->SetAuthCredentials(owner_email, gaia_token);
+#endif
 }
 
-void BrowserPolicyConnector::Observe(NotificationType type,
-                                     const NotificationSource& source,
-                                     const NotificationDetails& details) {
-  if (type == NotificationType::DEFAULT_REQUEST_CONTEXT_AVAILABLE) {
-    Initialize(g_browser_process->local_state(),
-               Profile::GetDefaultRequestContext());
-  } else {
-    NOTREACHED();
-  }
+bool BrowserPolicyConnector::IsEnterpriseManaged() {
+#if defined(OS_CHROMEOS)
+  return install_attributes_.get() && install_attributes_->IsEnterpriseDevice();
+#else
+  return false;
+#endif
 }
 
-void BrowserPolicyConnector::Initialize(
-    PrefService* local_state,
-    URLRequestContextGetter* request_context) {
+EnterpriseInstallAttributes::LockResult
+    BrowserPolicyConnector::LockDevice(const std::string& user) {
+#if defined(OS_CHROMEOS)
+  if (install_attributes_.get())
+    return install_attributes_->LockDevice(user);
+#endif
+
+  return EnterpriseInstallAttributes::LOCK_BACKEND_ERROR;
+}
+
+std::string BrowserPolicyConnector::GetEnterpriseDomain() {
+#if defined(OS_CHROMEOS)
+  if (install_attributes_.get())
+    return install_attributes_->GetDomain();
+#endif
+
+  return std::string();
+}
+
+void BrowserPolicyConnector::StopAutoRetry() {
+  if (cloud_policy_subsystem_.get())
+    cloud_policy_subsystem_->StopAutoRetry();
+}
+
+void BrowserPolicyConnector::FetchPolicy() {
+#if defined(OS_CHROMEOS)
+  if (identity_strategy_.get())
+    return identity_strategy_->FetchPolicy();
+#endif
+}
+
+void BrowserPolicyConnector::Initialize() {
   // TODO(jkummerow, mnissler): Move this out of the browser startup path.
-  DCHECK(local_state);
-  DCHECK(request_context);
   if (cloud_policy_subsystem_.get()) {
-    cloud_policy_subsystem_->Initialize(local_state,
-                                        prefs::kPolicyDevicePolicyRefreshRate,
-                                        request_context);
+    cloud_policy_subsystem_->Initialize(
+        g_browser_process->local_state(),
+        g_browser_process->system_request_context());
   }
 }
 

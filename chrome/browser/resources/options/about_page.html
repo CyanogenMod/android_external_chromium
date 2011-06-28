@@ -4,12 +4,14 @@
     <section>
       <div>
         <!-- White space is significant between spans. -->
-        <div><span i18n-content="os"></span> <span id="osVersion0">
-          <span class="loading" i18n-content="loading"></span></span></div>
         <div>
           <span i18n-content="browser"></span>
           <span i18n-content="browser_version"></span>
         </div>
+        <div><span i18n-content="os"></span> <span id="osVersion0">
+          <span class="loading" i18n-content="loading"></span></span></div>
+        <div><span i18n-content="firmware"></span> <span id="osFirmware0">
+          <span class="loading" i18n-content="loading"></span></span></div>
         <div>
           <button class="link-button" id="moreInfoButton"
                   i18n-content="more_info"></button>
@@ -21,18 +23,20 @@
     <section>
       <h3 i18n-content="channel"></h3>
       <div>
-        <div>
-          <span id="channel-warning"
-                i18n-content="channel_warning_header"></span>
-          <span i18n-content="channel_warning_text"></span>
-        </div>
         <select id="channelSelect">
-          <!-- There is no "release" channel at this moment -->
-          <!-- <option value="release" i18n-content="release"></option> -->
+          <option value="stable-channel" i18n-content="stable"></option>
           <option value="beta-channel" i18n-content="beta"></option>
-          <option value="dev-channel" i18n-content="development"></option>
+          <option value="dev-channel" i18n-content="dev"></option>
         </select>
+        <div hidden id="channelWarningBlock">
+          <div id="channelWarning" i18n-content="channel_warning_header"></div>
+          <div i18n-content="channel_warning_text"></div>
+        </div>
       </div>
+    </section>
+    <section>
+      <h3 i18n-content="browser"></h3>
+      <div i18n-content="browser_version"></div>
     </section>
     <section>
       <h3 i18n-content="os"></h3>
@@ -41,8 +45,9 @@
       </div>
     </section>
     <section>
-      <h3 i18n-content="browser"></h3>
-      <div i18n-content="browser_version"></div>
+      <h3 i18n-content="firmware"></h3>
+      <div id="osFirmware1">
+        <span class="loading" i18n-content="loading"></span>
     </section>
     <section>
       <h3>WebKit</h3>

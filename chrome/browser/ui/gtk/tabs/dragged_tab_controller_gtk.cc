@@ -7,6 +7,7 @@
 #include <algorithm>
 
 #include "base/callback.h"
+#include "base/i18n/rtl.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/browser.h"
@@ -172,11 +173,6 @@ void DraggedTabControllerGtk::MoveContents(TabContents* source,
 
 bool DraggedTabControllerGtk::IsPopup(const TabContents* source) const {
   return false;
-}
-
-void DraggedTabControllerGtk::ToolbarSizeChanged(TabContents* source,
-                                                 bool finished) {
-  // Dragged tabs don't care about this.
 }
 
 void DraggedTabControllerGtk::UpdateTargetURL(TabContents* source,
@@ -397,7 +393,7 @@ void DraggedTabControllerGtk::Attach(TabStripGtk* attached_tabstrip,
     int index = GetInsertionIndexForDraggedBounds(bounds, false);
     attached_tabstrip_->model()->InsertTabContentsAt(
         index, dragged_contents_,
-        TabStripModel::ADD_SELECTED |
+        TabStripModel::ADD_ACTIVE |
             (pinned_ ? TabStripModel::ADD_PINNED : 0));
 
     tab = GetTabMatchingDraggedContents(attached_tabstrip_);
@@ -458,8 +454,11 @@ int DraggedTabControllerGtk::GetInsertionIndexForDraggedBounds(
     const gfx::Rect& dragged_bounds,
     bool is_tab_attached) const {
   int right_tab_x = 0;
-
-  // TODO(jhawkins): Handle RTL layout.
+  int dragged_bounds_x = base::i18n::IsRTL() ? dragged_bounds.right() :
+                                               dragged_bounds.x();
+  dragged_bounds_x =
+      gtk_util::MirroredXCoordinate(attached_tabstrip_->widget(),
+                                    dragged_bounds_x);
 
   // Divides each tab into two halves to see if the dragged tab has crossed
   // the halfway boundary necessary to move past the next tab.
@@ -476,22 +475,22 @@ int DraggedTabControllerGtk::GetInsertionIndexForDraggedBounds(
 
     right_tab_x = right_half.right();
 
-    if (dragged_bounds.x() >= right_half.x() &&
-        dragged_bounds.x() < right_half.right()) {
+    if (dragged_bounds_x >= right_half.x() &&
+        dragged_bounds_x < right_half.right()) {
       index = i + 1;
       break;
-    } else if (dragged_bounds.x() >= left_half.x() &&
-               dragged_bounds.x() < left_half.right()) {
+    } else if (dragged_bounds_x >= left_half.x() &&
+               dragged_bounds_x < left_half.right()) {
       index = i;
       break;
     }
   }
 
   if (index == -1) {
-    if (dragged_bounds.right() > right_tab_x)
-      index = attached_tabstrip_->model()->count();
-    else
-      index = 0;
+    bool at_the_end = base::i18n::IsRTL() ?
+        dragged_bounds.x() < right_tab_x :
+        dragged_bounds.right() > right_tab_x;
+    index = at_the_end ? attached_tabstrip_->model()->count() : 0;
   }
 
   index = attached_tabstrip_->model()->ConstrainInsertionIndex(index, mini_);
@@ -625,7 +624,7 @@ void DraggedTabControllerGtk::RevertDrag() {
       attached_tabstrip_ = source_tabstrip_;
       source_tabstrip_->model()->InsertTabContentsAt(
           source_model_index_, dragged_contents_,
-          TabStripModel::ADD_SELECTED |
+          TabStripModel::ADD_ACTIVE |
               (pinned_ ? TabStripModel::ADD_PINNED : 0));
     } else {
       // The tab was moved within the tabstrip where the drag was initiated.
@@ -642,7 +641,7 @@ void DraggedTabControllerGtk::RevertDrag() {
     // source tabstrip.
     source_tabstrip_->model()->InsertTabContentsAt(
         source_model_index_, dragged_contents_,
-        TabStripModel::ADD_SELECTED |
+        TabStripModel::ADD_ACTIVE |
             (pinned_ ? TabStripModel::ADD_PINNED : 0));
   }
 

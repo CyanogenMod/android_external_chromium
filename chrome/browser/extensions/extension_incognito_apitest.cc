@@ -1,9 +1,7 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/browser_list.h"
-#include "chrome/browser/browser_window.h"
 #include "chrome/browser/extensions/browser_action_test_util.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/extensions/extension_service.h"
@@ -11,6 +9,8 @@
 #include "chrome/browser/extensions/user_script_master.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/ui_test_utils.h"
 #include "content/browser/tab_contents/tab_contents.h"
@@ -91,7 +91,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionApiTest, DontCreateIncognitoProfile) {
 }
 
 // Tests that the APIs in an incognito-enabled extension work properly.
-IN_PROC_BROWSER_TEST_F(ExtensionApiTest, Incognito) {
+// Flaky - see crbug.com/77951.
+IN_PROC_BROWSER_TEST_F(ExtensionApiTest, FLAKY_Incognito) {
   host_resolver()->AddRule("*", "127.0.0.1");
   ASSERT_TRUE(StartTestServer());
 

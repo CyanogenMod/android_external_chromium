@@ -4,32 +4,34 @@
 
 #include "chrome/browser/extensions/crx_installer.h"
 
+#include <map>
 #include <set>
 
 #include "base/file_util.h"
 #include "base/lazy_instance.h"
+#include "base/memory/scoped_temp_dir.h"
+#include "base/metrics/histogram.h"
 #include "base/path_service.h"
-#include "base/scoped_temp_dir.h"
 #include "base/stl_util-inl.h"
 #include "base/stringprintf.h"
-#include "base/time.h"
 #include "base/task.h"
 #include "base/threading/thread_restrictions.h"
+#include "base/time.h"
 #include "base/utf_string_conversions.h"
 #include "base/version.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/extensions/convert_user_script.h"
 #include "chrome/browser/extensions/convert_web_app.h"
-#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_error_reporter.h"
+#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/shell_integration.h"
 #include "chrome/browser/web_applications/web_app.h"
 #include "chrome/common/chrome_paths.h"
-#include "chrome/common/extensions/extension_file_util.h"
 #include "chrome/common/extensions/extension_constants.h"
-#include "chrome/common/notification_service.h"
-#include "chrome/common/notification_type.h"
+#include "chrome/common/extensions/extension_file_util.h"
 #include "content/browser/browser_thread.h"
+#include "content/common/notification_service.h"
+#include "content/common/notification_type.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
@@ -42,6 +44,7 @@ namespace {
 struct WhitelistedInstallData {
   WhitelistedInstallData() {}
   std::set<std::string> ids;
+  std::map<std::string, linked_ptr<DictionaryValue> > manifests;
 };
 
 static base::LazyInstance<WhitelistedInstallData>
@@ -53,6 +56,36 @@ static base::LazyInstance<WhitelistedInstallData>
 void CrxInstaller::SetWhitelistedInstallId(const std::string& id) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   g_whitelisted_install_data.Get().ids.insert(id);
+}
+
+// static
+void CrxInstaller::SetWhitelistedManifest(const std::string& id,
+                                          DictionaryValue* parsed_manifest) {
+  CHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  WhitelistedInstallData& data = g_whitelisted_install_data.Get();
+  data.manifests[id] = linked_ptr<DictionaryValue>(parsed_manifest);
+}
+
+// static
+const DictionaryValue* CrxInstaller::GetWhitelistedManifest(
+    const std::string& id) {
+  WhitelistedInstallData& data = g_whitelisted_install_data.Get();
+  if (ContainsKey(data.manifests, id))
+    return data.manifests[id].get();
+  else
+    return NULL;
+}
+
+// static
+DictionaryValue* CrxInstaller::RemoveWhitelistedManifest(
+    const std::string& id) {
+  WhitelistedInstallData& data = g_whitelisted_install_data.Get();
+  if (ContainsKey(data.manifests, id)) {
+    DictionaryValue* manifest = data.manifests[id].release();
+    data.manifests.erase(id);
+    return manifest;
+  }
+  return NULL;
 }
 
 // static
@@ -176,22 +209,32 @@ bool CrxInstaller::AllowInstall(const Extension* extension,
                                 std::string* error) {
   DCHECK(error);
 
-  // We always allow themes and external installs.
+  // Make sure the expected id matches.
+  if (!expected_id_.empty() && expected_id_ != extension->id()) {
+    *error = base::StringPrintf(
+        "ID in new CRX manifest (%s) does not match expected id (%s)",
+        extension->id().c_str(),
+        expected_id_.c_str());
+    return false;
+  }
+
+  if (expected_version_.get() &&
+      !expected_version_->Equals(*extension->version())) {
+    *error = base::StringPrintf(
+        "Version in new CRX %s manifest (%s) does not match expected "
+        "version (%s)",
+        extension->id().c_str(),
+        expected_version_->GetString().c_str(),
+        extension->version()->GetString().c_str());
+    return false;
+  }
+
+  // The checks below are skipped for themes and external installs.
   if (extension->is_theme() || Extension::IsExternalLocation(install_source_))
     return true;
 
   if (!extensions_enabled_) {
     *error = "Extensions are not enabled.";
-    return false;
-  }
-
-  // Make sure the expected id matches.
-  // TODO(aa): Also support expected version?
-  if (!expected_id_.empty() && expected_id_ != extension->id()) {
-    *error = base::StringPrintf(
-        "ID in new extension manifest (%s) does not match expected id (%s)",
-        extension->id().c_str(),
-        expected_id_.c_str());
     return false;
   }
 
@@ -279,6 +322,17 @@ void CrxInstaller::OnUnpackSuccess(const FilePath& temp_dir,
       NewRunnableMethod(this, &CrxInstaller::ConfirmInstall));
 }
 
+// Helper method to let us compare a whitelisted manifest with the actual
+// downloaded extension's manifest, but ignoring the kPublicKey since the
+// whitelisted manifest doesn't have that value.
+static bool EqualsIgnoringPublicKey(
+    const DictionaryValue& extension_manifest,
+    const DictionaryValue& whitelisted_manifest) {
+  scoped_ptr<DictionaryValue> manifest_copy(extension_manifest.DeepCopy());
+  manifest_copy->Remove(extension_manifest_keys::kPublicKey, NULL);
+  return manifest_copy->Equals(&whitelisted_manifest);
+}
+
 void CrxInstaller::ConfirmInstall() {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   if (frontend_->extension_prefs()->IsExtensionBlacklisted(extension_->id())) {
@@ -308,8 +362,22 @@ void CrxInstaller::ConfirmInstall() {
   current_version_ =
       frontend_->extension_prefs()->GetVersionString(extension_->id());
 
+  // First see if it's whitelisted by id (the old mechanism).
   bool whitelisted = ClearWhitelistedInstallId(extension_->id()) &&
       extension_->plugins().empty() && is_gallery_install_;
+
+  // Now check if it's whitelisted by manifest.
+  scoped_ptr<DictionaryValue> whitelisted_manifest(
+      RemoveWhitelistedManifest(extension_->id()));
+  if (is_gallery_install_ && whitelisted_manifest.get()) {
+    if (!EqualsIgnoringPublicKey(*extension_->manifest_value(),
+                                 *whitelisted_manifest)) {
+      ReportFailureFromUIThread(
+          l10n_util::GetStringUTF8(IDS_EXTENSION_MANIFEST_INVALID));
+      return;
+    }
+    whitelisted = true;
+  }
 
   if (client_ &&
       (!allow_silent_install_ || !whitelisted)) {
@@ -332,6 +400,11 @@ void CrxInstaller::InstallUIProceed() {
 }
 
 void CrxInstaller::InstallUIAbort() {
+  // Technically, this can be called for other reasons than the user hitting
+  // cancel, but they're rare.
+  ExtensionService::RecordPermissionMessagesHistogram(
+      extension_, "Extensions.Permissions_InstallCancel");
+
   // Kill the theme loading bubble.
   NotificationService* service = NotificationService::current();
   service->Notify(NotificationType::NO_THEME_DETECTED,
@@ -355,6 +428,13 @@ void CrxInstaller::CompleteInstall() {
     }
   }
 
+  // See how long extension install paths are.  This is important on
+  // windows, because file operations may fail if the path to a file
+  // exceeds a small constant.  See crbug.com/69693 .
+  UMA_HISTOGRAM_CUSTOM_COUNTS(
+    "Extensions.CrxInstallDirPathLength",
+        install_directory_.value().length(), 0, 500, 100);
+
   FilePath version_dir = extension_file_util::InstallExtension(
       unpacked_extension_root_,
       extension_->id(),
@@ -376,8 +456,7 @@ void CrxInstaller::CompleteInstall() {
   extension_ = extension_file_util::LoadExtension(
       version_dir,
       install_source_,
-      true,  // Require key
-      false,  // Disable strict error checks
+      Extension::REQUIRE_KEY,
       &error);
   CHECK(error.empty()) << error;
 

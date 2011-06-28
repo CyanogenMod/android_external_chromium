@@ -9,7 +9,7 @@
 #include <map>
 #include <string>
 
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/extensions/image_loading_tracker.h"
 #include "chrome/browser/extensions/extension_context_menu_model.h"
 #include "chrome/browser/ui/views/extensions/extension_popup.h"
@@ -41,21 +41,23 @@ class PageActionImageView : public views::ImageView,
   }
 
   // Overridden from view.
-  virtual AccessibilityTypes::Role GetAccessibleRole();
-  virtual bool OnMousePressed(const views::MouseEvent& event);
-  virtual void OnMouseReleased(const views::MouseEvent& event, bool canceled);
-  virtual bool OnKeyPressed(const views::KeyEvent& e);
-  virtual void ShowContextMenu(const gfx::Point& p, bool is_mouse_gesture);
+  virtual void GetAccessibleState(ui::AccessibleViewState* state) OVERRIDE;
+  virtual bool OnMousePressed(const views::MouseEvent& event) OVERRIDE;
+  virtual void OnMouseReleased(const views::MouseEvent& event) OVERRIDE;
+  virtual bool OnKeyPressed(const views::KeyEvent& event) OVERRIDE;
+  virtual void ShowContextMenu(const gfx::Point& p,
+                               bool is_mouse_gesture) OVERRIDE;
 
   // Overridden from ImageLoadingTracker.
-  virtual void OnImageLoaded(
-      SkBitmap* image, ExtensionResource resource, int index);
+  virtual void OnImageLoaded(SkBitmap* image,
+                             const ExtensionResource& resource,
+                             int index) OVERRIDE;
 
   // Overridden from ExtensionContextMenuModelModel::Delegate
-  virtual void InspectPopup(ExtensionAction* action);
+  virtual void InspectPopup(ExtensionAction* action) OVERRIDE;
 
   // Overridden from ExtensionPopup::Observer
-  virtual void ExtensionPopupIsClosing(ExtensionPopup* popup);
+  virtual void ExtensionPopupIsClosing(ExtensionPopup* popup) OVERRIDE;
 
   // Called to notify the PageAction that it should determine whether to be
   // visible or hidden. |contents| is the TabContents that is active, |url| is

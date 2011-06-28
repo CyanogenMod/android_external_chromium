@@ -9,17 +9,17 @@
 
 #include "app/win/shell.h"
 #include "base/command_line.h"
-#include "base/scoped_comptr_win.h"
-#include "base/scoped_native_library.h"
+#include "base/memory/scoped_native_library.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/win/scoped_comptr.h"
 #include "base/win/scoped_gdi_object.h"
 #include "base/win/scoped_hdc.h"
 #include "base/win/windows_version.h"
 #include "chrome/browser/app_icon_win.h"
-#include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/tab_contents/thumbnail_generator.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_switches.h"
@@ -263,7 +263,7 @@ class RegisterThumbnailTask : public Task {
     // taskbar. But it seems to be OK to register it without checking the
     // message.
     // TODO(hbono): we need to check this registered message?
-    ScopedComPtr<ITaskbarList3> taskbar;
+    base::win::ScopedComPtr<ITaskbarList3> taskbar;
     if (FAILED(taskbar.CreateInstance(CLSID_TaskbarList, NULL,
                                       CLSCTX_INPROC_SERVER)) ||
         FAILED(taskbar->HrInit()) ||
@@ -588,7 +588,7 @@ class AeroPeekWindow : public ui::WindowImpl {
   // saves a copy of the given bitmap since it takes time to create a Windows
   // icon from this bitmap set it as the window icon. We will create a Windows
   // when Windows sends a WM_GETICON message to retrieve it.
-  void SetFavIcon(const SkBitmap& favicon);
+  void SetFavicon(const SkBitmap& favicon);
 
   // Returns the tab ID associated with this window.
   int tab_id() { return tab_id_; }
@@ -731,7 +731,7 @@ void AeroPeekWindow::Activate() {
   }
 
   // Notify Windows to set the thumbnail focus to this window.
-  ScopedComPtr<ITaskbarList3> taskbar;
+  base::win::ScopedComPtr<ITaskbarList3> taskbar;
   HRESULT result = taskbar.CreateInstance(CLSID_TaskbarList, NULL,
                                           CLSCTX_INPROC_SERVER);
   if (FAILED(result)) {
@@ -785,7 +785,7 @@ void AeroPeekWindow::Destroy() {
     return;
 
   // Remove this window from the tab list of Windows.
-  ScopedComPtr<ITaskbarList3> taskbar;
+  base::win::ScopedComPtr<ITaskbarList3> taskbar;
   HRESULT result = taskbar.CreateInstance(CLSID_TaskbarList, NULL,
                                           CLSCTX_INPROC_SERVER);
   if (FAILED(result))
@@ -805,7 +805,7 @@ void AeroPeekWindow::SetTitle(const std::wstring& title) {
   title_ = title;
 }
 
-void AeroPeekWindow::SetFavIcon(const SkBitmap& favicon) {
+void AeroPeekWindow::SetFavicon(const SkBitmap& favicon) {
   favicon_bitmap_ = favicon;
 }
 
@@ -1069,13 +1069,13 @@ void AeroPeekManager::CreateAeroPeekWindowIfNecessary(TabContentsWrapper* tab,
                          GetTabID(tab->tab_contents()),
                          foreground,
                          tab->tab_contents()->GetTitle(),
-                         tab->tab_contents()->GetFavIcon());
+                         tab->tab_contents()->GetFavicon());
   tab_list_.push_back(window);
 }
 
 TabContents* AeroPeekManager::GetTabContents(int tab_id) const {
   for (TabContentsIterator iterator; !iterator.done(); ++iterator) {
-    TabContents* target_contents = *iterator;
+    TabContents* target_contents = (*iterator)->tab_contents();
     if (target_contents->controller().session_id().id() == tab_id)
       return target_contents;
   }
@@ -1141,7 +1141,7 @@ void AeroPeekManager::TabReplacedAt(TabStripModel* tab_strip_model,
   DeleteAeroPeekWindowForTab(old_contents);
 
   CreateAeroPeekWindowIfNecessary(new_contents,
-                                  (index == tab_strip_model->selected_index()));
+                                  (index == tab_strip_model->active_index()));
   // We don't need to update the selection as if |new_contents| is selected the
   // TabStripModel will send TabSelectedAt.
 }
@@ -1174,7 +1174,7 @@ void AeroPeekManager::TabChangedAt(TabContentsWrapper* contents,
   // hurting the rendering performance. (These functions just save the
   // information needed for handling update requests from Windows.)
   window->SetTitle(contents->tab_contents()->GetTitle());
-  window->SetFavIcon(contents->tab_contents()->GetFavIcon());
+  window->SetFavicon(contents->tab_contents()->GetFavicon());
   window->Update(contents->tab_contents()->is_loading());
 }
 

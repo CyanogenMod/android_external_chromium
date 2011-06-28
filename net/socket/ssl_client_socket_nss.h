@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,7 @@
 #include <string>
 #include <vector>
 
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/synchronization/lock.h"
 #include "base/threading/platform_thread.h"
 #include "base/time.h"
@@ -74,6 +74,7 @@ class SSLClientSocketNSS : public SSLClientSocket {
   virtual bool IsConnected() const;
   virtual bool IsConnectedAndIdle() const;
   virtual int GetPeerAddress(AddressList* address) const;
+  virtual int GetLocalAddress(IPEndPoint* address) const;
   virtual const BoundNetLog& NetLog() const;
   virtual void SetSubresourceSpeculation();
   virtual void SetOmniboxSpeculation();
@@ -89,8 +90,6 @@ class SSLClientSocketNSS : public SSLClientSocket {
  private:
   enum State {
     STATE_NONE,
-    STATE_SNAP_START_LOAD_INFO,
-    STATE_SNAP_START_WAIT_FOR_WRITE,
     STATE_HANDSHAKE,
     STATE_VERIFY_DNSSEC,
     STATE_VERIFY_DNSSEC_COMPLETE,
@@ -123,8 +122,6 @@ class SSLClientSocketNSS : public SSLClientSocket {
   int DoReadLoop(int result);
   int DoWriteLoop(int result);
 
-  int DoSnapStartLoadInfo();
-  int DoSnapStartWaitForWrite();
   int DoHandshake();
 
   int DoVerifyDNSSEC(int result);
@@ -134,9 +131,7 @@ class SSLClientSocketNSS : public SSLClientSocket {
   int DoPayloadRead();
   int DoPayloadWrite();
   void LogConnectionTypeMetrics() const;
-  void SaveSnapStartInfo();
-  bool LoadSnapStartInfo();
-  bool IsNPNProtocolMispredicted();
+  void SaveSSLHostInfo();
   void UncorkAfterTimeout();
 
   bool DoTransportIO();
@@ -231,10 +226,6 @@ class SSLClientSocketNSS : public SSLClientSocket {
   // True if the SSL handshake has been completed.
   bool completed_handshake_;
 
-  // True if we are lying about being connected in order to merge the first
-  // Write call into a Snap Start handshake.
-  bool pseudo_connected_;
-
   // True iff we believe that the user has an ESET product intercepting our
   // HTTPS connections.
   bool eset_mitm_detected_;
@@ -260,14 +251,6 @@ class SSLClientSocketNSS : public SSLClientSocket {
   memio_Private* nss_bufs_;
 
   BoundNetLog net_log_;
-
-  // When performing Snap Start we need to predict the NPN protocol which the
-  // server is going to speak before we actually perform the handshake. Thus
-  // the last NPN protocol used is serialised in |ssl_host_info_|
-  // and kept in these fields:
-  SSLClientSocket::NextProtoStatus predicted_npn_status_;
-  std::string predicted_npn_proto_;
-  bool predicted_npn_proto_used_;
 
   base::TimeTicks start_cert_verification_time_;
 

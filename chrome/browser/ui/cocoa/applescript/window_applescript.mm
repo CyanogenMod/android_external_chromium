@@ -1,12 +1,12 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "chrome/browser/ui/cocoa/applescript/window_applescript.h"
 
 #include "base/logging.h"
-#import "base/scoped_nsobject.h"
-#include "base/scoped_ptr.h"
+#import "base/memory/scoped_nsobject.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/time.h"
 #import "chrome/browser/app_controller_mac.h"
 #import "chrome/browser/chrome_browser_application_mac.h"
@@ -105,7 +105,7 @@
 
 - (NSNumber*)activeTabIndex {
   // Note: applescript is 1-based, that is lists begin with index 1.
-  int activeTabIndex = browser_->selected_index() + 1;
+  int activeTabIndex = browser_->active_index() + 1;
   if (!activeTabIndex) {
     return nil;
   }
@@ -116,7 +116,7 @@
   // Note: applescript is 1-based, that is lists begin with index 1.
   int atIndex = [anActiveTabIndex intValue] - 1;
   if (atIndex >= 0 && atIndex < browser_->tab_count())
-    browser_->SelectTabContentsAt(atIndex, true);
+    browser_->ActivateTabAt(atIndex, true);
   else
     AppleScript::SetError(AppleScript::errInvalidTabIndex);
 }
@@ -136,8 +136,10 @@
 }
 
 - (TabAppleScript*)activeTab {
-  TabAppleScript* currentTab = [[[TabAppleScript alloc]
-      initWithTabContent:browser_->GetSelectedTabContents()] autorelease];
+  TabAppleScript* currentTab =
+      [[[TabAppleScript alloc]
+          initWithTabContent:browser_->GetSelectedTabContentsWrapper()]
+              autorelease];
   [currentTab setContainer:self
                   property:AppleScript::kTabsProperty];
   return currentTab;
@@ -155,7 +157,7 @@
 
     scoped_nsobject<TabAppleScript> tab(
         [[TabAppleScript alloc]
-            initWithTabContent:(browser_->GetTabContentsAt(i))]);
+            initWithTabContent:(browser_->GetTabContentsWrapperAt(i))]);
     [tab setContainer:self
              property:AppleScript::kTabsProperty];
     [tabs addObject:tab];
@@ -175,7 +177,7 @@
       browser_->AddSelectedTabWithURL(GURL(chrome::kChromeUINewTabURL),
                                       PageTransition::TYPED);
   contents->tab_contents()->set_new_tab_start_time(newTabStartTime);
-  [aTab setTabContent:contents->tab_contents()];
+  [aTab setTabContent:contents];
 }
 
 - (void)insertInTabs:(TabAppleScript*)aTab atIndex:(int)index {
@@ -195,7 +197,7 @@
   params.target_contents->tab_contents()->set_new_tab_start_time(
       newTabStartTime);
 
-  [aTab setTabContent:params.target_contents->tab_contents()];
+  [aTab setTabContent:params.target_contents];
 }
 
 - (void)removeFromTabsAtIndex:(int)index {

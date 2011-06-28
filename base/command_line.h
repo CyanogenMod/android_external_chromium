@@ -15,16 +15,17 @@
 #define BASE_COMMAND_LINE_H_
 #pragma once
 
+#include <stddef.h>
 #include <map>
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
+#include "base/base_api.h"
 #include "build/build_config.h"
 
 class FilePath;
 
-class CommandLine {
+class BASE_API CommandLine {
  public:
 #if defined(OS_WIN)
   // The native command line string type.

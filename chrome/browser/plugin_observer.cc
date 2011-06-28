@@ -16,11 +16,13 @@
 #include "chrome/common/url_constants.h"
 #include "content/browser/renderer_host/render_view_host.h"
 #include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/view_messages.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "webkit/plugins/npapi/default_plugin_shared.h"
+#include "webkit/plugins/npapi/plugin_group.h"
 #include "webkit/plugins/npapi/plugin_list.h"
 #include "webkit/plugins/npapi/webplugininfo.h"
 
@@ -39,6 +41,8 @@ class PluginInfoBarDelegate : public ConfirmInfoBarDelegate {
   virtual void InfoBarClosed();
   virtual bool Cancel();
   virtual bool LinkClicked(WindowOpenDisposition disposition);
+
+  virtual std::string GetLearnMoreURL() const = 0;
 
   string16 name_;
   TabContents* tab_contents_;
@@ -71,8 +75,7 @@ bool PluginInfoBarDelegate::Cancel() {
 }
 
 bool PluginInfoBarDelegate::LinkClicked(WindowOpenDisposition disposition) {
-  GURL url = google_util::AppendGoogleLocaleParam(
-      GURL(chrome::kOutdatedPluginLearnMoreURL));
+  GURL url = google_util::AppendGoogleLocaleParam(GURL(GetLearnMoreURL()));
   tab_contents_->OpenURL(url, GURL(), NEW_FOREGROUND_TAB, PageTransition::LINK);
   return false;
 }
@@ -105,18 +108,36 @@ class BlockedPluginInfoBarDelegate : public PluginInfoBarDelegate {
   virtual void InfoBarClosed();
   virtual void InfoBarDismissed();
   virtual bool LinkClicked(WindowOpenDisposition disposition);
+  virtual std::string GetLearnMoreURL() const;
 
   DISALLOW_COPY_AND_ASSIGN(BlockedPluginInfoBarDelegate);
 };
 
 BlockedPluginInfoBarDelegate::BlockedPluginInfoBarDelegate(
     TabContents* tab_contents,
-    const string16& name)
-    : PluginInfoBarDelegate(tab_contents, name) {
+    const string16& utf16_name)
+    : PluginInfoBarDelegate(tab_contents, utf16_name) {
   UserMetrics::RecordAction(UserMetricsAction("BlockedPluginInfobar.Shown"));
+  std::string name = UTF16ToUTF8(utf16_name);
+  if (name == webkit::npapi::PluginGroup::kJavaGroupName)
+    UserMetrics::RecordAction(
+        UserMetricsAction("BlockedPluginInfobar.Shown.Java"));
+  else if (name == webkit::npapi::PluginGroup::kQuickTimeGroupName)
+    UserMetrics::RecordAction(
+        UserMetricsAction("BlockedPluginInfobar.Shown.QuickTime"));
+  else if (name == webkit::npapi::PluginGroup::kShockwaveGroupName)
+    UserMetrics::RecordAction(
+        UserMetricsAction("BlockedPluginInfobar.Shown.Shockwave"));
+  else if (name == webkit::npapi::PluginGroup::kRealPlayerGroupName)
+    UserMetrics::RecordAction(
+        UserMetricsAction("BlockedPluginInfobar.Shown.RealPlayer"));
 }
 
 BlockedPluginInfoBarDelegate::~BlockedPluginInfoBarDelegate() {
+}
+
+std::string BlockedPluginInfoBarDelegate::GetLearnMoreURL() const {
+  return chrome::kBlockedPluginLearnMoreURL;
 }
 
 string16 BlockedPluginInfoBarDelegate::GetMessageText() const {
@@ -126,22 +147,21 @@ string16 BlockedPluginInfoBarDelegate::GetMessageText() const {
 string16 BlockedPluginInfoBarDelegate::GetButtonLabel(
     InfoBarButton button) const {
   return l10n_util::GetStringUTF16((button == BUTTON_OK) ?
-      IDS_PLUGIN_ENABLE_ALWAYS : IDS_PLUGIN_ENABLE_TEMPORARILY);
+      IDS_PLUGIN_ENABLE_TEMPORARILY : IDS_PLUGIN_ENABLE_ALWAYS);
 }
 
 bool BlockedPluginInfoBarDelegate::Accept() {
+  UserMetrics::RecordAction(
+      UserMetricsAction("BlockedPluginInfobar.AllowThisTime"));
+  return PluginInfoBarDelegate::Cancel();
+}
+
+bool BlockedPluginInfoBarDelegate::Cancel() {
   UserMetrics::RecordAction(
       UserMetricsAction("BlockedPluginInfobar.AlwaysAllow"));
   tab_contents_->profile()->GetHostContentSettingsMap()->AddExceptionForURL(
       tab_contents_->GetURL(), CONTENT_SETTINGS_TYPE_PLUGINS, std::string(),
       CONTENT_SETTING_ALLOW);
-  tab_contents_->render_view_host()->LoadBlockedPlugins();
-  return true;
-}
-
-bool BlockedPluginInfoBarDelegate::Cancel() {
-  UserMetrics::RecordAction(
-      UserMetricsAction("BlockedPluginInfobar.AllowThisTime"));
   return PluginInfoBarDelegate::Cancel();
 }
 
@@ -181,6 +201,7 @@ class OutdatedPluginInfoBarDelegate : public PluginInfoBarDelegate {
   virtual void InfoBarClosed();
   virtual void InfoBarDismissed();
   virtual bool LinkClicked(WindowOpenDisposition disposition);
+  virtual std::string GetLearnMoreURL() const;
 
   GURL update_url_;
 
@@ -189,14 +210,37 @@ class OutdatedPluginInfoBarDelegate : public PluginInfoBarDelegate {
 
 OutdatedPluginInfoBarDelegate::OutdatedPluginInfoBarDelegate(
     TabContents* tab_contents,
-    const string16& name,
+    const string16& utf16_name,
     const GURL& update_url)
-    : PluginInfoBarDelegate(tab_contents, name),
+    : PluginInfoBarDelegate(tab_contents, utf16_name),
       update_url_(update_url) {
   UserMetrics::RecordAction(UserMetricsAction("OutdatedPluginInfobar.Shown"));
+  std::string name = UTF16ToUTF8(utf16_name);
+  if (name == webkit::npapi::PluginGroup::kJavaGroupName)
+    UserMetrics::RecordAction(
+        UserMetricsAction("OutdatedPluginInfobar.Shown.Java"));
+  else if (name == webkit::npapi::PluginGroup::kQuickTimeGroupName)
+    UserMetrics::RecordAction(
+        UserMetricsAction("OutdatedPluginInfobar.Shown.QuickTime"));
+  else if (name == webkit::npapi::PluginGroup::kShockwaveGroupName)
+    UserMetrics::RecordAction(
+        UserMetricsAction("OutdatedPluginInfobar.Shown.Shockwave"));
+  else if (name == webkit::npapi::PluginGroup::kRealPlayerGroupName)
+    UserMetrics::RecordAction(
+        UserMetricsAction("OutdatedPluginInfobar.Shown.RealPlayer"));
+  else if (name == webkit::npapi::PluginGroup::kSilverlightGroupName)
+    UserMetrics::RecordAction(
+        UserMetricsAction("OutdatedPluginInfobar.Shown.Silverlight"));
+  else if (name == webkit::npapi::PluginGroup::kAdobeReaderGroupName)
+    UserMetrics::RecordAction(
+        UserMetricsAction("OutdatedPluginInfobar.Shown.Reader"));
 }
 
 OutdatedPluginInfoBarDelegate::~OutdatedPluginInfoBarDelegate() {
+}
+
+std::string OutdatedPluginInfoBarDelegate::GetLearnMoreURL() const {
+  return chrome::kOutdatedPluginLearnMoreURL;
 }
 
 string16 OutdatedPluginInfoBarDelegate::GetMessageText() const {

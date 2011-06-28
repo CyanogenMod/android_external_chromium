@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,10 +29,10 @@
 #include "base/command_line.h"
 #include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/memory/scoped_temp_dir.h"
+#include "base/memory/scoped_vector.h"
 #include "base/message_loop.h"
 #include "base/path_service.h"
-#include "base/scoped_temp_dir.h"
-#include "base/scoped_vector.h"
 #include "base/string_util.h"
 #include "base/task.h"
 #include "base/utf_string_conversions.h"
@@ -46,10 +46,10 @@
 #include "chrome/browser/history/in_memory_history_backend.h"
 #include "chrome/browser/history/page_usage_data.h"
 #include "chrome/common/chrome_paths.h"
-#include "chrome/common/notification_details.h"
-#include "chrome/common/notification_source.h"
 #include "chrome/common/thumbnail_score.h"
 #include "chrome/tools/profiles/thumbnail-inl.h"
+#include "content/common/notification_details.h"
+#include "content/common/notification_source.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/gfx/codec/jpeg_codec.h"
@@ -88,12 +88,12 @@ class BackendDelegate : public HistoryBackend::Delegate {
       : history_test_(history_test) {
   }
 
-  virtual void NotifyProfileError(int message_id);
-  virtual void SetInMemoryBackend(InMemoryHistoryBackend* backend);
+  virtual void NotifyProfileError(sql::InitStatus init_status) OVERRIDE {}
+  virtual void SetInMemoryBackend(InMemoryHistoryBackend* backend) OVERRIDE;
   virtual void BroadcastNotifications(NotificationType type,
-                                      HistoryDetails* details);
-  virtual void DBLoaded() {}
-  virtual void StartTopSitesMigration() {}
+                                      HistoryDetails* details) OVERRIDE;
+  virtual void DBLoaded() OVERRIDE {}
+  virtual void StartTopSitesMigration() OVERRIDE {}
  private:
   HistoryTest* history_test_;
 };
@@ -278,9 +278,6 @@ class HistoryTest : public testing::Test {
   HistoryDatabase* db_;  // Cached reference to the backend's database.
 };
 
-void BackendDelegate::NotifyProfileError(int message_id) {
-}
-
 void BackendDelegate::SetInMemoryBackend(InMemoryHistoryBackend* backend) {
   // Save the in-memory backend to the history test object, this happens
   // synchronously, so we don't have to do anything fancy.
@@ -320,21 +317,22 @@ TEST_F(HistoryTest, ClearBrowsingData_Downloads) {
   EXPECT_NE(0, AddDownload(DownloadItem::COMPLETE, now - one_day));
   EXPECT_NE(0, AddDownload(DownloadItem::COMPLETE, now));
   EXPECT_NE(0, AddDownload(DownloadItem::COMPLETE, now + one_day));
-  // Try the other three states.
-  EXPECT_NE(0, AddDownload(DownloadItem::COMPLETE,    month_ago));
+  // Try the other four states.
+  EXPECT_NE(0, AddDownload(DownloadItem::COMPLETE, month_ago));
   EXPECT_NE(0, in_progress = AddDownload(DownloadItem::IN_PROGRESS, month_ago));
-  EXPECT_NE(0, AddDownload(DownloadItem::CANCELLED,   month_ago));
-  EXPECT_NE(0, removing = AddDownload(DownloadItem::REMOVING,    month_ago));
+  EXPECT_NE(0, AddDownload(DownloadItem::CANCELLED, month_ago));
+  EXPECT_NE(0, AddDownload(DownloadItem::INTERRUPTED, month_ago));
+  EXPECT_NE(0, removing = AddDownload(DownloadItem::REMOVING, month_ago));
 
   // Test to see if inserts worked.
   db_->QueryDownloads(&downloads);
-  EXPECT_EQ(8U, downloads.size());
+  EXPECT_EQ(9U, downloads.size());
 
   // Try removing from current timestamp. This should delete the one in the
   // future and one very recent one.
   db_->RemoveDownloadsBetween(now, Time());
   db_->QueryDownloads(&downloads);
-  EXPECT_EQ(6U, downloads.size());
+  EXPECT_EQ(7U, downloads.size());
 
   // Try removing from two months ago. This should not delete items that are
   // 'in progress' or in 'removing' state.

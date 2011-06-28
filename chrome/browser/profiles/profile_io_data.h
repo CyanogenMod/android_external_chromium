@@ -6,23 +6,26 @@
 #define CHROME_BROWSER_PROFILES_PROFILE_IO_DATA_H_
 #pragma once
 
+#include <set>
 #include "base/basictypes.h"
+#include "base/debug/stack_trace.h"
 #include "base/file_path.h"
-#include "base/ref_counted.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
+#include "base/synchronization/lock.h"
 #include "chrome/browser/net/chrome_url_request_context.h"
+#include "chrome/browser/prefs/pref_member.h"
 #include "chrome/browser/profiles/profile.h"
+#include "content/browser/resource_context.h"
 #include "net/base/cookie_monster.h"
 
 class CommandLine;
 class ChromeAppCacheService;
 class ChromeBlobStorageContext;
-class ChromeURLRequestContext;
-class ChromeURLRequestContextGetter;
 class ExtensionInfoMap;
 namespace fileapi {
 class FileSystemContext;
-}
+}  // namespace fileapi
 class HostContentSettingsMap;
 class HostZoomMap;
 class IOThread;
@@ -37,6 +40,7 @@ class TransportSecurityState;
 namespace prerender {
 class PrerenderManager;
 };  // namespace prerender
+class ProtocolHandlerRegistry;
 namespace webkit_database {
 class DatabaseTracker;
 }  // webkit_database
@@ -56,12 +60,16 @@ class DatabaseTracker;
 // accessor.
 class ProfileIOData : public base::RefCountedThreadSafe<ProfileIOData> {
  public:
-  // These should only be called at most once each. Ownership is reversed they
-  // get called, from ProfileIOData owning ChromeURLRequestContext to vice
+  // These should only be called at most once each. Ownership is reversed when
+  // they get called, from ProfileIOData owning ChromeURLRequestContext to vice
   // versa.
   scoped_refptr<ChromeURLRequestContext> GetMainRequestContext() const;
   scoped_refptr<ChromeURLRequestContext> GetMediaRequestContext() const;
   scoped_refptr<ChromeURLRequestContext> GetExtensionsRequestContext() const;
+  scoped_refptr<ChromeURLRequestContext> GetIsolatedAppRequestContext(
+      scoped_refptr<ChromeURLRequestContext> main_context,
+      const std::string& app_id) const;
+  const content::ResourceContext& GetResourceContext() const;
 
  protected:
   friend class base::RefCountedThreadSafe<ProfileIOData>;
@@ -86,12 +94,13 @@ class ProfileIOData : public base::RefCountedThreadSafe<ProfileIOData> {
     ProfileParams();
     ~ProfileParams();
 
-    bool is_off_the_record;
+    bool is_incognito;
     bool clear_local_state_on_exit;
     std::string accept_language;
     std::string accept_charset;
     std::string referrer_charset;
     FilePath user_script_dir_path;
+    IOThread* io_thread;
     scoped_refptr<HostContentSettingsMap> host_content_settings_map;
     scoped_refptr<HostZoomMap> host_zoom_map;
     scoped_refptr<net::TransportSecurityState> transport_security_state;
@@ -112,21 +121,11 @@ class ProfileIOData : public base::RefCountedThreadSafe<ProfileIOData> {
     ProfileId profile_id;
   };
 
-  explicit ProfileIOData(bool is_off_the_record);
+  explicit ProfileIOData(bool is_incognito);
   virtual ~ProfileIOData();
 
-  // Static helper functions to assist in common operations executed by
-  // subtypes.
-
-  static void InitializeProfileParams(Profile* profile, ProfileParams* params);
-  static void ApplyProfileParamsToContext(const ProfileParams& profile_params,
-                                          ChromeURLRequestContext* context);
-  static net::ProxyConfigService* CreateProxyConfigService(Profile* profile);
-  static net::ProxyService* CreateProxyService(
-    net::NetLog* net_log,
-    net::URLRequestContext* context,
-    net::ProxyConfigService* proxy_config_service,
-    const CommandLine& command_line);
+  void InitializeProfileParams(Profile* profile);
+  void ApplyProfileParamsToContext(ChromeURLRequestContext* context) const;
 
   // Lazy initializes the ProfileIOData object the first time a request context
   // is requested. The lazy logic is implemented here. The actual initialization
@@ -134,24 +133,100 @@ class ProfileIOData : public base::RefCountedThreadSafe<ProfileIOData> {
   // functions have been provided to assist in common operations.
   void LazyInitialize() const;
 
+  // Called when the profile is destroyed.
+  void ShutdownOnUIThread();
+
+  BooleanPrefMember* enable_referrers() const {
+    return &enable_referrers_;
+  }
+
+  net::NetworkDelegate* network_delegate() const {
+    return network_delegate_.get();
+  }
+
+  net::DnsCertProvenanceChecker* dns_cert_checker() const {
+    return dns_cert_checker_.get();
+  }
+
+  net::ProxyService* proxy_service() const {
+    return proxy_service_.get();
+  }
+
+  net::CookiePolicy* cookie_policy() const {
+    return cookie_policy_.get();
+  }
+
+  ChromeURLRequestContext* main_request_context() const {
+    return main_request_context_;
+  }
+
+  ChromeURLRequestContext* extensions_request_context() const {
+    return extensions_request_context_;
+  }
+
+ private:
+  class ResourceContext : public content::ResourceContext {
+   public:
+    explicit ResourceContext(const ProfileIOData* io_data);
+    virtual ~ResourceContext();
+
+   private:
+    virtual void EnsureInitialized() const;
+
+    const ProfileIOData* const io_data_;
+  };
+
   // --------------------------------------------
   // Virtual interface for subtypes to implement:
   // --------------------------------------------
 
-  // Does that actual initialization of the ProfileIOData subtype. Subtypes
+  // Does the actual initialization of the ProfileIOData subtype. Subtypes
   // should use the static helper functions above to implement this.
-  virtual void LazyInitializeInternal() const = 0;
+  virtual void LazyInitializeInternal(ProfileParams* profile_params) const = 0;
+
+  // Does an on-demand initialization of a RequestContext for the given
+  // isolated app.
+  virtual scoped_refptr<RequestContext> InitializeAppRequestContext(
+      scoped_refptr<ChromeURLRequestContext> main_context,
+      const std::string& app_id) const = 0;
 
   // These functions are used to transfer ownership of the lazily initialized
   // context from ProfileIOData to the URLRequestContextGetter.
   virtual scoped_refptr<ChromeURLRequestContext>
-      AcquireMainRequestContext() const = 0;
-  virtual scoped_refptr<ChromeURLRequestContext>
       AcquireMediaRequestContext() const = 0;
   virtual scoped_refptr<ChromeURLRequestContext>
-      AcquireExtensionsRequestContext() const = 0;
+      AcquireIsolatedAppRequestContext(
+          scoped_refptr<ChromeURLRequestContext> main_context,
+          const std::string& app_id) const = 0;
 
+  // Tracks whether or not we've been lazily initialized.
   mutable bool initialized_;
+
+  // Data from the UI thread from the Profile, used to initialize ProfileIOData.
+  // Deleted after lazy initialization.
+  mutable scoped_ptr<ProfileParams> profile_params_;
+
+  // Member variables which are pointed to by the various context objects.
+  mutable BooleanPrefMember enable_referrers_;
+
+  // Pointed to by URLRequestContext.
+  mutable scoped_ptr<net::NetworkDelegate> network_delegate_;
+  mutable scoped_ptr<net::DnsCertProvenanceChecker> dns_cert_checker_;
+  mutable scoped_refptr<net::ProxyService> proxy_service_;
+  mutable scoped_ptr<net::CookiePolicy> cookie_policy_;
+
+  // Pointed to by ResourceContext.
+  mutable scoped_refptr<webkit_database::DatabaseTracker> database_tracker_;
+  mutable scoped_refptr<ChromeAppCacheService> appcache_service_;
+  mutable scoped_refptr<ChromeBlobStorageContext> blob_storage_context_;
+  mutable scoped_refptr<fileapi::FileSystemContext> file_system_context_;
+
+  mutable ResourceContext resource_context_;
+
+  // These are only valid in between LazyInitialize() and their accessor being
+  // called.
+  mutable scoped_refptr<RequestContext> main_request_context_;
+  mutable scoped_refptr<RequestContext> extensions_request_context_;
 
   DISALLOW_COPY_AND_ASSIGN(ProfileIOData);
 };

@@ -6,10 +6,18 @@
 #define CHROME_BROWSER_UI_VIEWS_TABS_TAB_STRIP_FACTORY_H_
 #pragma once
 
-class BaseTabStrip;
-class BrowserTabStripController;
+class AbstractTabStripView;
+class Browser;
+class TabStripModel;
 
-BaseTabStrip* CreateTabStrip(BrowserTabStripController* tabstrip_controller,
-                             bool use_vertical_tabs);
+namespace views {
+class View;
+}
+
+// Creates and returns a new tabstrip. The tabstrip should be added to |parent|.
+AbstractTabStripView* CreateTabStrip(Browser* browser,
+                                     views::View* parent,
+                                     TabStripModel* model,
+                                     bool use_vertical_tabs);
 
 #endif  // CHROME_BROWSER_UI_VIEWS_TABS_TAB_STRIP_FACTORY_H_

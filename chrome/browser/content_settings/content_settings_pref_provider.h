@@ -17,8 +17,8 @@
 #include "chrome/browser/content_settings/content_settings_base_provider.h"
 #include "chrome/browser/content_settings/content_settings_provider.h"
 #include "chrome/browser/prefs/pref_change_registrar.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
 
 class ContentSettingsDetails;
 class DictionaryValue;
@@ -27,6 +27,8 @@ class Profile;
 
 namespace content_settings {
 
+// Content settings provider that provides default content settings based on
+// user prefs.
 class PrefDefaultProvider : public DefaultProviderInterface,
                             public NotificationObserver {
  public:
@@ -69,13 +71,15 @@ class PrefDefaultProvider : public DefaultProviderInterface,
   // true and the preference is missing, the local copy will be cleared as well.
   void ReadDefaultSettings(bool overwrite);
 
+  void MigrateObsoleteNotificationPref(PrefService* prefs);
+
   // Copies of the pref data, so that we can read it on the IO thread.
   ContentSettings default_content_settings_;
 
   Profile* profile_;
 
-  // Whether this settings map is for an OTR session.
-  bool is_off_the_record_;
+  // Whether this settings map is for an Incognito session.
+  bool is_incognito_;
 
   // Used around accesses to the default_content_settings_ object to guarantee
   // thread safety.
@@ -87,6 +91,8 @@ class PrefDefaultProvider : public DefaultProviderInterface,
   // Whether we are currently updating preferences, this is used to ignore
   // notifications from the preferences service that we triggered ourself.
   bool updating_preferences_;
+
+  bool initializing_;
 
   DISALLOW_COPY_AND_ASSIGN(PrefDefaultProvider);
 };

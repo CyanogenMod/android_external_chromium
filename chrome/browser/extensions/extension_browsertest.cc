@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,7 @@
 #include "base/file_util.h"
 #include "base/path_service.h"
 #include "base/string_number_conversions.h"
-#include "chrome/browser/browser_window.h"
+#include "base/memory/scoped_temp_dir.h"
 #include "chrome/browser/extensions/crx_installer.h"
 #include "chrome/browser/extensions/extension_creator.h"
 #include "chrome/browser/extensions/extension_error_reporter.h"
@@ -20,13 +20,14 @@
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/omnibox/location_bar.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/notification_registrar.h"
-#include "chrome/common/notification_service.h"
-#include "chrome/common/notification_type.h"
 #include "chrome/test/ui_test_utils.h"
+#include "content/common/notification_registrar.h"
+#include "content/common/notification_service.h"
+#include "content/common/notification_type.h"
 
 ExtensionBrowserTest::ExtensionBrowserTest()
     : loaded_(false),
@@ -34,6 +35,7 @@ ExtensionBrowserTest::ExtensionBrowserTest()
       extension_installs_observed_(0),
       target_page_action_count_(-1),
       target_visible_page_action_count_(-1) {
+  EXPECT_TRUE(temp_dir_.CreateUniqueTempDir());
 }
 
 void ExtensionBrowserTest::SetUpCommandLine(CommandLine* command_line) {
@@ -57,8 +59,8 @@ void ExtensionBrowserTest::SetUpCommandLine(CommandLine* command_line) {
 #endif
 }
 
-bool ExtensionBrowserTest::LoadExtensionImpl(const FilePath& path,
-                                             bool incognito_enabled) {
+const Extension* ExtensionBrowserTest::LoadExtensionImpl(
+    const FilePath& path, bool incognito_enabled, bool fileaccess_enabled) {
   ExtensionService* service = browser()->profile()->GetExtensionService();
   {
     NotificationRegistrar registrar;
@@ -81,35 +83,56 @@ bool ExtensionBrowserTest::LoadExtensionImpl(const FilePath& path,
     }
   }
   if (!extension)
+    return NULL;
+
+  // The call to OnExtensionInstalled ensures the other extension prefs
+  // are set up with the defaults.
+  service->extension_prefs()->OnExtensionInstalled(
+      extension, Extension::ENABLED, false);
+  service->SetIsIncognitoEnabled(extension->id(), incognito_enabled);
+  service->SetAllowFileAccess(extension, fileaccess_enabled);
+
+  if (!WaitForExtensionHostsToLoad())
+    return NULL;
+
+  return extension;
+}
+
+const Extension* ExtensionBrowserTest::LoadExtension(const FilePath& path) {
+  return LoadExtensionImpl(path, false, true);
+}
+
+const Extension* ExtensionBrowserTest::LoadExtensionIncognito(
+    const FilePath& path) {
+  return LoadExtensionImpl(path, true, true);
+}
+
+const Extension* ExtensionBrowserTest::LoadExtensionNoFileAccess(
+    const FilePath& path) {
+  return LoadExtensionImpl(path, false, false);
+}
+
+const Extension* ExtensionBrowserTest::LoadExtensionIncognitoNoFileAccess(
+    const FilePath& path) {
+  return LoadExtensionImpl(path, true, false);
+}
+
+bool ExtensionBrowserTest::LoadExtensionAsComponent(const FilePath& path) {
+  ExtensionService* service = browser()->profile()->GetExtensionService();
+
+  std::string manifest;
+  if (!file_util::ReadFileToString(path.Append(Extension::kManifestFilename),
+                                   &manifest))
     return false;
 
-  if (incognito_enabled) {
-    // Enable the incognito bit in the extension prefs. The call to
-    // OnExtensionInstalled ensures the other extension prefs are set up with
-    // the defaults.
-    service->extension_prefs()->OnExtensionInstalled(
-        extension, Extension::ENABLED, false);
-    service->SetIsIncognitoEnabled(extension, true);
-  }
+  service->LoadComponentExtension(
+      ExtensionService::ComponentExtensionInfo(manifest, path));
 
-  return WaitForExtensionHostsToLoad();
-}
-
-bool ExtensionBrowserTest::LoadExtension(const FilePath& path) {
-  return LoadExtensionImpl(path, false);
-}
-
-bool ExtensionBrowserTest::LoadExtensionIncognito(const FilePath& path) {
-  return LoadExtensionImpl(path, true);
+  return true;
 }
 
 FilePath ExtensionBrowserTest::PackExtension(const FilePath& dir_path) {
-  FilePath crx_path;
-  if (!PathService::Get(base::DIR_TEMP, &crx_path)) {
-    ADD_FAILURE() << "Failed to get DIR_TEMP from PathService.";
-    return FilePath();
-  }
-  crx_path = crx_path.AppendASCII("temp.crx");
+  FilePath crx_path = temp_dir_.path().AppendASCII("temp.crx");
   if (!file_util::Delete(crx_path, false)) {
     ADD_FAILURE() << "Failed to delete crx: " << crx_path.value();
     return FilePath();
@@ -153,9 +176,6 @@ class MockAbortExtensionInstallUI : public ExtensionInstallUI {
     MessageLoopForUI::current()->Quit();
   }
 
-  virtual void ConfirmUninstall(Delegate* delegate,
-                                const Extension* extension) {}
-
   virtual void OnInstallSuccess(const Extension* extension, SkBitmap* icon) {}
 
   virtual void OnInstallFailure(const std::string& error) {}
@@ -163,7 +183,7 @@ class MockAbortExtensionInstallUI : public ExtensionInstallUI {
 
 class MockAutoConfirmExtensionInstallUI : public ExtensionInstallUI {
  public:
-  MockAutoConfirmExtensionInstallUI(Profile* profile) :
+  explicit MockAutoConfirmExtensionInstallUI(Profile* profile) :
       ExtensionInstallUI(profile) {}
 
   // Proceed without confirmation prompt.
@@ -260,7 +280,7 @@ void ExtensionBrowserTest::UnloadExtension(const std::string& extension_id) {
 
 void ExtensionBrowserTest::UninstallExtension(const std::string& extension_id) {
   ExtensionService* service = browser()->profile()->GetExtensionService();
-  service->UninstallExtension(extension_id, false);
+  service->UninstallExtension(extension_id, false, NULL);
 }
 
 void ExtensionBrowserTest::DisableExtension(const std::string& extension_id) {

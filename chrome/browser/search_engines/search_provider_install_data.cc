@@ -8,7 +8,7 @@
 
 #include "base/basictypes.h"
 #include "base/logging.h"
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
 #include "base/task.h"
 #include "chrome/browser/search_engines/search_host_to_urls_map.h"
 #include "chrome/browser/search_engines/search_terms_data.h"
@@ -16,12 +16,12 @@
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/browser/search_engines/util.h"
 #include "chrome/browser/webdata/web_data_service.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
-#include "chrome/common/notification_service.h"
-#include "chrome/common/notification_source.h"
-#include "chrome/common/notification_type.h"
 #include "content/browser/browser_thread.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
+#include "content/common/notification_service.h"
+#include "content/common/notification_source.h"
+#include "content/common/notification_type.h"
 
 typedef SearchHostToURLsMap::TemplateURLSet TemplateURLSet;
 
@@ -30,7 +30,7 @@ namespace {
 // Implementation of SearchTermsData that may be used on the I/O thread.
 class IOThreadSearchTermsData : public SearchTermsData {
  public:
-  explicit IOThreadSearchTermsData(std::string google_base_url);
+  explicit IOThreadSearchTermsData(const std::string& google_base_url);
 
   // Implementation of SearchTermsData.
   virtual std::string GoogleBaseURLValue() const;
@@ -48,8 +48,8 @@ class IOThreadSearchTermsData : public SearchTermsData {
   DISALLOW_COPY_AND_ASSIGN(IOThreadSearchTermsData);
 };
 
-IOThreadSearchTermsData::IOThreadSearchTermsData(std::string google_base_url)
-    : google_base_url_(google_base_url) {
+IOThreadSearchTermsData::IOThreadSearchTermsData(
+    const std::string& google_base_url) : google_base_url_(google_base_url) {
 }
 
 std::string IOThreadSearchTermsData::GoogleBaseURLValue() const {

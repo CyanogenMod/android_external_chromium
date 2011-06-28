@@ -10,13 +10,13 @@
 
 #include "base/callback.h"
 #include "base/logging.h"
+#include "base/memory/singleton.h"
+#include "base/memory/weak_ptr.h"
 #include "base/message_loop.h"
-#include "base/singleton.h"
 #include "base/string_number_conversions.h"
 #include "base/string_piece.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
-#include "base/weak_ptr.h"
 #include "chrome/browser/bug_report_data.h"
 #include "chrome/browser/bug_report_util.h"
 #include "chrome/browser/profiles/profile.h"
@@ -150,13 +150,13 @@ void ShowHtmlBugReportView(Browser* browser) {
   int feedback_tab_index = GetIndexOfFeedbackTab(browser);
   if (feedback_tab_index >=0) {
     // Do not refresh screenshot, do not create a new tab
-    browser->SelectTabContentsAt(feedback_tab_index, true);
+    browser->ActivateTabAt(feedback_tab_index, true);
     return;
   }
 
   RefreshLastScreenshot(browser);
   std::string bug_report_url = std::string(chrome::kChromeUIBugReportURL) +
-      "#" + base::IntToString(browser->selected_index());
+      "#" + base::IntToString(browser->active_index());
   browser->ShowSingletonTab(GURL(bug_report_url));
 }
 
@@ -170,7 +170,7 @@ class BugReportUIHTMLSource : public ChromeURLDataManager::DataSource {
   // Called when the network layer has requested a resource underneath
   // the path we registered.
   virtual void StartDataRequest(const std::string& path,
-                                bool is_off_the_record,
+                                bool is_incognito,
                                 int request_id);
   virtual std::string GetMimeType(const std::string&) const {
     return "text/html";
@@ -239,8 +239,8 @@ BugReportUIHTMLSource::BugReportUIHTMLSource(base::StringPiece html)
 }
 
 void BugReportUIHTMLSource::StartDataRequest(const std::string& path,
-                                              bool is_off_the_record,
-                                              int request_id) {
+                                             bool is_incognito,
+                                             int request_id) {
   DictionaryValue localized_strings;
   localized_strings.SetString(std::string("title"),
       l10n_util::GetStringUTF8(IDS_BUGREPORT_TITLE));
@@ -562,13 +562,13 @@ void BugReportHandler::HandleGetDialogDefaults(const ListValue*) {
   dialog_defaults.Append(new StringValue(GetUserEmail()));
 #endif
 
-  web_ui_->CallJavascriptFunction(L"setupDialogDefaults", dialog_defaults);
+  web_ui_->CallJavascriptFunction("setupDialogDefaults", dialog_defaults);
 }
 
 void BugReportHandler::HandleRefreshCurrentScreenshot(const ListValue*) {
   std::string current_screenshot(kCurrentScreenshotUrl);
   StringValue screenshot(current_screenshot);
-  web_ui_->CallJavascriptFunction(L"setupCurrentScreenshot", screenshot);
+  web_ui_->CallJavascriptFunction("setupCurrentScreenshot", screenshot);
 }
 
 
@@ -580,7 +580,7 @@ void BugReportHandler::HandleRefreshSavedScreenshots(const ListValue*) {
   ListValue screenshots_list;
   for (size_t i = 0; i < saved_screenshots.size(); ++i)
     screenshots_list.Append(new StringValue(saved_screenshots[i]));
-  web_ui_->CallJavascriptFunction(L"setupSavedScreenshots", screenshots_list);
+  web_ui_->CallJavascriptFunction("setupSavedScreenshots", screenshots_list);
 }
 #endif
 
@@ -717,13 +717,14 @@ void BugReportHandler::CancelFeedbackCollection() {
 }
 
 void BugReportHandler::CloseFeedbackTab() {
+  ClobberScreenshotsSource();
+
   Browser* browser = BrowserList::GetLastActive();
   if (browser) {
     browser->CloseTabContents(tab_);
   } else {
     LOG(FATAL) << "Failed to get last active browser.";
   }
-  ClobberScreenshotsSource();
 }
 
 ////////////////////////////////////////////////////////////////////////////////

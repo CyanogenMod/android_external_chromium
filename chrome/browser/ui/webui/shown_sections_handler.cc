@@ -14,9 +14,9 @@
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/extensions/extension.h"
-#include "chrome/common/notification_details.h"
-#include "chrome/common/notification_type.h"
 #include "chrome/common/pref_names.h"
+#include "content/common/notification_details.h"
+#include "content/common/notification_type.h"
 
 namespace {
 
@@ -78,7 +78,7 @@ void ShownSectionsHandler::Observe(NotificationType type,
     DCHECK(*pref_name == prefs::kNTPShownSections);
     int sections = pref_service_->GetInteger(prefs::kNTPShownSections);
     FundamentalValue sections_value(sections);
-    web_ui_->CallJavascriptFunction(L"setShownSections", sections_value);
+    web_ui_->CallJavascriptFunction("setShownSections", sections_value);
   } else {
     NOTREACHED();
   }
@@ -87,7 +87,7 @@ void ShownSectionsHandler::Observe(NotificationType type,
 void ShownSectionsHandler::HandleGetShownSections(const ListValue* args) {
   int sections = GetShownSections(pref_service_);
   FundamentalValue sections_value(sections);
-  web_ui_->CallJavascriptFunction(L"onShownSections", sections_value);
+  web_ui_->CallJavascriptFunction("onShownSections", sections_value);
 }
 
 void ShownSectionsHandler::HandleSetShownSections(const ListValue* args) {
@@ -120,7 +120,7 @@ void ShownSectionsHandler::MigrateUserPrefs(PrefService* pref_service,
   // Nothing to migrate for default kNTPShownSections value.
   const PrefService::Preference* shown_sections_pref =
       pref_service->FindPreference(prefs::kNTPShownSections);
-  if (shown_sections_pref->IsDefaultValue())
+  if (!shown_sections_pref || shown_sections_pref->IsDefaultValue())
     return;
 
   bool changed = false;

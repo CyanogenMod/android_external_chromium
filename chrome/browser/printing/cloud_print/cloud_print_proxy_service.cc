@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,15 +8,16 @@
 #include <vector>
 
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/notifications/desktop_notification_service.h"
 #include "chrome/browser/notifications/notification.h"
 #include "chrome/browser/notifications/notification_ui_manager.h"
 #include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/printing/cloud_print/cloud_print_setup_flow.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/service/service_process_control.h"
 #include "chrome/browser/service/service_process_control_manager.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/service_messages.h"
 #include "content/browser/browser_thread.h"
@@ -120,7 +121,9 @@ void CloudPrintProxyService::OnTokenExpiredNotificationClick() {
   // Clear the cached cloud print email pref so that the cloud print setup
   // flow happens.
   profile_->GetPrefs()->SetString(prefs::kCloudPrintEmail, std::string());
-  CloudPrintSetupFlow::OpenDialog(profile_, this, NULL);
+  cloud_print_setup_handler_.reset(new CloudPrintSetupHandler(this));
+  CloudPrintSetupFlow::OpenDialog(
+      profile_, cloud_print_setup_handler_->AsWeakPtr(), NULL);
 }
 
 void CloudPrintProxyService::TokenExpiredNotificationDone(bool keep_alive) {
@@ -133,7 +136,7 @@ void CloudPrintProxyService::TokenExpiredNotificationDone(bool keep_alive) {
   }
 }
 
-void CloudPrintProxyService::OnDialogClosed() {
+void CloudPrintProxyService::OnCloudPrintSetupClosed() {
   MessageLoop::current()->PostTask(
       FROM_HERE, NewRunnableFunction(&BrowserList::EndKeepAlive));
 }

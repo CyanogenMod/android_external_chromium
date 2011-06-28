@@ -4,7 +4,6 @@
 
 #include "chrome/browser/prefs/command_line_pref_store.h"
 
-#include "app/app_switches.h"
 #include "base/logging.h"
 #include "base/values.h"
 #include "chrome/browser/prefs/proxy_config_dictionary.h"
@@ -31,6 +30,9 @@ const CommandLinePrefStore::BooleanSwitchToPreferenceMapEntry
       { switches::kDisable3DAPIs, prefs::kDisable3DAPIs, true },
       { switches::kEnableCloudPrintProxy, prefs::kCloudPrintProxyEnabled,
           true },
+      { switches::kAllowOutdatedPlugins, prefs::kPluginsAllowOutdated, true },
+      { switches::kNoPings, prefs::kEnableHyperlinkAuditing, false },
+      { switches::kNoReferrers, prefs::kEnableReferrers, false },
 };
 
 CommandLinePrefStore::CommandLinePrefStore(const CommandLine* command_line)

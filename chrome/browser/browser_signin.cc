@@ -9,8 +9,8 @@
 
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
+#include "base/memory/singleton.h"
 #include "base/message_loop.h"
-#include "base/singleton.h"
 #include "base/string_util.h"
 #include "base/values.h"
 #include "chrome/browser/prefs/pref_service.h"
@@ -21,14 +21,14 @@
 #include "chrome/browser/ui/webui/constrained_html_ui.h"
 #include "chrome/browser/ui/webui/html_dialog_ui.h"
 #include "chrome/common/jstemplate_builder.h"
-#include "chrome/common/notification_details.h"
-#include "chrome/common/notification_source.h"
-#include "chrome/common/notification_type.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "content/browser/browser_thread.h"
 #include "content/browser/renderer_host/render_view_host.h"
 #include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/notification_details.h"
+#include "content/common/notification_source.h"
+#include "content/common/notification_type.h"
 #include "grit/browser_resources.h"
 #include "ui/base/resource/resource_bundle.h"
 
@@ -39,7 +39,7 @@ class BrowserSigninResourcesSource : public ChromeURLDataManager::DataSource {
   }
 
   virtual void StartDataRequest(const std::string& path,
-                                bool is_off_the_record,
+                                bool is_incognito,
                                 int request_id);
 
   virtual std::string GetMimeType(const std::string& path) const {
@@ -53,7 +53,7 @@ class BrowserSigninResourcesSource : public ChromeURLDataManager::DataSource {
 };
 
 void BrowserSigninResourcesSource::StartDataRequest(const std::string& path,
-                                                    bool is_off_the_record,
+                                                    bool is_incognito,
                                                     int request_id) {
   const char kSigninPath[] = "signin";
 
@@ -77,8 +77,8 @@ class BrowserSigninHtml : public HtmlDialogUIDelegate,
                           public WebUIMessageHandler {
  public:
   BrowserSigninHtml(BrowserSignin* signin,
-                    string16 suggested_email,
-                    string16 login_message);
+                    const string16& suggested_email,
+                    const string16& login_message);
   virtual ~BrowserSigninHtml() {}
 
   // HtmlDialogUIDelegate implementation
@@ -135,8 +135,8 @@ class BrowserSigninHtml : public HtmlDialogUIDelegate,
 };
 
 BrowserSigninHtml::BrowserSigninHtml(BrowserSignin* signin,
-                                     string16 suggested_email,
-                                     string16 login_message)
+                                     const string16& suggested_email,
+                                     const string16& login_message)
     : signin_(signin),
       suggested_email_(suggested_email),
       login_message_(login_message),
@@ -159,7 +159,7 @@ void BrowserSigninHtml::ForceDialogClose() {
     StringValue value("DialogClose");
     ListValue close_args;
     close_args.Append(new StringValue(""));
-    web_ui_->CallJavascriptFunction(L"chrome.send", value, close_args);
+    web_ui_->CallJavascriptFunction("chrome.send", value, close_args);
   }
 }
 

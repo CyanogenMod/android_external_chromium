@@ -8,18 +8,19 @@
 
 #include "chrome/browser/prefs/pref_member.h"
 #include "chrome/browser/prefs/pref_set_observer.h"
-#include "chrome/browser/printing/cloud_print/cloud_print_setup_flow.h"
+#include "chrome/browser/printing/cloud_print/cloud_print_setup_handler.h"
 #include "chrome/browser/remoting/remoting_options_handler.h"
 #include "chrome/browser/ui/shell_dialogs.h"
 #include "chrome/browser/ui/webui/options/options_ui.h"
 
 class OptionsManagedBannerHandler;
+class CloudPrintSetupHandler;
 
 // Chrome advanced options page UI handler.
 class AdvancedOptionsHandler
     : public OptionsPageUIHandler,
       public SelectFileDialog::Listener,
-      public CloudPrintSetupFlow::Delegate {
+      public CloudPrintSetupHandlerDelegate {
  public:
   AdvancedOptionsHandler();
   virtual ~AdvancedOptionsHandler();
@@ -40,8 +41,8 @@ class AdvancedOptionsHandler
   // SelectFileDialog::Listener implementation
   virtual void FileSelected(const FilePath& path, int index, void* params);
 
-  // CloudPrintSetupFlow::Delegate implementation.
-  virtual void OnDialogClosed();
+  // CloudPrintSetupHandler::Delegate implementation.
+  virtual void OnCloudPrintSetupClosed();
 
  private:
   // Callback for the "selectDownloadLocation" message.  This will prompt
@@ -65,22 +66,18 @@ class AdvancedOptionsHandler
   // one item, the font size as a numeric value.
   void HandleDefaultFontSize(const ListValue* args);
 
-#if defined(OS_WIN)
-  // Callback for the "Check SSL Revocation" checkbox.  This is needed so we
-  // can support manual handling on Windows.
+  // Callback for the "Check for server certificate revocation" checkbox. This
+  // is called if the user toggles the "Check for server certificate revocation"
+  // checkbox.
   void HandleCheckRevocationCheckbox(const ListValue* args);
 
-  // Callback for the "Use SSL3" checkbox.  This is needed so we can support
-  // manual handling on Windows.
+  // Callback for the "Use SSL 3.0" checkbox. This is called if the user toggles
+  // the "Use SSL 3.0" checkbox.
   void HandleUseSSL3Checkbox(const ListValue* args);
 
-  // Callback for the "Use TLS1" checkbox.  This is needed so we can support
-  // manual handling on Windows.
+  // Callback for the "Use TLS 1.0" checkbox. This is called if the user toggles
+  // the "Use TLS 1.0" checkbox.
   void HandleUseTLS1Checkbox(const ListValue* args);
-
-  // Callback for the "Show Gears Settings" button.
-  void HandleShowGearsSettings(const ListValue* args);
-#endif
 
 #if !defined(OS_CHROMEOS)
   // Callback for the "showNetworkProxySettings" message. This will invoke
@@ -151,10 +148,8 @@ class AdvancedOptionsHandler
   // Setup the proxy settings section UI.
   void SetupProxySettingsSection();
 
-#if defined(OS_WIN)
   // Setup the checked state for SSL related checkboxes.
   void SetupSSLConfigSettings();
-#endif
 
   scoped_refptr<SelectFileDialog> select_folder_dialog_;
 
@@ -163,7 +158,13 @@ class AdvancedOptionsHandler
   StringPrefMember cloud_print_proxy_email_;
   BooleanPrefMember cloud_print_proxy_enabled_;
   bool cloud_print_proxy_ui_enabled_;
+  scoped_ptr<CloudPrintSetupHandler> cloud_print_setup_handler_;
 #endif
+
+  // SSLConfigService prefs.
+  BooleanPrefMember rev_checking_enabled_;
+  BooleanPrefMember ssl3_enabled_;
+  BooleanPrefMember tls1_enabled_;
 
 #if defined(ENABLE_REMOTING) && !defined(OS_CHROMEOS)
   remoting::RemotingOptionsHandler remoting_options_handler_;
@@ -173,7 +174,6 @@ class AdvancedOptionsHandler
   BooleanPrefMember ask_for_save_location_;
   StringPrefMember auto_open_files_;
   IntegerPrefMember default_font_size_;
-  IntegerPrefMember default_fixed_font_size_;
   scoped_ptr<PrefSetObserver> proxy_prefs_;
   scoped_ptr<OptionsManagedBannerHandler> banner_handler_;
 

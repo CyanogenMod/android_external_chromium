@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -233,6 +233,16 @@ void DynamicSocketDataProvider::SimulateRead(const char* data,
     EXPECT_TRUE(reads_.empty()) << "Unconsumed read: " << reads_.front().data;
   }
   reads_.push_back(MockRead(true, data, length));
+}
+
+SSLSocketDataProvider::SSLSocketDataProvider(bool async, int result)
+    : connect(async, result),
+      next_proto_status(SSLClientSocket::kNextProtoUnsupported),
+      was_npn_negotiated(false),
+      cert_request_info(NULL) {
+}
+
+SSLSocketDataProvider::~SSLSocketDataProvider() {
 }
 
 DelayedSocketData::DelayedSocketData(
@@ -578,7 +588,7 @@ MockSSLClientSocket* MockClientSocketFactory::GetMockSSLClientSocket(
   return ssl_client_sockets_[index];
 }
 
-ClientSocket* MockClientSocketFactory::CreateTCPClientSocket(
+ClientSocket* MockClientSocketFactory::CreateTransportClientSocket(
     const AddressList& addresses,
     net::NetLog* net_log,
     const NetLog::Source& source) {
@@ -636,6 +646,14 @@ bool MockClientSocket::IsConnectedAndIdle() const {
 int MockClientSocket::GetPeerAddress(AddressList* address) const {
   return net::SystemHostResolverProc("192.0.2.33", ADDRESS_FAMILY_UNSPECIFIED,
                                      0, address, NULL);
+}
+
+int MockClientSocket::GetLocalAddress(IPEndPoint* address) const {
+  IPAddressNumber ip;
+  if (!ParseIPLiteralToNumber("192.0.2.33", &ip))
+    return ERR_FAILED;
+  *address = IPEndPoint(ip, 123);
+      return OK;
 }
 
 const BoundNetLog& MockClientSocket::NetLog() const {
@@ -766,6 +784,12 @@ bool MockTCPClientSocket::IsConnected() const {
 
 bool MockTCPClientSocket::IsConnectedAndIdle() const {
   return IsConnected();
+}
+
+int MockTCPClientSocket::GetPeerAddress(AddressList* address) const {
+  if (!IsConnected())
+    return ERR_SOCKET_NOT_CONNECTED;
+  return MockClientSocket::GetPeerAddress(address);
 }
 
 bool MockTCPClientSocket::WasEverUsed() const {
@@ -1061,6 +1085,7 @@ bool MockSSLClientSocket::UsingTCPFastOpen() const {
 
 void MockSSLClientSocket::GetSSLInfo(net::SSLInfo* ssl_info) {
   ssl_info->Reset();
+  ssl_info->cert = data_->cert_;
 }
 
 void MockSSLClientSocket::GetSSLCertRequestInfo(
@@ -1160,7 +1185,7 @@ void ClientSocketPoolTest::ReleaseAllConnections(KeepAlive keep_alive) {
   } while (released_one);
 }
 
-MockTCPClientSocketPool::MockConnectJob::MockConnectJob(
+MockTransportClientSocketPool::MockConnectJob::MockConnectJob(
     ClientSocket* socket,
     ClientSocketHandle* handle,
     CompletionCallback* callback)
@@ -1171,9 +1196,9 @@ MockTCPClientSocketPool::MockConnectJob::MockConnectJob(
           connect_callback_(this, &MockConnectJob::OnConnect)) {
 }
 
-MockTCPClientSocketPool::MockConnectJob::~MockConnectJob() {}
+MockTransportClientSocketPool::MockConnectJob::~MockConnectJob() {}
 
-int MockTCPClientSocketPool::MockConnectJob::Connect() {
+int MockTransportClientSocketPool::MockConnectJob::Connect() {
   int rv = socket_->Connect(&connect_callback_);
   if (rv == OK) {
     user_callback_ = NULL;
@@ -1182,7 +1207,7 @@ int MockTCPClientSocketPool::MockConnectJob::Connect() {
   return rv;
 }
 
-bool MockTCPClientSocketPool::MockConnectJob::CancelHandle(
+bool MockTransportClientSocketPool::MockConnectJob::CancelHandle(
     const ClientSocketHandle* handle) {
   if (handle != handle_)
     return false;
@@ -1192,7 +1217,7 @@ bool MockTCPClientSocketPool::MockConnectJob::CancelHandle(
   return true;
 }
 
-void MockTCPClientSocketPool::MockConnectJob::OnConnect(int rv) {
+void MockTransportClientSocketPool::MockConnectJob::OnConnect(int rv) {
   if (!socket_.get())
     return;
   if (rv == OK) {
@@ -1210,27 +1235,27 @@ void MockTCPClientSocketPool::MockConnectJob::OnConnect(int rv) {
   }
 }
 
-MockTCPClientSocketPool::MockTCPClientSocketPool(
+MockTransportClientSocketPool::MockTransportClientSocketPool(
     int max_sockets,
     int max_sockets_per_group,
     ClientSocketPoolHistograms* histograms,
     ClientSocketFactory* socket_factory)
-    : TCPClientSocketPool(max_sockets, max_sockets_per_group, histograms,
-                          NULL, NULL, NULL),
+    : TransportClientSocketPool(max_sockets, max_sockets_per_group, histograms,
+                                NULL, NULL, NULL),
       client_socket_factory_(socket_factory),
       release_count_(0),
       cancel_count_(0) {
 }
 
-MockTCPClientSocketPool::~MockTCPClientSocketPool() {}
+MockTransportClientSocketPool::~MockTransportClientSocketPool() {}
 
-int MockTCPClientSocketPool::RequestSocket(const std::string& group_name,
+int MockTransportClientSocketPool::RequestSocket(const std::string& group_name,
                                            const void* socket_params,
                                            RequestPriority priority,
                                            ClientSocketHandle* handle,
                                            CompletionCallback* callback,
                                            const BoundNetLog& net_log) {
-  ClientSocket* socket = client_socket_factory_->CreateTCPClientSocket(
+  ClientSocket* socket = client_socket_factory_->CreateTransportClientSocket(
       AddressList(), net_log.net_log(), net::NetLog::Source());
   MockConnectJob* job = new MockConnectJob(socket, handle, callback);
   job_list_.push_back(job);
@@ -1238,7 +1263,7 @@ int MockTCPClientSocketPool::RequestSocket(const std::string& group_name,
   return job->Connect();
 }
 
-void MockTCPClientSocketPool::CancelRequest(const std::string& group_name,
+void MockTransportClientSocketPool::CancelRequest(const std::string& group_name,
                                             ClientSocketHandle* handle) {
   std::vector<MockConnectJob*>::iterator i;
   for (i = job_list_.begin(); i != job_list_.end(); ++i) {
@@ -1249,7 +1274,7 @@ void MockTCPClientSocketPool::CancelRequest(const std::string& group_name,
   }
 }
 
-void MockTCPClientSocketPool::ReleaseSocket(const std::string& group_name,
+void MockTransportClientSocketPool::ReleaseSocket(const std::string& group_name,
                                             ClientSocket* socket, int id) {
   EXPECT_EQ(1, id);
   release_count_++;
@@ -1281,7 +1306,7 @@ MockSSLClientSocket* DeterministicMockClientSocketFactory::
   return ssl_client_sockets_[index];
 }
 
-ClientSocket* DeterministicMockClientSocketFactory::CreateTCPClientSocket(
+ClientSocket* DeterministicMockClientSocketFactory::CreateTransportClientSocket(
     const AddressList& addresses,
     net::NetLog* net_log,
     const net::NetLog::Source& source) {
@@ -1314,10 +1339,10 @@ MockSOCKSClientSocketPool::MockSOCKSClientSocketPool(
     int max_sockets,
     int max_sockets_per_group,
     ClientSocketPoolHistograms* histograms,
-    TCPClientSocketPool* tcp_pool)
+    TransportClientSocketPool* transport_pool)
     : SOCKSClientSocketPool(max_sockets, max_sockets_per_group, histograms,
-                            NULL, tcp_pool, NULL),
-      tcp_pool_(tcp_pool) {
+                            NULL, transport_pool, NULL),
+      transport_pool_(transport_pool) {
 }
 
 MockSOCKSClientSocketPool::~MockSOCKSClientSocketPool() {}
@@ -1328,19 +1353,23 @@ int MockSOCKSClientSocketPool::RequestSocket(const std::string& group_name,
                                              ClientSocketHandle* handle,
                                              CompletionCallback* callback,
                                              const BoundNetLog& net_log) {
-  return tcp_pool_->RequestSocket(group_name, socket_params, priority, handle,
-                                  callback, net_log);
+  return transport_pool_->RequestSocket(group_name,
+                                        socket_params,
+                                        priority,
+                                        handle,
+                                        callback,
+                                        net_log);
 }
 
 void MockSOCKSClientSocketPool::CancelRequest(
     const std::string& group_name,
     ClientSocketHandle* handle) {
-  return tcp_pool_->CancelRequest(group_name, handle);
+  return transport_pool_->CancelRequest(group_name, handle);
 }
 
 void MockSOCKSClientSocketPool::ReleaseSocket(const std::string& group_name,
                                               ClientSocket* socket, int id) {
-  return tcp_pool_->ReleaseSocket(group_name, socket, id);
+  return transport_pool_->ReleaseSocket(group_name, socket, id);
 }
 
 const char kSOCKS5GreetRequest[] = { 0x05, 0x01, 0x00 };

@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,8 @@
 
 #include <string>
 
+#include "base/memory/singleton.h"
 #include "base/observer_list.h"
-#include "base/singleton.h"
 #include "base/time.h"
 #include "third_party/cros/chromeos_update_engine.h"
 
@@ -61,20 +61,23 @@ class UpdateLibrary {
   virtual ~UpdateLibrary() {}
   virtual void AddObserver(Observer* observer) = 0;
   virtual void RemoveObserver(Observer* observer) = 0;
+  virtual bool HasObserver(Observer* observer) = 0;
 
-  // Initiates update check and returns true if check was initiated.
-  virtual bool CheckForUpdate() = 0;
+  // Requests an update check and calls |callback| when completed.
+  virtual void RequestUpdateCheck(chromeos::UpdateCallback callback,
+                                  void* user_data) = 0;
 
   // Reboots if update has been performed.
   virtual bool RebootAfterUpdate() = 0;
 
   // Sets the release track (channel). |track| should look like
   // "beta-channel" and "dev-channel". Returns true on success.
-  virtual bool SetReleaseTrack(const std::string& track) = 0;
+  virtual void SetReleaseTrack(const std::string& track) = 0;
 
-  // Returns the release track (channel). On error, returns an empty
-  // string.
-  virtual std::string GetReleaseTrack() = 0;
+  // Calls |callback| with the release track (channel). On error, calls
+  // |callback| with NULL.
+  virtual void GetReleaseTrack(chromeos::UpdateTrackCallback callback,
+                               void* user_data) = 0;
 
   virtual const Status& status() const = 0;
 

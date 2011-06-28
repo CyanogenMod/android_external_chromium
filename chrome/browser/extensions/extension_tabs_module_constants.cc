@@ -8,7 +8,7 @@ namespace extension_tabs_module_constants {
 
 const char kAllFramesKey[] = "allFrames";
 const char kCodeKey[] = "code";
-const char kFavIconUrlKey[] = "favIconUrl";
+const char kFaviconUrlKey[] = "favIconUrl";
 const char kFileKey[] = "file";
 const char kFocusedKey[] = "focused";
 const char kFormatKey[] = "format";
@@ -41,7 +41,7 @@ const char kWindowTypeKey[] = "type";
 
 const char kFormatValueJpeg[] = "jpeg";
 const char kFormatValuePng[] = "png";
-const char kMimeTypeJpeg[] = "image/jpg";
+const char kMimeTypeJpeg[] = "image/jpeg";
 const char kMimeTypePng[] = "image/png";
 const char kStatusValueComplete[] = "complete";
 const char kStatusValueLoading[] = "loading";
@@ -50,6 +50,7 @@ const char kStatusValueLoading[] = "loading";
 // panel, etc?
 const char kWindowTypeValueNormal[] = "normal";
 const char kWindowTypeValuePopup[] = "popup";
+const char kWindowTypeValuePanel[] = "panel";
 const char kWindowTypeValueApp[] = "app";
 
 const char kCanOnlyMoveTabsWithinNormalWindowsError[] = "Tabs can only be "

@@ -7,8 +7,8 @@
 #include <vector>
 
 #include "base/i18n/rtl.h"
+#include "base/memory/ref_counted_memory.h"
 #include "base/message_loop.h"
-#include "base/ref_counted_memory.h"
 #include "base/string_util.h"
 #include "base/synchronization/lock.h"
 #include "base/values.h"
@@ -31,7 +31,7 @@ ChromeURLDataManager::DataSources* ChromeURLDataManager::data_sources_ = NULL;
 
 // Invoked on the IO thread to do the actual adding of the DataSource.
 static void AddDataSourceOnIOThread(
-    scoped_refptr<URLRequestContextGetter> context_getter,
+    scoped_refptr<net::URLRequestContextGetter> context_getter,
     scoped_refptr<ChromeURLDataManager::DataSource> data_source) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
   static_cast<ChromeURLRequestContext*>(

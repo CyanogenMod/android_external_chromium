@@ -22,7 +22,7 @@ extern const char kChildrenKey[];
 extern const char kChildIdsKey[];
 extern const char kRecursiveKey[];
 extern const char kDateAddedKey[];
-extern const char kDateGroupModifiedKey[];
+extern const char kDateFolderModifiedKey[];
 // TODO(arv): Move bookmark manager related constants out of this file.
 extern const char kSameProfileKey[];
 extern const char kElementsKey[];
@@ -35,6 +35,7 @@ extern const char kInvalidIdError[];
 extern const char kInvalidIndexError[];
 extern const char kInvalidUrlError[];
 extern const char kModifySpecialError[];
+extern const char kEditBookmarksDisabled[];
 
 // Events.
 extern const char kOnBookmarkCreated[];

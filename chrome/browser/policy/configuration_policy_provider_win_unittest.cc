@@ -5,8 +5,8 @@
 #include <gtest/gtest.h>
 #include <windows.h>
 
+#include "base/memory/scoped_ptr.h"
 #include "base/message_loop.h"
-#include "base/scoped_ptr.h"
 #include "base/stl_util-inl.h"
 #include "base/string_number_conversions.h"
 #include "base/string_piece.h"
@@ -466,7 +466,37 @@ INSTANTIATE_TEST_CASE_P(
             kPolicyIncognitoEnabled,
             key::kIncognitoEnabled),
         PolicyTestParams::ForBooleanPolicy(
+            kPolicyDisablePluginFinder,
+            key::kDisablePluginFinder),
+        PolicyTestParams::ForBooleanPolicy(
+            kPolicyClearSiteDataOnExit,
+            key::kClearSiteDataOnExit),
+        PolicyTestParams::ForStringPolicy(
+            kPolicyDownloadDirectory,
+            key::kDownloadDirectory),
+        PolicyTestParams::ForBooleanPolicy(
+            kPolicyDefaultBrowserSettingEnabled,
+            key::kDefaultBrowserSettingEnabled),
+        PolicyTestParams::ForBooleanPolicy(
             kPolicyCloudPrintProxyEnabled,
-            key::kCloudPrintProxyEnabled)));
+            key::kCloudPrintProxyEnabled),
+        PolicyTestParams::ForBooleanPolicy(
+            kPolicyTranslateEnabled,
+            key::kTranslateEnabled),
+        PolicyTestParams::ForBooleanPolicy(
+            kPolicyAllowOutdatedPlugins,
+            key::kAllowOutdatedPlugins),
+        PolicyTestParams::ForBooleanPolicy(
+            kPolicyBookmarkBarEnabled,
+            key::kBookmarkBarEnabled),
+        PolicyTestParams::ForBooleanPolicy(
+            kPolicyEditBookmarksEnabled,
+            key::kEditBookmarksEnabled),
+        PolicyTestParams::ForBooleanPolicy(
+            kPolicyAllowFileSelectionDialogs,
+            key::kAllowFileSelectionDialogs),
+        PolicyTestParams::ForListPolicy(
+            kPolicyDisabledSchemes,
+            key::kDisabledSchemes)));
 
 }  // namespace policy

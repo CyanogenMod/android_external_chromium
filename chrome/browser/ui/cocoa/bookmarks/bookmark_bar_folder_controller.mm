@@ -8,7 +8,6 @@
 #include "base/sys_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/bookmarks/bookmark_utils.h"
-#import "chrome/browser/themes/browser_theme_provider.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_bar_constants.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_bar_controller.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_bar_folder_button_cell.h"
@@ -18,6 +17,7 @@
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_folder_target.h"
 #import "chrome/browser/ui/cocoa/browser_window_controller.h"
 #import "chrome/browser/ui/cocoa/event_utils.h"
+#include "ui/base/theme_provider.h"
 
 using bookmarks::kBookmarkBarMenuCornerRadius;
 
@@ -102,6 +102,12 @@ struct LayoutMetrics {
 };
 
 }  // namespace
+
+
+// Required to set the right tracking bounds for our fake menus.
+@interface NSView(Private)
+- (void)_updateTrackingAreas;
+@end
 
 @interface BookmarkBarFolderController(Private)
 - (void)configureWindow;
@@ -204,12 +210,6 @@ struct LayoutMetrics {
 // otherwise only border the button when the mouse is inside the button.
 - (void)forceButtonBorderToStayOnAlways:(BOOL)forceOn;
 
-// On 10.6 event dispatch for an NSButtonCell's
-// showsBorderOnlyWhileMouseInside seems broken if scrolling the
-// view that contains the button.  It appears that a mouseExited:
-// gets lost, so the button stays highlit forever.  We accomodate
-// here.
-- (void)toggleButtonBorderingWhileMouseInside;
 @end
 
 @implementation BookmarkButton (BookmarkBarFolderMenuHighlighting)
@@ -217,12 +217,6 @@ struct LayoutMetrics {
 - (void)forceButtonBorderToStayOnAlways:(BOOL)forceOn {
   [self setShowsBorderOnlyWhileMouseInside:!forceOn];
   [self setNeedsDisplay];
-}
-
-- (void)toggleButtonBorderingWhileMouseInside {
-  BOOL toggle = [self showsBorderOnlyWhileMouseInside];
-  [self setShowsBorderOnlyWhileMouseInside:!toggle];
-  [self setShowsBorderOnlyWhileMouseInside:toggle];
 }
 
 @end
@@ -239,6 +233,7 @@ struct LayoutMetrics {
                                           ofType:@"nib"];
   if ((self = [super initWithWindowNibPath:nibPath owner:self])) {
     parentButton_.reset([button retain]);
+    selectedIndex_ = -1;
 
     // We want the button to remain bordered as part of the menu path.
     [button forceButtonBorderToStayOnAlways:YES];
@@ -259,6 +254,8 @@ struct LayoutMetrics {
 }
 
 - (void)dealloc {
+  [self clearInputText];
+
   // The button is no longer part of the menu path.
   [parentButton_ forceButtonBorderToStayOnAlways:NO];
   [parentButton_ setNeedsDisplay];
@@ -295,6 +292,10 @@ struct LayoutMetrics {
   [super showWindow:sender];
 }
 
+- (int)buttonCount {
+  return [[self buttons] count];
+}
+
 - (BookmarkButton*)parentButton {
   return parentButton_.get();
 }
@@ -321,7 +322,7 @@ struct LayoutMetrics {
 #pragma mark Private Methods
 
 - (BookmarkButtonCell*)cellForBookmarkNode:(const BookmarkNode*)child {
-  NSImage* image = child ? [barController_ favIconForNode:child] : nil;
+  NSImage* image = child ? [barController_ faviconForNode:child] : nil;
   NSMenu* menu = child ? child->is_folder() ? folderMenu_ : buttonMenu_ : nil;
   BookmarkBarFolderButtonCell* cell =
       [BookmarkBarFolderButtonCell buttonCellForNode:child
@@ -430,7 +431,7 @@ struct LayoutMetrics {
       // If off the screen, switch direction.
       if ((x + windowWidth +
            bookmarks::kBookmarkHorizontalScreenPadding) >
-          NSMaxX([[[self window] screen] frame])) {
+          NSMaxX([[[self window] screen] visibleFrame])) {
         [self setSubFolderGrowthToRight:NO];
       } else {
         return x;
@@ -443,7 +444,7 @@ struct LayoutMetrics {
           bookmarks::kBookmarkMenuOverlap -
           windowWidth;
       // If off the screen, switch direction.
-      if (x < NSMinX([[[self window] screen] frame])) {
+      if (x < NSMinX([[[self window] screen] visibleFrame])) {
         [self setSubFolderGrowthToRight:YES];
       } else {
         return x;
@@ -451,7 +452,7 @@ struct LayoutMetrics {
     }
   }
   // Unhappy; do the best we can.
-  return NSMaxX([[[self window] screen] frame]) - windowWidth;
+  return NSMaxX([[[self window] screen] visibleFrame]) - windowWidth;
 }
 
 
@@ -481,7 +482,7 @@ struct LayoutMetrics {
     // Make sure the window is on-screen; if not, push left.  It is
     // intentional that top level folders "push left" slightly
     // different than subfolders.
-    NSRect screenFrame = [[[parentButton_ window] screen] frame];
+    NSRect screenFrame = [[[parentButton_ window] screen] visibleFrame];
     CGFloat spillOff = (newWindowTopLeft.x + windowWidth) - NSMaxX(screenFrame);
     if (spillOff > 0.0) {
       newWindowTopLeft.x = std::max(newWindowTopLeft.x - spillOff,
@@ -579,7 +580,7 @@ struct LayoutMetrics {
     effectiveFolderY -= metrics.windowSize.height;
   metrics.canScrollUp = effectiveFolderY < metrics.minimumY;
   CGFloat maximumY =
-      NSMaxY([screen frame]) - bookmarks::kScrollWindowVerticalMargin;
+      NSMaxY([screen visibleFrame]) - bookmarks::kScrollWindowVerticalMargin;
   metrics.canScrollDown = metrics.folderTop > maximumY;
 
   // Accommodate changes in the bottom of the menu.
@@ -654,7 +655,8 @@ struct LayoutMetrics {
   } else {
     if (metrics.canScrollDown) {
       // Couldn't -> Can
-      metrics.deltaWindowHeight += (NSMaxY([[[self window] screen] frame]) -
+      metrics.deltaWindowHeight += (NSMaxY([[[self window] screen]
+                                    visibleFrame]) -
                                     NSMaxY(metrics.windowFrame));
       metrics.deltaVisibleHeight -= bookmarks::kScrollWindowVerticalMargin;
       metrics.deltaScrollerHeight -= verticalScrollArrowHeight_;
@@ -690,6 +692,16 @@ struct LayoutMetrics {
   // in order to prevent flashing.
   if (!metrics.preScroll)
     [[scrollView_ documentView] scrollPoint:metrics.scrollPoint];
+
+  // TODO(maf) find a non-SPI way to do this.
+  // Hack. This is the only way I've found to get the tracking area cache
+  // to update properly during a mouse tracking loop.
+  // Without this, the item tracking-areas are wrong when using a scrollable
+  // menu with the mouse held down.
+  NSView *contentView = [[self window] contentView] ;
+  if ([contentView respondsToSelector:@selector(_updateTrackingAreas)])
+    [contentView _updateTrackingAreas];
+
 
   if (metrics.canScrollUp != metrics.couldScrollUp ||
       metrics.canScrollDown != metrics.couldScrollDown ||
@@ -730,9 +742,9 @@ struct LayoutMetrics {
   const BookmarkNode* node = [parentButton_ bookmarkNode];
   DCHECK(node);
   int startingIndex = [[parentButton_ cell] startingChildIndex];
-  DCHECK_LE(startingIndex, node->GetChildCount());
+  DCHECK_LE(startingIndex, node->child_count());
   // Must have at least 1 button (for "empty")
-  int buttons = std::max(node->GetChildCount() - startingIndex, 1);
+  int buttons = std::max(node->child_count() - startingIndex, 1);
 
   // Prelim height of the window.  We'll trim later as needed.
   int height = [self menuHeightForButtonCount:buttons];
@@ -751,7 +763,7 @@ struct LayoutMetrics {
   // TODO(jrg): combine with addNodesToButtonList: code from
   // bookmark_bar_controller.mm (but use y offset)
   // http://crbug.com/35966
-  if (!node->GetChildCount()) {
+  if (!node->child_count()) {
     // If no children we are the empty button.
     BookmarkButton* button = [self makeButtonForNode:nil
                                                frame:buttonsOuterFrame];
@@ -759,7 +771,7 @@ struct LayoutMetrics {
     [folderView_ addSubview:button];
   } else {
     for (int i = startingIndex;
-         i < node->GetChildCount();
+         i < node->child_count();
          i++) {
       const BookmarkNode* child = node->GetChild(i);
       BookmarkButton* button = [self makeButtonForNode:child
@@ -796,8 +808,8 @@ struct LayoutMetrics {
   [folderView_ setFrame:folderFrame];
   NSSize newSize = NSMakeSize(windowWidth, 0.0);
   [self adjustWindowLeft:newWindowTopLeft.x size:newSize scrollingBy:0.0];
-  [window display];
   [self configureWindowLevel];
+  [window display];
 }
 
 // TODO(mrossetti): See if the following can be moved into view's viewWillDraw:.
@@ -841,17 +853,74 @@ struct LayoutMetrics {
   }
 }
 
+- (int)indexOfButton:(BookmarkButton*)button {
+  if (button == nil)
+    return -1;
+  int index = [buttons_ indexOfObject:button];
+  return (index == NSNotFound) ? -1 : index;
+}
+
+- (BookmarkButton*)buttonAtIndex:(int)which {
+  if (which < 0 || which >= [self buttonCount])
+    return nil;
+  return [buttons_ objectAtIndex:which];
+}
+
+// Private, called by performOneScroll only.
+// If the button at index contains the mouse it will select it and return YES.
+// Otherwise returns NO.
+- (BOOL)selectButtonIfHoveredAtIndex:(int)index {
+  BookmarkButton *btn = [self buttonAtIndex:index];
+  if ([[btn cell] isMouseReallyInside]) {
+    buttonThatMouseIsIn_ = btn;
+    [self setSelectedButtonByIndex:index];
+    return YES;
+  }
+  return NO;
+}
+
 // Perform a single scroll of the specified amount.
 - (void)performOneScroll:(CGFloat)delta {
+  if (delta == 0.0)
+    return;
   CGFloat finalDelta = [self determineFinalScrollDelta:delta];
-  if (finalDelta > 0.0 || finalDelta < 0.0) {
-    if (buttonThatMouseIsIn_)
-      [buttonThatMouseIsIn_ toggleButtonBorderingWhileMouseInside];
-    NSRect windowFrame = [[self window] frame];
-    NSSize newSize = NSMakeSize(NSWidth(windowFrame), 0.0);
-    [self adjustWindowLeft:windowFrame.origin.x
-                      size:newSize
-               scrollingBy:finalDelta];
+  if (finalDelta == 0.0)
+    return;
+  int index = [self indexOfButton:buttonThatMouseIsIn_];
+  // Check for a current mouse-initiated selection.
+  BOOL maintainHoverSelection =
+      (buttonThatMouseIsIn_ &&
+      [[buttonThatMouseIsIn_ cell] isMouseReallyInside] &&
+      selectedIndex_ != -1 &&
+      index == selectedIndex_);
+  NSRect windowFrame = [[self window] frame];
+  NSSize newSize = NSMakeSize(NSWidth(windowFrame), 0.0);
+  [self adjustWindowLeft:windowFrame.origin.x
+                    size:newSize
+             scrollingBy:finalDelta];
+  // We have now scrolled.
+  if (!maintainHoverSelection)
+    return;
+  // Is mouse still in the same hovered button?
+  if ([[buttonThatMouseIsIn_ cell] isMouseReallyInside])
+    return;
+  // The finalDelta scroll direction will tell us us whether to search up or
+  // down the buttons array for the newly hovered button.
+  if (finalDelta < 0.0) { // Scrolled up, so search backwards for new hover.
+    index--;
+    while (index >= 0) {
+      if ([self selectButtonIfHoveredAtIndex:index])
+        return;
+      index--;
+    }
+  } else { // Scrolled down, so search forward for new hovered button.
+    index++;
+    int btnMax = [self buttonCount];
+    while (index < btnMax) {
+      if ([self selectButtonIfHoveredAtIndex:index])
+        return;
+      index++;
+    }
   }
 }
 
@@ -878,7 +947,7 @@ struct LayoutMetrics {
       delta = MIN(delta, maxUpDelta);
     } else {
       // Scrolling down.
-      NSRect screenFrame =  [screen frame];
+      NSRect screenFrame =  [screen visibleFrame];
       CGFloat topOfScreen = NSMaxY(screenFrame);
       NSRect folderFrame = [folderView_ frame];
       CGFloat folderHeight = NSHeight(folderFrame);
@@ -901,43 +970,44 @@ struct LayoutMetrics {
 }
 
 
-// Add a timer to fire at a regular interveral which scrolls the
+// Add a timer to fire at a regular interval which scrolls the
 // window vertically |delta|.
 - (void)addScrollTimerWithDelta:(CGFloat)delta {
   if (scrollTimer_ && verticalScrollDelta_ == delta)
     return;
   [self endScroll];
   verticalScrollDelta_ = delta;
-  scrollTimer_ =
-      [NSTimer scheduledTimerWithTimeInterval:kBookmarkBarFolderScrollInterval
-                                       target:self
-                                     selector:@selector(performScroll:)
-                                     userInfo:nil
-                                      repeats:YES];
+  scrollTimer_ = [NSTimer timerWithTimeInterval:kBookmarkBarFolderScrollInterval
+                                         target:self
+                                       selector:@selector(performScroll:)
+                                       userInfo:nil
+                                        repeats:YES];
+
+  [[NSRunLoop mainRunLoop] addTimer:scrollTimer_ forMode:NSRunLoopCommonModes];
 }
+
 
 // Called as a result of our tracking area.  Warning: on the main
 // screen (of a single-screened machine), the minimum mouse y value is
 // 1, not 0.  Also, we do not get events when the mouse is above the
 // menubar (to be fixed by setting the proper window level; see
 // initializer).
-- (void)mouseMoved:(NSEvent*)theEvent {
-  NSWindow* window = [theEvent window];
-  DCHECK(window == [self window]);
-
+// Note [theEvent window] may not be our window, as we also get these messages
+// forwarded from BookmarkButton's mouse tracking loop.
+- (void)mouseMovedOrDragged:(NSEvent*)theEvent {
   NSPoint eventScreenLocation =
-      [window convertBaseToScreen:[theEvent locationInWindow]];
+      [[theEvent window] convertBaseToScreen:[theEvent locationInWindow]];
 
   // Base hot spot calculations on the positions of the scroll arrow views.
   NSRect testRect = [scrollDownArrowView_ frame];
   NSPoint testPoint = [visibleView_ convertPoint:testRect.origin
                                                   toView:nil];
-  testPoint = [window convertBaseToScreen:testPoint];
+  testPoint = [[self window] convertBaseToScreen:testPoint];
   CGFloat closeToTopOfScreen = testPoint.y;
 
   testRect = [scrollUpArrowView_ frame];
   testPoint = [visibleView_ convertPoint:testRect.origin toView:nil];
-  testPoint = [window convertBaseToScreen:testPoint];
+  testPoint = [[self window] convertBaseToScreen:testPoint];
   CGFloat closeToBottomOfScreen = testPoint.y + testRect.size.height;
   if (eventScreenLocation.y <= closeToBottomOfScreen &&
       ![scrollUpArrowView_ isHidden]) {
@@ -948,6 +1018,14 @@ struct LayoutMetrics {
   } else {
     [self endScroll];
   }
+}
+
+- (void)mouseMoved:(NSEvent*)theEvent {
+  [self mouseMovedOrDragged:theEvent];
+}
+
+- (void)mouseDragged:(NSEvent*)theEvent {
+  [self mouseMovedOrDragged:theEvent];
 }
 
 - (void)mouseExited:(NSEvent*)theEvent {
@@ -964,7 +1042,9 @@ struct LayoutMetrics {
                               initWithRect:[view bounds]
                                    options:(NSTrackingMouseMoved |
                                             NSTrackingMouseEnteredAndExited |
-                                            NSTrackingActiveAlways)
+                                            NSTrackingActiveAlways |
+                                            NSTrackingEnabledDuringMouseDrag
+                                            )
                               proxiedOwner:self
                                   userInfo:nil]);
   [view addTrackingArea:scrollTrackingArea_.get()];
@@ -974,6 +1054,7 @@ struct LayoutMetrics {
 - (void)removeScrollTracking {
   if (scrollTrackingArea_.get()) {
     [[[self window] contentView] removeTrackingArea:scrollTrackingArea_.get()];
+    [scrollTrackingArea_.get() clearOwner];
   }
   scrollTrackingArea_.reset();
 }
@@ -1009,6 +1090,10 @@ struct LayoutMetrics {
 }
 
 #pragma mark Actions Forwarded to Parent BookmarkBarController
+
+- (BOOL)validateUserInterfaceItem:(id<NSValidatedUserInterfaceItem>)item {
+  return [barController_ validateUserInterfaceItem:item];
+}
 
 - (IBAction)openBookmark:(id)sender {
   [barController_ openBookmark:sender];
@@ -1156,7 +1241,7 @@ static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
                                        bookmarkNode];
   DCHECK(beforeNode);
   // Be careful if the number of buttons != number of nodes.
-  return ((beforeNode->GetParent()->IndexOfChild(beforeNode) + 1) -
+  return ((beforeNode->parent()->GetIndexOf(beforeNode) + 1) -
           [[parentButton_ cell] startingChildIndex]);
 }
 
@@ -1177,7 +1262,7 @@ static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
   if ([button isFolder]) {
     destParent = [button bookmarkNode];
     // Drop it at the end.
-    destIndex = [button bookmarkNode]->GetChildCount();
+    destIndex = [button bookmarkNode]->child_count();
   } else {
     // Else we're dropping somewhere in the folder, so find the right spot.
     destParent = [parentButton_ bookmarkNode];
@@ -1199,6 +1284,14 @@ static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
   }
 
   return wasCopiedOrMoved;
+}
+
+// TODO(maf): Implement live drag & drop animation using this hook.
+- (void)setDropInsertionPos:(CGFloat)where {
+}
+
+// TODO(maf): Implement live drag & drop animation using this hook.
+- (void)clearDropInsertionPos {
 }
 
 #pragma mark NSWindowDelegate Functions
@@ -1231,7 +1324,10 @@ static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
 // Called from BookmarkButton.
 // Unlike bookmark_bar_controller's version, we DO default to being enabled.
 - (void)mouseEnteredButton:(id)sender event:(NSEvent*)event {
+  [[NSCursor arrowCursor] set];
+
   buttonThatMouseIsIn_ = sender;
+  [self setSelectedButtonByIndex:[self indexOfButton:sender]];
 
   // Cancel a previous hover if needed.
   [NSObject cancelPreviousPerformRequestsWithTarget:self];
@@ -1251,6 +1347,7 @@ static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
 - (void)mouseExitedButton:(id)sender event:(NSEvent*)event {
   if (buttonThatMouseIsIn_ == sender)
     buttonThatMouseIsIn_ = nil;
+    [self setSelectedButtonByIndex:-1];
 
   // Stop any timer about opening a new hover-open folder.
 
@@ -1269,22 +1366,18 @@ static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
 }
 
 - (BOOL)canDragBookmarkButtonToTrash:(BookmarkButton*)button {
-  return [barController_ canEditBookmark:[button bookmarkNode]];
+  return [barController_ canEditBookmarks] &&
+         [barController_ canEditBookmark:[button bookmarkNode]];
 }
 
 - (void)didDragBookmarkToTrash:(BookmarkButton*)button {
-  // TODO(mrossetti): Refactor BookmarkBarFolder common code.
-  // http://crbug.com/35966
-  const BookmarkNode* node = [button bookmarkNode];
-  if (node) {
-    const BookmarkNode* parent = node->GetParent();
-    [self bookmarkModel]->Remove(parent,
-                                 parent->IndexOfChild(node));
-  }
+  [barController_ didDragBookmarkToTrash:button];
 }
 
-- (void)bookmarkDragDidEnd:(BookmarkButton*)button {
-  [barController_ bookmarkDragDidEnd:button];
+- (void)bookmarkDragDidEnd:(BookmarkButton*)button
+                 operation:(NSDragOperation)operation {
+  [barController_ bookmarkDragDidEnd:button
+                           operation:operation];
 }
 
 
@@ -1299,6 +1392,9 @@ static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
 // Close our bookmark folder (a sub-controller) if we have one.
 - (void)closeBookmarkFolder:(id)sender {
   if (folderController_) {
+    // Make this menu key, so key status doesn't go back to the browser
+    // window when the submenu closes.
+    [[self window] makeKeyWindow];
     [self setSubFolderGrowthToRight:YES];
     [[folderController_ window] close];
     folderController_ = nil;
@@ -1307,6 +1403,10 @@ static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
 
 - (BookmarkModel*)bookmarkModel {
   return [barController_ bookmarkModel];
+}
+
+- (BOOL)draggingAllowed:(id<NSDraggingInfo>)info {
+  return [barController_ draggingAllowed:info];
 }
 
 // TODO(jrg): Refactor BookmarkBarFolder common code. http://crbug.com/35966
@@ -1333,6 +1433,10 @@ static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
   }
   // Delegate handling of dragging over a button to the |hoverState_| member.
   return [hoverState_ draggingEnteredButton:button];
+}
+
+- (NSDragOperation)draggingUpdated:(id<NSDraggingInfo>)info {
+  return NSDragOperationMove;
 }
 
 // Unlike bookmark_bar_controller, we need to keep track of dragging state.
@@ -1395,6 +1499,182 @@ static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
   return ![self buttonForDroppingOnAtPoint:point];
 }
 
+// Button selection change code to support type to select and arrow key events.
+#pragma mark Keyboard Support
+
+// Scroll the menu to show the selected button, if it's not already visible.
+- (void)showSelectedButton {
+  int bMaxIndex = [self buttonCount] - 1; // Max array index in button array.
+
+  // Is there a valid selected button?
+  if (bMaxIndex < 0 || selectedIndex_ < 0 || selectedIndex_ > bMaxIndex)
+    return;
+
+  // Is the menu scrollable anyway?
+  if (![self canScrollUp] && ![self canScrollDown])
+    return;
+
+  // Now check to see if we need to scroll, which way, and how far.
+  CGFloat delta = 0.0;
+  NSPoint scrollPoint = [scrollView_ documentVisibleRect].origin;
+  CGFloat itemBottom = (bMaxIndex - selectedIndex_) *
+      bookmarks::kBookmarkFolderButtonHeight;
+  CGFloat itemTop = itemBottom + bookmarks::kBookmarkFolderButtonHeight;
+  CGFloat viewHeight = NSHeight([scrollView_  frame]);
+
+  if (scrollPoint.y > itemBottom) { // Need to scroll down.
+    delta = scrollPoint.y - itemBottom;
+  } else if ((scrollPoint.y + viewHeight) < itemTop) { // Need to scroll up.
+    delta = -(itemTop - (scrollPoint.y + viewHeight));
+  } else { // No need to scroll.
+    return;
+  }
+
+  [self performOneScroll:delta];
+}
+
+// All changes to selectedness of buttons (aka fake menu items) ends up
+// calling this method to actually flip the state of items.
+// Needs to handle -1 as the invalid index (when nothing is selected) and
+// greater than range values too.
+- (void)setStateOfButtonByIndex:(int)index
+                          state:(bool)state {
+  if (index >= 0 && index < [self buttonCount])
+    [[buttons_ objectAtIndex:index] highlight:state];
+}
+
+// Selects the required button and deselects the previously selected one.
+// An index of -1 means no selection.
+- (void)setSelectedButtonByIndex:(int)index {
+  if (index == selectedIndex_)
+    return;
+
+  [self setStateOfButtonByIndex:selectedIndex_ state:NO];
+  [self setStateOfButtonByIndex:index state:YES];
+  selectedIndex_ = index;
+
+  [self showSelectedButton];
+}
+
+- (void)clearInputText {
+  [typedPrefix_ release];
+  typedPrefix_ = nil;
+}
+
+// Find the earliest item in the folder which has the target prefix.
+// Returns nil if there is no prefix or there are no matches.
+// These are in no particular order, and not particularly numerous, so linear
+// search should be OK.
+// -1 means no match.
+- (int)earliestBookmarkIndexWithPrefix:(NSString*)prefix {
+  if ([prefix length] == 0) // Also handles nil.
+    return -1;
+  int maxButtons = [buttons_ count];
+  NSString *lowercasePrefix = [prefix lowercaseString];
+  for (int i = 0 ; i < maxButtons ; ++i) {
+    BookmarkButton* button = [buttons_ objectAtIndex:i];
+    if ([[[button title] lowercaseString] hasPrefix:lowercasePrefix])
+      return i;
+  }
+  return -1;
+}
+
+- (void)setSelectedButtonByPrefix:(NSString*)prefix {
+  [self setSelectedButtonByIndex:[self earliestBookmarkIndexWithPrefix:prefix]];
+}
+
+- (void)selectPrevious {
+  int newIndex;
+  if (selectedIndex_ == 0)
+    return;
+  if (selectedIndex_ < 0)
+    newIndex = [self buttonCount] -1;
+  else
+    newIndex = std::max(selectedIndex_ - 1, 0);
+  [self setSelectedButtonByIndex:newIndex];
+}
+
+- (void) selectNext {
+  if (selectedIndex_ + 1 < [self buttonCount])
+    [self setSelectedButtonByIndex:selectedIndex_ + 1];
+}
+
+- (BOOL)handleInputText:(NSString*)newText {
+  const unichar kUnicodeEscape = 0x001B;
+  const unichar kUnicodeSpace = 0x0020;
+
+  // Event goes to the deepest nested open submenu.
+  if (folderController_)
+    return [folderController_ handleInputText:newText];
+
+  // Look for arrow keys or other function keys.
+  if ([newText length] == 1) {
+    // Get the 16-bit unicode char.
+    unichar theChar = [newText characterAtIndex:0];
+    switch (theChar) {
+
+      // Keys that trigger opening of the selection.
+      case kUnicodeSpace: // Space.
+      case NSNewlineCharacter:
+      case NSCarriageReturnCharacter:
+      case NSEnterCharacter:
+        if (selectedIndex_ >= 0 && selectedIndex_ < [self buttonCount]) {
+          [self openBookmark:[buttons_ objectAtIndex:selectedIndex_]];
+          return NO; // NO because the selection-handling code will close later.
+        } else {
+          return YES; // Triggering with no selection closes the menu.
+        }
+      // Keys that cancel and close the menu.
+      case kUnicodeEscape:
+      case NSDeleteCharacter:
+      case NSBackspaceCharacter:
+        [self clearInputText];
+        return YES;
+      // Keys that change selection directionally.
+      case NSUpArrowFunctionKey:
+        [self clearInputText];
+        [self selectPrevious];
+        return NO;
+      case NSDownArrowFunctionKey:
+        [self clearInputText];
+        [self selectNext];
+        return NO;
+      // Keys that open and close submenus.
+      case NSRightArrowFunctionKey: {
+        BookmarkButton* btn = [self buttonAtIndex:selectedIndex_];
+        if (btn && [btn isFolder]) {
+          [self openBookmarkFolderFromButtonAndCloseOldOne:btn];
+          [folderController_ selectNext];
+        }
+        [self clearInputText];
+        return NO;
+      }
+      case NSLeftArrowFunctionKey:
+        [self clearInputText];
+        [parentController_ closeBookmarkFolder:self];
+        return NO;
+
+      // Check for other keys that should close the menu.
+      default: {
+        if (theChar > NSUpArrowFunctionKey &&
+            theChar <= NSModeSwitchFunctionKey) {
+          [self clearInputText];
+          return YES;
+        }
+        break;
+      }
+    }
+  }
+
+  // It is a char or string worth adding to the type-select buffer.
+  NSString *newString = (!typedPrefix_) ?
+      newText : [typedPrefix_ stringByAppendingString:newText];
+  [typedPrefix_ release];
+  typedPrefix_ = [newString retain];
+  [self setSelectedButtonByPrefix:typedPrefix_];
+  return NO;
+}
+
 // Return the y position for a drop indicator.
 //
 // TODO(jrg): again we have code dup, sort of, with
@@ -1449,6 +1729,20 @@ static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
   return folderController_;
 }
 
+- (void)faviconLoadedForNode:(const BookmarkNode*)node {
+  for (BookmarkButton* button in buttons_.get()) {
+    if ([button bookmarkNode] == node) {
+      [button setImage:[barController_ faviconForNode:node]];
+      [button setNeedsDisplay:YES];
+      return;
+    }
+  }
+
+  // Node was not in this menu, try submenu.
+  if (folderController_)
+    [folderController_ faviconLoadedForNode:node];
+}
+
 // Add a new folder controller as triggered by the given folder button.
 - (void)addNewFolderControllerWithParentButton:(BookmarkButton*)parentButton {
   if (folderController_)
@@ -1477,8 +1771,8 @@ static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
   // When adding a button to an empty folder we must remove the 'empty'
   // placeholder button. This can be detected by checking for a parent
   // child count of 1.
-  const BookmarkNode* parentNode = node->GetParent();
-  if (parentNode->GetChildCount() == 1) {
+  const BookmarkNode* parentNode = node->parent();
+  if (parentNode->child_count() == 1) {
     BookmarkButton* emptyButton = [buttons_ lastObject];
     newButtonFrame = [emptyButton frame];
     [emptyButton setDelegate:nil];
@@ -1525,7 +1819,7 @@ static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
   if ([button isFolder]) {
     destParent = [button bookmarkNode];
     // Drop it at the end.
-    destIndex = [button bookmarkNode]->GetChildCount();
+    destIndex = [button bookmarkNode]->child_count();
   } else {
     // Else we're dropping somewhere in the folder, so find the right spot.
     destParent = [parentButton_ bookmarkNode];
@@ -1559,6 +1853,8 @@ static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
     if (toIndex == -1)
       toIndex = [buttons_ count];
     BookmarkButton* movedButton = [buttons_ objectAtIndex:fromIndex];
+    if (movedButton == buttonThatMouseIsIn_)
+      buttonThatMouseIsIn_ = nil;
     [buttons_ removeObjectAtIndex:fromIndex];
     NSRect movedFrame = [movedButton frame];
     NSPoint toOrigin = movedFrame.origin;

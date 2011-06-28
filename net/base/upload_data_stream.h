@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 #define NET_BASE_UPLOAD_DATA_STREAM_H_
 #pragma once
 
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "net/base/upload_data.h"
 
 #ifdef ANDROID
@@ -82,7 +82,7 @@ class UploadDataStream {
   // Returns OK if the operation succeeds. Otherwise error code is returned.
   int FillBuf();
 
-  UploadData* data_;
+  scoped_refptr<UploadData> data_;
 
   // This buffer is filled with data to be uploaded.  The data to be sent is
   // always at the front of the buffer.  If we cannot send all of the buffer at

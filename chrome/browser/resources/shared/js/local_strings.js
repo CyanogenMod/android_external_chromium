@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,15 @@
  * The local strings get injected into the page using a variable named
  * {@code templateData}. This class provides a simpler interface to access those
  * strings.
+ *
+ * @param {Object} opt_templateData Optional object containing translated
+ *     strings.  If this is not supplied during construction, it can be
+ *     assigned to the templateData property after construction.  If all else
+ *     fails, the value of window.templateDate will be used.
  * @constructor
  */
-function LocalStrings() {
+function LocalStrings(opt_templateData) {
+  this.templateData = opt_templateData;
 }
 
 // Start of anonymous namespace.
@@ -67,27 +73,6 @@ LocalStrings.prototype = {
   getStringF: function(id, var_args) {
     return replaceArgs(this.getString(id), arguments);
   },
-
-  /**
-   * Gets a localized string (stripped of Windows-style accelerators) by its id.
-   * @param {string} s The ID of the string we want.
-   * @return {string} The localized string.
-   */
-  getStringWithoutAccelerator: function(id) {
-    return trimAccelerators(this.getString(id));
-  },
-
-  /**
-   * Returns a formatted localized string (stripped of Windows-style
-   * accelerators) where $1 to $9 are replaced by the second to the tenth
-   * argument.
-   * @param {string} id The ID of the string we want.
-   * @param {...string} The extra values to include in the formatted output.
-   * @return {string} The formatted string.
-   */
-  getStringWithoutAcceleratorF: function(id, var_args) {
-    return replaceArgs(this.getStringWithoutAccelerator(id), arguments);
-  }
 };
 
 // End of anonymous namespace.

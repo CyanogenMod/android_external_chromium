@@ -1,10 +1,10 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/extensions/extension_process_manager.h"
 
-#include "chrome/browser/browser_window.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "content/browser/browsing_instance.h"
 #if defined(OS_MACOSX)
 #include "chrome/browser/extensions/extension_host_mac.h"
@@ -15,13 +15,13 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_action.h"
-#include "chrome/common/notification_service.h"
-#include "chrome/common/notification_type.h"
-#include "chrome/common/render_messages.h"
+#include "chrome/common/extensions/extension_messages.h"
 #include "chrome/common/url_constants.h"
 #include "content/browser/renderer_host/render_view_host.h"
 #include "content/browser/site_instance.h"
 #include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/notification_service.h"
+#include "content/common/notification_type.h"
 
 namespace {
 
@@ -89,12 +89,13 @@ ExtensionProcessManager* ExtensionProcessManager::Create(Profile* profile) {
 
 ExtensionProcessManager::ExtensionProcessManager(Profile* profile)
     : browsing_instance_(new BrowsingInstance(profile)) {
+  Profile* original_profile = profile->GetOriginalProfile();
   registrar_.Add(this, NotificationType::EXTENSIONS_READY,
-                 NotificationService::AllSources());
+                 Source<Profile>(original_profile));
   registrar_.Add(this, NotificationType::EXTENSION_LOADED,
-                 NotificationService::AllSources());
+                 Source<Profile>(original_profile));
   registrar_.Add(this, NotificationType::EXTENSION_UNLOADED,
-                 NotificationService::AllSources());
+                 Source<Profile>(original_profile));
   registrar_.Add(this, NotificationType::EXTENSION_HOST_DESTROYED,
                  Source<Profile>(profile));
   registrar_.Add(this, NotificationType::RENDERER_PROCESS_TERMINATED,
@@ -168,6 +169,11 @@ ExtensionHost* ExtensionProcessManager::CreateInfobar(const GURL& url,
 
 void ExtensionProcessManager::CreateBackgroundHost(
     const Extension* extension, const GURL& url) {
+  // Hosted apps are taken care of from BackgroundContentsService. Ignore them
+  // here.
+  if (extension->is_hosted_app())
+    return;
+
   // Don't create multiple background hosts for an extension.
   if (GetBackgroundHostForExtension(extension))
     return;
@@ -236,8 +242,7 @@ void ExtensionProcessManager::RegisterExtensionProcess(
     page_action_ids.push_back(extension->page_action()->id());
 
   RenderProcessHost* rph = RenderProcessHost::FromID(process_id);
-  rph->Send(new ViewMsg_Extension_UpdatePageActions(extension_id,
-                                                    page_action_ids));
+  rph->Send(new ExtensionMsg_UpdatePageActions(extension_id, page_action_ids));
 }
 
 void ExtensionProcessManager::UnregisterExtensionProcess(int process_id) {
@@ -301,7 +306,7 @@ void ExtensionProcessManager::Observe(NotificationType type,
       for (ExtensionHostSet::iterator iter = background_hosts_.begin();
            iter != background_hosts_.end(); ++iter) {
         ExtensionHost* host = *iter;
-        if (host->extension()->id() == extension->id()) {
+        if (host->extension_id() == extension->id()) {
           delete host;
           // |host| should deregister itself from our structures.
           DCHECK(background_hosts_.find(host) == background_hosts_.end());
@@ -440,7 +445,7 @@ bool IncognitoExtensionProcessManager::IsIncognitoEnabled(
     const Extension* extension) {
   ExtensionService* service =
       browsing_instance_->profile()->GetExtensionService();
-  return service && service->IsIncognitoEnabled(extension);
+  return service && service->IsIncognitoEnabled(extension->id());
 }
 
 void IncognitoExtensionProcessManager::Observe(

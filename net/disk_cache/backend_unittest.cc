@@ -206,7 +206,7 @@ TEST_F(DiskCacheTest, CreateBackend) {
     ASSERT_TRUE(cache);
     delete cache;
 
-    cache = disk_cache::MemBackendImpl::CreateBackend(0);
+    cache = disk_cache::MemBackendImpl::CreateBackend(0, NULL);
     ASSERT_TRUE(cache);
     delete cache;
     cache = NULL;
@@ -1256,13 +1256,11 @@ void DiskCacheBackendTest::BackendRecoverRemove() {
   BackendTransaction("remove_load3", 100, true);
   ASSERT_TRUE(success_) << "remove_load3";
 
-#ifdef NDEBUG
-  // This case cannot be reverted, so it will assert on debug builds.
+  // This case cannot be reverted.
   BackendTransaction("remove_one4", 0, false);
   ASSERT_TRUE(success_) << "remove_one4";
   BackendTransaction("remove_head4", 1, false);
   ASSERT_TRUE(success_) << "remove_head4";
-#endif
 }
 
 TEST_F(DiskCacheBackendTest, RecoverRemove) {

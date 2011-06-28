@@ -8,10 +8,9 @@
 
 #include <string>
 
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/ui/views/tabs/base_tab.h"
 #include "ui/gfx/point.h"
-
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -19,6 +18,7 @@
 //
 //  A View that renders a TouchTab in a TouchTabStrip
 //
+// TODO(wyck): Use transformable views for scrolling.
 ///////////////////////////////////////////////////////////////////////////////
 class TouchTab : public BaseTab {
  public:
@@ -43,6 +43,9 @@ class TouchTab : public BaseTab {
 
  private:
   // Overridden from views::View:
+  virtual bool OnMousePressed(const views::MouseEvent& event) OVERRIDE;
+  virtual bool OnMouseDragged(const views::MouseEvent& event) OVERRIDE;
+  virtual void OnMouseReleased(const views::MouseEvent& event) OVERRIDE;
   virtual void OnPaint(gfx::Canvas* canvas);
   virtual void Layout();
   virtual bool HasHitTestMask() const;

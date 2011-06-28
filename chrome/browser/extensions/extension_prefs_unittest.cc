@@ -2,20 +2,22 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/memory/scoped_temp_dir.h"
 #include "base/message_loop.h"
 #include "base/path_service.h"
-#include "base/scoped_temp_dir.h"
 #include "base/stl_util-inl.h"
 #include "base/string_number_conversions.h"
 #include "base/stringprintf.h"
 #include "chrome/browser/extensions/extension_prefs.h"
 #include "chrome/browser/extensions/test_extension_prefs.h"
 #include "chrome/browser/prefs/pref_change_registrar.h"
+#include "chrome/browser/prefs/scoped_user_pref_update.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "content/common/notification_details.h"
 #include "content/common/notification_observer_mock.h"
 #include "content/common/notification_source.h"
+#include "content/browser/browser_thread.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using base::Time;
@@ -61,7 +63,10 @@ static void AssertEqualExtents(ExtensionExtent* extent1,
 // Base class for tests.
 class ExtensionPrefsTest : public testing::Test {
  public:
-  ExtensionPrefsTest() {}
+  ExtensionPrefsTest()
+      : ui_thread_(BrowserThread::UI, &message_loop_),
+        file_thread_(BrowserThread::FILE, &message_loop_) {
+  }
 
   // This function will get called once, and is the right place to do operations
   // on ExtensionPrefs that write data.
@@ -91,6 +96,10 @@ class ExtensionPrefsTest : public testing::Test {
 
  protected:
   ExtensionPrefs* prefs() { return prefs_.prefs(); }
+
+  MessageLoop message_loop_;
+  BrowserThread ui_thread_;
+  BrowserThread file_thread_;
 
   TestExtensionPrefs prefs_;
 
@@ -603,6 +612,44 @@ TEST_F(ExtensionPrefsAppDraggedByUser, ExtensionPrefsAppDraggedByUser) {}
 
 namespace keys = extension_manifest_keys;
 
+// Tests that we gracefully handle changes in the ID generation function for
+// unpacked extensions.
+class ExtensionPrefsIdChange : public ExtensionPrefsTest {
+ public:
+  virtual void Initialize() {
+    DictionaryValue manifest;
+    manifest.SetString(keys::kVersion, "1.0.0.0");
+    manifest.SetString(keys::kName, "unused");
+
+    extension_ = prefs_.AddExtensionWithManifest(
+        manifest, Extension::LOAD);
+    extension_id_ = extension_->id();
+
+    DictionaryPrefUpdate extensions_dict_update(
+        prefs()->pref_service(), ExtensionPrefs::kExtensionsPref);
+
+    Value* extension_prefs;
+    ASSERT_TRUE(extensions_dict_update->RemoveWithoutPathExpansion(
+        extension_id_, &extension_prefs));
+    extensions_dict_update->SetWithoutPathExpansion(
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", extension_prefs);
+  }
+
+  virtual void Verify() {
+    prefs_.RecreateExtensionPrefs();
+    prefs()->SetExtensionState(extension_.get(), Extension::DISABLED);
+    ExtensionPrefs::ExtensionIdSet extension_ids;
+    prefs()->GetExtensions(&extension_ids);
+    EXPECT_EQ(1U, extension_ids.size());
+    EXPECT_EQ(extension_id_, extension_ids[0]);
+  }
+
+ private:
+  scoped_refptr<Extension> extension_;
+  std::string extension_id_;
+};
+TEST_F(ExtensionPrefsIdChange, IdChange) {}
+
 class ExtensionPrefsPreferencesBase : public ExtensionPrefsTest {
  public:
   ExtensionPrefsPreferencesBase()
@@ -619,13 +666,13 @@ class ExtensionPrefsPreferencesBase : public ExtensionPrefsTest {
 
     ext1_scoped_ = Extension::Create(
         prefs_.temp_dir().AppendASCII("ext1_"), Extension::EXTERNAL_PREF,
-        simple_dict, false, true, &error);
+        simple_dict, Extension::STRICT_ERROR_CHECKS, &error);
     ext2_scoped_ = Extension::Create(
         prefs_.temp_dir().AppendASCII("ext2_"), Extension::EXTERNAL_PREF,
-        simple_dict, false, true, &error);
+        simple_dict, Extension::STRICT_ERROR_CHECKS, &error);
     ext3_scoped_ = Extension::Create(
         prefs_.temp_dir().AppendASCII("ext3_"), Extension::EXTERNAL_PREF,
-        simple_dict, false, true, &error);
+        simple_dict, Extension::STRICT_ERROR_CHECKS, &error);
 
     ext1_ = ext1_scoped_.get();
     ext2_ = ext2_scoped_.get();

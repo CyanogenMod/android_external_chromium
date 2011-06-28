@@ -10,7 +10,7 @@
 #include "ui/gfx/rect.h"
 #include "views/layout/layout_manager.h"
 
-class BaseTabStrip;
+class AbstractTabStripView;
 class BookmarkBarView;
 class Browser;
 class BrowserView;
@@ -69,7 +69,7 @@ class BrowserViewLayout : public views::LayoutManager {
   // Layout the following controls, starting at |top|, returns the coordinate
   // of the bottom of the control, for laying out the next control.
   virtual int LayoutToolbar(int top);
-  int LayoutBookmarkAndInfoBars(int top);
+  virtual int LayoutBookmarkAndInfoBars(int top);
   int LayoutBookmarkBar(int top);
   int LayoutInfoBar(int top);
 
@@ -107,7 +107,7 @@ class BrowserViewLayout : public views::LayoutManager {
   }
 
   // Child views that the layout manager manages.
-  BaseTabStrip* tabstrip_;
+  AbstractTabStripView* tabstrip_;
   ToolbarView* toolbar_;
   views::SingleSplitView* contents_split_;
   ContentsContainer* contents_container_;

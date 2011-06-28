@@ -5,10 +5,12 @@
 #include "chrome/browser/automation/testing_automation_provider.h"
 
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
 #include "base/command_line.h"
+#include "base/file_path.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/json/string_escape.h"
@@ -24,12 +26,15 @@
 #include "chrome/browser/autocomplete/autocomplete_edit.h"
 #include "chrome/browser/autocomplete/autocomplete_match.h"
 #include "chrome/browser/autofill/autofill_manager.h"
+#include "chrome/browser/autofill/credit_card.h"
+#include "chrome/browser/autofill/personal_data_manager.h"
 #include "chrome/browser/automation/automation_autocomplete_edit_tracker.h"
 #include "chrome/browser/automation/automation_browser_tracker.h"
 #include "chrome/browser/automation/automation_provider_json.h"
 #include "chrome/browser/automation/automation_provider_list.h"
 #include "chrome/browser/automation/automation_provider_observers.h"
 #include "chrome/browser/automation/automation_tab_tracker.h"
+#include "chrome/browser/automation/automation_util.h"
 #include "chrome/browser/automation/automation_window_tracker.h"
 #include "chrome/browser/automation/ui_controls.h"
 #include "chrome/browser/blocked_content_container.h"
@@ -37,19 +42,21 @@
 #include "chrome/browser/bookmarks/bookmark_storage.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_shutdown.h"
-#include "chrome/browser/browser_window.h"
 #include "chrome/browser/debugger/devtools_manager.h"
 #include "chrome/browser/download/download_prefs.h"
 #include "chrome/browser/download/download_shelf.h"
+#include "chrome/browser/download/save_package.h"
 #include "chrome/browser/extensions/extension_host.h"
 #include "chrome/browser/extensions/extension_service.h"
+#include "chrome/browser/extensions/extension_updater.h"
 #include "chrome/browser/history/top_sites.h"
-#include "chrome/browser/importer/importer.h"
+#include "chrome/browser/importer/importer_host.h"
 #include "chrome/browser/instant/instant_controller.h"
 #include "chrome/browser/notifications/balloon.h"
 #include "chrome/browser/notifications/balloon_collection.h"
 #include "chrome/browser/notifications/notification.h"
 #include "chrome/browser/notifications/notification_ui_manager.h"
+#include "chrome/browser/password_manager/password_store.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
@@ -58,64 +65,43 @@
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/browser/tab_contents/confirm_infobar_delegate.h"
 #include "chrome/browser/tab_contents/link_infobar_delegate.h"
+#include "chrome/browser/themes/theme_service.h"
+#include "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/browser/translate/translate_infobar_delegate.h"
+#include "chrome/browser/translate/translate_tab_helper.h"
 #include "chrome/browser/ui/app_modal_dialogs/app_modal_dialog.h"
 #include "chrome/browser/ui/app_modal_dialogs/app_modal_dialog_queue.h"
 #include "chrome/browser/ui/app_modal_dialogs/native_app_modal_dialog.h"
+#include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/download/download_tab_helper.h"
 #include "chrome/browser/ui/find_bar/find_bar.h"
 #include "chrome/browser/ui/login/login_prompt.h"
 #include "chrome/browser/ui/omnibox/location_bar.h"
 #include "chrome/browser/ui/search_engines/keyword_editor_controller.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
+#include "chrome/browser/ui/webui/active_downloads_ui.h"
 #include "chrome/browser/ui/webui/shown_sections_handler.h"
 #include "chrome/common/automation_messages.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/net/url_request_context_getter.h"
-#include "chrome/common/notification_service.h"
+#include "chrome/common/extensions/extension.h"
+#include "chrome/common/extensions/extension_extent.h"
+#include "chrome/common/extensions/url_pattern.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "content/browser/renderer_host/render_process_host.h"
 #include "content/browser/renderer_host/render_view_host.h"
 #include "content/browser/tab_contents/interstitial_page.h"
 #include "content/common/common_param_traits.h"
+#include "content/common/notification_service.h"
 #include "net/base/cookie_store.h"
-#include "net/url_request/url_request_context.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebInputEvent.h"
 #include "ui/base/events.h"
 #include "ui/base/message_box_flags.h"
 #include "webkit/plugins/npapi/plugin_list.h"
 
 namespace {
-
-void GetCookiesOnIOThread(
-    const GURL& url,
-    const scoped_refptr<URLRequestContextGetter>& context_getter,
-    base::WaitableEvent* event,
-    std::string* cookies) {
-  *cookies = context_getter->GetCookieStore()->GetCookies(url);
-  event->Signal();
-}
-
-void SetCookieOnIOThread(
-    const GURL& url,
-    const std::string& value,
-    const scoped_refptr<URLRequestContextGetter>& context_getter,
-    base::WaitableEvent* event,
-    bool* success) {
-  *success = context_getter->GetCookieStore()->SetCookie(url, value);
-  event->Signal();
-}
-
-void DeleteCookieOnIOThread(
-    const GURL& url,
-    const std::string& name,
-    const scoped_refptr<URLRequestContextGetter>& context_getter,
-    base::WaitableEvent* event) {
-  context_getter->GetCookieStore()->DeleteCookie(url, name);
-  event->Signal();
-}
 
 void SendMouseClick(int flags) {
   ui_controls::MouseButton button = ui_controls::LEFT;
@@ -169,22 +155,38 @@ TestingAutomationProvider::~TestingAutomationProvider() {
   BrowserList::RemoveObserver(this);
 }
 
-void TestingAutomationProvider::SourceProfilesLoaded() {
+void TestingAutomationProvider::OnBrowserAdded(const Browser* browser) {
+}
+
+void TestingAutomationProvider::OnBrowserRemoved(const Browser* browser) {
+  // For backwards compatibility with the testing automation interface, we
+  // want the automation provider (and hence the process) to go away when the
+  // last browser goes away.
+  if (BrowserList::empty() && !CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kKeepAliveForTest)) {
+    // If you change this, update Observer for NotificationType::SESSION_END
+    // below.
+    MessageLoop::current()->PostTask(FROM_HERE,
+        NewRunnableMethod(this, &TestingAutomationProvider::OnRemoveProvider));
+  }
+}
+
+void TestingAutomationProvider::OnSourceProfilesLoaded() {
   DCHECK_NE(static_cast<ImporterList*>(NULL), importer_list_.get());
 
-  // Get the correct ProfileInfo based on the browser the user provided.
-  importer::ProfileInfo profile_info;
-  int num_browsers = importer_list_->GetAvailableProfileCount();
-  int i = 0;
-  for ( ; i < num_browsers; i++) {
-    string16 name = WideToUTF16Hack(importer_list_->GetSourceProfileNameAt(i));
-    if (name == import_settings_data_.browser_name) {
-      profile_info = importer_list_->GetSourceProfileInfoAt(i);
+  // Get the correct profile based on the browser that the user provided.
+  importer::SourceProfile source_profile;
+  size_t i = 0;
+  size_t importers_count = importer_list_->count();
+  for ( ; i < importers_count; ++i) {
+    importer::SourceProfile profile = importer_list_->GetSourceProfileAt(i);
+    if (profile.importer_name == import_settings_data_.browser_name) {
+      source_profile = profile;
       break;
     }
   }
   // If we made it to the end of the loop, then the input was bad.
-  if (i == num_browsers) {
+  if (i == importers_count) {
     AutomationJSONReply(this, import_settings_data_.reply_message)
         .SendError("Invalid browser name string found.");
     return;
@@ -195,11 +197,11 @@ void TestingAutomationProvider::SourceProfilesLoaded() {
       new AutomationProviderImportSettingsObserver(
           this, import_settings_data_.reply_message));
 
-  Profile* profile = import_settings_data_.browser->profile();
-  importer_host->StartImportSettings(profile_info,
-                                     profile,
+  Profile* target_profile = import_settings_data_.browser->profile();
+  importer_host->StartImportSettings(source_profile,
+                                     target_profile,
                                      import_settings_data_.import_items,
-                                     new ProfileWriter(profile),
+                                     new ProfileWriter(target_profile),
                                      import_settings_data_.first_run);
 }
 
@@ -216,7 +218,10 @@ void TestingAutomationProvider::Observe(NotificationType type,
 bool TestingAutomationProvider::OnMessageReceived(
     const IPC::Message& message) {
   bool handled = true;
-  IPC_BEGIN_MESSAGE_MAP(TestingAutomationProvider, message)
+  bool deserialize_success = true;
+  IPC_BEGIN_MESSAGE_MAP_EX(TestingAutomationProvider,
+                           message,
+                           deserialize_success)
     IPC_MESSAGE_HANDLER_DELAY_REPLY(AutomationMsg_CloseBrowser, CloseBrowser)
     IPC_MESSAGE_HANDLER(AutomationMsg_CloseBrowserRequestAsync,
                         CloseBrowserAsync)
@@ -384,8 +389,6 @@ bool TestingAutomationProvider::OnMessageReceived(
     IPC_MESSAGE_HANDLER(AutomationMsg_WindowTitle, GetWindowTitle)
     IPC_MESSAGE_HANDLER(AutomationMsg_SetShelfVisibility, SetShelfVisibility)
     IPC_MESSAGE_HANDLER(AutomationMsg_BlockedPopupCount, GetBlockedPopupCount)
-    IPC_MESSAGE_HANDLER_DELAY_REPLY(AutomationMsg_CaptureEntirePageAsPNG,
-                                    CaptureEntirePageAsPNG)
     IPC_MESSAGE_HANDLER_DELAY_REPLY(AutomationMsg_SendJSONRequest,
                                     SendJSONRequest)
     IPC_MESSAGE_HANDLER_DELAY_REPLY(AutomationMsg_WaitForTabCountToBecome,
@@ -407,7 +410,9 @@ bool TestingAutomationProvider::OnMessageReceived(
 
     IPC_MESSAGE_UNHANDLED(
         handled = AutomationProvider::OnMessageReceived(message))
-  IPC_END_MESSAGE_MAP()
+  IPC_END_MESSAGE_MAP_EX()
+  if (!deserialize_success)
+    OnMessageDeserializationFailure();
   return handled;
 }
 
@@ -443,7 +448,7 @@ void TestingAutomationProvider::ActivateTab(int handle,
   if (browser_tracker_->ContainsHandle(handle) && at_index > -1) {
     Browser* browser = browser_tracker_->GetResource(handle);
     if (at_index >= 0 && at_index < browser->tab_count()) {
-      browser->SelectTabContentsAt(at_index, true);
+      browser->ActivateTabAt(at_index, true);
       *status = 0;
     }
   }
@@ -484,7 +489,7 @@ void TestingAutomationProvider::GetActiveTabIndex(int handle,
   *active_tab_index = -1;  // -1 is the error code
   if (browser_tracker_->ContainsHandle(handle)) {
     Browser* browser = browser_tracker_->GetResource(handle);
-    *active_tab_index = browser->selected_index();
+    *active_tab_index = browser->active_index();
   }
 }
 
@@ -508,67 +513,26 @@ void TestingAutomationProvider::CloseTab(int tab_handle,
 void TestingAutomationProvider::GetCookies(const GURL& url, int handle,
                                            int* value_size,
                                            std::string* value) {
-  *value_size = -1;
-  if (url.is_valid() && tab_tracker_->ContainsHandle(handle)) {
-    // Since we are running on the UI thread don't call GetURLRequestContext().
-    scoped_refptr<URLRequestContextGetter> context_getter =
-        tab_tracker_->GetResource(handle)->profile()->GetRequestContext();
-
-    base::WaitableEvent event(true /* manual reset */,
-                              false /* not initially signaled */);
-    CHECK(BrowserThread::PostTask(
-              BrowserThread::IO, FROM_HERE,
-              NewRunnableFunction(&GetCookiesOnIOThread,
-                                  url, context_getter, &event, value)));
-    event.Wait();
-
-    *value_size = static_cast<int>(value->size());
-  }
+  TabContents *contents = tab_tracker_->ContainsHandle(handle) ?
+      tab_tracker_->GetResource(handle)->tab_contents() : NULL;
+  automation_util::GetCookies(url, contents, value_size, value);
 }
 
 void TestingAutomationProvider::SetCookie(const GURL& url,
-                                          const std::string value,
+                                          const std::string& value,
                                           int handle,
                                           int* response_value) {
-  *response_value = -1;
-
-  if (url.is_valid() && tab_tracker_->ContainsHandle(handle)) {
-    // Since we are running on the UI thread don't call GetURLRequestContext().
-    scoped_refptr<URLRequestContextGetter> context_getter =
-        tab_tracker_->GetResource(handle)->profile()->GetRequestContext();
-
-    base::WaitableEvent event(true /* manual reset */,
-                              false /* not initially signaled */);
-    bool success = false;
-    CHECK(BrowserThread::PostTask(
-              BrowserThread::IO, FROM_HERE,
-              NewRunnableFunction(&SetCookieOnIOThread,
-                                  url, value, context_getter, &event,
-                                  &success)));
-    event.Wait();
-    if (success)
-      *response_value = 1;
-  }
+  TabContents *contents = tab_tracker_->ContainsHandle(handle) ?
+      tab_tracker_->GetResource(handle)->tab_contents() : NULL;
+  automation_util::SetCookie(url, value, contents, response_value);
 }
 
 void TestingAutomationProvider::DeleteCookie(const GURL& url,
                                              const std::string& cookie_name,
                                              int handle, bool* success) {
-  *success = false;
-  if (url.is_valid() && tab_tracker_->ContainsHandle(handle)) {
-    // Since we are running on the UI thread don't call GetURLRequestContext().
-    scoped_refptr<URLRequestContextGetter> context_getter =
-        tab_tracker_->GetResource(handle)->profile()->GetRequestContext();
-
-    base::WaitableEvent event(true /* manual reset */,
-                              false /* not initially signaled */);
-    CHECK(BrowserThread::PostTask(
-              BrowserThread::IO, FROM_HERE,
-              NewRunnableFunction(&DeleteCookieOnIOThread,
-                                  url, cookie_name, context_getter, &event)));
-    event.Wait();
-    *success = true;
-  }
+  TabContents *contents = tab_tracker_->ContainsHandle(handle) ?
+      tab_tracker_->GetResource(handle)->tab_contents() : NULL;
+  automation_util::DeleteCookie(url, cookie_name, contents, success);
 }
 
 void TestingAutomationProvider::ShowCollectedCookiesDialog(
@@ -757,8 +721,9 @@ void TestingAutomationProvider::GetNormalBrowserWindowCount(int* window_count) {
 
 void TestingAutomationProvider::GetBrowserWindow(int index, int* handle) {
   *handle = 0;
-  if (index >= 0 && index < static_cast<int>(BrowserList::size()))
-    *handle = browser_tracker_->Add(*(BrowserList::begin() + index));
+  Browser* browser = automation_util::GetBrowserAt(index);
+  if (browser)
+    *handle = browser_tracker_->Add(browser);
 }
 
 void TestingAutomationProvider::FindNormalBrowserWindow(int* handle) {
@@ -1095,28 +1060,14 @@ void TestingAutomationProvider::GetShelfVisibility(int handle, bool* visible) {
   *visible = false;
 
   if (browser_tracker_->ContainsHandle(handle)) {
-#if defined(OS_CHROMEOS)
-    // Chromium OS shows FileBrowse ui rather than download shelf. So we
-    // enumerate all browsers and look for a chrome://filebrowse... pop up.
-    for (BrowserList::const_iterator it = BrowserList::begin();
-         it != BrowserList::end(); ++it) {
-      if ((*it)->type() == Browser::TYPE_POPUP) {
-        const GURL& url =
-            (*it)->GetTabContentsAt((*it)->selected_index())->GetURL();
-
-        if (url.SchemeIs(chrome::kChromeUIScheme) &&
-            url.host() == chrome::kChromeUIFileBrowseHost) {
-          *visible = true;
-          break;
-        }
-      }
-    }
-#else
     Browser* browser = browser_tracker_->GetResource(handle);
     if (browser) {
+#if defined(OS_CHROMEOS)
+      *visible = ActiveDownloadsUI::GetPopup(browser->profile());
+#else
       *visible = browser->window()->IsDownloadShelfVisible();
-    }
 #endif
+    }
   }
 }
 
@@ -1256,9 +1207,7 @@ void TestingAutomationProvider::ExecuteJavascript(
                       "window.domAutomationController.setAutomationId(%d);",
                       reply_message->routing_id());
 
-  DCHECK(!reply_message_);
-  reply_message_ = reply_message;
-
+  new DomOperationMessageSender(this, reply_message, false);
   tab_contents->render_view_host()->ExecuteJavascriptInWebFrame(
       WideToUTF16Hack(frame_xpath), UTF8ToUTF16(set_automation_id));
   tab_contents->render_view_host()->ExecuteJavascriptInWebFrame(
@@ -1306,7 +1255,7 @@ void TestingAutomationProvider::OpenNewBrowserWindowOfType(
   // We may have no current browser windows open so don't rely on
   // asking an existing browser to execute the IDC_NEWWINDOW command
   Browser* browser = new Browser(static_cast<Browser::Type>(type), profile_);
-  browser->CreateBrowserWindow();
+  browser->InitBrowserWindow();
   browser->AddBlankTab(true);
   if (show)
     browser->window()->Show();
@@ -1499,7 +1448,6 @@ void TestingAutomationProvider::IsMenuCommandEnabled(int browser_handle,
 
 void TestingAutomationProvider::PrintNow(int tab_handle,
                                          IPC::Message* reply_message) {
-
   NavigationController* tab = NULL;
   TabContents* tab_contents = GetTabContentsForHandle(tab_handle, &tab);
   if (tab_contents) {
@@ -1508,7 +1456,9 @@ void TestingAutomationProvider::PrintNow(int tab_handle,
     NotificationObserver* observer =
         new DocumentPrintedNotificationObserver(this, reply_message);
 
-    if (!tab_contents->PrintNow()) {
+    TabContentsWrapper* wrapper =
+        TabContentsWrapper::GetCurrentWrapperForContents(tab_contents);
+    if (!wrapper->print_view_manager()->PrintNow()) {
       // Clean up the observer. It will send the reply message.
       delete observer;
     }
@@ -1546,7 +1496,9 @@ void TestingAutomationProvider::SavePage(int tab_handle,
     return;
   }
 
-  nav->tab_contents()->SavePage(file_name, dir_path, save_type);
+  TabContentsWrapper* wrapper =
+      TabContentsWrapper::GetCurrentWrapperForContents(nav->tab_contents());
+  wrapper->download_tab_helper()->SavePage(file_name, dir_path, save_type);
   *success = true;
 }
 
@@ -1669,8 +1621,8 @@ void TestingAutomationProvider::AddBookmarkGroup(int handle,
       const BookmarkNode* parent = model->GetNodeByID(parent_id);
       DCHECK(parent);
       if (parent) {
-        const BookmarkNode* child = model->AddGroup(parent, index,
-                                                    WideToUTF16Hack(title));
+        const BookmarkNode* child = model->AddFolder(parent, index,
+                                                     WideToUTF16Hack(title));
         DCHECK(child);
         if (child)
           *success = true;
@@ -1794,9 +1746,9 @@ void TestingAutomationProvider::RemoveBookmark(int handle,
       const BookmarkNode* node = model->GetNodeByID(id);
       DCHECK(node);
       if (node) {
-        const BookmarkNode* parent = node->GetParent();
+        const BookmarkNode* parent = node->parent();
         DCHECK(parent);
-        model->Remove(parent, parent->IndexOfChild(node));
+        model->Remove(parent, parent->GetIndexOf(node));
         *success = true;
       }
     }
@@ -2032,10 +1984,19 @@ void TestingAutomationProvider::SetShelfVisibility(int handle, bool visible) {
   if (browser_tracker_->ContainsHandle(handle)) {
     Browser* browser = browser_tracker_->GetResource(handle);
     if (browser) {
+#if defined(OS_CHROMEOS)
+      Browser* popup_browser =
+          ActiveDownloadsUI::GetPopup(browser->profile());
+      if (!popup_browser && visible)
+        ActiveDownloadsUI::OpenPopup(browser->profile());
+      if (popup_browser && !visible)
+        popup_browser->CloseWindow();
+#else
       if (visible)
         browser->window()->GetDownloadShelf()->Show();
       else
         browser->window()->GetDownloadShelf()->Close();
+#endif
     }
   }
 }
@@ -2059,24 +2020,8 @@ void TestingAutomationProvider::GetBlockedPopupCount(int handle, int* count) {
   }
 }
 
-void TestingAutomationProvider::CaptureEntirePageAsPNG(
-    int tab_handle, const FilePath& path, IPC::Message* reply_message) {
-  RenderViewHost* render_view = GetViewForTab(tab_handle);
-  if (render_view) {
-    // This will delete itself when finished.
-    PageSnapshotTaker* snapshot_taker = new PageSnapshotTaker(
-        this, reply_message, render_view, path);
-    snapshot_taker->Start();
-  } else {
-    LOG(ERROR) << "Could not get render view for tab handle";
-    AutomationMsg_CaptureEntirePageAsPNG::WriteReplyParams(reply_message,
-                                                           false);
-    Send(reply_message);
-  }
-}
-
 void TestingAutomationProvider::SendJSONRequest(int handle,
-                                                std::string json_request,
+                                                const std::string& json_request,
                                                 IPC::Message* reply_message) {
   scoped_ptr<Value> values;
   base::JSONReader reader;
@@ -2122,6 +2067,8 @@ void TestingAutomationProvider::SendJSONRequest(int handle,
       &TestingAutomationProvider::GetTabURLJSON;
   handler_map["GetTabTitle"] =
       &TestingAutomationProvider::GetTabTitleJSON;
+  handler_map["CaptureEntirePage"] =
+      &TestingAutomationProvider::CaptureEntirePageJSON;
   handler_map["GetCookies"] =
       &TestingAutomationProvider::GetCookiesJSON;
   handler_map["DeleteCookie"] =
@@ -2142,14 +2089,42 @@ void TestingAutomationProvider::SendJSONRequest(int handle,
       &TestingAutomationProvider::WebkitMouseDrag;
   handler_map["SendWebkitKeyEvent"] =
       &TestingAutomationProvider::SendWebkitKeyEvent;
+  handler_map["SendOSLevelKeyEventToTab"] =
+      &TestingAutomationProvider::SendOSLevelKeyEventToTab;
   handler_map["ActivateTab"] =
       &TestingAutomationProvider::ActivateTabJSON;
+  handler_map["UpdateExtensionsNow"] =
+      &TestingAutomationProvider::UpdateExtensionsNow;
+  handler_map["GetChromeDriverAutomationVersion"] =
+      &TestingAutomationProvider::GetChromeDriverAutomationVersion;
 #if defined(OS_CHROMEOS)
+  handler_map["GetLoginInfo"] = &TestingAutomationProvider::GetLoginInfo;
   handler_map["LoginAsGuest"] = &TestingAutomationProvider::LoginAsGuest;
   handler_map["Login"] = &TestingAutomationProvider::Login;
-  handler_map["Logout"] = &TestingAutomationProvider::Logout;
-  handler_map["ScreenLock"] = &TestingAutomationProvider::ScreenLock;
-  handler_map["ScreenUnlock"] = &TestingAutomationProvider::ScreenUnlock;
+
+  handler_map["LockScreen"] = &TestingAutomationProvider::LockScreen;
+  handler_map["UnlockScreen"] = &TestingAutomationProvider::UnlockScreen;
+  handler_map["SignoutInScreenLocker"] =
+      &TestingAutomationProvider::SignoutInScreenLocker;
+
+  handler_map["GetBatteryInfo"] = &TestingAutomationProvider::GetBatteryInfo;
+
+  handler_map["GetNetworkInfo"] = &TestingAutomationProvider::GetNetworkInfo;
+  handler_map["NetworkScan"] = &TestingAutomationProvider::NetworkScan;
+  handler_map["GetProxySettings"] =
+      &TestingAutomationProvider::GetProxySettings;
+  handler_map["SetProxySettings"] =
+      &TestingAutomationProvider::SetProxySettings;
+  handler_map["ConnectToWifiNetwork"] =
+      &TestingAutomationProvider::ConnectToWifiNetwork;
+  handler_map["ConnectToHiddenWifiNetwork"] =
+      &TestingAutomationProvider::ConnectToHiddenWifiNetwork;
+  handler_map["DisconnectFromWifiNetwork"] =
+      &TestingAutomationProvider::DisconnectFromWifiNetwork;
+
+  handler_map["GetUpdateInfo"] = &TestingAutomationProvider::GetUpdateInfo;
+  handler_map["UpdateCheck"] = &TestingAutomationProvider::UpdateCheck;
+  handler_map["SetReleaseTrack"] = &TestingAutomationProvider::SetReleaseTrack;
 #endif  // defined(OS_CHROMEOS)
 
   std::map<std::string, BrowserJsonHandler> browser_handler_map;
@@ -2250,10 +2225,10 @@ void TestingAutomationProvider::SendJSONRequest(int handle,
   browser_handler_map["GetTranslateInfo"] =
       &TestingAutomationProvider::GetTranslateInfo;
 
-  browser_handler_map["GetAutoFillProfile"] =
-      &TestingAutomationProvider::GetAutoFillProfile;
-  browser_handler_map["FillAutoFillProfile"] =
-      &TestingAutomationProvider::FillAutoFillProfile;
+  browser_handler_map["GetAutofillProfile"] =
+      &TestingAutomationProvider::GetAutofillProfile;
+  browser_handler_map["FillAutofillProfile"] =
+      &TestingAutomationProvider::FillAutofillProfile;
 
   browser_handler_map["GetActiveNotifications"] =
       &TestingAutomationProvider::GetActiveNotifications;
@@ -2294,6 +2269,10 @@ void TestingAutomationProvider::SendJSONRequest(int handle,
       &TestingAutomationProvider::GetNTPMenuMode;
   browser_handler_map["SetNTPMenuMode"] =
       &TestingAutomationProvider::SetNTPMenuMode;
+
+  browser_handler_map["LaunchApp"] = &TestingAutomationProvider::LaunchApp;
+  browser_handler_map["SetAppLaunchType"] =
+      &TestingAutomationProvider::SetAppLaunchType;
 
   if (handler_map.find(std::string(command)) != handler_map.end()) {
     (this->*handler_map[command])(dict_value, reply_message);
@@ -2350,8 +2329,7 @@ ListValue* TestingAutomationProvider::GetInfobarsInfo(TabContents* tc) {
     DictionaryValue* infobar_item = new DictionaryValue;
     InfoBarDelegate* infobar = tc->GetInfoBarDelegateAt(i);
     if (infobar->AsConfirmInfoBarDelegate()) {
-      // Also covers ThemeInstalledInfoBarDelegate and
-      // CrashedExtensionInfoBarDelegate.
+      // Also covers ThemeInstalledInfoBarDelegate.
       infobar_item->SetString("type", "confirm_infobar");
       ConfirmInfoBarDelegate* confirm_infobar =
         infobar->AsConfirmInfoBarDelegate();
@@ -2547,7 +2525,7 @@ void TestingAutomationProvider::GetBrowserInfo(
     browser_item->SetInteger("height", rect.height());
     browser_item->SetBoolean("fullscreen",
                              browser->window()->IsFullscreen());
-    browser_item->SetInteger("selected_tab", browser->selected_index());
+    browser_item->SetInteger("selected_tab", browser->active_index());
     browser_item->SetBoolean("incognito",
                              browser->profile()->IsOffTheRecord());
     // For each window, add info about all tabs in a list of dictionaries,
@@ -2561,6 +2539,7 @@ void TestingAutomationProvider::GetBrowserInfo(
       tab->SetInteger("renderer_pid",
                       base::GetProcId(tc->GetRenderProcessHost()->GetHandle()));
       tab->Set("infobars", GetInfobarsInfo(tc));
+      tab->SetBoolean("pinned", browser->IsTabPinned(i));
       tabs->Append(tab);
     }
     browser_item->Set("tabs", tabs);
@@ -2587,10 +2566,12 @@ void TestingAutomationProvider::GetBrowserInfo(
   // item per extension process.
   ListValue* extension_processes = new ListValue;
   ProfileManager* profile_manager = g_browser_process->profile_manager();
-  for (ProfileManager::const_iterator it = profile_manager->begin();
-       it != profile_manager->end(); ++it) {
+  std::vector<Profile*> profiles(profile_manager->GetLoadedProfiles());
+  for (size_t i = 0; i < profiles.size(); ++i) {
     ExtensionProcessManager* process_manager =
-        (*it)->GetExtensionProcessManager();
+        profiles[i]->GetExtensionProcessManager();
+    if (!process_manager)
+      continue;
     ExtensionProcessManager::const_iterator jt;
     for (jt = process_manager->begin(); jt != process_manager->end(); ++jt) {
       ExtensionHost* ex_host = *jt;
@@ -2737,27 +2718,22 @@ void TestingAutomationProvider::GetDownloadsInfo(Browser* browser,
                                                  DictionaryValue* args,
                                                  IPC::Message* reply_message) {
   AutomationJSONReply reply(this, reply_message);
-
-  if (!browser->profile()->HasCreatedDownloadManager()) {
-      reply.SendError("no download manager");
-      return;
-  }
-
   scoped_ptr<DictionaryValue> return_value(new DictionaryValue);
-  std::vector<DownloadItem*> downloads;
-  browser->profile()->GetDownloadManager()->
-      GetAllDownloads(FilePath(), &downloads);
-
   ListValue* list_of_downloads = new ListValue;
-  for (std::vector<DownloadItem*>::iterator it = downloads.begin();
-       it != downloads.end();
-       it++) {  // Fill info about each download item.
-    list_of_downloads->Append(GetDictionaryFromDownloadItem(*it));
+
+  if (browser->profile()->HasCreatedDownloadManager()) {
+    std::vector<DownloadItem*> downloads;
+    browser->profile()->GetDownloadManager()->
+        GetAllDownloads(FilePath(), &downloads);
+
+    for (std::vector<DownloadItem*>::iterator it = downloads.begin();
+         it != downloads.end();
+         it++) {  // Fill info about each download item.
+      list_of_downloads->Append(GetDictionaryFromDownloadItem(*it));
+    }
   }
   return_value->Set("downloads", list_of_downloads);
   reply.SendSuccess(return_value.get());
-  // All value objects allocated above are owned by |return_value|
-  // and get freed by it.
 }
 
 void TestingAutomationProvider::WaitForDownloadsToComplete(
@@ -2851,13 +2827,12 @@ void TestingAutomationProvider::PerformActionOnDownload(
     download_manager->AddObserver(
         new AutomationProviderDownloadModelChangedObserver(
             this, reply_message, download_manager));
-    selected_item->Remove(false);
+    selected_item->Remove();
   } else if (action == "decline_dangerous_download") {
-    // This is the same as removing the file with delete_file=true.
     download_manager->AddObserver(
         new AutomationProviderDownloadModelChangedObserver(
             this, reply_message, download_manager));
-    selected_item->Remove(true);
+    selected_item->Delete(DownloadItem::DELETE_DUE_TO_USER_DISCARD);
   } else if (action == "save_dangerous_download") {
     selected_item->AddObserver(new AutomationProviderDownloadUpdatedObserver(
         this, reply_message, false));
@@ -3274,7 +3249,7 @@ void TestingAutomationProvider::SaveTabContents(
   int tab_index = 0;
   FilePath::StringType filename;
   FilePath::StringType parent_directory;
-  TabContents* tab_contents = NULL;
+  TabContentsWrapper* tab_contents = NULL;
 
   if (!args->GetInteger("tab_index", &tab_index) ||
       !args->GetString("filename", &filename)) {
@@ -3282,7 +3257,7 @@ void TestingAutomationProvider::SaveTabContents(
         .SendError("tab_index or filename param missing");
     return;
   } else {
-    tab_contents = browser->GetTabContentsAt(tab_index);
+    tab_contents = browser->GetTabContentsWrapperAt(tab_index);
     if (!tab_contents) {
       AutomationJSONReply(this, reply_message).SendError("no tab at tab_index");
       return;
@@ -3291,15 +3266,17 @@ void TestingAutomationProvider::SaveTabContents(
   // We're doing a SAVE_AS_ONLY_HTML so the the directory path isn't
   // used.  Nevertheless, SavePackage requires it be valid.  Sigh.
   parent_directory = FilePath(filename).DirName().value();
-  if (!tab_contents->SavePage(FilePath(filename), FilePath(parent_directory),
-                              SavePackage::SAVE_AS_ONLY_HTML)) {
+  if (!tab_contents->download_tab_helper()->SavePage(
+          FilePath(filename),
+          FilePath(parent_directory),
+          SavePackage::SAVE_AS_ONLY_HTML)) {
     AutomationJSONReply(this, reply_message).SendError(
         "Could not initiate SavePage");
     return;
   }
   // The observer will delete itself when done.
-  new SavePackageNotificationObserver(tab_contents->save_package(),
-                                      this, reply_message);
+  new SavePackageNotificationObserver(
+      tab_contents->download_tab_helper()->save_package(), this, reply_message);
 }
 
 // Refer to ImportSettings() in chrome/test/pyautolib/pyauto.py for sample
@@ -3344,9 +3321,6 @@ void TestingAutomationProvider::ImportSettings(Browser* browser,
   import_settings_data_.browser = browser;
   import_settings_data_.reply_message = reply_message;
 
-  // The remaining functionality of importing settings is in
-  // SourceProfilesLoaded(), which is called by |importer_list_| once the source
-  // profiles are loaded.
   importer_list_ = new ImporterList;
   importer_list_->DetectSourceProfiles(this);
 }
@@ -3435,7 +3409,7 @@ void TestingAutomationProvider::AddSavedPassword(
       GetPasswordFormFromDict(*password_dict);
 
   Profile* profile = browser->profile();
-  // Use IMPLICIT_ACCESS since new passwords aren't added off the record.
+  // Use IMPLICIT_ACCESS since new passwords aren't added in incognito mode.
   PasswordStore* password_store =
       profile->GetPasswordStore(Profile::IMPLICIT_ACCESS);
 
@@ -3478,7 +3452,7 @@ void TestingAutomationProvider::RemoveSavedPassword(
       GetPasswordFormFromDict(*password_dict);
 
   Profile* profile = browser->profile();
-  // Use EXPLICIT_ACCESS since passwords can be removed off the record.
+  // Use EXPLICIT_ACCESS since passwords can be removed in incognito mode.
   PasswordStore* password_store =
       profile->GetPasswordStore(Profile::EXPLICIT_ACCESS);
 
@@ -3494,7 +3468,8 @@ void TestingAutomationProvider::GetSavedPasswords(
     DictionaryValue* args,
     IPC::Message* reply_message) {
   Profile* profile = browser->profile();
-  // Use EXPLICIT_ACCESS since saved passwords can be retreived off the record.
+  // Use EXPLICIT_ACCESS since saved passwords can be retrieved in
+  // incognito mode.
   PasswordStore* password_store =
       profile->GetPasswordStore(Profile::EXPLICIT_ACCESS);
   password_store->GetAutofillableLogins(
@@ -3663,7 +3638,9 @@ void TestingAutomationProvider::GetTranslateInfo(
       this, reply_message, tab_contents, translate_bar);
   // If the language for the page hasn't been loaded yet, then just make
   // the observer, otherwise call observe directly.
-  std::string language = tab_contents->language_state().original_language();
+  TranslateTabHelper* helper = TabContentsWrapper::GetCurrentWrapperForContents(
+      tab_contents)->translate_tab_helper();
+  std::string language = helper->language_state().original_language();
   if (!language.empty()) {
     observer->Observe(NotificationType::TAB_LANGUAGE_DETERMINED,
                       Source<TabContents>(tab_contents),
@@ -3864,7 +3841,7 @@ void TestingAutomationProvider::GetThemeInfo(
     DictionaryValue* args,
     IPC::Message* reply_message) {
   scoped_ptr<DictionaryValue> return_value(new DictionaryValue);
-  const Extension* theme = browser->profile()->GetTheme();
+  const Extension* theme = ThemeServiceFactory::GetThemeForProfile(profile());
   if (theme) {
     return_value->SetString("name", theme->name());
     return_value->Set("images", theme->GetThemeImages()->DeepCopy());
@@ -3873,6 +3850,31 @@ void TestingAutomationProvider::GetThemeInfo(
   }
   AutomationJSONReply(this, reply_message).SendSuccess(return_value.get());
 }
+
+namespace {
+
+ListValue* GetHostPermissions(const Extension* ext) {
+  ListValue* permissions = new ListValue;
+  const URLPatternList pattern_list =
+      ext->GetEffectiveHostPermissions().patterns();
+  for (URLPatternList::const_iterator perm = pattern_list.begin();
+       perm != pattern_list.end(); ++perm) {
+    permissions->Append(new StringValue(perm->GetAsString()));
+  }
+  return permissions;
+}
+
+ListValue* GetAPIPermissions(const Extension* ext) {
+  ListValue* permissions = new ListValue;
+  std::set<std::string> perm_list = ext->api_permissions();
+  for (std::set<std::string>::const_iterator perm = perm_list.begin();
+       perm != perm_list.end(); ++perm) {
+    permissions->Append(new StringValue(perm->c_str()));
+  }
+  return permissions;
+}
+
+}  // namespace
 
 // Sample json input: { "command": "GetExtensionsInfo" }
 // See GetExtensionsInfo() in chrome/test/pyautolib/pyauto.py for sample json
@@ -3902,6 +3904,8 @@ void TestingAutomationProvider::GetExtensionsInfo(
                                extension->background_url().spec());
     extension_value->SetString("options_url",
                                extension->options_url().spec());
+    extension_value->Set("host_permissions", GetHostPermissions(extension));
+    extension_value->Set("api_permissions", GetAPIPermissions(extension));
     extensions_values->Append(extension_value);
   }
   return_value->Set("extensions", extensions_values);
@@ -3915,32 +3919,44 @@ void TestingAutomationProvider::UninstallExtensionById(
     Browser* browser,
     DictionaryValue* args,
     IPC::Message* reply_message) {
-  AutomationJSONReply reply(this, reply_message);
   std::string id;
   if (!args->GetString("id", &id)) {
-    reply.SendError("Must include string id.");
+    AutomationJSONReply(this, reply_message).SendError(
+        "Must include string id.");
     return;
   }
   ExtensionService* service = profile()->GetExtensionService();
   if (!service) {
-    reply.SendError("No extensions service.");
+    AutomationJSONReply(this, reply_message).SendError(
+        "No extensions service.");
     return;
   }
-  ExtensionUnloadNotificationObserver observer;
-  service->UninstallExtension(id, false);
-  reply.SendSuccess(NULL);
+
+  if (!service->GetExtensionById(id, true) &&
+      !service->GetTerminatedExtension(id)) {
+    // The extension ID does not correspond to any extension, whether crashed
+    // or not.
+    AutomationJSONReply(this, reply_message).SendError(base::StringPrintf(
+        "Extension does not exist: %s.", id.c_str()));
+    return;
+  }
+
+  // Wait for a notification indicating that the extension with the given ID
+  // has been uninstalled.  This observer will delete itself.
+  new ExtensionUninstallObserver(this, reply_message, id);
+  service->UninstallExtension(id, false, NULL);
 }
 
 // Sample json input:
-//    { "command": "GetAutoFillProfile" }
-// Refer to GetAutoFillProfile() in chrome/test/pyautolib/pyauto.py for sample
+//    { "command": "GetAutofillProfile" }
+// Refer to GetAutofillProfile() in chrome/test/pyautolib/pyauto.py for sample
 // json output.
-void TestingAutomationProvider::GetAutoFillProfile(
+void TestingAutomationProvider::GetAutofillProfile(
     Browser* browser,
     DictionaryValue* args,
     IPC::Message* reply_message) {
   AutomationJSONReply reply(this, reply_message);
-  // Get the AutoFillProfiles currently in the database.
+  // Get the AutofillProfiles currently in the database.
   int tab_index = 0;
   if (!args->GetInteger("tab_index", &tab_index)) {
     reply.SendError("Invalid or missing tab_index integer value.");
@@ -3952,10 +3968,10 @@ void TestingAutomationProvider::GetAutoFillProfile(
     PersonalDataManager* pdm = tab_contents->profile()->GetOriginalProfile()
         ->GetPersonalDataManager();
     if (pdm) {
-      std::vector<AutoFillProfile*> autofill_profiles = pdm->profiles();
+      std::vector<AutofillProfile*> autofill_profiles = pdm->profiles();
       std::vector<CreditCard*> credit_cards = pdm->credit_cards();
 
-      ListValue* profiles = GetListFromAutoFillProfiles(autofill_profiles);
+      ListValue* profiles = GetListFromAutofillProfiles(autofill_profiles);
       ListValue* cards = GetListFromCreditCards(credit_cards);
 
       scoped_ptr<DictionaryValue> return_value(new DictionaryValue);
@@ -3973,10 +3989,10 @@ void TestingAutomationProvider::GetAutoFillProfile(
   }
 }
 
-// Refer to FillAutoFillProfile() in chrome/test/pyautolib/pyauto.py for sample
+// Refer to FillAutofillProfile() in chrome/test/pyautolib/pyauto.py for sample
 // json input.
 // Sample json output: {}
-void TestingAutomationProvider::FillAutoFillProfile(
+void TestingAutomationProvider::FillAutofillProfile(
     Browser* browser,
     DictionaryValue* args,
     IPC::Message* reply_message) {
@@ -3990,11 +4006,11 @@ void TestingAutomationProvider::FillAutoFillProfile(
 
   std::string error_mesg;
 
-  std::vector<AutoFillProfile> autofill_profiles;
+  std::vector<AutofillProfile> autofill_profiles;
   std::vector<CreditCard> credit_cards;
-  // Create an AutoFillProfile for each of the dictionary profiles.
+  // Create an AutofillProfile for each of the dictionary profiles.
   if (profiles) {
-    autofill_profiles = GetAutoFillProfilesFromList(*profiles, &error_mesg);
+    autofill_profiles = GetAutofillProfilesFromList(*profiles, &error_mesg);
   }
   // Create a CreditCard for each of the dictionary values.
   if (cards) {
@@ -4005,7 +4021,7 @@ void TestingAutomationProvider::FillAutoFillProfile(
     return;
   }
 
-  // Save the AutoFillProfiles.
+  // Save the AutofillProfiles.
   int tab_index = 0;
   if (!args->GetInteger("tab_index", &tab_index)) {
     reply.SendError("Invalid or missing tab_index integer");
@@ -4018,8 +4034,10 @@ void TestingAutomationProvider::FillAutoFillProfile(
     PersonalDataManager* pdm = tab_contents->profile()
         ->GetPersonalDataManager();
     if (pdm) {
-      pdm->OnAutoFillDialogApply(profiles? &autofill_profiles : NULL,
-                                 cards? &credit_cards : NULL);
+      if (profiles)
+        pdm->SetProfiles(&autofill_profiles);
+      if (cards)
+        pdm->SetCreditCards(&credit_cards);
     } else {
       reply.SendError("No PersonalDataManager.");
       return;
@@ -4050,9 +4068,9 @@ void TestingAutomationProvider::SignInToSync(Browser* browser,
     sync_waiter_->SetCredentials(username, password);
   }
   if (sync_waiter_->SetupSync()) {
-    DictionaryValue* return_value = new DictionaryValue;
+    scoped_ptr<DictionaryValue> return_value(new DictionaryValue);
     return_value->SetBoolean("success", true);
-    reply.SendSuccess(return_value);
+    reply.SendSuccess(return_value.get());
   } else {
     reply.SendError("Signing in to sync was unsuccessful");
   }
@@ -4065,6 +4083,7 @@ void TestingAutomationProvider::SignInToSync(Browser* browser,
 //   u'last synced': u'Just now',
 //   u'summary': u'READY',
 //   u'sync url': u'clients4.google.com',
+//   u'updates received': 42,
 //   u'synced datatypes': [ u'Bookmarks',
 //                          u'Preferences',
 //                          u'Passwords',
@@ -4077,7 +4096,7 @@ void TestingAutomationProvider::GetSyncInfo(Browser* browser,
                                             IPC::Message* reply_message) {
   AutomationJSONReply reply(this, reply_message);
   DictionaryValue* sync_info = new DictionaryValue;
-  DictionaryValue* return_value = new DictionaryValue;
+  scoped_ptr<DictionaryValue> return_value(new DictionaryValue);
   if (sync_waiter_.get() == NULL) {
     sync_waiter_.reset(
         ProfileSyncServiceHarness::CreateAndAttach(browser->profile()));
@@ -4092,6 +4111,7 @@ void TestingAutomationProvider::GetSyncInfo(Browser* browser,
     sync_info->SetString("sync url", service->sync_service_url().host());
     sync_info->SetBoolean("authenticated", status.authenticated);
     sync_info->SetString("last synced", service->GetLastSyncedTimeString());
+    sync_info->SetInteger("updates received", status.updates_received);
     ListValue* synced_datatype_list = new ListValue;
     syncable::ModelTypeSet synced_datatypes;
     service->GetPreferredDataTypes(&synced_datatypes);
@@ -4103,7 +4123,7 @@ void TestingAutomationProvider::GetSyncInfo(Browser* browser,
     sync_info->Set("synced datatypes", synced_datatype_list);
   }
   return_value->Set("sync_info", sync_info);
-  reply.SendSuccess(return_value);
+  reply.SendSuccess(return_value.get());
 }
 
 // Sample json output: { "success": true }
@@ -4120,6 +4140,13 @@ void TestingAutomationProvider::AwaitSyncCycleCompletion(
     reply.SendError("Not signed in to sync");
     return;
   }
+  // Ensure that the profile sync service is initialized before waiting for sync
+  // to complete. In cases where the browser is restarted with sync enabled,
+  // the sync service may take a while to get reinitialized.
+  if (!browser->profile()->GetProfileSyncService()) {
+    reply.SendError("ProfileSyncService not initialized.");
+    return;
+  }
   sync_waiter_->AwaitSyncCycleCompletion("Waiting for sync cycle");
   ProfileSyncService::Status status = sync_waiter_->GetStatus();
   if (status.summary == ProfileSyncService::Status::READY) {
@@ -4127,7 +4154,11 @@ void TestingAutomationProvider::AwaitSyncCycleCompletion(
     return_value->SetBoolean("success", true);
     reply.SendSuccess(return_value.get());
   } else {
-    reply.SendError("Wait for sync cycle was unsuccessful");
+    std::string error_msg = "Wait for sync cycle was unsuccessful. "
+                            "Sync status: ";
+    error_msg.append(
+        ProfileSyncService::BuildSyncStatusSummaryText(status.summary));
+    reply.SendError(error_msg);
   }
 }
 
@@ -4175,9 +4206,9 @@ void TestingAutomationProvider::EnableSyncForDatatypes(
   ProfileSyncService::Status status = sync_waiter_->GetStatus();
   if (status.summary == ProfileSyncService::Status::READY ||
       status.summary == ProfileSyncService::Status::SYNCING) {
-    DictionaryValue* return_value = new DictionaryValue;
+    scoped_ptr<DictionaryValue> return_value(new DictionaryValue);
     return_value->SetBoolean("success", true);
-    reply.SendSuccess(return_value);
+    reply.SendSuccess(return_value.get());
   } else {
     reply.SendError("Enabling sync for given datatypes was unsuccessful");
   }
@@ -4213,9 +4244,9 @@ void TestingAutomationProvider::DisableSyncForDatatypes(
     ProfileSyncService::Status status = sync_waiter_->GetStatus();
     if (status.summary != ProfileSyncService::Status::READY &&
         status.summary != ProfileSyncService::Status::SYNCING) {
-      DictionaryValue* return_value = new DictionaryValue;
+      scoped_ptr<DictionaryValue> return_value(new DictionaryValue);
       return_value->SetBoolean("success", true);
-      reply.SendSuccess(return_value);
+      reply.SendSuccess(return_value.get());
     } else {
       reply.SendError("Disabling all sync datatypes was unsuccessful");
     }
@@ -4238,9 +4269,9 @@ void TestingAutomationProvider::DisableSyncForDatatypes(
     ProfileSyncService::Status status = sync_waiter_->GetStatus();
     if (status.summary == ProfileSyncService::Status::READY ||
         status.summary == ProfileSyncService::Status::SYNCING) {
-      DictionaryValue* return_value = new DictionaryValue;
+      scoped_ptr<DictionaryValue> return_value(new DictionaryValue);
       return_value->SetBoolean("success", true);
-      reply.SendSuccess(return_value);
+      reply.SendSuccess(return_value.get());
     } else {
       reply.SendError("Disabling sync for given datatypes was unsuccessful");
     }
@@ -4248,24 +4279,24 @@ void TestingAutomationProvider::DisableSyncForDatatypes(
 }
 
 /* static */
-ListValue* TestingAutomationProvider::GetListFromAutoFillProfiles(
-    const std::vector<AutoFillProfile*>& autofill_profiles) {
+ListValue* TestingAutomationProvider::GetListFromAutofillProfiles(
+    const std::vector<AutofillProfile*>& autofill_profiles) {
   ListValue* profiles = new ListValue;
 
   std::map<AutofillFieldType, std::string> autofill_type_to_string
       = GetAutofillFieldToStringMap();
 
-  // For each AutoFillProfile, transform it to a dictionary object to return.
-  for (std::vector<AutoFillProfile*>::const_iterator it =
+  // For each AutofillProfile, transform it to a dictionary object to return.
+  for (std::vector<AutofillProfile*>::const_iterator it =
            autofill_profiles.begin();
        it != autofill_profiles.end(); ++it) {
-    AutoFillProfile* profile = *it;
+    AutofillProfile* profile = *it;
     DictionaryValue* profile_info = new DictionaryValue;
     // For each of the types, if it has a value, add it to the dictionary.
     for (std::map<AutofillFieldType, std::string>::iterator
          type_it = autofill_type_to_string.begin();
          type_it != autofill_type_to_string.end(); ++type_it) {
-      string16 value = profile->GetFieldText(AutofillType(type_it->first));
+      string16 value = profile->GetInfo(type_it->first);
       if (value.length()) {  // If there was something stored for that value.
         profile_info->SetString(type_it->second, value);
       }
@@ -4283,7 +4314,7 @@ ListValue* TestingAutomationProvider::GetListFromCreditCards(
   std::map<AutofillFieldType, std::string> credit_card_type_to_string =
       GetCreditCardFieldToStringMap();
 
-  // For each AutoFillProfile, transform it to a dictionary object to return.
+  // For each AutofillProfile, transform it to a dictionary object to return.
   for (std::vector<CreditCard*>::const_iterator it =
            credit_cards.begin();
        it != credit_cards.end(); ++it) {
@@ -4293,7 +4324,7 @@ ListValue* TestingAutomationProvider::GetListFromCreditCards(
     for (std::map<AutofillFieldType, std::string>::iterator type_it =
         credit_card_type_to_string.begin();
         type_it != credit_card_type_to_string.end(); ++type_it) {
-      string16 value = card->GetFieldText(AutofillType(type_it->first));
+      string16 value = card->GetInfo(type_it->first);
       // If there was something stored for that value.
       if (value.length()) {
         card_info->SetString(type_it->second, value);
@@ -4305,10 +4336,10 @@ ListValue* TestingAutomationProvider::GetListFromCreditCards(
 }
 
 /* static */
-std::vector<AutoFillProfile>
-TestingAutomationProvider::GetAutoFillProfilesFromList(
+std::vector<AutofillProfile>
+TestingAutomationProvider::GetAutofillProfilesFromList(
     const ListValue& profiles, std::string* error_message) {
-  std::vector<AutoFillProfile> autofill_profiles;
+  std::vector<AutofillProfile> autofill_profiles;
   DictionaryValue* profile_info = NULL;
   string16 current_value;
 
@@ -4318,7 +4349,7 @@ TestingAutomationProvider::GetAutoFillProfilesFromList(
   int num_profiles = profiles.GetSize();
   for (int i = 0; i < num_profiles; i++) {
     profiles.GetDictionary(i, &profile_info);
-    AutoFillProfile profile;
+    AutofillProfile profile;
     // Loop through the possible profile types and add those provided.
     for (std::map<AutofillFieldType, std::string>::iterator type_it =
          autofill_type_to_string.begin();
@@ -4326,7 +4357,7 @@ TestingAutomationProvider::GetAutoFillProfilesFromList(
       if (profile_info->HasKey(type_it->second)) {
         if (profile_info->GetString(type_it->second,
                                     &current_value)) {
-          profile.SetInfo(AutofillType(type_it->first), current_value);
+          profile.SetInfo(type_it->first, current_value);
         } else {
           *error_message= "All values must be strings";
           break;
@@ -4358,7 +4389,7 @@ std::vector<CreditCard> TestingAutomationProvider::GetCreditCardsFromList(
         type_it != credit_card_type_to_string.end(); ++type_it) {
       if (card_info->HasKey(type_it->second)) {
         if (card_info->GetString(type_it->second, &current_value)) {
-          card.SetInfo(AutofillType(type_it->first), current_value);
+          card.SetInfo(type_it->first, current_value);
         } else {
           *error_message= "All values must be strings";
           break;
@@ -4374,6 +4405,7 @@ std::vector<CreditCard> TestingAutomationProvider::GetCreditCardsFromList(
 std::map<AutofillFieldType, std::string>
     TestingAutomationProvider::GetAutofillFieldToStringMap() {
   std::map<AutofillFieldType, std::string> autofill_type_to_string;
+  // Strings ordered by order of fields when adding a profile in Autofill prefs.
   autofill_type_to_string[NAME_FIRST] = "NAME_FIRST";
   autofill_type_to_string[NAME_MIDDLE] = "NAME_MIDDLE";
   autofill_type_to_string[NAME_LAST] = "NAME_LAST";
@@ -4385,10 +4417,14 @@ std::map<AutofillFieldType, std::string>
   autofill_type_to_string[ADDRESS_HOME_STATE] = "ADDRESS_HOME_STATE";
   autofill_type_to_string[ADDRESS_HOME_ZIP] = "ADDRESS_HOME_ZIP";
   autofill_type_to_string[ADDRESS_HOME_COUNTRY] = "ADDRESS_HOME_COUNTRY";
+  autofill_type_to_string[PHONE_HOME_COUNTRY_CODE] =
+      "PHONE_HOME_COUNTRY_CODE";
+  autofill_type_to_string[PHONE_HOME_CITY_CODE] = "PHONE_HOME_CITY_CODE";
   autofill_type_to_string[PHONE_HOME_WHOLE_NUMBER] =
       "PHONE_HOME_WHOLE_NUMBER";
+  autofill_type_to_string[PHONE_FAX_COUNTRY_CODE] = "PHONE_FAX_COUNTRY_CODE";
+  autofill_type_to_string[PHONE_FAX_CITY_CODE] = "PHONE_FAX_CITY_CODE";
   autofill_type_to_string[PHONE_FAX_WHOLE_NUMBER] = "PHONE_FAX_WHOLE_NUMBER";
-  autofill_type_to_string[NAME_FIRST] = "NAME_FIRST";
   return autofill_type_to_string;
 }
 
@@ -4583,102 +4619,165 @@ void TestingAutomationProvider::KillRendererProcess(
   base::CloseProcessHandle(process);
 }
 
-void TestingAutomationProvider::SendWebkitKeyEvent(
+bool TestingAutomationProvider::BuildWebKeyEventFromArgs(
     DictionaryValue* args,
-    IPC::Message* reply_message) {
-  TabContents* tab_contents;
-  std::string error;
-  if (!GetTabFromJSONArgs(args, &tab_contents, &error)) {
-    AutomationJSONReply(this, reply_message).SendError(error);
-    return;
-  }
-
+    std::string* error,
+    NativeWebKeyboardEvent* event) {
   int type, modifiers;
   bool is_system_key;
   string16 unmodified_text, text;
   std::string key_identifier;
-  NativeWebKeyboardEvent event;
   if (!args->GetInteger("type", &type)) {
-    AutomationJSONReply reply(this, reply_message);
-    reply.SendError("'type' missing or invalid.");
-    return;
+    *error = "'type' missing or invalid.";
+    return false;
   }
   if (!args->GetBoolean("isSystemKey", &is_system_key)) {
-    AutomationJSONReply reply(this, reply_message);
-    reply.SendError("'isSystemKey' missing or invalid.");
-    return;
+    *error = "'isSystemKey' missing or invalid.";
+    return false;
   }
   if (!args->GetString("unmodifiedText", &unmodified_text)) {
-    AutomationJSONReply reply(this, reply_message);
-    reply.SendError("'unmodifiedText' missing or invalid.");
-    return;
+    *error = "'unmodifiedText' missing or invalid.";
+    return false;
   }
   if (!args->GetString("text", &text)) {
-    AutomationJSONReply reply(this, reply_message);
-    reply.SendError("'text' missing or invalid.");
-    return;
+    *error = "'text' missing or invalid.";
+    return false;
   }
-  if (!args->GetInteger("nativeKeyCode", &event.nativeKeyCode)) {
-    AutomationJSONReply reply(this, reply_message);
-    reply.SendError("'nativeKeyCode' missing or invalid.");
-    return;
+  if (!args->GetInteger("nativeKeyCode", &event->nativeKeyCode)) {
+    *error = "'nativeKeyCode' missing or invalid.";
+    return false;
   }
-  if (!args->GetInteger("windowsKeyCode", &event.windowsKeyCode)) {
-    AutomationJSONReply reply(this, reply_message);
-    reply.SendError("'windowsKeyCode' missing or invalid.");
-    return;
+  if (!args->GetInteger("windowsKeyCode", &event->windowsKeyCode)) {
+    *error = "'windowsKeyCode' missing or invalid.";
+    return false;
   }
   if (!args->GetInteger("modifiers", &modifiers)) {
-    AutomationJSONReply reply(this, reply_message);
-    reply.SendError("'modifiers' missing or invalid.");
-    return;
+    *error = "'modifiers' missing or invalid.";
+    return false;
   }
   if (args->GetString("keyIdentifier", &key_identifier)) {
-    base::strlcpy(event.keyIdentifier,
+    base::strlcpy(event->keyIdentifier,
                   key_identifier.c_str(),
                   WebKit::WebKeyboardEvent::keyIdentifierLengthCap);
   } else {
-    event.setKeyIdentifierFromWindowsKeyCode();
+    event->setKeyIdentifierFromWindowsKeyCode();
   }
 
   if (type == automation::kRawKeyDownType) {
-    event.type = WebKit::WebInputEvent::RawKeyDown;
+    event->type = WebKit::WebInputEvent::RawKeyDown;
   } else if (type == automation::kKeyDownType) {
-    event.type = WebKit::WebInputEvent::KeyDown;
+    event->type = WebKit::WebInputEvent::KeyDown;
   } else if (type == automation::kKeyUpType) {
-    event.type = WebKit::WebInputEvent::KeyUp;
+    event->type = WebKit::WebInputEvent::KeyUp;
   } else if (type == automation::kCharType) {
-    event.type = WebKit::WebInputEvent::Char;
+    event->type = WebKit::WebInputEvent::Char;
   } else {
-    AutomationJSONReply reply(this, reply_message);
-    reply.SendError("'type' refers to an unrecognized keyboard event type");
-    return;
+    *error = "'type' refers to an unrecognized keyboard event type";
+    return false;
   }
 
   string16 unmodified_text_truncated = unmodified_text.substr(
       0, WebKit::WebKeyboardEvent::textLengthCap - 1);
-  memcpy(event.unmodifiedText,
+  memcpy(event->unmodifiedText,
          unmodified_text_truncated.c_str(),
          unmodified_text_truncated.length() + 1);
   string16 text_truncated = text.substr(
       0, WebKit::WebKeyboardEvent::textLengthCap - 1);
-  memcpy(event.text, text_truncated.c_str(), text_truncated.length() + 1);
+  memcpy(event->text, text_truncated.c_str(), text_truncated.length() + 1);
 
-  event.modifiers = 0;
+  event->modifiers = 0;
   if (modifiers & automation::kShiftKeyMask)
-    event.modifiers |= WebKit::WebInputEvent::ShiftKey;
+    event->modifiers |= WebKit::WebInputEvent::ShiftKey;
   if (modifiers & automation::kControlKeyMask)
-    event.modifiers |= WebKit::WebInputEvent::ControlKey;
+    event->modifiers |= WebKit::WebInputEvent::ControlKey;
   if (modifiers & automation::kAltKeyMask)
-    event.modifiers |= WebKit::WebInputEvent::AltKey;
+    event->modifiers |= WebKit::WebInputEvent::AltKey;
   if (modifiers & automation::kMetaKeyMask)
-    event.modifiers |= WebKit::WebInputEvent::MetaKey;
+    event->modifiers |= WebKit::WebInputEvent::MetaKey;
 
-  event.isSystemKey = is_system_key;
-  event.timeStampSeconds = base::Time::Now().ToDoubleT();
-  event.skip_in_browser = true;
+  event->isSystemKey = is_system_key;
+  event->timeStampSeconds = base::Time::Now().ToDoubleT();
+  event->skip_in_browser = true;
+  return true;
+}
+
+void TestingAutomationProvider::SendWebkitKeyEvent(
+    DictionaryValue* args,
+    IPC::Message* reply_message) {
+  NativeWebKeyboardEvent event;
+  // BuildWebKeyEventFromArgs handles telling what when wrong and sending
+  // the reply message, if it failed we just have to stop here.
+  std::string error;
+  if (!BuildWebKeyEventFromArgs(args, &error, &event)) {
+    AutomationJSONReply(this, reply_message).SendError(error);
+    return;
+  }
+
+  TabContents* tab_contents;
+  if (!GetTabFromJSONArgs(args, &tab_contents, &error)) {
+    AutomationJSONReply(this, reply_message).SendError(error);
+    return;
+  }
   new InputEventAckNotificationObserver(this, reply_message, event.type);
   tab_contents->render_view_host()->ForwardKeyboardEvent(event);
+}
+
+void TestingAutomationProvider::SendOSLevelKeyEventToTab(
+    DictionaryValue* args,
+    IPC::Message* reply_message) {
+  int modifiers, keycode;
+  if (!args->GetInteger("keyCode", &keycode)) {
+    AutomationJSONReply(this, reply_message)
+        .SendError("'keyCode' missing or invalid.");
+    return;
+  }
+  if (!args->GetInteger("modifiers", &modifiers)) {
+    AutomationJSONReply(this, reply_message)
+        .SendError("'modifiers' missing or invalid.");
+    return;
+  }
+
+  std::string error;
+  Browser* browser;
+  TabContents* tab_contents;
+  if (!GetBrowserAndTabFromJSONArgs(args, &browser, &tab_contents, &error)) {
+    AutomationJSONReply(this, reply_message).SendError(error);
+    return;
+  }
+  // The key events will be sent to the browser window, we need the current tab
+  // containing the element we send the text in to be shown.
+  browser->ActivateTabAt(
+      browser->GetIndexOfController(&tab_contents->controller()), true);
+
+  BrowserWindow* browser_window = browser->window();
+  if (!browser_window) {
+    AutomationJSONReply(this, reply_message)
+        .SendError("Could not get the browser window");
+    return;
+  }
+  gfx::NativeWindow window = browser_window->GetNativeHandle();
+  if (!window) {
+    AutomationJSONReply(this, reply_message)
+        .SendError("Could not get the browser window handle");
+    return;
+  }
+
+  bool control = !!(modifiers & automation::kControlKeyMask);
+  bool shift = !!(modifiers & automation::kShiftKeyMask);
+  bool alt = !!(modifiers & automation::kAltKeyMask);
+  bool meta = !!(modifiers & automation::kMetaKeyMask);
+  if (!ui_controls::SendKeyPressNotifyWhenDone(
+          window, static_cast<ui::KeyboardCode>(keycode),
+          control, shift, alt, meta,
+          NewRunnableMethod(this,
+              &TestingAutomationProvider::SendSuccessReply, reply_message))) {
+    AutomationJSONReply(this, reply_message)
+        .SendError("Could not send the native key event");
+  }
+}
+
+void TestingAutomationProvider::SendSuccessReply(IPC::Message* reply_message) {
+  AutomationJSONReply(this, reply_message).SendSuccess(NULL);
 }
 
 // Sample JSON input: { "command": "GetNTPThumbnailMode" }
@@ -4691,13 +4790,13 @@ void TestingAutomationProvider::GetNTPThumbnailMode(
   const int shown_sections = ShownSectionsHandler::GetShownSections(
       browser->profile()->GetPrefs());
 
-  DictionaryValue* return_value = new DictionaryValue;
+  scoped_ptr<DictionaryValue> return_value(new DictionaryValue);
   return_value->SetBoolean("apps", shown_sections & APPS ? true : false);
   return_value->SetBoolean("most_visited",
                            shown_sections & THUMB ? true : false);
 
   AutomationJSONReply reply(this, reply_message);
-  reply.SendSuccess(return_value);
+  reply.SendSuccess(return_value.get());
 }
 
 // Sample JSON input: { "command": "SetNTPThumbnailMode", "section": "apps",
@@ -4756,7 +4855,7 @@ void TestingAutomationProvider::GetNTPMenuMode(
   const int shown_sections = ShownSectionsHandler::GetShownSections(
       browser->profile()->GetPrefs());
 
-  DictionaryValue* return_value = new DictionaryValue;
+  scoped_ptr<DictionaryValue> return_value(new DictionaryValue);
   return_value->SetBoolean("apps", shown_sections & MENU_APPS ? true : false);
   return_value->SetBoolean("most_visited",
                            shown_sections & MENU_THUMB ? true : false);
@@ -4764,7 +4863,7 @@ void TestingAutomationProvider::GetNTPMenuMode(
                            shown_sections & MENU_RECENT ? true : false);
 
   AutomationJSONReply reply(this, reply_message);
-  reply.SendSuccess(return_value);
+  reply.SendSuccess(return_value.get());
 }
 
 // Sample JSON input: { "command": "SetNTPMenuMode", "section": "apps",
@@ -4812,9 +4911,115 @@ void TestingAutomationProvider::SetNTPMenuMode(
   reply.SendSuccess(NULL);
 }
 
+// Sample JSON input: { "command": "LaunchApp",
+//                      "id": "ahfgeienlihckogmohjhadlkjgocpleb" }
+// Sample JSON output: {}
+void TestingAutomationProvider::LaunchApp(
+    Browser* browser,
+    DictionaryValue* args,
+    IPC::Message* reply_message) {
+  std::string id;
+  if (!args->GetString("id", &id)) {
+    AutomationJSONReply(this, reply_message).SendError(
+        "Must include string id.");
+    return;
+  }
+
+  ExtensionService* service = browser->profile()->GetExtensionService();
+  if (!service) {
+    AutomationJSONReply(this, reply_message).SendError(
+        "No extensions service.");
+    return;
+  }
+
+  const Extension* extension = service->GetExtensionById(
+      id, false  /* do not include disabled extensions */);
+  if (!extension) {
+    AutomationJSONReply(this, reply_message).SendError(
+        StringPrintf("Extension with ID '%s' doesn't exist or is disabled.",
+                     id.c_str()));
+    return;
+  }
+
+  // Look at preferences to find the right launch container.  If no preference
+  // is set, launch as a regular tab.
+  extension_misc::LaunchContainer launch_container =
+      service->extension_prefs()->GetLaunchContainer(
+          extension, ExtensionPrefs::LAUNCH_REGULAR);
+
+  TabContents* old_contents = browser->GetSelectedTabContents();
+  if (!old_contents) {
+    AutomationJSONReply(this, reply_message).SendError(
+        "Cannot identify selected tab contents.");
+    return;
+  }
+
+  // This observer will delete itself.
+  new AppLaunchObserver(&old_contents->controller(), this, reply_message,
+                        launch_container);
+  Browser::OpenApplication(profile(), extension, launch_container,
+                           old_contents);
+}
+
+// Sample JSON input: { "command": "SetAppLaunchType",
+//                      "id": "ahfgeienlihckogmohjhadlkjgocpleb",
+//                      "launch_type": "pinned" }
+// Sample JSON output: {}
+void TestingAutomationProvider::SetAppLaunchType(
+    Browser* browser,
+    DictionaryValue* args,
+    IPC::Message* reply_message) {
+  AutomationJSONReply reply(this, reply_message);
+
+  std::string id;
+  if (!args->GetString("id", &id)) {
+    reply.SendError("Must include string id.");
+    return;
+  }
+
+  std::string launch_type_str;
+  if (!args->GetString("launch_type", &launch_type_str)) {
+    reply.SendError("Must specify app launch type.");
+    return;
+  }
+
+  ExtensionService* service = browser->profile()->GetExtensionService();
+  if (!service) {
+    reply.SendError("No extensions service.");
+    return;
+  }
+
+  const Extension* extension = service->GetExtensionById(
+      id, true  /* include disabled extensions */);
+  if (!extension) {
+    reply.SendError(
+        StringPrintf("Extension with ID '%s' doesn't exist.", id.c_str()));
+    return;
+  }
+
+  ExtensionPrefs::LaunchType launch_type;
+  if (launch_type_str == "pinned") {
+    launch_type = ExtensionPrefs::LAUNCH_PINNED;
+  } else if (launch_type_str == "regular") {
+    launch_type = ExtensionPrefs::LAUNCH_REGULAR;
+  } else if (launch_type_str == "fullscreen") {
+    launch_type = ExtensionPrefs::LAUNCH_FULLSCREEN;
+  } else if (launch_type_str == "window") {
+    launch_type = ExtensionPrefs::LAUNCH_WINDOW;
+  } else {
+    reply.SendError(
+        StringPrintf("Unexpected launch type '%s'.", launch_type_str.c_str()));
+    return;
+  }
+
+  service->extension_prefs()->SetLaunchType(extension->id(), launch_type);
+  reply.SendSuccess(NULL);
+}
+
 void TestingAutomationProvider::WaitForAllTabsToStopLoading(
     DictionaryValue* args,
     IPC::Message* reply_message) {
+  // This class will send the message immediately if no tab is loading.
   new AllTabsStoppedLoadingObserver(this, reply_message);
 }
 
@@ -4921,7 +5126,7 @@ void TestingAutomationProvider::ExecuteJavascriptJSON(
                       "window.domAutomationController.setAutomationId(%d);",
                       reply_message->routing_id());
 
-  new ExecuteJavascriptObserver(this, reply_message);
+  new DomOperationMessageSender(this, reply_message, true);
   tab_contents->render_view_host()->ExecuteJavascriptInWebFrame(
       frame_xpath, UTF8ToUTF16(set_automation_id));
   tab_contents->render_view_host()->ExecuteJavascriptInWebFrame(
@@ -5015,118 +5220,50 @@ void TestingAutomationProvider::GetTabTitleJSON(
   reply.SendSuccess(&dict);
 }
 
+void TestingAutomationProvider::CaptureEntirePageJSON(
+    DictionaryValue* args,
+    IPC::Message* reply_message) {
+  TabContents* tab_contents;
+  std::string error;
+
+  if (!GetTabFromJSONArgs(args, &tab_contents, &error)) {
+    AutomationJSONReply(this, reply_message).SendError(error);
+    return;
+  }
+
+  FilePath::StringType path_str;
+  if (!args->GetString("path", &path_str)) {
+    AutomationJSONReply(this, reply_message)
+        .SendError("'path' missing or invalid");
+    return;
+  }
+
+  RenderViewHost* render_view = tab_contents->render_view_host();
+  if (render_view) {
+    FilePath path(path_str);
+    // This will delete itself when finished.
+    PageSnapshotTaker* snapshot_taker = new PageSnapshotTaker(
+        this, reply_message, render_view, path);
+    snapshot_taker->Start();
+  } else {
+    AutomationJSONReply(this, reply_message)
+        .SendError("Tab has no associated RenderViewHost");
+  }
+}
+
 void TestingAutomationProvider::GetCookiesJSON(
     DictionaryValue* args, IPC::Message* reply_message) {
-  AutomationJSONReply reply(this, reply_message);
-  Browser* browser;
-  std::string error;
-  if (!GetBrowserFromJSONArgs(args, &browser, &error)) {
-    reply.SendError(error);
-    return;
-  }
-  std::string url;
-  if (!args->GetString("url", &url)) {
-    reply.SendError("'url' missing or invalid");
-    return;
-  }
-
-  // Since we are running on the UI thread don't call GetURLRequestContext().
-  scoped_refptr<URLRequestContextGetter> context_getter =
-      browser->profile()->GetRequestContext();
-
-  std::string cookies;
-  base::WaitableEvent event(true /* manual reset */,
-                            false /* not initially signaled */);
-  Task* task = NewRunnableFunction(
-      &GetCookiesOnIOThread,
-      GURL(url), context_getter, &event, &cookies);
-  if (!BrowserThread::PostTask(BrowserThread::IO, FROM_HERE, task)) {
-    reply.SendError("Couldn't post task to get the cookies");
-    return;
-  }
-  event.Wait();
-
-  DictionaryValue dict;
-  dict.SetString("cookies", cookies);
-  reply.SendSuccess(&dict);
+  automation_util::GetCookiesJSON(this, args, reply_message);
 }
 
 void TestingAutomationProvider::DeleteCookieJSON(
     DictionaryValue* args, IPC::Message* reply_message) {
-  AutomationJSONReply reply(this, reply_message);
-  Browser* browser;
-  std::string error;
-  if (!GetBrowserFromJSONArgs(args, &browser, &error)) {
-    reply.SendError(error);
-    return;
-  }
-  std::string url, name;
-  if (!args->GetString("url", &url)) {
-    reply.SendError("'url' missing or invalid");
-    return;
-  }
-  if (!args->GetString("name", &name)) {
-    reply.SendError("'name' missing or invalid");
-    return;
-  }
-
-  // Since we are running on the UI thread don't call GetURLRequestContext().
-  scoped_refptr<URLRequestContextGetter> context_getter =
-      browser->profile()->GetRequestContext();
-
-  base::WaitableEvent event(true /* manual reset */,
-                            false /* not initially signaled */);
-  Task* task = NewRunnableFunction(
-      &DeleteCookieOnIOThread,
-      GURL(url), name, context_getter, &event);
-  if (!BrowserThread::PostTask(BrowserThread::IO, FROM_HERE, task)) {
-    reply.SendError("Couldn't post task to delete the cookie");
-    return;
-  }
-  event.Wait();
-  reply.SendSuccess(NULL);
+  automation_util::DeleteCookieJSON(this, args, reply_message);
 }
 
 void TestingAutomationProvider::SetCookieJSON(
     DictionaryValue* args, IPC::Message* reply_message) {
-  AutomationJSONReply reply(this, reply_message);
-  Browser* browser;
-  std::string error;
-  if (!GetBrowserFromJSONArgs(args, &browser, &error)) {
-    reply.SendError(error);
-    return;
-  }
-  std::string url, cookie;
-  if (!args->GetString("url", &url)) {
-    reply.SendError("'url' missing or invalid");
-    return;
-  }
-  if (!args->GetString("cookie", &cookie)) {
-    reply.SendError("'cookie' missing or invalid");
-    return;
-  }
-
-  // Since we are running on the UI thread don't call GetURLRequestContext().
-  scoped_refptr<URLRequestContextGetter> context_getter =
-      browser->profile()->GetRequestContext();
-
-  base::WaitableEvent event(true /* manual reset */,
-                            false /* not initially signaled */);
-  bool success = false;
-  Task* task = NewRunnableFunction(
-      &SetCookieOnIOThread,
-      GURL(url), cookie, context_getter, &event, &success);
-  if (!BrowserThread::PostTask(BrowserThread::IO, FROM_HERE, task)) {
-    reply.SendError("Couldn't post task to set the cookie");
-    return;
-  }
-  event.Wait();
-
-  if (!success) {
-    reply.SendError("Could not set the cookie");
-    return;
-  }
-  reply.SendSuccess(NULL);
+  automation_util::SetCookieJSON(this, args, reply_message);
 }
 
 void TestingAutomationProvider::GetTabIds(
@@ -5195,9 +5332,50 @@ void TestingAutomationProvider::ActivateTabJSON(
     reply.SendError(error);
     return;
   }
-  browser->SelectTabContentsAt(
+  browser->ActivateTabAt(
       browser->GetIndexOfController(&tab_contents->controller()), true);
   reply.SendSuccess(NULL);
+}
+
+// Sample json input: { "command": "UpdateExtensionsNow" }
+// Sample json output: {}
+void TestingAutomationProvider::UpdateExtensionsNow(
+    DictionaryValue* args,
+    IPC::Message* reply_message) {
+  ExtensionService* service = profile()->GetExtensionService();
+  if (!service) {
+    AutomationJSONReply(this, reply_message).SendError(
+        "No extensions service.");
+    return;
+  }
+
+  ExtensionUpdater* updater = service->updater();
+  if (!updater) {
+    AutomationJSONReply(this, reply_message).SendError(
+        "No updater for extensions service.");
+    return;
+  }
+
+  ExtensionProcessManager* manager = profile()->GetExtensionProcessManager();
+  if (!manager) {
+    AutomationJSONReply(this, reply_message).SendError(
+        "No extension process manager.");
+    return;
+  }
+
+  // Create a new observer that waits until the extensions have been fully
+  // updated (we should not send the reply until after all extensions have
+  // been updated).  This observer will delete itself.
+  new ExtensionsUpdatedObserver(manager, this, reply_message);
+  updater->CheckNow();
+}
+
+void TestingAutomationProvider::GetChromeDriverAutomationVersion(
+    DictionaryValue* args,
+    IPC::Message* reply_message) {
+  DictionaryValue reply_dict;
+  reply_dict.SetInteger("version", automation::kChromeDriverAutomationVersion);
+  AutomationJSONReply(this, reply_message).SendSuccess(&reply_dict);
 }
 
 void TestingAutomationProvider::WaitForTabCountToBecome(
@@ -5300,7 +5478,7 @@ void TestingAutomationProvider::LoadBlockedPlugins(int tab_handle,
 }
 
 void TestingAutomationProvider::ResetToDefaultTheme() {
-  profile_->ClearTheme();
+  ThemeServiceFactory::GetForProfile(profile_)->UseDefaultTheme();
 }
 
 void TestingAutomationProvider::WaitForProcessLauncherThreadToGoIdle(
@@ -5344,22 +5522,6 @@ void TestingAutomationProvider::OnRedirectQueryComplete(
   Send(reply_message_);
   redirect_query_ = 0;
   reply_message_ = NULL;
-}
-
-void TestingAutomationProvider::OnBrowserAdded(const Browser* browser) {
-}
-
-void TestingAutomationProvider::OnBrowserRemoved(const Browser* browser) {
-  // For backwards compatibility with the testing automation interface, we
-  // want the automation provider (and hence the process) to go away when the
-  // last browser goes away.
-  if (BrowserList::empty() && !CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kKeepAliveForTest)) {
-    // If you change this, update Observer for NotificationType::SESSION_END
-    // below.
-    MessageLoop::current()->PostTask(FROM_HERE,
-        NewRunnableMethod(this, &TestingAutomationProvider::OnRemoveProvider));
-  }
 }
 
 void TestingAutomationProvider::OnRemoveProvider() {

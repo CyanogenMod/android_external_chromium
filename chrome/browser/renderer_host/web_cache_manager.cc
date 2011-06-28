@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,17 +7,17 @@
 #include <algorithm>
 
 #include "base/compiler_specific.h"
+#include "base/memory/singleton.h"
 #include "base/metrics/histogram.h"
-#include "base/singleton.h"
 #include "base/sys_info.h"
 #include "base/time.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/pref_names.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/render_messages.h"
 #include "content/browser/renderer_host/render_process_host.h"
+#include "content/common/notification_service.h"
 
 using base::Time;
 using base::TimeDelta;

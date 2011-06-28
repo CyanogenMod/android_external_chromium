@@ -11,9 +11,9 @@
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/browser_window.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/view_ids.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/url_constants.h"
@@ -288,7 +288,7 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, DISABLED_TabsRememberFocus) {
   for (int i = 1; i < 3; i++) {
     for (int j = 0; j < 5; j++) {
       // Activate the tab.
-      browser()->SelectTabContentsAt(j, true);
+      browser()->ActivateTabAt(j, true);
 
       // Activate the location bar or the page.
       if (kFocusPage[i][j]) {
@@ -301,14 +301,14 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, DISABLED_TabsRememberFocus) {
     // Now come back to the tab and check the right view is focused.
     for (int j = 0; j < 5; j++) {
       // Activate the tab.
-      browser()->SelectTabContentsAt(j, true);
+      browser()->ActivateTabAt(j, true);
 
       ViewID vid = kFocusPage[i][j] ? VIEW_ID_TAB_CONTAINER_FOCUS_VIEW :
                                       VIEW_ID_LOCATION_BAR;
       ASSERT_TRUE(IsViewFocused(vid));
     }
 
-    browser()->SelectTabContentsAt(0, true);
+    browser()->ActivateTabAt(0, true);
     // Try the above, but with ctrl+tab. Since tab normally changes focus,
     // this has regressed in the past. Loop through several times to be sure.
     for (int j = 0; j < 15; j++) {
@@ -321,7 +321,7 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, DISABLED_TabsRememberFocus) {
     }
 
     // As above, but with ctrl+shift+tab.
-    browser()->SelectTabContentsAt(4, true);
+    browser()->ActivateTabAt(4, true);
     for (int j = 14; j >= 0; --j) {
       ViewID vid = kFocusPage[i][j % 5] ? VIEW_ID_TAB_CONTAINER_FOCUS_VIEW :
                                           VIEW_ID_LOCATION_BAR;
@@ -358,16 +358,16 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, MAYBE_TabsRememberFocusFindInPage) {
 
   // Select 1st tab, focus should still be on the location-bar.
   // (bug http://crbug.com/23296)
-  browser()->SelectTabContentsAt(0, true);
+  browser()->ActivateTabAt(0, true);
   ASSERT_TRUE(IsViewFocused(VIEW_ID_LOCATION_BAR));
 
   // Now open the find box again, switch to another tab and come back, the focus
   // should return to the find box.
   browser()->Find();
   ASSERT_TRUE(IsViewFocused(VIEW_ID_FIND_IN_PAGE_TEXT_FIELD));
-  browser()->SelectTabContentsAt(1, true);
+  browser()->ActivateTabAt(1, true);
   ASSERT_TRUE(IsViewFocused(VIEW_ID_TAB_CONTAINER_FOCUS_VIEW));
-  browser()->SelectTabContentsAt(0, true);
+  browser()->ActivateTabAt(0, true);
   ASSERT_TRUE(IsViewFocused(VIEW_ID_FIND_IN_PAGE_TEXT_FIELD));
 }
 
@@ -795,26 +795,26 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, FLAKY_TabInitialFocus) {
   // Open the history tab, focus should be on the tab contents.
   browser()->ShowHistoryTab();
   ASSERT_NO_FATAL_FAILURE(ui_test_utils::WaitForLoadStop(
-      &browser()->GetSelectedTabContents()->controller()));
+      browser()->GetSelectedTabContents()));
   EXPECT_TRUE(IsViewFocused(VIEW_ID_TAB_CONTAINER_FOCUS_VIEW));
 
   // Open the new tab, focus should be on the location bar.
   browser()->NewTab();
   ASSERT_NO_FATAL_FAILURE(ui_test_utils::WaitForLoadStop(
-      &browser()->GetSelectedTabContents()->controller()));
+      browser()->GetSelectedTabContents()));
   EXPECT_TRUE(IsViewFocused(VIEW_ID_LOCATION_BAR));
 
   // Open the download tab, focus should be on the tab contents.
   browser()->ShowDownloadsTab();
   ASSERT_NO_FATAL_FAILURE(ui_test_utils::WaitForLoadStop(
-      &browser()->GetSelectedTabContents()->controller()));
+      browser()->GetSelectedTabContents()));
   EXPECT_TRUE(IsViewFocused(VIEW_ID_TAB_CONTAINER_FOCUS_VIEW));
 
   // Open about:blank, focus should be on the location bar.
   browser()->AddSelectedTabWithURL(GURL(chrome::kAboutBlankURL),
                                    PageTransition::LINK);
   ASSERT_NO_FATAL_FAILURE(ui_test_utils::WaitForLoadStop(
-      &browser()->GetSelectedTabContents()->controller()));
+      browser()->GetSelectedTabContents()));
   EXPECT_TRUE(IsViewFocused(VIEW_ID_LOCATION_BAR));
 }
 

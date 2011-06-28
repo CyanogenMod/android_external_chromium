@@ -11,7 +11,7 @@
 
 #include "base/values.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
-#include "chrome/common/notification_registrar.h"
+#include "content/common/notification_registrar.h"
 
 class Extension;
 
@@ -80,6 +80,15 @@ class ExtensionApiTest : public ExtensionBrowserTest {
   // Same as RunExtensionTest, but enables the extension for incognito mode.
   bool RunExtensionTestIncognito(const char* extension_name);
 
+  // Same as RunExtensionTest, but loads extension as component.
+  bool RunComponentExtensionTest(const char* extension_name);
+
+  // Same as RunExtensionTest, but disables file access.
+  bool RunExtensionTestNoFileAccess(const char* extension_name);
+
+  // Same as RunExtensionTestIncognito, but disables file access.
+  bool RunExtensionTestIncognitoNoFileAccess(const char* extension_name);
+
   // If not empty, Load |extension_name|, load |page_url| and wait for pass /
   // fail notification from the extension API on the page. Note that if
   // |page_url| is not a valid url, it will be treated as a resource within
@@ -109,7 +118,9 @@ class ExtensionApiTest : public ExtensionBrowserTest {
  private:
   bool RunExtensionTestImpl(const char* extension_name,
                             const std::string& test_page,
-                            bool enable_incogntio);
+                            bool enable_incogntio,
+                            bool enable_fileaccess,
+                            bool load_as_component);
 
   // Hold details of the test, set in C++, which can be accessed by
   // javascript using chrome.test.getConfig().

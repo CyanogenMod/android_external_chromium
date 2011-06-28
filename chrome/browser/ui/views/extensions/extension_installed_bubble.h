@@ -6,10 +6,10 @@
 #define CHROME_BROWSER_UI_VIEWS_EXTENSIONS_EXTENSION_INSTALLED_BUBBLE_H_
 #pragma once
 
-#include "base/ref_counted.h"
-#include "chrome/browser/ui/views/info_bubble.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
+#include "base/memory/ref_counted.h"
+#include "chrome/browser/ui/views/bubble/bubble.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 
 class Browser;
@@ -18,22 +18,22 @@ class InstalledBubbleContent;
 class SkBitmap;
 
 // Provides feedback to the user upon successful installation of an
-// extension. Depending on the type of extension, the InfoBubble will
+// extension. Depending on the type of extension, the Bubble will
 // point to:
 //    OMNIBOX_KEYWORD-> The omnibox.
 //    BROWSER_ACTION -> The browserAction icon in the toolbar.
 //    PAGE_ACTION    -> A preview of the pageAction icon in the location
-//                      bar which is shown while the InfoBubble is shown.
+//                      bar which is shown while the Bubble is shown.
 //    GENERIC        -> The wrench menu. This case includes pageActions that
 //                      don't specify a default icon.
 //
 // ExtensionInstallBubble manages its own lifetime.
 class ExtensionInstalledBubble
-    : public InfoBubbleDelegate,
+    : public BubbleDelegate,
       public NotificationObserver,
       public base::RefCountedThreadSafe<ExtensionInstalledBubble> {
  public:
-  // The behavior and content of this InfoBubble comes in these varieties:
+  // The behavior and content of this Bubble comes in these varieties:
   enum BubbleType {
     OMNIBOX_KEYWORD,
     BROWSER_ACTION,
@@ -45,14 +45,15 @@ class ExtensionInstalledBubble
   // the extension has loaded. |extension| is the installed extension. |browser|
   // is the browser window which will host the bubble. |icon| is the install
   // icon of the extension.
-  static void Show(const Extension* extension, Browser *browser, SkBitmap icon);
+  static void Show(
+      const Extension* extension, Browser *browser, const SkBitmap& icon);
 
  private:
   friend class base::RefCountedThreadSafe<ExtensionInstalledBubble>;
 
   // Private ctor. Registers a listener for EXTENSION_LOADED.
-  ExtensionInstalledBubble(const Extension* extension, Browser *browser,
-                           SkBitmap icon);
+  ExtensionInstalledBubble(
+      const Extension* extension, Browser *browser, const SkBitmap& icon);
 
   virtual ~ExtensionInstalledBubble();
 
@@ -64,9 +65,8 @@ class ExtensionInstalledBubble
                        const NotificationSource& source,
                        const NotificationDetails& details);
 
-  // InfoBubbleDelegate
-  virtual void InfoBubbleClosing(InfoBubble* info_bubble,
-                                 bool closed_by_escape);
+  // BubbleDelegate
+  virtual void BubbleClosing(Bubble* bubble, bool closed_by_escape);
   virtual bool CloseOnEscape();
   virtual bool FadeInOnShow();
 

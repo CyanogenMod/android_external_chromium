@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include <queue>
 #include <string>
 
-#include "base/singleton.h"
+#include "base/memory/singleton.h"
 #include "base/task.h"
 #include "chrome/browser/extensions/extension_function.h"
 #include "chrome/browser/extensions/extension_tts_api_util.h"
@@ -24,7 +24,7 @@ class ExtensionTtsPlatformImpl {
   // will be empty strings, and rate, pitch, and volume will be -1.0.
   //
   // The ExtensionTtsController will only try to speak one utterance at
-  // a time. If it wants to intterupt speech, it will always call Stop
+  // a time. If it wants to interrupt speech, it will always call Stop
   // before speaking again, otherwise it will wait until IsSpeaking
   // returns false before calling Speak again.
   virtual bool Speak(
@@ -148,7 +148,7 @@ class ExtensionTtsController {
   void Stop();
 
   // Called when an extension finishes speaking an utterance.
-  void OnSpeechFinished(int request_id, std::string error_message);
+  void OnSpeechFinished(int request_id, const std::string& error_message);
 
   // For unit testing.
   void SetPlatformImpl(ExtensionTtsPlatformImpl* platform_impl);

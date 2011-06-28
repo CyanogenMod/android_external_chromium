@@ -12,16 +12,19 @@
 #include "base/rand_util.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
+#include "chrome/browser/first_run/first_run.h"
+#include "chrome/browser/first_run/first_run_dialog.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/search_engine_type.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/browser/ui/options/options_window.h"
 #include "grit/chromium_strings.h"
-#include "grit/google_chrome_strings.h"
 #include "grit/generated_resources.h"
+#include "grit/google_chrome_strings.h"
 #include "grit/locale_settings.h"
 #include "grit/theme_resources.h"
+#include "ui/base/accessibility/accessible_view_state.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/canvas.h"
@@ -30,12 +33,11 @@
 #include "views/controls/image_view.h"
 #include "views/controls/label.h"
 #include "views/controls/separator.h"
+#include "views/focus/accelerator_handler.h"
 #include "views/layout/layout_constants.h"
 #include "views/view_text_utils.h"
 #include "views/widget/widget.h"
 #include "views/window/window.h"
-
-using base::Time;
 
 namespace {
 
@@ -49,6 +51,34 @@ const int kSmallLogoHeight = 88;
 const int kLabelPadding = 25;
 
 }  // namespace
+
+namespace first_run {
+
+void ShowFirstRunDialog(Profile* profile,
+                        bool randomize_search_engine_experiment) {
+  // If the default search is managed via policy, we don't ask the user to
+  // choose.
+  TemplateURLModel* model = profile->GetTemplateURLModel();
+  if (FirstRun::SearchEngineSelectorDisallowed() || !model ||
+      model->is_default_search_managed()) {
+    return;
+  }
+
+  views::Window* window = views::Window::CreateChromeWindow(
+      NULL,
+      gfx::Rect(),
+      new FirstRunSearchEngineView(
+          profile, randomize_search_engine_experiment));
+  DCHECK(window);
+
+  window->SetIsAlwaysOnTop(true);
+  window->Show();
+  views::AcceleratorHandler accelerator_handler;
+  MessageLoopForUI::current()->Run(&accelerator_handler);
+  window->CloseWindow();
+}
+
+}  // namespace first_run
 
 SearchEngineChoice::SearchEngineChoice(views::ButtonListener* listener,
                                        const TemplateURL* search_engine,
@@ -265,7 +295,8 @@ void FirstRunSearchEngineView::OnTemplateURLModelChanged() {
   // This will tell screenreaders that they should read the full text
   // of this dialog to the user now (rather than waiting for the user
   // to explore it).
-  NotifyAccessibilityEvent(AccessibilityTypes::EVENT_ALERT);
+  GetWidget()->NotifyAccessibilityEvent(
+      this, ui::AccessibilityTypes::EVENT_ALERT, true);
 }
 
 gfx::Size FirstRunSearchEngineView::GetPreferredSize() {
@@ -427,8 +458,9 @@ void FirstRunSearchEngineView::Layout() {
   }  // if (search_engine_choices.size() > 0)
 }
 
-AccessibilityTypes::Role FirstRunSearchEngineView::GetAccessibleRole() {
-  return AccessibilityTypes::ROLE_ALERT;
+void FirstRunSearchEngineView::GetAccessibleState(
+    ui::AccessibleViewState* state) {
+  state->role = ui::AccessibilityTypes::ROLE_ALERT;
 }
 
 std::wstring FirstRunSearchEngineView::GetWindowTitle() const {

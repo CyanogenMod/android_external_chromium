@@ -4,19 +4,22 @@
 
 #include "chrome/browser/chromeos/cros/input_method_library.h"
 
+#include <algorithm>
+
 #include <glib.h>
-#include <signal.h>
 
 #include "unicode/uloc.h"
 
 #include "base/basictypes.h"
 #include "base/message_loop.h"
+#include "base/process_util.h"
+#include "base/string_split.h"
 #include "base/string_util.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
-#include "chrome/browser/chromeos/cros/keyboard_library.h"
 #include "chrome/browser/chromeos/input_method/candidate_window.h"
 #include "chrome/browser/chromeos/input_method/input_method_util.h"
+#include "chrome/browser/chromeos/input_method/xkeyboard.h"
 #include "chrome/browser/chromeos/language_preferences.h"
 #include "content/browser/browser_thread.h"
 #include "content/common/notification_observer.h"
@@ -61,15 +64,9 @@ class InputMethodLibraryImpl : public InputMethodLibrary,
         ime_connected_(false),
         defer_ime_startup_(false),
         enable_auto_ime_shutdown_(true),
-        should_change_input_method_(false),
-        ibus_daemon_process_id_(0),
+        ibus_daemon_process_handle_(base::kNullProcessHandle),
         initialized_successfully_(false),
         candidate_window_controller_(NULL) {
-    // Here, we use the fallback input method descriptor but
-    // |current_input_method_| will be updated as soon as the login screen
-    // is shown or the user is logged in, so there is no problem.
-    current_input_method_ = input_method::GetFallbackInputMethodDescriptor();
-    active_input_method_ids_.push_back(current_input_method_.id);
     // Observe APP_TERMINATING to stop input method daemon gracefully.
     // We should not use APP_EXITING here since logout might be canceled by
     // JavaScript after APP_EXITING is sent (crosbug.com/11055).
@@ -91,19 +88,19 @@ class InputMethodLibraryImpl : public InputMethodLibrary,
   bool Init() {
     DCHECK(!initialized_successfully_) << "Already initialized";
 
-   if (!CrosLibrary::Get()->EnsureLoaded())
-     return false;
-   input_method_status_connection_ = chromeos::MonitorInputMethodStatus(
-       this,
-       &InputMethodChangedHandler,
-       &RegisterPropertiesHandler,
-       &UpdatePropertyHandler,
-       &ConnectionChangeHandler);
-   if (!input_method_status_connection_)
-     return false;
+    if (!CrosLibrary::Get()->EnsureLoaded())
+      return false;
+    input_method_status_connection_ = chromeos::MonitorInputMethodStatus(
+        this,
+        &InputMethodChangedHandler,
+        &RegisterPropertiesHandler,
+        &UpdatePropertyHandler,
+        &ConnectionChangeHandler);
+    if (!input_method_status_connection_)
+      return false;
 
-   initialized_successfully_ = true;
-   return true;
+    initialized_successfully_ = true;
+    return true;
   }
 
   virtual ~InputMethodLibraryImpl() {
@@ -136,10 +133,10 @@ class InputMethodLibraryImpl : public InputMethodLibrary,
         LOG(ERROR) << "Descriptor is not found for: " << input_method_id;
       }
     }
-    // This shouldn't happen as there should be at least one active input
-    // method, but just in case.
+    // Initially active_input_method_ids_ is empty. In this case, just
+    // returns the fallback input method descriptor.
     if (result->empty()) {
-      LOG(ERROR) << "No active input methods found.";
+      LOG(WARNING) << "No active input methods found.";
       result->push_back(input_method::GetFallbackInputMethodDescriptor());
     }
     return result;
@@ -170,14 +167,14 @@ class InputMethodLibraryImpl : public InputMethodLibrary,
     tentative_current_input_method_id_ = input_method_id;
     // If the input method daemon is not running and the specified input
     // method is a keyboard layout, switch the keyboard directly.
-    if (ibus_daemon_process_id_ == 0 &&
+    if (ibus_daemon_process_handle_ == base::kNullProcessHandle &&
         chromeos::input_method::IsKeyboardLayout(input_method_id)) {
       // We shouldn't use SetCurrentKeyboardLayoutByName() here. See
       // comments at ChangeCurrentInputMethod() for details.
       ChangeCurrentInputMethodFromId(input_method_id);
     } else {
       // Otherwise, start the input method daemon, and change the input
-      // method via the damon.
+      // method via the daemon.
       StartInputMethodDaemon();
       // ChangeInputMethodViaIBus() fails if the IBus daemon is not
       // ready yet. In this case, we'll defer the input method change
@@ -243,11 +240,17 @@ class InputMethodLibraryImpl : public InputMethodLibrary,
     return pending_config_requests_.empty();
   }
 
-  virtual const InputMethodDescriptor& previous_input_method() const {
+  virtual InputMethodDescriptor previous_input_method() const {
+    if (previous_input_method_.id.empty()) {
+      return input_method::GetFallbackInputMethodDescriptor();
+    }
     return previous_input_method_;
   }
 
-  virtual const InputMethodDescriptor& current_input_method() const {
+  virtual InputMethodDescriptor current_input_method() const {
+    if (current_input_method_.id.empty()) {
+      return input_method::GetFallbackInputMethodDescriptor();
+    }
     return current_input_method_;
   }
 
@@ -283,16 +286,51 @@ class InputMethodLibraryImpl : public InputMethodLibrary,
                                    const std::string& config_name,
                                    const ImeConfigValue& value) {
     if (section == language_prefs::kGeneralSectionName &&
-        config_name == language_prefs::kPreloadEnginesConfigName) {
+        config_name == language_prefs::kPreloadEnginesConfigName &&
+        value.type == ImeConfigValue::kValueTypeStringList &&
+        !value.string_list_value.empty()) {
       // If there is only one input method which is a keyboard layout,
       // we don't start the input method processes.  When
       // |defer_ime_startup_| is true, we don't start it either.
-      if (ContainOnlyOneKeyboardLayout(value) ||
-          defer_ime_startup_) {
+      if (ContainOnlyOneKeyboardLayout(value) || defer_ime_startup_) {
         // Do not start the input method daemon.
+        return;
+      }
+
+      // Otherwise, start the input method daemon.
+      const bool just_started = StartInputMethodDaemon();
+      if (!just_started) {
+        // The daemon is already running.
+        // Do not |update tentative_current_input_method_id_|.
+        return;
+      }
+
+      // The daemon has just been started. To select the initial input method
+      // engine correctly, update |tentative_current_input_method_id_|.
+      if (tentative_current_input_method_id_.empty()) {
+        tentative_current_input_method_id_ = current_input_method_.id;
+      }
+      if (std::find(value.string_list_value.begin(),
+                    value.string_list_value.end(),
+                    tentative_current_input_method_id_)
+          != value.string_list_value.end()) {
+        // Since the |current_input_method_| is in the preloaded engine list,
+        // switch to the engine. This is necessary ex. for the following case:
+        // 1. "xkb:jp::jpn" is enabled. ibus-daemon is not running.
+        // 2. A user enabled "mozc" via DOMUI as well. ibus-daemon is started
+        //    and the preloaded engine list is set to "mozc,xkb:jp::jpn".
+        // 3. ibus-daemon selects "mozc" as its current engine since "mozc" is
+        //    on top of the preloaded engine list.
+        // 4. Therefore, we have to change the current engine to "xkb:jp::jpn"
+        //    explicitly to avoid unexpected engine switch.
       } else {
-        // Otherwise, start the input method daemon.
-        StartInputMethodDaemon();
+        // The |current_input_method_| is NOT in the preloaded engine list. In
+        // this case, we should switch to the first one in the list in order to
+        // workaround crosbug.com/12244.
+        // TODO(yusukes): When crosbug.com/13406, which is a feature request to
+        // ibus-daemon, is fixed, probably we should replace the line below to
+        // "tentative_current_input_method_id_.clear();"
+        tentative_current_input_method_id_ = value.string_list_value[0];
       }
     }
   }
@@ -409,11 +447,9 @@ class InputMethodLibraryImpl : public InputMethodLibrary,
       // 2) We might have already changed the current input method to one
       // of XKB layouts without going through the IBus daemon (we can do
       // it without the IBus daemon started).
-      if (should_change_input_method_ &&
-          !tentative_current_input_method_id_.empty()) {
+      if (ime_connected_ && !tentative_current_input_method_id_.empty()) {
         ChangeInputMethodViaIBus(tentative_current_input_method_id_);
-        tentative_current_input_method_id_ = "";
-        should_change_input_method_ = false;
+        tentative_current_input_method_id_.clear();
         active_input_methods_are_changed = true;
       }
     }
@@ -517,7 +553,6 @@ class InputMethodLibraryImpl : public InputMethodLibrary,
       input_method_library->pending_config_requests_.insert(
           input_method_library->current_config_values_.begin(),
           input_method_library->current_config_values_.end());
-      input_method_library->should_change_input_method_ = true;
       input_method_library->FlushImeConfig();
     }
   }
@@ -533,8 +568,7 @@ class InputMethodLibraryImpl : public InputMethodLibrary,
       current_input_method_ = new_input_method;
 
       // Change the keyboard layout to a preferred layout for the input method.
-      if (!CrosLibrary::Get()->GetKeyboardLibrary()->
-          SetCurrentKeyboardLayoutByName(
+      if (!input_method::SetCurrentKeyboardLayoutByName(
               current_input_method_.keyboard_layout)) {
         LOG(ERROR) << "Failed to change keyboard layout to "
                    << current_input_method_.keyboard_layout;
@@ -580,13 +614,19 @@ class InputMethodLibraryImpl : public InputMethodLibrary,
   void RegisterProperties(const ImePropertyList& prop_list) {
     // |prop_list| might be empty. This means "clear all properties."
     current_ime_properties_ = prop_list;
+
+    // Update input method menu
+    FOR_EACH_OBSERVER(Observer, observers_,
+                      PropertyListChanged(this,
+                                          current_ime_properties_));
   }
 
   // Starts the input method daemon. Unlike MaybeStopInputMethodDaemon(),
-  // this function always starts the daemon.
-  void StartInputMethodDaemon() {
+  // this function always starts the daemon. Returns true if the daemon is
+  // started. Otherwise, e.g. the daemon is already started, returns false.
+  bool StartInputMethodDaemon() {
     should_launch_ime_ = true;
-    MaybeLaunchInputMethodDaemon();
+    return MaybeLaunchInputMethodDaemon();
   }
 
   // Updates the properties used by the current input method.
@@ -594,54 +634,59 @@ class InputMethodLibraryImpl : public InputMethodLibrary,
     for (size_t i = 0; i < prop_list.size(); ++i) {
       FindAndUpdateProperty(prop_list[i], &current_ime_properties_);
     }
+
+    // Update input method menu
+    FOR_EACH_OBSERVER(Observer, observers_,
+                      PropertyListChanged(this,
+                                          current_ime_properties_));
   }
 
   // Launches an input method procsess specified by the given command
-  // line. On success, returns true and stores the process ID in
-  // |process_id|. Otherwise, returns false, and the contents of
-  // |process_id| is untouched. OnImeShutdown will be called when the
+  // line. On success, returns true and stores the process handle in
+  // |process_handle|. Otherwise, returns false, and the contents of
+  // |process_handle| is untouched. OnImeShutdown will be called when the
   // process terminates.
   bool LaunchInputMethodProcess(const std::string& command_line,
-                                int* process_id) {
-    GError *error = NULL;
-    gchar **argv = NULL;
-    gint argc = NULL;
+                                base::ProcessHandle* process_handle) {
+    std::vector<std::string> argv;
+    base::file_handle_mapping_vector fds_to_remap;
+    base::ProcessHandle handle = base::kNullProcessHandle;
+
     // TODO(zork): export "LD_PRELOAD=/usr/lib/libcrash.so"
-    if (!g_shell_parse_argv(command_line.c_str(), &argc, &argv, &error)) {
-      LOG(ERROR) << "Could not parse command: " << error->message;
-      g_error_free(error);
+    base::SplitString(command_line, ' ', &argv);
+    const bool result = base::LaunchApp(argv,
+                                        fds_to_remap,  // no remapping
+                                        false,  // wait
+                                        &handle);
+    if (!result) {
+      LOG(ERROR) << "Could not launch: " << command_line;
       return false;
     }
 
-    int pid = 0;
-    const GSpawnFlags kFlags = G_SPAWN_DO_NOT_REAP_CHILD;
-    const gboolean result = g_spawn_async(NULL, argv, NULL,
-                                          kFlags, NULL, NULL,
-                                          &pid, &error);
-    g_strfreev(argv);
-    if (!result) {
-      LOG(ERROR) << "Could not launch: " << command_line << ": "
-                 << error->message;
-      g_error_free(error);
-      return false;
-    }
-    g_child_watch_add(pid, reinterpret_cast<GChildWatchFunc>(OnImeShutdown),
+    // g_child_watch_add is necessary to prevent the process from becoming a
+    // zombie.
+    // TODO(yusukes): port g_child_watch_add to base/process_utils_posix.cc.
+    const base::ProcessId pid = base::GetProcId(handle);
+    g_child_watch_add(pid,
+                      reinterpret_cast<GChildWatchFunc>(OnImeShutdown),
                       this);
 
-    *process_id = pid;
+    *process_handle = handle;
     VLOG(1) << command_line << " (PID=" << pid << ") is started";
     return  true;
   }
 
-  // Launches input method daemon if these are not yet running.
-  void MaybeLaunchInputMethodDaemon() {
+  // Launches input method daemon if these are not yet running. Returns true if
+  // the daemon is started. Otherwise, e.g. the daemon is already started,
+  // returns false.
+  bool MaybeLaunchInputMethodDaemon() {
     // CandidateWindowController requires libcros to be loaded. Besides,
     // launching ibus-daemon without libcros loaded doesn't make sense.
     if (!initialized_successfully_)
-      return;
+      return false;
 
     if (!should_launch_ime_) {
-      return;
+      return false;
     }
 
     if (!candidate_window_controller_.get()) {
@@ -651,25 +696,29 @@ class InputMethodLibraryImpl : public InputMethodLibrary,
       }
     }
 
-    if (ibus_daemon_process_id_ == 0) {
-      // TODO(zork): Send output to /var/log/ibus.log
-      const std::string ibus_daemon_command_line =
-          StringPrintf("%s --panel=disable --cache=none --restart --replace",
-                       kIBusDaemonPath);
-      if (!LaunchInputMethodProcess(
-              ibus_daemon_command_line, &ibus_daemon_process_id_)) {
-        LOG(ERROR) << "Failed to launch " << ibus_daemon_command_line;
-      }
+    if (ibus_daemon_process_handle_ != base::kNullProcessHandle) {
+      return false;  // ibus-daemon is already running.
     }
+
+    // TODO(zork): Send output to /var/log/ibus.log
+    const std::string ibus_daemon_command_line =
+        StringPrintf("%s --panel=disable --cache=none --restart --replace",
+                     kIBusDaemonPath);
+    if (!LaunchInputMethodProcess(
+            ibus_daemon_command_line, &ibus_daemon_process_handle_)) {
+      LOG(ERROR) << "Failed to launch " << ibus_daemon_command_line;
+      return false;
+    }
+    return true;
   }
 
   // Called when the input method process is shut down.
-  static void OnImeShutdown(int pid,
-                            int status,
+  static void OnImeShutdown(GPid pid,
+                            gint status,
                             InputMethodLibraryImpl* library) {
-    g_spawn_close_pid(pid);
-    if (library->ibus_daemon_process_id_ == pid) {
-      library->ibus_daemon_process_id_ = 0;
+    if (library->ibus_daemon_process_handle_ != base::kNullProcessHandle &&
+        base::GetProcId(library->ibus_daemon_process_handle_) == pid) {
+      library->ibus_daemon_process_handle_ = base::kNullProcessHandle;
     }
 
     // Restart input method daemon if needed.
@@ -684,15 +733,15 @@ class InputMethodLibraryImpl : public InputMethodLibrary,
       return;
 
     should_launch_ime_ = false;
-    if (ibus_daemon_process_id_) {
+    if (ibus_daemon_process_handle_ != base::kNullProcessHandle) {
+      const base::ProcessId pid = base::GetProcId(ibus_daemon_process_handle_);
       if (!chromeos::StopInputMethodProcess(input_method_status_connection_)) {
         LOG(ERROR) << "StopInputMethodProcess IPC failed. Sending SIGTERM to "
-                   << "PID " << ibus_daemon_process_id_;
-        kill(ibus_daemon_process_id_, SIGTERM);
+                   << "PID " << pid;
+        base::KillProcess(ibus_daemon_process_handle_, -1, false /* wait */);
       }
-      VLOG(1) << "ibus-daemon (PID=" << ibus_daemon_process_id_ << ") is "
-              << "terminated";
-      ibus_daemon_process_id_ = 0;
+      VLOG(1) << "ibus-daemon (PID=" << pid << ") is terminated";
+      ibus_daemon_process_handle_ = base::kNullProcessHandle;
     }
   }
 
@@ -759,15 +808,12 @@ class InputMethodLibraryImpl : public InputMethodLibrary,
   // The ID of the tentative current input method (ex. "mozc"). This value
   // can be different from the actual current input method, if
   // ChangeInputMethod() fails.
+  // TODO(yusukes): clear this variable when a user logs in.
   std::string tentative_current_input_method_id_;
-  // True if we should change the current input method to
-  // |tentative_current_input_method_id_| once the queue of the pending config
-  // requests becomes empty.
-  bool should_change_input_method_;
 
-  // The process id of the IBus daemon. 0 if it's not running. The process
-  // ID 0 is not used in Linux, hence it's safe to use 0 for this purpose.
-  int ibus_daemon_process_id_;
+  // The process handle of the IBus daemon. kNullProcessHandle if it's not
+  // running.
+  base::ProcessHandle ibus_daemon_process_handle_;
 
   // True if initialization is successfully done, meaning that libcros is
   // loaded and input method status monitoring is started. This value
@@ -829,11 +875,11 @@ class InputMethodLibraryStubImpl : public InputMethodLibrary {
     return false;
   }
 
-  virtual const InputMethodDescriptor& previous_input_method() const {
+  virtual InputMethodDescriptor previous_input_method() const {
     return previous_input_method_;
   }
 
-  virtual const InputMethodDescriptor& current_input_method() const {
+  virtual InputMethodDescriptor current_input_method() const {
     return current_input_method_;
   }
 
@@ -841,7 +887,9 @@ class InputMethodLibraryStubImpl : public InputMethodLibrary {
     return current_ime_properties_;
   }
 
-  virtual void StartInputMethodDaemon() {}
+  virtual bool StartInputMethodDaemon() {
+    return true;
+  }
   virtual void StopInputMethodDaemon() {}
   virtual void SetDeferImeStartup(bool defer) {}
   virtual void SetEnableAutoImeShutdown(bool enable) {}
@@ -903,7 +951,7 @@ class InputMethodLibraryStubImpl : public InputMethodLibrary {
     descriptions->push_back(InputMethodDescriptor(
         "m17n:th:tis820", "tis820 (m17n)", "us", "th"));
     descriptions->push_back(InputMethodDescriptor(
-        "chewing", "Chewing", "us", "zh_TW"));
+        "mozc-chewing", "Mozc Chewing (Chewing)", "us", "zh_TW"));
     descriptions->push_back(InputMethodDescriptor(
         "m17n:zh:cangjie", "cangjie (m17n)", "us", "zh"));
     descriptions->push_back(InputMethodDescriptor(
@@ -978,6 +1026,9 @@ class InputMethodLibraryStubImpl : public InputMethodLibrary {
         "xkb:gb:extd:eng",
         "United Kingdom - Extended - Winkeys", "gb(extd)", "eng"));
     descriptions->push_back(InputMethodDescriptor(
+        "xkb:gb:dvorak:eng",
+        "United Kingdom - Dvorak", "gb(dvorak)", "eng"));
+    descriptions->push_back(InputMethodDescriptor(
         "xkb:fi::fin", "Finland", "fi", "fin"));
     descriptions->push_back(InputMethodDescriptor(
         "xkb:hu::hun", "Hungary", "hu", "hun"));
@@ -1029,7 +1080,7 @@ class InputMethodLibraryStubImpl : public InputMethodLibrary {
     (*keyboard_overlay_map)["m17n:th:kesmanee"] = "th";
     (*keyboard_overlay_map)["m17n:th:pattachote"] = "th";
     (*keyboard_overlay_map)["m17n:th:tis820"] = "th";
-    (*keyboard_overlay_map)["chewing"] = "zh_TW";
+    (*keyboard_overlay_map)["mozc-chewing"] = "zh_TW";
     (*keyboard_overlay_map)["m17n:zh:cangjie"] = "zh_TW";
     (*keyboard_overlay_map)["m17n:zh:quick"] = "zh_TW";
     (*keyboard_overlay_map)["m17n:vi:tcvn"] = "vi";
@@ -1065,6 +1116,7 @@ class InputMethodLibraryStubImpl : public InputMethodLibrary {
     (*keyboard_overlay_map)["xkb:lv:apostrophe:lav"] = "lv";
     (*keyboard_overlay_map)["xkb:hr::scr"] = "hr";
     (*keyboard_overlay_map)["xkb:gb:extd:eng"] = "en_GB";
+    (*keyboard_overlay_map)["xkb:gb:dvorak:eng"] = "en_GB_dvorak";
     (*keyboard_overlay_map)["xkb:fi::fin"] = "fi";
     (*keyboard_overlay_map)["xkb:hu::hun"] = "hu";
     (*keyboard_overlay_map)["xkb:it::ita"] = "it";

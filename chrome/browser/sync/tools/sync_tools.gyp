@@ -9,18 +9,12 @@
       'type': 'executable',
       'sources': [
         'sync_listen_notifications.cc',
-        # We are directly including the sync_constants.cc and h files to avoid
-        # pulling in browser.lib.
-        # TODO(akalin): Fix this.
-        '<(DEPTH)/chrome/browser/sync/sync_constants.cc',
-        '<(DEPTH)/chrome/browser/sync/sync_constants.h',
       ],
       'dependencies': [
         '<(DEPTH)/base/base.gyp:base',
-        '<(DEPTH)/chrome/chrome.gyp:common_constants',
         '<(DEPTH)/chrome/chrome.gyp:sync_notifier',
-        '<(DEPTH)/jingle/jingle.gyp:notifier',
-        '<(DEPTH)/third_party/libjingle/libjingle.gyp:libjingle',
+        '<(DEPTH)/chrome/chrome.gyp:test_support_common',
+        '<(DEPTH)/content/content.gyp:content_browser',
       ],
     },
   ],

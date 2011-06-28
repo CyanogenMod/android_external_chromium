@@ -9,10 +9,11 @@
 #include <string>
 
 #include "chrome/browser/utility_process_host.h"
-#include "chrome/common/notification_type.h"
+#include "content/common/notification_type.h"
 
 class PrefService;
 class Profile;
+class ResourceDispatcherHost;
 
 // A WebResourceService fetches data from a web resource server and store
 // locally as user preference.
@@ -52,6 +53,8 @@ class WebResourceService
   // and get proper install directory.
   PrefService* prefs_;
 
+  Profile* profile_;
+
  private:
   class WebResourceFetcher;
   friend class WebResourceFetcher;
@@ -66,8 +69,6 @@ class WebResourceService
 
   // Notify listeners that the state of a web resource has changed.
   void WebResourceStateChange();
-
-  Profile* profile_;
 
   scoped_ptr<WebResourceFetcher> web_resource_fetcher_;
 

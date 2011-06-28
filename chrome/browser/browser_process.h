@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "base/basictypes.h"
+#include "base/memory/ref_counted.h"
 #include "ipc/ipc_message.h"
 
 class AutomationProviderList;
@@ -45,6 +46,16 @@ class WatchDogThread;
 namespace base {
 class Thread;
 class WaitableEvent;
+}
+
+#if defined(OS_CHROMEOS)
+namespace chromeos {
+class ProxyConfigServiceImpl;
+}
+#endif  // defined(OS_CHROMEOS)
+
+namespace net {
+class URLRequestContextGetter;
 }
 
 namespace printing {
@@ -82,6 +93,14 @@ class BrowserProcess {
   virtual DevToolsManager* devtools_manager() = 0;
   virtual SidebarManager* sidebar_manager() = 0;
   virtual ui::Clipboard* clipboard() = 0;
+  virtual net::URLRequestContextGetter* system_request_context() = 0;
+
+#if defined(OS_CHROMEOS)
+  // Returns ChromeOS's ProxyConfigServiceImpl, creating if not yet created.
+  virtual chromeos::ProxyConfigServiceImpl*
+      chromeos_proxy_config_service_impl() = 0;
+#endif  // defined(OS_CHROMEOS)
+
   virtual ExtensionEventRouterForwarder*
       extension_event_router_forwarder() = 0;
 
@@ -109,6 +128,9 @@ class BrowserProcess {
 
   // Returns the thread that is used for background cache operations.
   virtual base::Thread* cache_thread() = 0;
+
+  // Returns the thread that issues GPU calls.
+  virtual base::Thread* gpu_thread() = 0;
 
 #if defined(USE_X11)
   // Returns the thread that is used to process UI requests in cases where
@@ -176,10 +198,6 @@ class BrowserProcess {
   // the IO thread.
   virtual bool plugin_finder_disabled() const = 0;
 
-  // Trigger an asynchronous check to see if we have the inspector's files on
-  // disk.
-  virtual void CheckForInspectorFiles() = 0;
-
 #if (defined(OS_WIN) || defined(OS_LINUX)) && !defined(OS_CHROMEOS)
   // This will start a timer that, if Chrome is in persistent mode, will check
   // whether an update is available, and if that's the case, restart the
@@ -190,11 +208,6 @@ class BrowserProcess {
   // |kSwitchesToRemoveOnAutorestart| array in browser_process_impl.cc.
   virtual void StartAutoupdateTimer() = 0;
 #endif
-
-  // Return true iff we found the inspector files on disk. It's possible to
-  // call this function before we have a definite answer from the disk. In that
-  // case, we default to returning true.
-  virtual bool have_inspector_files() const = 0;
 
   virtual ChromeNetLog* net_log() = 0;
 

@@ -1,8 +1,10 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "webkit/glue/webaccessibility.h"
+
+#include <set>
 
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
@@ -19,6 +21,7 @@
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebInputElement.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebNamedNodeMap.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebNode.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebRect.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebSize.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebString.h"
 
@@ -328,9 +331,12 @@ void WebAccessibility::Init(const WebKit::WebAccessibilityObject& src,
     attributes[ATTR_URL] = src.url().spec().utf16();
 
   WebKit::WebNode node = src.node();
+  bool is_iframe = false;
 
   if (!node.isNull() && node.isElementNode()) {
     WebKit::WebElement element = node.to<WebKit::WebElement>();
+    is_iframe = (element.tagName() == ASCIIToUTF16("IFRAME"));
+
     // TODO(ctguil): The tagName in WebKit is lower cased but
     // HTMLElement::nodeName calls localNameUpper. Consider adding
     // a WebElement method that returns the original lower cased tagName.
@@ -380,26 +386,52 @@ void WebAccessibility::Init(const WebKit::WebAccessibilityObject& src,
   // Add the source object to the cache and store its id.
   id = cache->addOrGetId(src);
 
-  if (role == WebAccessibility::ROLE_EDITABLE_TEXT ||
-      role == WebAccessibility::ROLE_TEXTAREA ||
-      role == WebAccessibility::ROLE_TEXT_FIELD) {
-    include_children = false;
-  }
-
   if (include_children) {
     // Recursively create children.
     int child_count = src.childCount();
+    std::set<int32> child_ids;
     for (int i = 0; i < child_count; i++) {
       WebAccessibilityObject child = src.childAt(i);
+      int32 child_id = cache->addOrGetId(child);
 
       // The child may be invalid due to issues in webkit accessibility code.
-      // Don't add children are invalid thus preventing a crash.
+      // Don't add children that are invalid thus preventing a crash.
       // https://bugs.webkit.org/show_bug.cgi?id=44149
       // TODO(ctguil): We may want to remove this check as webkit stabilizes.
-      if (child.isValid())
+      if (!child.isValid())
+        continue;
+
+      // Children may duplicated in the webkit accessibility tree. Only add a
+      // child once for the web accessibility tree.
+      // https://bugs.webkit.org/show_bug.cgi?id=58930
+      if (child_ids.find(child_id) != child_ids.end())
+        continue;
+      child_ids.insert(child_id);
+
+      // Some nodes appear in the tree in more than one place: for example,
+      // a cell in a table appears as a child of both a row and a column.
+      // Only recursively add child nodes that have this node as its
+      // unignored parent. For child nodes that are actually parented to
+      // somethinng else, store only the ID.
+      //
+      // As an exception, also add children of an iframe element.
+      // https://bugs.webkit.org/show_bug.cgi?id=57066
+      if (is_iframe || IsParentUnignoredOf(src, child)) {
         children.push_back(WebAccessibility(child, cache, include_children));
+      } else {
+        indirect_child_ids.push_back(child_id);
+      }
     }
   }
+}
+
+bool WebAccessibility::IsParentUnignoredOf(
+    const WebKit::WebAccessibilityObject& ancestor,
+    const WebKit::WebAccessibilityObject& child) {
+  WebKit::WebAccessibilityObject parent = child.parentObject();
+  while (!parent.isNull() && parent.accessibilityIsIgnored())
+    parent = parent.parentObject();
+  return parent.equals(ancestor);
 }
 
 }  // namespace webkit_glue

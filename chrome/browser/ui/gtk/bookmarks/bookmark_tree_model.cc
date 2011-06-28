@@ -10,7 +10,7 @@
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/ui/gtk/bookmarks/bookmark_utils_gtk.h"
-#include "chrome/browser/ui/gtk/gtk_theme_provider.h"
+#include "chrome/browser/ui/gtk/gtk_theme_service.h"
 
 namespace {
 
@@ -25,7 +25,7 @@ void AddSingleNodeToTreeStore(GtkTreeStore* store, const BookmarkNode* node,
   // (and indeed, Nautilus does not render an expanded directory any
   // differently).
   gtk_tree_store_set(store, iter,
-      bookmark_utils::FOLDER_ICON, GtkThemeProvider::GetFolderIcon(true),
+      bookmark_utils::FOLDER_ICON, GtkThemeService::GetFolderIcon(true),
       bookmark_utils::FOLDER_NAME,
       UTF16ToUTF8(node->GetTitle()).c_str(),
       bookmark_utils::ITEM_ID, node->id(),
@@ -55,12 +55,12 @@ void RecursiveResolve(BookmarkModel* bb_model, const BookmarkNode* bb_node,
           bookmark_utils::GetTitleFromTreeIter(tree_model, &child_iter);
       const BookmarkNode* child_bb_node = NULL;
       if (id == 0) {
-        child_bb_node = bb_model->AddGroup(bb_node, bb_node->GetChildCount(),
-                                           title);
+        child_bb_node = bb_model->AddFolder(
+            bb_node, bb_node->child_count(), title);
       } else {
-        // Existing node, reset the title (BBModel ignores changes if the title
-        // is the same).
-        for (int j = 0; j < bb_node->GetChildCount(); ++j) {
+        // Existing node, reset the title (BookmarkModel ignores changes if the
+        // title is the same).
+        for (int j = 0; j < bb_node->child_count(); ++j) {
           const BookmarkNode* node = bb_node->GetChild(j);
           if (node->is_folder() && node->id() == id) {
             child_bb_node = node;
@@ -103,7 +103,7 @@ GtkTreeStore* MakeFolderTreeStore() {
 void AddToTreeStore(BookmarkModel* model, int64 selected_id,
                     GtkTreeStore* store, GtkTreeIter* selected_iter) {
   const BookmarkNode* root_node = model->root_node();
-  for (int i = 0; i < root_node->GetChildCount(); ++i) {
+  for (int i = 0; i < root_node->child_count(); ++i) {
     AddToTreeStoreAt(root_node->GetChild(i), selected_id, store, selected_iter,
                      NULL);
   }
@@ -154,7 +154,7 @@ void AddToTreeStoreAt(const BookmarkNode* node, int64 selected_id,
      *selected_iter = iter;
   }
 
-  for (int i = 0; i < node->GetChildCount(); ++i) {
+  for (int i = 0; i < node->child_count(); ++i) {
     AddToTreeStoreAt(node->GetChild(i), selected_id, store, selected_iter,
                      &iter);
   }
@@ -183,7 +183,7 @@ const BookmarkNode* CommitTreeStoreDifferencesBetween(
 
     int64 id = GetIdFromTreeIter(tree_model, &tree_root);
     const BookmarkNode* child_node = NULL;
-    for (int j = 0; j < root_node->GetChildCount(); ++j) {
+    for (int j = 0; j < root_node->child_count(); ++j) {
       const BookmarkNode* node = root_node->GetChild(j);
       if (node->is_folder() && node->id() == id) {
         child_node = node;

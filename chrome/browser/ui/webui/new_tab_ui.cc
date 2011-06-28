@@ -11,8 +11,8 @@
 #include "base/callback.h"
 #include "base/command_line.h"
 #include "base/i18n/rtl.h"
+#include "base/memory/singleton.h"
 #include "base/metrics/histogram.h"
-#include "base/singleton.h"
 #include "base/string_number_conversions.h"
 #include "base/threading/thread.h"
 #include "base/utf_string_conversions.h"
@@ -21,9 +21,11 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sessions/session_types.h"
 #include "chrome/browser/sessions/tab_restore_service.h"
+#include "chrome/browser/sessions/tab_restore_service_delegate.h"
 #include "chrome/browser/sessions/tab_restore_service_observer.h"
 #include "chrome/browser/sync/profile_sync_service.h"
-#include "chrome/browser/themes/browser_theme_provider.h"
+#include "chrome/browser/themes/theme_service.h"
+#include "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/webui/app_launcher_handler.h"
 #include "chrome/browser/ui/webui/foreign_session_handler.h"
@@ -33,16 +35,15 @@
 #include "chrome/browser/ui/webui/ntp_resource_cache.h"
 #include "chrome/browser/ui/webui/shown_sections_handler.h"
 #include "chrome/browser/ui/webui/theme_source.h"
-#include "chrome/browser/ui/webui/tips_handler.h"
 #include "chrome/browser/ui/webui/value_helper.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/extension.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "content/browser/browser_thread.h"
 #include "content/browser/renderer_host/render_view_host.h"
 #include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/notification_service.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -114,14 +115,15 @@ RecentlyClosedTabsHandler::~RecentlyClosedTabsHandler() {
 }
 
 void RecentlyClosedTabsHandler::HandleReopenTab(const ListValue* args) {
-  Browser* browser = Browser::GetBrowserForController(
+  TabRestoreServiceDelegate* delegate =
+      TabRestoreServiceDelegate::FindDelegateForController(
       &web_ui_->tab_contents()->controller(), NULL);
-  if (!browser)
+  if (!delegate)
     return;
 
   int session_to_restore;
   if (ExtractIntegerValue(args, &session_to_restore))
-    tab_restore_service_->RestoreEntryById(browser, session_to_restore, true);
+    tab_restore_service_->RestoreEntryById(delegate, session_to_restore, true);
   // The current tab has been nuked at this point; don't touch any member
   // variables.
 }
@@ -151,7 +153,7 @@ void RecentlyClosedTabsHandler::TabRestoreServiceChanged(
   ListValue list_value;
   NewTabUI::AddRecentlyClosedEntries(service->entries(), &list_value);
 
-  web_ui_->CallJavascriptFunction(L"recentlyClosedTabs", list_value);
+  web_ui_->CallJavascriptFunction("recentlyClosedTabs", list_value);
 }
 
 void RecentlyClosedTabsHandler::TabRestoreServiceDestroyed(
@@ -196,12 +198,12 @@ void MetricsHandler::RegisterMessages() {
 }
 
 void MetricsHandler::HandleMetrics(const ListValue* args) {
-  std::string string_action = WideToUTF8(ExtractStringValue(args));
+  std::string string_action = UTF16ToUTF8(ExtractStringValue(args));
   UserMetrics::RecordComputedAction(string_action, web_ui_->GetProfile());
 }
 
 void MetricsHandler::HandleLogEventTime(const ListValue* args) {
-  std::string event_name = WideToUTF8(ExtractStringValue(args));
+  std::string event_name = UTF16ToUTF8(ExtractStringValue(args));
   web_ui_->tab_contents()->LogNewTabTime(event_name);
 }
 
@@ -240,7 +242,7 @@ void NewTabPageSetHomePageHandler::HandleSetHomePage(
       l10n_util::GetStringUTF16(IDS_NEW_TAB_HOME_PAGE_SET_NOTIFICATION)));
   list_value.Append(new StringValue(
       l10n_util::GetStringUTF16(IDS_NEW_TAB_HOME_PAGE_HIDE_NOTIFICATION)));
-  web_ui_->CallJavascriptFunction(L"onHomePageSet", list_value);
+  web_ui_->CallJavascriptFunction("onHomePageSet", list_value);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -287,7 +289,10 @@ NewTabUI::NewTabUI(TabContents* contents)
     : WebUI(contents) {
   // Override some options on the Web UI.
   hide_favicon_ = true;
-  force_bookmark_bar_visible_ = true;
+
+  if (!CommandLine::ForCurrentProcess()->HasSwitch(switches::kNewTabPage4))
+    force_bookmark_bar_visible_ = true;
+
   focus_location_bar_by_default_ = true;
   should_hide_url_ = true;
   overridden_title_ = l10n_util::GetStringUTF16(IDS_NEW_TAB_TITLE);
@@ -394,17 +399,21 @@ void NewTabUI::Observe(NotificationType type,
       InitializeCSSCaches();
       ListValue args;
       args.Append(Value::CreateStringValue(
-          GetProfile()->GetThemeProvider()->HasCustomImage(
+          ThemeServiceFactory::GetForProfile(GetProfile())->HasCustomImage(
               IDR_THEME_NTP_ATTRIBUTION) ?
           "true" : "false"));
-      CallJavascriptFunction(L"themeChanged", args);
+      CallJavascriptFunction("themeChanged", args);
       break;
     }
     case NotificationType::BOOKMARK_BAR_VISIBILITY_PREF_CHANGED: {
+      if (GetProfile()->GetPrefs()->IsManagedPreference(
+              prefs::kEnableBookmarkBar)) {
+        break;
+      }
       if (GetProfile()->GetPrefs()->GetBoolean(prefs::kShowBookmarkBar))
-        CallJavascriptFunction(L"bookmarkBarAttached");
+        CallJavascriptFunction("bookmarkBarAttached");
       else
-        CallJavascriptFunction(L"bookmarkBarDetached");
+        CallJavascriptFunction("bookmarkBarDetached");
       break;
     }
     case NotificationType::RENDER_WIDGET_HOST_DID_PAINT: {
@@ -428,8 +437,6 @@ void NewTabUI::RegisterUserPrefs(PrefService* prefs) {
 
   MostVisitedHandler::RegisterUserPrefs(prefs);
   ShownSectionsHandler::RegisterUserPrefs(prefs);
-  if (NewTabUI::WebResourcesEnabled())
-    TipsHandler::RegisterUserPrefs(prefs);
 
   UpdateUserPrefsVersion(prefs);
 }
@@ -450,12 +457,6 @@ void NewTabUI::MigrateUserPrefs(PrefService* prefs, int old_pref_version,
                                 int new_pref_version) {
   ShownSectionsHandler::MigrateUserPrefs(prefs, old_pref_version,
                                          current_pref_version());
-}
-
-// static
-bool NewTabUI::WebResourcesEnabled() {
-  const CommandLine* command_line = CommandLine::ForCurrentProcess();
-  return !command_line->HasSwitch(switches::kDisableWebResources);
 }
 
 // static
@@ -576,7 +577,7 @@ NewTabUI::NewTabHTMLSource::NewTabHTMLSource(Profile* profile)
 }
 
 void NewTabUI::NewTabHTMLSource::StartDataRequest(const std::string& path,
-                                                  bool is_off_the_record,
+                                                  bool is_incognito,
                                                   int request_id) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
@@ -590,7 +591,7 @@ void NewTabUI::NewTabHTMLSource::StartDataRequest(const std::string& path,
   }
 
   scoped_refptr<RefCountedBytes> html_bytes(
-      profile_->GetNTPResourceCache()->GetNewTabHTML(is_off_the_record));
+      profile_->GetNTPResourceCache()->GetNewTabHTML(is_incognito));
 
   SendResponse(request_id, html_bytes);
 }

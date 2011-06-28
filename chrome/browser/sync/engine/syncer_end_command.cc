@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,11 +15,13 @@ SyncerEndCommand::SyncerEndCommand() {}
 SyncerEndCommand::~SyncerEndCommand() {}
 
 void SyncerEndCommand::ExecuteImpl(sessions::SyncSession* session) {
-  sessions::StatusController* status(session->status_controller());
-  status->set_syncing(false);
-  session->context()->set_previous_session_routing_info(
-      session->routing_info());
-  session->context()->set_last_snapshot(session->TakeSnapshot());
+  // Always send out a cycle ended notification, regardless of end-state.
+  session->status_controller()->set_syncing(false);
+  SyncEngineEvent event(SyncEngineEvent::SYNC_CYCLE_ENDED);
+  sessions::SyncSessionSnapshot snapshot(session->TakeSnapshot());
+  event.snapshot = &snapshot;
+  session->context()->NotifyListeners(event);
+  VLOG(1) << this << " sent sync end snapshot";
 }
 
 }  // namespace browser_sync

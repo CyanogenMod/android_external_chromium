@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,16 +6,16 @@
 #include <vector>
 
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/browser_window.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "chrome/common/render_messages.h"
-#include "chrome/common/notification_type.h"
 #include "chrome/test/in_process_browser_test.h"
 #include "chrome/test/ui_test_utils.h"
 #include "content/browser/renderer_host/render_view_host.h"
 #include "content/browser/renderer_host/render_widget_host.h"
 #include "content/browser/renderer_host/render_widget_host_view.h"
 #include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/notification_type.h"
 
 #if defined(OS_WIN)
 #include <atlbase.h>
@@ -42,6 +42,15 @@ class RendererAccessibilityBrowserTest : public InProcessBrowserTest {
     ui_test_utils::WaitForNotification(
         NotificationType::RENDER_VIEW_HOST_ACCESSIBILITY_TREE_UPDATED);
     return view_host->accessibility_tree();
+  }
+
+  // Make sure each node in the tree has an unique id.
+  void RecursiveAssertUniqueIds(
+      const WebAccessibility& node, base::hash_set<int>* ids) {
+    ASSERT_TRUE(ids->find(node.id) == ids->end());
+    ids->insert(node.id);
+    for (size_t i = 0; i < node.children.size(); i++)
+      RecursiveAssertUniqueIds(node.children[i], ids);
   }
 
   // InProcessBrowserTest
@@ -199,6 +208,130 @@ IN_PROC_BROWSER_TEST_F(RendererAccessibilityBrowserTest,
   EXPECT_STREQ(
       "13", GetAttr(text, WebAccessibility::ATTR_TEXT_SEL_END).c_str());
   EXPECT_STREQ("Hello, world.", UTF16ToUTF8(text.value).c_str());
+}
+
+IN_PROC_BROWSER_TEST_F(RendererAccessibilityBrowserTest,
+                       CrossPlatformMultipleInheritanceAccessibility) {
+  // In a WebKit accessibility render tree for a table, each cell is a
+  // child of both a row and a column, so it appears to use multiple
+  // inheritance. Make sure that the WebAccessibilityObject tree only
+  // keeps one copy of each cell, and uses an indirect child id for the
+  // additional reference to it.
+  const char url_str[] =
+      "data:text/html,"
+      "<!doctype html>"
+      "<table border=1><tr><td>1</td><td>2</td></tr></table>";
+  GURL url(url_str);
+  browser()->OpenURL(url, GURL(), CURRENT_TAB, PageTransition::TYPED);
+
+  const WebAccessibility& tree = GetWebAccessibilityTree();
+  ASSERT_EQ(1U, tree.children.size());
+  const WebAccessibility& table = tree.children[0];
+  EXPECT_EQ(WebAccessibility::ROLE_TABLE, table.role);
+  const WebAccessibility& row = table.children[0];
+  EXPECT_EQ(WebAccessibility::ROLE_ROW, row.role);
+  const WebAccessibility& cell1 = row.children[0];
+  EXPECT_EQ(WebAccessibility::ROLE_CELL, cell1.role);
+  const WebAccessibility& cell2 = row.children[1];
+  EXPECT_EQ(WebAccessibility::ROLE_CELL, cell2.role);
+  const WebAccessibility& column1 = table.children[1];
+  EXPECT_EQ(WebAccessibility::ROLE_COLUMN, column1.role);
+  EXPECT_EQ(0U, column1.children.size());
+  EXPECT_EQ(1U, column1.indirect_child_ids.size());
+  EXPECT_EQ(cell1.id, column1.indirect_child_ids[0]);
+  const WebAccessibility& column2 = table.children[2];
+  EXPECT_EQ(WebAccessibility::ROLE_COLUMN, column2.role);
+  EXPECT_EQ(0U, column2.children.size());
+  EXPECT_EQ(1U, column2.indirect_child_ids.size());
+  EXPECT_EQ(cell2.id, column2.indirect_child_ids[0]);
+}
+
+IN_PROC_BROWSER_TEST_F(RendererAccessibilityBrowserTest,
+                       CrossPlatformMultipleInheritanceAccessibility2) {
+  // Here's another html snippet where WebKit puts the same node as a child
+  // of two different parents. Instead of checking the exact output, just
+  // make sure that no id is reused in the resulting tree.
+  const char url_str[] =
+      "data:text/html,"
+      "<!doctype html>"
+      "<script>\n"
+      "  document.writeln('<q><section></section></q><q><li>');\n"
+      "  setTimeout(function() {\n"
+      "    document.close();\n"
+      "  }, 1);\n"
+      "</script>";
+  GURL url(url_str);
+  browser()->OpenURL(url, GURL(), CURRENT_TAB, PageTransition::TYPED);
+
+  const WebAccessibility& tree = GetWebAccessibilityTree();
+  base::hash_set<int> ids;
+  RecursiveAssertUniqueIds(tree, &ids);
+}
+
+IN_PROC_BROWSER_TEST_F(RendererAccessibilityBrowserTest,
+                       CrossPlatformIframeAccessibility) {
+  // Create a data url and load it.
+  const char url_str[] =
+      "data:text/html,"
+      "<!doctype html><html><body>"
+      "<button>Button 1</button>"
+      "<iframe src='data:text/html,"
+      "<!doctype html><html><body><button>Button 2</button></body></html>"
+      "'></iframe>"
+      "<button>Button 3</button>"
+      "</body></html>";
+  GURL url(url_str);
+  browser()->OpenURL(url, GURL(), CURRENT_TAB, PageTransition::TYPED);
+
+  const WebAccessibility& tree = GetWebAccessibilityTree();
+  ASSERT_EQ(1U, tree.children.size());
+  const WebAccessibility& body = tree.children[0];
+  ASSERT_EQ(3U, body.children.size());
+
+  const WebAccessibility& button1 = body.children[0];
+  EXPECT_EQ(WebAccessibility::ROLE_BUTTON, button1.role);
+  EXPECT_STREQ("Button 1", UTF16ToUTF8(button1.name).c_str());
+
+  const WebAccessibility& iframe = body.children[1];
+  EXPECT_STREQ("iframe",
+               GetAttr(iframe, WebAccessibility::ATTR_HTML_TAG).c_str());
+  ASSERT_EQ(1U, iframe.children.size());
+
+  const WebAccessibility& scroll_area = iframe.children[0];
+  EXPECT_EQ(WebAccessibility::ROLE_SCROLLAREA, scroll_area.role);
+  ASSERT_EQ(1U, scroll_area.children.size());
+
+  const WebAccessibility& sub_document = scroll_area.children[0];
+  EXPECT_EQ(WebAccessibility::ROLE_WEB_AREA, sub_document.role);
+  ASSERT_EQ(1U, sub_document.children.size());
+
+  const WebAccessibility& sub_body = sub_document.children[0];
+  ASSERT_EQ(1U, sub_body.children.size());
+
+  const WebAccessibility& button2 = sub_body.children[0];
+  EXPECT_EQ(WebAccessibility::ROLE_BUTTON, button2.role);
+  EXPECT_STREQ("Button 2", UTF16ToUTF8(button2.name).c_str());
+
+  const WebAccessibility& button3 = body.children[2];
+  EXPECT_EQ(WebAccessibility::ROLE_BUTTON, button3.role);
+  EXPECT_STREQ("Button 3", UTF16ToUTF8(button3.name).c_str());
+}
+
+IN_PROC_BROWSER_TEST_F(RendererAccessibilityBrowserTest,
+                       CrossPlatformDuplicateChildrenAccessibility) {
+  // Here's another html snippet where WebKit has a parent node containing
+  // two duplicate child nodes. Instead of checking the exact output, just
+  // make sure that no id is reused in the resulting tree.
+  const char url_str[] =
+      "data:text/html,"
+      "<!doctype html>"
+      "<em><code ><h4 ></em>";
+  GURL url(url_str);
+  browser()->OpenURL(url, GURL(), CURRENT_TAB, PageTransition::TYPED);
+
+  const WebAccessibility& tree = GetWebAccessibilityTree();
+  base::hash_set<int> ids;
+  RecursiveAssertUniqueIds(tree, &ids);
 }
 
 }  // namespace

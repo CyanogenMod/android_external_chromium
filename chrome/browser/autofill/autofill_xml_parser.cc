@@ -1,30 +1,33 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/autofill/autofill_xml_parser.h"
 
-#include "chrome/browser/autofill/autofill_type.h"
+#include <stdlib.h>
+#include <string.h>
+
+#include "base/logging.h"
 #include "third_party/libjingle/overrides/talk/xmllite/qname.h"
 
-AutoFillXmlParser::AutoFillXmlParser()
+AutofillXmlParser::AutofillXmlParser()
     : succeeded_(true) {
 }
 
-void AutoFillXmlParser::CharacterData(
+void AutofillXmlParser::CharacterData(
     buzz::XmlParseContext* context, const char* text, int len) {
 }
 
-void AutoFillXmlParser::EndElement(buzz::XmlParseContext* context,
+void AutofillXmlParser::EndElement(buzz::XmlParseContext* context,
                                    const char* name) {
 }
 
-void AutoFillXmlParser::Error(buzz::XmlParseContext* context,
+void AutofillXmlParser::Error(buzz::XmlParseContext* context,
                               XML_Error error_code) {
   succeeded_ = false;
 }
 
-AutoFillQueryXmlParser::AutoFillQueryXmlParser(
+AutofillQueryXmlParser::AutofillQueryXmlParser(
     std::vector<AutofillFieldType>* field_types,
     UploadRequired* upload_required,
     std::string* experiment_id)
@@ -35,7 +38,7 @@ AutoFillQueryXmlParser::AutoFillQueryXmlParser(
   DCHECK(experiment_id_);
 }
 
-void AutoFillQueryXmlParser::StartElement(buzz::XmlParseContext* context,
+void AutofillQueryXmlParser::StartElement(buzz::XmlParseContext* context,
                                           const char* name,
                                           const char** attrs) {
   buzz::QName qname = context->ResolveQName(name, false);
@@ -89,7 +92,7 @@ void AutoFillQueryXmlParser::StartElement(buzz::XmlParseContext* context,
   }
 }
 
-int AutoFillQueryXmlParser::GetIntValue(buzz::XmlParseContext* context,
+int AutofillQueryXmlParser::GetIntValue(buzz::XmlParseContext* context,
                                         const char* attribute) {
   char* attr_end = NULL;
   int value = strtol(attribute, &attr_end, 10);
@@ -100,7 +103,7 @@ int AutoFillQueryXmlParser::GetIntValue(buzz::XmlParseContext* context,
   return value;
 }
 
-AutoFillUploadXmlParser::AutoFillUploadXmlParser(double* positive_upload_rate,
+AutofillUploadXmlParser::AutofillUploadXmlParser(double* positive_upload_rate,
                                                  double* negative_upload_rate)
     : succeeded_(false),
       positive_upload_rate_(positive_upload_rate),
@@ -109,7 +112,7 @@ AutoFillUploadXmlParser::AutoFillUploadXmlParser(double* positive_upload_rate,
   DCHECK(negative_upload_rate_);
 }
 
-void AutoFillUploadXmlParser::StartElement(buzz::XmlParseContext* context,
+void AutofillUploadXmlParser::StartElement(buzz::XmlParseContext* context,
                                            const char* name,
                                            const char** attrs) {
   buzz::QName qname = context->ResolveQName(name, false);
@@ -129,7 +132,7 @@ void AutoFillUploadXmlParser::StartElement(buzz::XmlParseContext* context,
   }
 }
 
-double AutoFillUploadXmlParser::GetDoubleValue(buzz::XmlParseContext* context,
+double AutofillUploadXmlParser::GetDoubleValue(buzz::XmlParseContext* context,
                                                const char* attribute) {
   char* attr_end = NULL;
   double value = strtod(attribute, &attr_end);

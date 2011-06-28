@@ -7,8 +7,8 @@
 #include "base/file_path.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/background_contents_service.h"
+#include "chrome/browser/background_contents_service_factory.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/extensions/crashed_extension_infobar.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/notifications/desktop_notification_service.h"
@@ -22,10 +22,10 @@
 #include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/common/extensions/extension.h"
-#include "chrome/common/page_transition_types.h"
 #include "chrome/test/in_process_browser_test.h"
 #include "chrome/test/ui_test_utils.h"
 #include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/page_transition_types.h"
 #include "grit/generated_resources.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -160,7 +160,7 @@ IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, NoticeBGContentsChanges) {
                                      FilePath(kTitle1File)));
 
   BackgroundContentsService* service =
-      browser()->profile()->GetBackgroundContentsService();
+      BackgroundContentsServiceFactory::GetForProfile(browser()->profile());
   string16 application_id(ASCIIToUTF16("test_app_id"));
   service->LoadBackgroundContents(browser()->profile(),
                                   url,
@@ -188,7 +188,7 @@ IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, KillBGContents) {
                                      FilePath(kTitle1File)));
 
   BackgroundContentsService* service =
-      browser()->profile()->GetBackgroundContentsService();
+      BackgroundContentsServiceFactory::GetForProfile(browser()->profile());
   string16 application_id(ASCIIToUTF16("test_app_id"));
   service->LoadBackgroundContents(browser()->profile(),
                                   url,

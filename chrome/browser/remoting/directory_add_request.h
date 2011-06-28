@@ -8,7 +8,7 @@
 #include <string>
 
 #include "base/callback.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/common/remoting/chromoting_host_info.h"
 #include "chrome/common/net/url_fetcher.h"
 #include "googleurl/src/gurl.h"
@@ -42,7 +42,7 @@ class DirectoryAddRequest : public URLFetcher::Delegate {
   // to the user.
   typedef Callback2<Result, const std::string&>::Type DoneCallback;
 
-  explicit DirectoryAddRequest(URLRequestContextGetter* getter);
+  explicit DirectoryAddRequest(net::URLRequestContextGetter* getter);
   ~DirectoryAddRequest();
 
   // Add this computer as a host. Use the token for
@@ -63,7 +63,7 @@ class DirectoryAddRequest : public URLFetcher::Delegate {
  private:
   friend class DirectoryAddRequestTest;
 
-  URLRequestContextGetter* getter_;
+  net::URLRequestContextGetter* getter_;
   scoped_ptr<DoneCallback> done_callback_;
   scoped_ptr<URLFetcher> fetcher_;
 

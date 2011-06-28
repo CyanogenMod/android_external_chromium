@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,10 +20,10 @@ DictionaryValue* GetNodeDictionary(const BookmarkNode* node,
   DictionaryValue* dict = new DictionaryValue();
   dict->SetString(keys::kIdKey, base::Int64ToString(node->id()));
 
-  const BookmarkNode* parent = node->GetParent();
+  const BookmarkNode* parent = node->parent();
   if (parent) {
     dict->SetString(keys::kParentIdKey, base::Int64ToString(parent->id()));
-    dict->SetInteger(keys::kIndexKey, parent->IndexOfChild(node));
+    dict->SetInteger(keys::kIndexKey, parent->GetIndexOf(node));
   }
 
   if (!node->is_folder()) {
@@ -31,9 +31,10 @@ DictionaryValue* GetNodeDictionary(const BookmarkNode* node,
   } else {
     // Javascript Date wants milliseconds since the epoch, ToDoubleT is
     // seconds.
-    base::Time t = node->date_group_modified();
+    base::Time t = node->date_folder_modified();
     if (!t.is_null())
-      dict->SetDouble(keys::kDateGroupModifiedKey, floor(t.ToDoubleT() * 1000));
+      dict->SetDouble(keys::kDateFolderModifiedKey,
+                      floor(t.ToDoubleT() * 1000));
   }
 
   dict->SetString(keys::kTitleKey, node->GetTitle());
@@ -45,7 +46,7 @@ DictionaryValue* GetNodeDictionary(const BookmarkNode* node,
   }
 
   if (recurse && node->is_folder()) {
-    int childCount = node->GetChildCount();
+    int childCount = node->child_count();
     ListValue* children = new ListValue();
     for (int i = 0; i < childCount; ++i) {
       const BookmarkNode* child = node->GetChild(i);
@@ -95,13 +96,13 @@ bool RemoveNode(BookmarkModel* model,
     *error = keys::kModifySpecialError;
     return false;
   }
-  if (node->is_folder() && node->GetChildCount() > 0 && !recursive) {
+  if (node->is_folder() && node->child_count() > 0 && !recursive) {
     *error = keys::kFolderNotEmptyError;
     return false;
   }
 
-  const BookmarkNode* parent = node->GetParent();
-  int index = parent->IndexOfChild(node);
+  const BookmarkNode* parent = node->parent();
+  int index = parent->GetIndexOf(node);
   model->Remove(parent, index);
   return true;
 }

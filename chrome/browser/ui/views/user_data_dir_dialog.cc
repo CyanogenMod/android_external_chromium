@@ -30,7 +30,7 @@ UserDataDirDialog::UserDataDirDialog(const FilePath& user_data_dir)
       IDS_CANT_WRITE_USER_DIRECTORY_SUMMARY,
       user_data_dir.LossyDisplayName()));
   const int kDialogWidth = 400;
-  message_box_view_ = new MessageBoxView(
+  message_box_view_ = new views::MessageBoxView(
       ui::MessageBoxFlags::kIsConfirmMessageBox,
       message_text.c_str(), std::wstring(), kDialogWidth);
 
@@ -74,8 +74,8 @@ bool UserDataDirDialog::Accept() {
   HWND owning_hwnd =
       GetAncestor(message_box_view_->GetWidget()->GetNativeView(), GA_ROOT);
   select_file_dialog_->SelectFile(SelectFileDialog::SELECT_FOLDER,
-                                  dialog_title, FilePath(), NULL,
-                                  0, std::wstring(), owning_hwnd, NULL);
+                                  dialog_title, FilePath(), NULL, 0,
+                                  std::wstring(), NULL, owning_hwnd, NULL);
   return false;
 }
 

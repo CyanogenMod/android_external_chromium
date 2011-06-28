@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,13 +19,13 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/webui/extension_icon_source.h"
+#include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/extensions/extension_error_utils.h"
-#include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_icon_set.h"
 #include "chrome/common/extensions/url_pattern.h"
-#include "chrome/common/notification_service.h"
-#include "chrome/common/notification_type.h"
+#include "content/common/notification_service.h"
+#include "content/common/notification_type.h"
 
 using base::IntToString;
 namespace events = extension_event_names;
@@ -42,12 +42,14 @@ const char kIsAppKey[] = "isApp";
 const char kNameKey[] = "name";
 const char kOptionsUrlKey[] = "optionsUrl";
 const char kPermissionsKey[] = "permissions";
+const char kMayDisableKey[] = "mayDisable";
 const char kSizeKey[] = "size";
 const char kUrlKey[] = "url";
 const char kVersionKey[] = "version";
 
 const char kNoExtensionError[] = "No extension with id *";
 const char kNotAnAppError[] = "Extension * is not an App";
+const char kUserCantDisableError[] = "Extension * can not be disabled by user";
 }
 
 ExtensionService* ExtensionManagementFunction::service() {
@@ -61,6 +63,8 @@ static DictionaryValue* CreateExtensionInfo(const Extension& extension,
   info->SetBoolean(kIsAppKey, extension.is_app());
   info->SetString(kNameKey, extension.name());
   info->SetBoolean(kEnabledKey, enabled);
+  info->SetBoolean(kMayDisableKey,
+                   Extension::UserMayDisable(extension.location()));
   info->SetString(kVersionKey, extension.VersionString());
   info->SetString(kDescriptionKey, extension.description());
   info->SetString(kOptionsUrlKey,
@@ -203,6 +207,13 @@ bool SetEnabledFunction::RunImpl() {
   ExtensionPrefs* prefs = service()->extension_prefs();
   Extension::State state = prefs->GetExtensionState(extension_id);
 
+  if (!Extension::UserMayDisable(
+      prefs->GetInstalledExtensionInfo(extension_id)->extension_location)) {
+    error_ = ExtensionErrorUtils::FormatErrorMessage(
+        kUserCantDisableError, extension_id);
+    return false;
+  }
+
   if (state == Extension::DISABLED && enable) {
     service()->EnableExtension(extension_id);
   } else if (state == Extension::ENABLED && !enable) {
@@ -222,7 +233,17 @@ bool UninstallFunction::RunImpl() {
     return false;
   }
 
-  service()->UninstallExtension(extension_id, false /* external_uninstall */);
+  ExtensionPrefs* prefs = service()->extension_prefs();
+
+  if (!Extension::UserMayDisable(
+      prefs->GetInstalledExtensionInfo(extension_id)->extension_location)) {
+    error_ = ExtensionErrorUtils::FormatErrorMessage(
+        kUserCantDisableError, extension_id);
+    return false;
+  }
+
+  service()->UninstallExtension(extension_id, false /* external_uninstall */,
+                                NULL);
   return true;
 }
 
@@ -243,10 +264,13 @@ void ExtensionManagementEventRouter::Init() {
     NotificationType::EXTENSION_UNLOADED
   };
 
-  for (size_t i = 0; i < arraysize(types); i++) {
-    registrar_.Add(this,
-                   types[i],
-                   NotificationService::AllSources());
+  // Don't re-init (eg in the case of multiple profiles).
+  if (registrar_.IsEmpty()) {
+    for (size_t i = 0; i < arraysize(types); i++) {
+      registrar_.Add(this,
+                     types[i],
+                     NotificationService::AllSources());
+    }
   }
 }
 

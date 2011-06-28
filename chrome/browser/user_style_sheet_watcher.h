@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,12 @@
 #pragma once
 
 #include "base/file_path.h"
-#include "base/ref_counted.h"
-#include "base/scoped_ptr.h"
-#include "chrome/browser/file_path_watcher/file_path_watcher.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
+#include "base/files/file_path_watcher.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "content/browser/browser_thread.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
 #include "googleurl/src/gurl.h"
 
 class UserStyleSheetLoader;
@@ -48,7 +48,7 @@ class UserStyleSheetWatcher
   scoped_refptr<UserStyleSheetLoader> loader_;
 
   // Watches for changes to the css file so we can reload the style sheet.
-  scoped_ptr<FilePathWatcher> file_watcher_;
+  scoped_ptr<base::files::FilePathWatcher> file_watcher_;
 
   NotificationRegistrar registrar_;
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -165,6 +165,11 @@ class BrowserInit {
     // new browser.
     bool ProcessStartupURLs(const std::vector<GURL>& urls_to_open);
 
+    // Adds a Tab to |tabs| for each url in |urls| that doesn't already exist
+    // in |tabs|.
+    void AddUniqueURLs(const std::vector<GURL>& urls,
+                       std::vector<Tab>* tabs);
+
     // Adds any startup infobars to the selected tab of the given browser.
     void AddInfoBarsIfNecessary(Browser* browser);
 
@@ -180,6 +185,11 @@ class BrowserInit {
     // warning infobar.
     void AddDNSCertProvenanceCheckingWarningInfoBarIfNecessary(
         TabContents* tab);
+
+    // If the user is using an operating system that we have deprecated
+    // support for and will no longer provide updates, warn the user
+    // about it.
+    void AddObsoleteSystemInfoBarIfNecessary(TabContents* tab);
 
     // Adds additional startup URLs to the specified vector.
     void AddStartupURLs(std::vector<GURL>* startup_urls) const;

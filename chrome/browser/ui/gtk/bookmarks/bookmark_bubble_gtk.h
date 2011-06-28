@@ -17,7 +17,7 @@
 #include <vector>
 
 #include "base/basictypes.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/task.h"
 #include "chrome/browser/ui/gtk/info_bubble_gtk.h"
 #include "content/common/notification_observer.h"
@@ -86,7 +86,7 @@ class BookmarkBubbleGtk : public InfoBubbleGtkDelegate,
   Profile* profile_;
 
   // Provides colors and stuff.
-  GtkThemeProvider* theme_provider_;
+  GtkThemeService* theme_service_;
 
   // The widget relative to which we are positioned.
   GtkWidget* anchor_;

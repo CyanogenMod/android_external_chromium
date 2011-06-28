@@ -12,16 +12,16 @@
 #include "base/command_line.h"
 #include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/message_loop.h"
-#include "base/scoped_ptr.h"
 #include "base/stl_util-inl.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/common/extensions/extension.h"
-#include "chrome/common/notification_registrar.h"
-#include "chrome/common/notification_service.h"
-#include "chrome/common/notification_type.h"
 #include "chrome/test/testing_profile.h"
 #include "content/browser/browser_thread.h"
+#include "content/common/notification_registrar.h"
+#include "content/common/notification_service.h"
+#include "content/common/notification_type.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 // This value is used to seed the PRNG at the beginning of a sequence of
@@ -68,7 +68,7 @@ void BackgroundApplicationListModelTest::InitializeEmptyExtensionService() {
   profile_.reset(profile);
   service_ = profile->CreateExtensionService(
       CommandLine::ForCurrentProcess(),
-      bogus_file_path());
+      bogus_file_path(), false);
   service_->set_extensions_enabled(true);
   service_->set_show_extensions_prompts(false);
   service_->OnLoadedInstalledExtensions(); /* Sends EXTENSIONS_READY */
@@ -89,8 +89,8 @@ static scoped_refptr<Extension> CreateExtension(const std::string& name,
   }
   std::string error;
   scoped_refptr<Extension> extension = Extension::Create(
-      bogus_file_path().AppendASCII(name), Extension::INVALID, manifest, false,
-      true, &error);
+      bogus_file_path().AppendASCII(name), Extension::INVALID, manifest,
+      Extension::STRICT_ERROR_CHECKS, &error);
   // Cannot ASSERT_* here because that attempts an illegitimate return.
   // Cannot EXPECT_NE here because that assumes non-pointers unlike EXPECT_EQ
   EXPECT_TRUE(extension.get() != NULL) << error;
@@ -141,23 +141,23 @@ TEST_F(BackgroundApplicationListModelTest, LoadExplicitExtensions) {
   ASSERT_EQ(2U, model->size());
   // Remove in FIFO order.
   ASSERT_FALSE(BackgroundApplicationListModel::IsBackgroundApp(*ext1));
-  service->UninstallExtension(ext1->id(), false);
+  service->UninstallExtension(ext1->id(), false, NULL);
   ASSERT_EQ(4U, service->extensions()->size());
   ASSERT_EQ(2U, model->size());
   ASSERT_TRUE(BackgroundApplicationListModel::IsBackgroundApp(*bgapp1));
-  service->UninstallExtension(bgapp1->id(), false);
+  service->UninstallExtension(bgapp1->id(), false, NULL);
   ASSERT_EQ(3U, service->extensions()->size());
   ASSERT_EQ(1U, model->size());
   ASSERT_FALSE(BackgroundApplicationListModel::IsBackgroundApp(*ext2));
-  service->UninstallExtension(ext2->id(), false);
+  service->UninstallExtension(ext2->id(), false, NULL);
   ASSERT_EQ(2U, service->extensions()->size());
   ASSERT_EQ(1U, model->size());
   ASSERT_TRUE(BackgroundApplicationListModel::IsBackgroundApp(*bgapp2));
-  service->UninstallExtension(bgapp2->id(), false);
+  service->UninstallExtension(bgapp2->id(), false, NULL);
   ASSERT_EQ(1U, service->extensions()->size());
   ASSERT_EQ(0U, model->size());
   ASSERT_FALSE(BackgroundApplicationListModel::IsBackgroundApp(*ext3));
-  service->UninstallExtension(ext3->id(), false);
+  service->UninstallExtension(ext3->id(), false, NULL);
   ASSERT_EQ(0U, service->extensions()->size());
   ASSERT_EQ(0U, model->size());
 }
@@ -232,7 +232,7 @@ TEST_F(BackgroundApplicationListModelTest, LoadRandomExtension) {
         extensions.erase(cursor);
         --count;
         ASSERT_EQ(count, extensions.size());
-        service->UninstallExtension(extension->id(), false);
+        service->UninstallExtension(extension->id(), false, NULL);
         ASSERT_EQ(count, service->extensions()->size());
         ASSERT_EQ(expected, model->size());
       }

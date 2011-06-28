@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,14 +8,15 @@
 #include <vector>
 
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/chromeos/user_cros_settings_provider.h"
 #include "chrome/browser/chromeos/login/existing_user_view.h"
 #include "chrome/browser/chromeos/login/guest_user_view.h"
 #include "chrome/browser/chromeos/login/helper.h"
 #include "chrome/browser/chromeos/login/rounded_rect_painter.h"
 #include "chrome/browser/chromeos/login/user_view.h"
 #include "chrome/browser/chromeos/login/username_view.h"
+#include "chrome/browser/chromeos/login/wizard_accessibility_helper.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
+#include "chrome/browser/chromeos/user_cros_settings_provider.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "third_party/cros/chromeos_wm_ipc_enums.h"
@@ -26,14 +27,13 @@
 #include "views/controls/button/native_button.h"
 #include "views/controls/label.h"
 #include "views/controls/throbber.h"
-#include "views/layout/grid_layout.h"
+#include "views/focus/focus_manager.h"
 #include "views/painter.h"
 #include "views/screen.h"
 #include "views/widget/root_view.h"
 #include "views/widget/widget_gtk.h"
 
-using views::ColumnSet;
-using views::GridLayout;
+using views::Widget;
 using views::WidgetGtk;
 
 namespace chromeos {
@@ -64,10 +64,21 @@ class ControlsWindow : public WidgetGtk {
   }
 
  private:
-  // WidgetGtk overrrides:
-  virtual void SetInitialFocus() {
+  // WidgetGtk overrides:
+  virtual void SetInitialFocus() OVERRIDE {
     if (initial_focus_view_)
       initial_focus_view_->RequestFocus();
+  }
+
+  virtual void OnMap(GtkWidget* widget) OVERRIDE {
+    // For some reason, Controls window never gets first expose event,
+    // which makes WM believe that the login screen is not ready.
+    // This is a workaround to let WM show the login screen. While
+    // this may allow WM to show unpainted window, we haven't seen any
+    // issue (yet). We will not investigate this further because we're
+    // migrating to different implemention (WebUI).
+    UpdateFreezeUpdatesProperty(GTK_WINDOW(GetNativeView()),
+                                false /* remove */);
   }
 
   views::View* initial_focus_view_;
@@ -98,7 +109,7 @@ class ClickNotifyingWidget : public views::WidgetGtk {
   DISALLOW_COPY_AND_ASSIGN(ClickNotifyingWidget);
 };
 
-void CloseWindow(views::WidgetGtk* window) {
+void CloseWindow(views::Widget* window) {
   if (!window)
     return;
   window->set_widget_delegate(NULL);
@@ -189,26 +200,24 @@ void UserController::Init(int index,
   label_window_ = CreateLabelWindow(index, WM_IPC_WINDOW_LOGIN_LABEL);
   unselected_label_window_ =
       CreateLabelWindow(index, WM_IPC_WINDOW_LOGIN_UNSELECTED_LABEL);
-
-  // Flush updates to all the windows so their appearance will be synchronized
-  // when being displayed.
-  gdk_window_process_updates(controls_window_->GetNativeView()->window, false);
-  gdk_window_process_updates(image_window_->GetNativeView()->window, false);
-  gdk_window_process_updates(border_window_->GetNativeView()->window, false);
-  gdk_window_process_updates(label_window_->GetNativeView()->window, false);
-  gdk_window_process_updates(
-      unselected_label_window_->GetNativeView()->window, false);
 }
 
 void UserController::ClearAndEnableFields() {
-  user_input_->ClearAndFocusControls();
   user_input_->EnableInputControls(true);
+  user_input_->ClearAndFocusControls();
   StopThrobber();
 }
 
 void UserController::ClearAndEnablePassword() {
-  user_input_->ClearAndFocusPassword();
+  // Somehow focus manager thinks that textfield is still focused but the
+  // textfield doesn't know that. So we clear focus for focus manager so it
+  // sets focus on the textfield again.
+  // TODO(avayvod): Fix the actual issue.
+  views::FocusManager* focus_manager = controls_window_->GetFocusManager();
+  if (focus_manager)
+    focus_manager->ClearFocus();
   user_input_->EnableInputControls(true);
+  user_input_->ClearAndFocusPassword();
   StopThrobber();
 }
 
@@ -265,10 +274,18 @@ void UserController::UpdateUserCount(int index, int total_user_count) {
       &params);
 }
 
+std::string UserController::GetAccessibleUserLabel() {
+  if (is_new_user_)
+    return l10n_util::GetStringUTF8(IDS_ADD_USER);
+  if (is_guest_)
+    return l10n_util::GetStringUTF8(IDS_GUEST);
+  return user_.email();
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // UserController, WidgetDelegate implementation:
 //
-void UserController::IsActiveChanged(bool active) {
+void UserController::OnWidgetActivated(bool active) {
   is_user_selected_ = active;
   if (active) {
     delegate_->OnUserSelected(this);
@@ -301,6 +318,10 @@ void UserController::OnCreateAccount() {
   delegate_->CreateAccount();
 }
 
+void UserController::OnStartEnterpriseEnrollment() {
+  delegate_->StartEnterpriseEnrollment();
+}
+
 void UserController::OnLoginAsGuest() {
   user_input_->EnableInputControls(false);
   StartThrobber();
@@ -325,6 +346,8 @@ void UserController::OnLocaleChanged() {
     if (name_tooltip_enabled_)
       EnableNameTooltip(name_tooltip_enabled_);
   }
+  label_view_->SetFont(GetLabelFont());
+  unselected_label_view_->SetFont(GetUnselectedLabelFont());
 }
 
 void UserController::OnRemoveUser() {
@@ -439,8 +462,9 @@ void UserController::CreateBorderWindow(int index,
     height += 2 * kBorderSize + kUserImageSize + kVerticalIntervalSize;
   }
 
-  border_window_ = new WidgetGtk(WidgetGtk::TYPE_WINDOW);
-  border_window_->MakeTransparent();
+  Widget::CreateParams params(Widget::CreateParams::TYPE_WINDOW);
+  params.transparent = true;
+  border_window_ = Widget::CreateWidget(params);
   border_window_->Init(NULL, gfx::Rect(0, 0, width, height));
   if (!is_new_user_) {
     views::View* background_view = new views::View();
@@ -484,12 +508,8 @@ WidgetGtk* UserController::CreateLabelWindow(int index,
     label = UsernameView::CreateShapedUsernameView(text, true);
   }
 
-  ResourceBundle& rb = ResourceBundle::GetSharedInstance();
   const gfx::Font& font = (type == WM_IPC_WINDOW_LOGIN_LABEL) ?
-      rb.GetFont(ResourceBundle::MediumBoldFont).DeriveFont(
-          kSelectedUsernameFontDelta) :
-      rb.GetFont(ResourceBundle::BaseFont).DeriveFont(
-          kUnselectedUsernameFontDelta, gfx::Font::BOLD);
+      GetLabelFont() : GetUnselectedLabelFont();
   label->SetFont(font);
   label->SetColor(login::kTextColor);
 
@@ -514,6 +534,19 @@ WidgetGtk* UserController::CreateLabelWindow(int index,
                        label);
   return window;
 }
+
+gfx::Font UserController::GetLabelFont() {
+  ResourceBundle& rb = ResourceBundle::GetSharedInstance();
+  return rb.GetFont(ResourceBundle::MediumBoldFont).DeriveFont(
+      kSelectedUsernameFontDelta);
+}
+
+gfx::Font UserController::GetUnselectedLabelFont() {
+  ResourceBundle& rb = ResourceBundle::GetSharedInstance();
+  return rb.GetFont(ResourceBundle::BaseFont).DeriveFont(
+      kUnselectedUsernameFontDelta, gfx::Font::BOLD);
+}
+
 
 std::wstring UserController::GetNameTooltip() const {
   if (is_new_user_)

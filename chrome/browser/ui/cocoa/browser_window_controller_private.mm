@@ -4,11 +4,12 @@
 
 #import "chrome/browser/ui/cocoa/browser_window_controller_private.h"
 
-#import "base/scoped_nsobject.h"
+#include "base/command_line.h"
+#import "base/memory/scoped_nsobject.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/prefs/scoped_user_pref_update.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/themes/browser_theme_provider.h"
 #include "chrome/browser/ui/browser_list.h"
 #import "chrome/browser/ui/cocoa/fast_resize_view.h"
 #import "chrome/browser/ui/cocoa/find_bar/find_bar_cocoa_controller.h"
@@ -21,6 +22,7 @@
 #import "chrome/browser/ui/cocoa/tabs/tab_strip_controller.h"
 #import "chrome/browser/ui/cocoa/tabs/tab_strip_view.h"
 #import "chrome/browser/ui/cocoa/toolbar/toolbar_controller.h"
+#include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "content/browser/renderer_host/render_widget_host_view.h"
 #include "content/browser/tab_contents/tab_contents.h"
@@ -40,6 +42,20 @@ const CGFloat kLocBarBottomInset = 1;
 
 }  // end namespace
 
+// 10.7 adds public APIs for full-screen support. Provide the declaration so it
+// can be called below when building with the 10.5 SDK.
+#if !defined(MAC_OS_X_VERSION_10_7) || \
+MAC_OS_X_VERSION_MAX_ALLOWED < MAC_OS_X_VERSION_10_7
+
+@interface NSWindow (LionSDKDeclarations)
+- (void)toggleFullScreen:(id)sender;
+@end
+
+enum {
+  NSWindowFullScreenButton = 7
+};
+
+#endif  // MAC_OS_X_VERSION_10_7
 
 @implementation BrowserWindowController(Private)
 
@@ -101,8 +117,8 @@ const CGFloat kLocBarBottomInset = 1;
   if (browser_->ShouldSaveWindowPlacement())
     browser_->SaveWindowPlacement(bounds, /*maximized=*/ false);
 
-  DictionaryValue* windowPreferences = prefs->GetMutableDictionary(
-      browser_->GetWindowPlacementKey().c_str());
+  DictionaryPrefUpdate update(prefs, browser_->GetWindowPlacementKey().c_str());
+  DictionaryValue* windowPreferences = update.Get();
   windowPreferences->SetInteger("left", bounds.x());
   windowPreferences->SetInteger("top", bounds.y());
   windowPreferences->SetInteger("right", bounds.right());
@@ -283,9 +299,19 @@ willPositionSheet:(NSWindow*)sheet
 
   // Now lay out incognito badge together with the tab strip.
   if (incognitoBadge_.get()) {
+    // Avoid the full-screen button.
+    CGFloat extraPadding = 0;
+    if ([[self window] respondsToSelector:@selector(toggleFullScreen:)]) {
+      NSButton* fullscreenButton =
+          [[self window] standardWindowButton:NSWindowFullScreenButton];
+      if (fullscreenButton)
+        extraPadding += [fullscreenButton frame].size.width;
+    }
+
     // Actually place the badge *above* |maxY|, by +2 to miss the divider.
     NSPoint origin = NSMakePoint(width - NSWidth([incognitoBadge_ frame]) -
-                                     kIncognitoBadgeOffset, maxY + 2);
+                                     kIncognitoBadgeOffset - extraPadding,
+                                 maxY + 2);
     [incognitoBadge_ setFrameOrigin:origin];
     [incognitoBadge_ setHidden:NO];  // Make sure it's shown.
   }
@@ -449,6 +475,10 @@ willPositionSheet:(NSWindow*)sheet
 }
 
 - (BOOL)shouldShowDetachedBookmarkBar {
+  // NTP4 never detaches the bookmark bar.
+  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kNewTabPage4))
+    return NO;
+
   DCHECK(browser_.get());
   TabContents* contents = browser_->GetSelectedTabContents();
   return (contents &&

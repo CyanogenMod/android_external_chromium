@@ -7,7 +7,7 @@
 #include <algorithm>
 #include <string>
 
-#include "base/singleton.h"
+#include "base/memory/singleton.h"
 #include "base/string_piece.h"
 #include "base/values.h"
 #include "chrome/browser/profiles/profile.h"
@@ -26,7 +26,7 @@ TextfieldsUIHTMLSource::TextfieldsUIHTMLSource()
 }
 
 void TextfieldsUIHTMLSource::StartDataRequest(const std::string& path,
-                                              bool is_off_the_record,
+                                              bool is_incognito,
                                               int request_id) {
   const std::string full_html = ResourceBundle::GetSharedInstance()
       .GetRawDataResource(IDR_TEXTFIELDS_HTML).as_string();
@@ -56,7 +56,8 @@ void TextfieldsDOMHandler::RegisterMessages() {
 }
 
 void TextfieldsDOMHandler::HandleTextfieldValue(const ListValue* args) {
-  static_cast<TextfieldsUI*>(web_ui_)->set_text(ExtractStringValue(args));
+  static_cast<TextfieldsUI*>(web_ui_)->set_text(
+      UTF16ToWideHack(ExtractStringValue(args)));
 }
 
 /**

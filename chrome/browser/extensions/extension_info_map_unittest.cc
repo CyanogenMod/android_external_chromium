@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,8 @@
 #include "chrome/browser/extensions/extension_info_map.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/extensions/extension.h"
-#include "chrome/common/json_value_serializer.h"
 #include "content/browser/browser_thread.h"
+#include "content/common/json_value_serializer.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace keys = extension_manifest_keys;
@@ -42,8 +42,8 @@ static scoped_refptr<Extension> CreateExtension(const std::string& name) {
 
   std::string error;
   scoped_refptr<Extension> extension = Extension::Create(
-      path.AppendASCII(name), Extension::INVALID, manifest, false, true,
-      &error);
+      path.AppendASCII(name), Extension::INVALID, manifest,
+      Extension::STRICT_ERROR_CHECKS, &error);
   EXPECT_TRUE(extension) << error;
 
   return extension;
@@ -65,7 +65,7 @@ static scoped_refptr<Extension> LoadManifest(const std::string& dir,
   std::string error;
   scoped_refptr<Extension> extension = Extension::Create(
       path, Extension::INVALID, *static_cast<DictionaryValue*>(result.get()),
-      false, true, &error);
+      Extension::STRICT_ERROR_CHECKS, &error);
   EXPECT_TRUE(extension) << error;
 
   return extension;
@@ -83,14 +83,9 @@ TEST_F(ExtensionInfoMapTest, RefCounting) {
   EXPECT_TRUE(extension2->HasOneRef());
   EXPECT_TRUE(extension3->HasOneRef());
 
-  // Add a ref to each extension and give it to the info map. The info map
-  // expects the caller to add a ref for it, but then assumes ownership of that
-  // reference.
-  extension1->AddRef();
+  // Add a ref to each extension and give it to the info map.
   info_map->AddExtension(extension1);
-  extension2->AddRef();
   info_map->AddExtension(extension2);
-  extension3->AddRef();
   info_map->AddExtension(extension3);
 
   // Release extension1, and the info map should have the only ref.
@@ -99,7 +94,7 @@ TEST_F(ExtensionInfoMapTest, RefCounting) {
   EXPECT_TRUE(weak_extension1->HasOneRef());
 
   // Remove extension2, and the extension2 object should have the only ref.
-  info_map->RemoveExtension(extension2->id());
+  info_map->RemoveExtension(extension2->id(), UnloadedExtensionInfo::UNINSTALL);
   EXPECT_TRUE(extension2->HasOneRef());
 
   // Delete the info map, and the extension3 object should have the only ref.
@@ -114,9 +109,7 @@ TEST_F(ExtensionInfoMapTest, Properties) {
   scoped_refptr<Extension> extension1(CreateExtension("extension1"));
   scoped_refptr<Extension> extension2(CreateExtension("extension2"));
 
-  extension1->AddRef();
   info_map->AddExtension(extension1);
-  extension2->AddRef();
   info_map->AddExtension(extension2);
 
   EXPECT_EQ(extension1->name(),
@@ -143,9 +136,7 @@ TEST_F(ExtensionInfoMapTest, CheckPermissions) {
   ASSERT_TRUE(app->is_app());
   ASSERT_TRUE(app->web_extent().ContainsURL(app_url));
 
-  app->AddRef();
   info_map->AddExtension(app);
-  extension->AddRef();
   info_map->AddExtension(extension);
 
   // The app should have the notifications permission, either from a

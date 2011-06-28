@@ -39,22 +39,26 @@ const AutofillFieldType kProfileFieldTypes[] = {
   ADDRESS_HOME_STATE,
   ADDRESS_HOME_ZIP,
   ADDRESS_HOME_COUNTRY,
-  PHONE_HOME_NUMBER,
-  PHONE_FAX_NUMBER,
+  PHONE_HOME_WHOLE_NUMBER,
+  PHONE_FAX_WHOLE_NUMBER,
 };
 
 // Serializes the |profiles| into a string.
-std::string SerializeProfiles(const std::vector<AutoFillProfile*>& profiles) {
+std::string SerializeProfiles(const std::vector<AutofillProfile*>& profiles) {
   std::string result;
   for (size_t i = 0; i < profiles.size(); ++i) {
     result += kProfileSeparator;
     result += "\n";
     for (size_t j = 0; j < arraysize(kProfileFieldTypes); ++j) {
       AutofillFieldType type = kProfileFieldTypes[j];
-      result += AutofillType::FieldTypeToString(type);
-      result += kFieldSeparator;
-      result += UTF16ToUTF8(profiles[i]->GetFieldText(AutofillType(type)));
-      result += "\n";
+      std::vector<string16> values;
+      profiles[i]->GetMultiInfo(type, &values);
+      for (size_t k = 0; k < values.size(); ++k) {
+        result += AutofillType::FieldTypeToString(type);
+        result += kFieldSeparator;
+        result += UTF16ToUTF8(values[k]);
+        result += "\n";
+      }
     }
   }
 
@@ -70,11 +74,11 @@ class PersonalDataManagerMock : public PersonalDataManager {
   void Reset();
 
   // PersonalDataManager:
-  virtual void SaveImportedProfile(const AutoFillProfile& profile) OVERRIDE;
-  virtual const std::vector<AutoFillProfile*>& web_profiles() OVERRIDE;
+  virtual void SaveImportedProfile(const AutofillProfile& profile) OVERRIDE;
+  virtual const std::vector<AutofillProfile*>& web_profiles() OVERRIDE;
 
  private:
-  ScopedVector<AutoFillProfile> profiles_;
+  ScopedVector<AutofillProfile> profiles_;
 
   DISALLOW_COPY_AND_ASSIGN(PersonalDataManagerMock);
 };
@@ -90,27 +94,27 @@ void PersonalDataManagerMock::Reset() {
 }
 
 void PersonalDataManagerMock::SaveImportedProfile(
-    const AutoFillProfile& profile) {
-  std::vector<AutoFillProfile> profiles;
+    const AutofillProfile& profile) {
+  std::vector<AutofillProfile> profiles;
   if (!MergeProfile(profile, profiles_.get(), &profiles))
-    profiles_.push_back(new AutoFillProfile(profile));
+    profiles_.push_back(new AutofillProfile(profile));
 }
 
-const std::vector<AutoFillProfile*>& PersonalDataManagerMock::web_profiles() {
+const std::vector<AutofillProfile*>& PersonalDataManagerMock::web_profiles() {
   return profiles_.get();
 }
 
 }  // namespace
 
-// A data-driven test for verifying merging of AutoFill profiles. Each input is
+// A data-driven test for verifying merging of Autofill profiles. Each input is
 // a structured dump of a set of implicitly detected autofill profiles. The
 // corresponding output file is a dump of the saved profiles that result from
 // importing the input profiles. The output file format is identical to the
 // input format.
-class AutoFillMergeTest : public testing::Test, public DataDrivenTest {
+class AutofillMergeTest : public testing::Test, public DataDrivenTest {
  protected:
-  AutoFillMergeTest();
-  virtual ~AutoFillMergeTest();
+  AutofillMergeTest();
+  virtual ~AutofillMergeTest();
 
   // testing::Test:
   virtual void SetUp();
@@ -119,39 +123,34 @@ class AutoFillMergeTest : public testing::Test, public DataDrivenTest {
   virtual void GenerateResults(const std::string& input,
                                std::string* output) OVERRIDE;
 
-  // Deserializes a set of AutoFill profiles from |profiles|, imports each
+  // Deserializes a set of Autofill profiles from |profiles|, imports each
   // sequentially, and fills |merged_profiles| with the serialized result.
   void MergeProfiles(const std::string& profiles, std::string* merged_profiles);
 
   scoped_refptr<PersonalDataManagerMock> personal_data_;
 
  private:
-  DISALLOW_COPY_AND_ASSIGN(AutoFillMergeTest);
+  DISALLOW_COPY_AND_ASSIGN(AutofillMergeTest);
 };
 
-AutoFillMergeTest::AutoFillMergeTest() : DataDrivenTest() {
+AutofillMergeTest::AutofillMergeTest() : DataDrivenTest() {
 }
 
-AutoFillMergeTest::~AutoFillMergeTest() {
+AutofillMergeTest::~AutofillMergeTest() {
 }
 
-void AutoFillMergeTest::SetUp() {
+void AutofillMergeTest::SetUp() {
   autofill_test::DisableSystemServices(NULL);
 
   personal_data_ = new PersonalDataManagerMock();
 }
 
-void AutoFillMergeTest::GenerateResults(const std::string& input,
+void AutofillMergeTest::GenerateResults(const std::string& input,
                                         std::string* output) {
   MergeProfiles(input, output);
-
-  // Verify that the test is idempotent on the output profiles.
-  std::string merged_output;
-  MergeProfiles(*output, &merged_output);
-  EXPECT_EQ(*output, merged_output);
 }
 
-void AutoFillMergeTest::MergeProfiles(const std::string& profiles,
+void AutofillMergeTest::MergeProfiles(const std::string& profiles,
                                       std::string* merged_profiles) {
   // Start with no saved profiles.
   personal_data_->Reset();
@@ -188,8 +187,7 @@ void AutoFillMergeTest::MergeProfiles(const std::string& profiles,
 
     // The first line is always a profile separator, and the last profile is not
     // followed by an explicit separator.
-    if ((i > 0 && line == kProfileSeparator) ||
-        i == lines.size() - 1) {
+    if ((i > 0 && line == kProfileSeparator) || i == lines.size() - 1) {
       // Reached the end of a profile.  Try to import it.
       FormStructure form_structure(form);
       for (size_t i = 0; i < form_structure.field_count(); ++i) {
@@ -198,7 +196,7 @@ void AutoFillMergeTest::MergeProfiles(const std::string& profiles,
         AutofillField* field =
             const_cast<AutofillField*>(form_structure.field(i));
         AutofillFieldType type =
-            AutofillType::StringToFieldType(UTF16ToUTF8(field->name()));
+            AutofillType::StringToFieldType(UTF16ToUTF8(field->name));
         field->set_heuristic_type(type);
       }
       std::vector<const FormStructure*> form_structures(1, &form_structure);
@@ -216,7 +214,7 @@ void AutoFillMergeTest::MergeProfiles(const std::string& profiles,
   *merged_profiles = SerializeProfiles(personal_data_->web_profiles());
 }
 
-TEST_F(AutoFillMergeTest, DataDrivenMergeProfiles) {
+TEST_F(AutofillMergeTest, DataDrivenMergeProfiles) {
   RunDataDrivenTest(GetInputDirectory(kTestName), GetOutputDirectory(kTestName),
                     kFileNamePattern);
 }

@@ -5,12 +5,14 @@
 #include "chrome/browser/autofill/autofill_profile.h"
 
 #include <algorithm>
+#include <map>
 #include <set>
 
-#include "base/stl_util-inl.h"
+#include "base/basictypes.h"
+#include "base/logging.h"
+#include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/autofill/address.h"
-#include "chrome/browser/autofill/autofill_manager.h"
 #include "chrome/browser/autofill/autofill_type.h"
 #include "chrome/browser/autofill/contact_info.h"
 #include "chrome/browser/autofill/fax_number.h"
@@ -98,120 +100,222 @@ void GetFieldsForDistinguishingProfiles(
   }
 }
 
+// A helper function for string streaming.  Concatenates multi-valued entries
+// stored for a given |type| into a single string.  This string is returned.
+const string16 MultiString(const AutofillProfile& p, AutofillFieldType type) {
+  std::vector<string16> values;
+  p.GetMultiInfo(type, &values);
+  string16 accumulate;
+  for (size_t i = 0; i < values.size(); ++i) {
+    if (i > 0)
+      accumulate += ASCIIToUTF16(" ");
+    accumulate += values[i];
+  }
+  return accumulate;
+}
+
+template <class T>
+void CopyValuesToItems(AutofillFieldType type,
+                       const std::vector<string16>& values,
+                       std::vector<T>* form_group_items) {
+  form_group_items->resize(values.size());
+  for (size_t i = 0; i < form_group_items->size(); ++i)
+    (*form_group_items)[i].SetInfo(type, CollapseWhitespace(values[i], false));
+  // Must have at least one (possibly empty) element.
+  if (form_group_items->empty())
+    form_group_items->resize(1);
+}
+
+template <class T>
+void CopyItemsToValues(AutofillFieldType type,
+                       const std::vector<T>& form_group_items,
+                       std::vector<string16>* values) {
+  values->resize(form_group_items.size());
+  for (size_t i = 0; i < values->size(); ++i)
+    (*values)[i] = form_group_items[i].GetInfo(type);
+}
+
+// Collapse compound field types to their "full" type.  I.e. First name
+// collapses to full name, area code collapses to full phone, etc.
+void CollapseCompoundFieldTypes(FieldTypeSet* type_set) {
+  FieldTypeSet collapsed_set;
+  for (FieldTypeSet::iterator iter = type_set->begin(); iter != type_set->end();
+       ++iter) {
+    switch (*iter) {
+      case NAME_FIRST:
+      case NAME_MIDDLE:
+      case NAME_LAST:
+      case NAME_MIDDLE_INITIAL:
+      case NAME_FULL:
+      case NAME_SUFFIX:
+        collapsed_set.insert(NAME_FULL);
+        break;
+
+      case PHONE_HOME_NUMBER:
+      case PHONE_HOME_CITY_CODE:
+      case PHONE_HOME_COUNTRY_CODE:
+      case PHONE_HOME_CITY_AND_NUMBER:
+      case PHONE_HOME_WHOLE_NUMBER:
+        collapsed_set.insert(PHONE_HOME_WHOLE_NUMBER);
+        break;
+
+      case PHONE_FAX_NUMBER:
+      case PHONE_FAX_CITY_CODE:
+      case PHONE_FAX_COUNTRY_CODE:
+      case PHONE_FAX_CITY_AND_NUMBER:
+      case PHONE_FAX_WHOLE_NUMBER:
+        collapsed_set.insert(PHONE_FAX_WHOLE_NUMBER);
+        break;
+
+      default:
+        collapsed_set.insert(*iter);
+    }
+  }
+  std::swap(*type_set, collapsed_set);
+}
+
 }  // namespace
 
-AutoFillProfile::AutoFillProfile(const std::string& guid)
-    : guid_(guid) {
-  InitPersonalInfo(&personal_info_);
+AutofillProfile::AutofillProfile(const std::string& guid)
+    : guid_(guid), name_(1), email_(1), home_number_(1), fax_number_(1) {
 }
 
-AutoFillProfile::AutoFillProfile()
-    : guid_(guid::GenerateGUID()) {
-  InitPersonalInfo(&personal_info_);
+AutofillProfile::AutofillProfile()
+    : guid_(guid::GenerateGUID()),
+      name_(1),
+      email_(1),
+      home_number_(1),
+      fax_number_(1) {
 }
 
-AutoFillProfile::AutoFillProfile(const AutoFillProfile& source)
+AutofillProfile::AutofillProfile(const AutofillProfile& profile)
     : FormGroup() {
-  operator=(source);
+  operator=(profile);
 }
 
-AutoFillProfile::~AutoFillProfile() {
-  STLDeleteContainerPairSecondPointers(personal_info_.begin(),
-                                       personal_info_.end());
+AutofillProfile::~AutofillProfile() {
 }
 
-void AutoFillProfile::GetPossibleFieldTypes(
+AutofillProfile& AutofillProfile::operator=(const AutofillProfile& profile) {
+  if (this == &profile)
+    return *this;
+
+  label_ = profile.label_;
+  guid_ = profile.guid_;
+
+  name_ = profile.name_;
+  email_ = profile.email_;
+  company_ = profile.company_;
+  home_number_ = profile.home_number_;
+  fax_number_ = profile.fax_number_;
+  address_ = profile.address_;
+
+  return *this;
+}
+
+void AutofillProfile::GetPossibleFieldTypes(
     const string16& text,
     FieldTypeSet* possible_types) const {
-  for (FormGroupMap::const_iterator iter = personal_info_.begin();
-       iter != personal_info_.end(); ++iter) {
-    FormGroup* data = iter->second;
-    DCHECK(data != NULL);
-    data->GetPossibleFieldTypes(text, possible_types);
-  }
+  FormGroupList info = FormGroups();
+  for (FormGroupList::const_iterator it = info.begin(); it != info.end(); ++it)
+    (*it)->GetPossibleFieldTypes(text, possible_types);
 }
 
-void AutoFillProfile::GetAvailableFieldTypes(
+void AutofillProfile::GetAvailableFieldTypes(
     FieldTypeSet* available_types) const {
-  for (FormGroupMap::const_iterator iter = personal_info_.begin();
-       iter != personal_info_.end(); ++iter) {
-    FormGroup* data = iter->second;
-    DCHECK(data != NULL);
-    data->GetAvailableFieldTypes(available_types);
-  }
+  FormGroupList info = FormGroups();
+  for (FormGroupList::const_iterator it = info.begin(); it != info.end(); ++it)
+    (*it)->GetAvailableFieldTypes(available_types);
 }
 
-string16 AutoFillProfile::GetFieldText(const AutofillType& type) const {
-  AutofillType return_type(
-      AutofillType::GetEquivalentFieldType(type.field_type()));
-
-  FormGroupMap::const_iterator iter = personal_info_.find(return_type.group());
-  if (iter == personal_info_.end() || iter->second == NULL)
+string16 AutofillProfile::GetInfo(AutofillFieldType type) const {
+  AutofillFieldType return_type = AutofillType::GetEquivalentFieldType(type);
+  const FormGroup* form_group = FormGroupForType(return_type);
+  if (!form_group)
     return string16();
 
-  return iter->second->GetFieldText(return_type);
+  return form_group->GetInfo(return_type);
 }
 
-void AutoFillProfile::FindInfoMatches(
-    const AutofillType& type,
-    const string16& info,
-    std::vector<string16>* matched_text) const {
-  if (matched_text == NULL) {
-    DLOG(ERROR) << "NULL matched text passed in";
-    return;
+void AutofillProfile::SetInfo(AutofillFieldType type, const string16& value) {
+  FormGroup* form_group = MutableFormGroupForType(type);
+  if (form_group)
+    form_group->SetInfo(type, CollapseWhitespace(value, false));
+}
+
+void AutofillProfile::SetMultiInfo(AutofillFieldType type,
+                                   const std::vector<string16>& values) {
+  switch (AutofillType(type).group()) {
+    case AutofillType::NAME:
+      CopyValuesToItems(type, values, &name_);
+      break;
+    case AutofillType::EMAIL:
+      CopyValuesToItems(type, values, &email_);
+      break;
+    case AutofillType::PHONE_HOME:
+      CopyValuesToItems(type, values, &home_number_);
+      break;
+    case AutofillType::PHONE_FAX:
+      CopyValuesToItems(type, values, &fax_number_);
+      break;
+    default:
+      if (values.size() == 1) {
+        SetInfo(type, values[0]);
+      } else if (values.size() == 0) {
+        SetInfo(type, string16());
+      } else {
+        NOTREACHED()
+            << "Attempt to set multiple values on single-valued field.";
+      }
+      break;
   }
+}
 
-  string16 clean_info = StringToLowerASCII(CollapseWhitespace(info, false));
-
-  // If the field_type is unknown, then match against all field types.
-  if (type.field_type() == UNKNOWN_TYPE) {
-    FormGroupMap::const_iterator iter;
-    for (iter = personal_info_.begin(); iter != personal_info_.end(); ++iter) {
-      iter->second->FindInfoMatches(type, clean_info, matched_text);
-    }
-  } else {
-    FormGroupMap::const_iterator iter = personal_info_.find(type.group());
-    DCHECK(iter != personal_info_.end() && iter->second != NULL);
-    if (iter != personal_info_.end() && iter->second != NULL)
-      iter->second->FindInfoMatches(type, clean_info, matched_text);
+void AutofillProfile::GetMultiInfo(AutofillFieldType type,
+                                   std::vector<string16>* values) const {
+  switch (AutofillType(type).group()) {
+    case AutofillType::NAME:
+      CopyItemsToValues(type, name_, values);
+      break;
+    case AutofillType::EMAIL:
+      CopyItemsToValues(type, email_, values);
+      break;
+    case AutofillType::PHONE_HOME:
+      CopyItemsToValues(type, home_number_, values);
+      break;
+    case AutofillType::PHONE_FAX:
+      CopyItemsToValues(type, fax_number_, values);
+      break;
+    default:
+      values->resize(1);
+      (*values)[0] = GetInfo(type);
   }
-}
-
-void AutoFillProfile::SetInfo(const AutofillType& type, const string16& value) {
-  FormGroupMap::const_iterator iter = personal_info_.find(type.group());
-  if (iter == personal_info_.end() || iter->second == NULL)
-    return;
-
-  iter->second->SetInfo(type, CollapseWhitespace(value, false));
-}
-
-FormGroup* AutoFillProfile::Clone() const {
-  return new AutoFillProfile(*this);
-}
-
-const string16 AutoFillProfile::Label() const {
-  return label_;
-}
-
-const std::string AutoFillProfile::CountryCode() const {
-  FormGroup* form_group =
-      personal_info_.find(AutofillType::ADDRESS_HOME)->second;
-  DCHECK(form_group);
-  Address* address = static_cast<Address*>(form_group);
-  return address->country_code();
-}
-
-void AutoFillProfile::SetCountryCode(const std::string& country_code) {
-  FormGroup* form_group =
-      personal_info_.find(AutofillType::ADDRESS_HOME)->second;
-  DCHECK(form_group);
-  Address* address = static_cast<Address*>(form_group);
-  address->set_country_code(country_code);
 }
 
 // static
-bool AutoFillProfile::AdjustInferredLabels(
-    std::vector<AutoFillProfile*>* profiles) {
+bool AutofillProfile::SupportsMultiValue(AutofillFieldType type) {
+  AutofillType::FieldTypeGroup group = AutofillType(type).group();
+  return group == AutofillType::NAME ||
+         group == AutofillType::EMAIL ||
+         group == AutofillType::PHONE_HOME ||
+         group == AutofillType::PHONE_FAX;
+}
+
+const string16 AutofillProfile::Label() const {
+  return label_;
+}
+
+const std::string AutofillProfile::CountryCode() const {
+  return address_.country_code();
+}
+
+void AutofillProfile::SetCountryCode(const std::string& country_code) {
+  address_.set_country_code(country_code);
+}
+
+// static
+bool AutofillProfile::AdjustInferredLabels(
+    std::vector<AutofillProfile*>* profiles) {
   const size_t kMinimalFieldsShown = 2;
 
   std::vector<string16> created_labels;
@@ -230,8 +334,8 @@ bool AutoFillProfile::AdjustInferredLabels(
 }
 
 // static
-void AutoFillProfile::CreateInferredLabels(
-    const std::vector<AutoFillProfile*>* profiles,
+void AutofillProfile::CreateInferredLabels(
+    const std::vector<AutofillProfile*>* profiles,
     const std::vector<AutofillFieldType>* suggested_fields,
     AutofillFieldType excluded_field,
     size_t minimal_fields_shown,
@@ -272,33 +376,14 @@ void AutoFillProfile::CreateInferredLabels(
   }
 }
 
-bool AutoFillProfile::IsEmpty() const {
+bool AutofillProfile::IsEmpty() const {
   FieldTypeSet types;
   GetAvailableFieldTypes(&types);
   return types.empty();
 }
 
-void AutoFillProfile::operator=(const AutoFillProfile& source) {
-  if (this == &source)
-    return;
-
-  label_ = source.label_;
-  guid_ = source.guid_;
-
-  STLDeleteContainerPairSecondPointers(personal_info_.begin(),
-                                       personal_info_.end());
-  personal_info_.clear();
-
-  FormGroupMap::const_iterator iter;
-  for (iter = source.personal_info_.begin();
-       iter != source.personal_info_.end();
-       ++iter) {
-    personal_info_[iter->first] = iter->second->Clone();
-  }
-}
-
-int AutoFillProfile::Compare(const AutoFillProfile& profile) const {
-  // The following AutoFill field types are the only types we store in the WebDB
+int AutofillProfile::Compare(const AutofillProfile& profile) const {
+  // The following Autofill field types are the only types we store in the WebDB
   // so far, so we're only concerned with matching these types in the profile.
   const AutofillFieldType types[] = { NAME_FIRST,
                                       NAME_MIDDLE,
@@ -315,8 +400,8 @@ int AutoFillProfile::Compare(const AutoFillProfile& profile) const {
                                       PHONE_FAX_NUMBER };
 
   for (size_t index = 0; index < arraysize(types); ++index) {
-    int comparison = GetFieldText(AutofillType(types[index])).compare(
-        profile.GetFieldText(AutofillType(types[index])));
+    int comparison = GetInfo(types[index]).compare(
+        profile.GetInfo(types[index]));
     if (comparison != 0)
       return comparison;
   }
@@ -324,22 +409,92 @@ int AutoFillProfile::Compare(const AutoFillProfile& profile) const {
   return 0;
 }
 
-bool AutoFillProfile::operator==(const AutoFillProfile& profile) const {
+int AutofillProfile::CompareMulti(const AutofillProfile& profile) const {
+  const AutofillFieldType single_value_types[] = { COMPANY_NAME,
+                                                   ADDRESS_HOME_LINE1,
+                                                   ADDRESS_HOME_LINE2,
+                                                   ADDRESS_HOME_CITY,
+                                                   ADDRESS_HOME_STATE,
+                                                   ADDRESS_HOME_ZIP,
+                                                   ADDRESS_HOME_COUNTRY };
+
+  for (size_t i = 0; i < arraysize(single_value_types); ++i) {
+    int comparison = GetInfo(single_value_types[i]).compare(
+        profile.GetInfo(single_value_types[i]));
+    if (comparison != 0)
+      return comparison;
+  }
+
+  const AutofillFieldType multi_value_types[] = { NAME_FIRST,
+                                                  NAME_MIDDLE,
+                                                  NAME_LAST,
+                                                  EMAIL_ADDRESS,
+                                                  PHONE_HOME_NUMBER,
+                                                  PHONE_FAX_NUMBER };
+
+  for (size_t i = 0; i < arraysize(multi_value_types); ++i) {
+    std::vector<string16> values_a;
+    std::vector<string16> values_b;
+    GetMultiInfo(multi_value_types[i], &values_a);
+    profile.GetMultiInfo(multi_value_types[i], &values_b);
+    if (values_a.size() < values_b.size())
+      return -1;
+    if (values_a.size() > values_b.size())
+      return 1;
+    for (size_t j = 0; j < values_a.size(); ++j) {
+      int comparison = values_a[j].compare(values_b[j]);
+      if (comparison != 0)
+        return comparison;
+    }
+  }
+
+  return 0;
+}
+
+bool AutofillProfile::operator==(const AutofillProfile& profile) const {
   return guid_ == profile.guid_ && Compare(profile) == 0;
 }
 
-bool AutoFillProfile::operator!=(const AutoFillProfile& profile) const {
+bool AutofillProfile::operator!=(const AutofillProfile& profile) const {
   return !operator==(profile);
 }
 
-const string16 AutoFillProfile::PrimaryValue() const {
-  return GetFieldText(AutofillType(NAME_FULL)) +
-         GetFieldText(AutofillType(ADDRESS_HOME_LINE1)) +
-         GetFieldText(AutofillType(ADDRESS_HOME_LINE2)) +
-         GetFieldText(AutofillType(EMAIL_ADDRESS));
+const string16 AutofillProfile::PrimaryValue() const {
+  return GetInfo(ADDRESS_HOME_LINE1) +
+         GetInfo(ADDRESS_HOME_CITY);
 }
 
-string16 AutoFillProfile::ConstructInferredLabel(
+void AutofillProfile::OverwriteWithOrAddTo(const AutofillProfile& profile) {
+  FieldTypeSet field_types;
+  profile.GetAvailableFieldTypes(&field_types);
+
+  // Only transfer "full" types (e.g. full name) and not fragments (e.g.
+  // first name, last name).
+  CollapseCompoundFieldTypes(&field_types);
+
+  for (FieldTypeSet::const_iterator iter = field_types.begin();
+       iter != field_types.end(); ++iter) {
+    if (AutofillProfile::SupportsMultiValue(*iter)) {
+      std::vector<string16> new_values;
+      profile.GetMultiInfo(*iter, &new_values);
+      std::vector<string16> existing_values;
+      GetMultiInfo(*iter, &existing_values);
+      for (std::vector<string16>::iterator value_iter = new_values.begin();
+           value_iter != new_values.end(); ++value_iter) {
+        // Don't add duplicates.
+        if (std::find(existing_values.begin(), existing_values.end(),
+                      *value_iter) == existing_values.end()) {
+          existing_values.insert(existing_values.end(), *value_iter);
+        }
+      }
+      SetMultiInfo(*iter, existing_values);
+    } else {
+      SetInfo(*iter, profile.GetInfo(*iter));
+    }
+  }
+}
+
+string16 AutofillProfile::ConstructInferredLabel(
     const std::vector<AutofillFieldType>& included_fields,
     size_t num_fields_to_use) const {
   const string16 separator =
@@ -351,7 +506,7 @@ string16 AutoFillProfile::ConstructInferredLabel(
            included_fields.begin();
        it != included_fields.end() && num_fields_used < num_fields_to_use;
        ++it) {
-    string16 field = GetFieldText(AutofillType(*it));
+    string16 field = GetInfo(*it);
     if (field.empty())
       continue;
 
@@ -372,8 +527,8 @@ string16 AutoFillProfile::ConstructInferredLabel(
 }
 
 // static
-void AutoFillProfile::CreateDifferentiatingLabels(
-    const std::vector<AutoFillProfile*>& profiles,
+void AutofillProfile::CreateDifferentiatingLabels(
+    const std::vector<AutofillProfile*>& profiles,
     const std::list<size_t>& indices,
     const std::vector<AutofillFieldType>& fields,
     size_t num_fields_to_include,
@@ -389,8 +544,8 @@ void AutoFillProfile::CreateDifferentiatingLabels(
 
     for (std::list<size_t>::const_iterator it = indices.begin();
          it != indices.end(); ++it) {
-      const AutoFillProfile* profile = profiles[*it];
-      string16 field_text = profile->GetFieldText(AutofillType(*field));
+      const AutofillProfile* profile = profiles[*it];
+      string16 field_text = profile->GetInfo(*field);
 
       // If this label is not already in the map, add it with frequency 0.
       if (!field_text_frequencies.count(field_text))
@@ -410,14 +565,14 @@ void AutoFillProfile::CreateDifferentiatingLabels(
   // we only include fields that that have at last two distinct values.
   for (std::list<size_t>::const_iterator it = indices.begin();
        it != indices.end(); ++it) {
-    const AutoFillProfile* profile = profiles[*it];
+    const AutofillProfile* profile = profiles[*it];
 
     std::vector<AutofillFieldType> label_fields;
     bool found_differentiating_field = false;
     for (std::vector<AutofillFieldType>::const_iterator field = fields.begin();
          field != fields.end(); ++field) {
       // Skip over empty fields.
-      string16 field_text = profile->GetFieldText(AutofillType(*field));
+      string16 field_text = profile->GetInfo(*field);
       if (field_text.empty())
         continue;
 
@@ -448,46 +603,79 @@ void AutoFillProfile::CreateDifferentiatingLabels(
   }
 }
 
-// static
-void AutoFillProfile::InitPersonalInfo(FormGroupMap* personal_info) {
-  (*personal_info)[AutofillType::CONTACT_INFO] = new ContactInfo();
-  (*personal_info)[AutofillType::PHONE_HOME] = new HomePhoneNumber();
-  (*personal_info)[AutofillType::PHONE_FAX] = new FaxNumber();
-  (*personal_info)[AutofillType::ADDRESS_HOME] = new Address();
+AutofillProfile::FormGroupList AutofillProfile::FormGroups() const {
+  FormGroupList v(6);
+  v[0] = &name_[0];
+  v[1] = &email_[0];
+  v[2] = &company_;
+  v[3] = &home_number_[0];
+  v[4] = &fax_number_[0];
+  v[5] = &address_;
+  return v;
 }
 
-// So we can compare AutoFillProfiles with EXPECT_EQ().
-std::ostream& operator<<(std::ostream& os, const AutoFillProfile& profile) {
+const FormGroup* AutofillProfile::FormGroupForType(
+    AutofillFieldType type) const {
+  return const_cast<AutofillProfile*>(this)->MutableFormGroupForType(type);
+}
+
+FormGroup* AutofillProfile::MutableFormGroupForType(AutofillFieldType type) {
+ FormGroup* form_group = NULL;
+  switch (AutofillType(type).group()) {
+    case AutofillType::NAME:
+      form_group = &name_[0];
+      break;
+    case AutofillType::EMAIL:
+      form_group = &email_[0];
+      break;
+    case AutofillType::COMPANY:
+      form_group = &company_;
+      break;
+    case AutofillType::PHONE_HOME:
+      form_group = &home_number_[0];
+      break;
+    case AutofillType::PHONE_FAX:
+      form_group = &fax_number_[0];
+      break;
+    case AutofillType::ADDRESS_HOME:
+      form_group = &address_;
+      break;
+    default:
+      break;
+  }
+  return form_group;
+}
+
+// So we can compare AutofillProfiles with EXPECT_EQ().
+std::ostream& operator<<(std::ostream& os, const AutofillProfile& profile) {
   return os
       << UTF16ToUTF8(profile.Label())
       << " "
       << profile.guid()
       << " "
-      << UTF16ToUTF8(profile.GetFieldText(AutofillType(NAME_FIRST)))
+      << UTF16ToUTF8(MultiString(profile, NAME_FIRST))
       << " "
-      << UTF16ToUTF8(profile.GetFieldText(AutofillType(NAME_MIDDLE)))
+      << UTF16ToUTF8(MultiString(profile, NAME_MIDDLE))
       << " "
-      << UTF16ToUTF8(profile.GetFieldText(AutofillType(NAME_LAST)))
+      << UTF16ToUTF8(MultiString(profile, NAME_LAST))
       << " "
-      << UTF16ToUTF8(profile.GetFieldText(AutofillType(EMAIL_ADDRESS)))
+      << UTF16ToUTF8(MultiString(profile, EMAIL_ADDRESS))
       << " "
-      << UTF16ToUTF8(profile.GetFieldText(AutofillType(COMPANY_NAME)))
+      << UTF16ToUTF8(profile.GetInfo(COMPANY_NAME))
       << " "
-      << UTF16ToUTF8(profile.GetFieldText(AutofillType(ADDRESS_HOME_LINE1)))
+      << UTF16ToUTF8(profile.GetInfo(ADDRESS_HOME_LINE1))
       << " "
-      << UTF16ToUTF8(profile.GetFieldText(AutofillType(ADDRESS_HOME_LINE2)))
+      << UTF16ToUTF8(profile.GetInfo(ADDRESS_HOME_LINE2))
       << " "
-      << UTF16ToUTF8(profile.GetFieldText(AutofillType(ADDRESS_HOME_CITY)))
+      << UTF16ToUTF8(profile.GetInfo(ADDRESS_HOME_CITY))
       << " "
-      << UTF16ToUTF8(profile.GetFieldText(AutofillType(ADDRESS_HOME_STATE)))
+      << UTF16ToUTF8(profile.GetInfo(ADDRESS_HOME_STATE))
       << " "
-      << UTF16ToUTF8(profile.GetFieldText(AutofillType(ADDRESS_HOME_ZIP)))
+      << UTF16ToUTF8(profile.GetInfo(ADDRESS_HOME_ZIP))
       << " "
-      << UTF16ToUTF8(profile.GetFieldText(AutofillType(ADDRESS_HOME_COUNTRY)))
+      << UTF16ToUTF8(profile.GetInfo(ADDRESS_HOME_COUNTRY))
       << " "
-      << UTF16ToUTF8(profile.GetFieldText(AutofillType(
-             PHONE_HOME_WHOLE_NUMBER)))
+      << UTF16ToUTF8(MultiString(profile, PHONE_HOME_WHOLE_NUMBER))
       << " "
-      << UTF16ToUTF8(profile.GetFieldText(AutofillType(
-             PHONE_FAX_WHOLE_NUMBER)));
+      << UTF16ToUTF8(MultiString(profile, PHONE_FAX_WHOLE_NUMBER));
 }

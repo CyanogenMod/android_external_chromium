@@ -8,10 +8,12 @@
 
 #include <vector>
 
+#include "base/basictypes.h"
 #include "base/string16.h"
-#include "base/string_util.h"
 #include "chrome/browser/autofill/autofill_type.h"
-#include "chrome/browser/autofill/form_structure.h"
+
+class AutofillField;
+class FormStructure;
 
 extern const char kEcmlShipToTitle[];
 extern const char kEcmlShipToFirstName[];
@@ -60,8 +62,6 @@ enum FormFieldType {
   kCreditCardType,
   kOtherFieldType
 };
-
-class AutofillField;
 
 // Represents a logical form field in a web form.  Classes that implement this
 // interface can identify themselves as a particular type of form field, e.g.
@@ -145,8 +145,6 @@ class FormField {
       std::vector<AutofillField*>::const_iterator* iter,
       const string16& pattern,
       AutofillField** dest);
-  static bool MatchName(AutofillField* field, const string16& pattern);
-  static bool MatchLabel(AutofillField* field, const string16& pattern);
 
   DISALLOW_COPY_AND_ASSIGN(FormField);
 };
@@ -167,5 +165,14 @@ class FormFieldSet : public std::vector<FormField*> {
 
   DISALLOW_COPY_AND_ASSIGN(FormFieldSet);
 };
+
+// Parsing utilities.
+namespace autofill {
+
+// Case-insensitive regular expression matching.
+// Returns true if |pattern| is found in |input|.
+bool MatchString(const string16& input, const string16& pattern);
+
+}  // namespace autofill
 
 #endif  // CHROME_BROWSER_AUTOFILL_FORM_FIELD_H_

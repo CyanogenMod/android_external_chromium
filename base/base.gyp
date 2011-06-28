@@ -54,6 +54,48 @@
       ],
     },
     {
+      # This is the subset of files from base that should not be used with a
+      # dynamic library.
+      'target_name': 'base_static',
+      'type': '<(library)',
+      'sources': [
+        'base_switches.cc',
+        'base_switches.h',
+        'win/pe_image.cc',
+        'win/pe_image.h',
+      ],
+      'include_dirs': [
+        '..',
+      ],
+    },
+    {
+      # TODO(rvargas): Remove this when gyp finally supports a clean model.
+      # See bug 36232.
+      'target_name': 'base_static_win64',
+      'type': '<(library)',
+      'sources': [
+        'base_switches.cc',
+        'base_switches.h',
+        'win/pe_image.cc',
+        'win/pe_image.h',
+      ],
+      'include_dirs': [
+        '..',
+      ],
+      'configurations': {
+        'Common_Base': {
+          'msvs_target_platform': 'x64',
+        },
+      },
+      'defines': [
+        'NACL_WIN64',
+      ],
+      # TODO(rvargas): Bug 78117. Remove this.
+      'msvs_disabled_warnings': [
+        4244,
+      ],
+    },
+    {
       'target_name': 'base_unittests',
       'type': 'executable',
       'msvs_guid': '27A30967-4BBA-48D1-8522-CDE95F7B1CEC',
@@ -70,13 +112,6 @@
         'callback_unittest.cc',
         'command_line_unittest.cc',
         'cpu_unittest.cc',
-        'crypto/encryptor_unittest.cc',
-        'crypto/rsa_private_key_unittest.cc',
-        'crypto/rsa_private_key_nss_unittest.cc',
-        'crypto/secure_hash_unittest.cc',
-        'crypto/signature_creator_unittest.cc',
-        'crypto/signature_verifier_unittest.cc',
-        'crypto/symmetric_key_unittest.cc',
         'debug/leak_tracker_unittest.cc',
         'debug/stack_trace_unittest.cc',
         'debug/trace_event_win_unittest.cc',
@@ -87,7 +122,6 @@
         'file_util_unittest.cc',
         'file_version_info_unittest.cc',
         'gmock_unittest.cc',
-        'hmac_unittest.cc',
         'id_map_unittest.cc',
         'i18n/break_iterator_unittest.cc',
         'i18n/char_iterator_unittest.cc',
@@ -99,9 +133,16 @@
         'json/string_escape_unittest.cc',
         'lazy_instance_unittest.cc',
         'linked_list_unittest.cc',
-        'linked_ptr_unittest.cc',
         'logging_unittest.cc',
         'mac/mac_util_unittest.mm',
+        'memory/linked_ptr_unittest.cc',
+        'memory/ref_counted_unittest.cc',
+        'memory/scoped_native_library_unittest.cc',
+        'memory/scoped_ptr_unittest.cc',
+        'memory/scoped_temp_dir_unittest.cc',
+        'memory/scoped_vector_unittest.cc',
+        'memory/singleton_unittest.cc',
+        'memory/weak_ptr_unittest.cc',
         'message_loop_proxy_impl_unittest.cc',
         'message_loop_unittest.cc',
         'message_pump_glib_unittest.cc',
@@ -117,14 +158,8 @@
         'process_util_unittest_mac.h',
         'process_util_unittest_mac.mm',
         'rand_util_unittest.cc',
-        'ref_counted_unittest.cc',
-        'scoped_native_library_unittest.cc',
-        'scoped_ptr_unittest.cc',
-        'scoped_temp_dir_unittest.cc',
         'sha1_unittest.cc',
-        'sha2_unittest.cc',
         'shared_memory_unittest.cc',
-        'singleton_unittest.cc',
         'stack_container_unittest.cc',
         'string16_unittest.cc',
         'string_number_conversions_unittest.cc',
@@ -167,7 +202,6 @@
         'values_unittest.cc',
         'version_unittest.cc',
         'vlog_unittest.cc',
-        'weak_ptr_unittest.cc',
         'win/event_trace_consumer_unittest.cc',
         'win/event_trace_controller_unittest.cc',
         'win/event_trace_provider_unittest.cc',
@@ -179,10 +213,12 @@
         'win/scoped_comptr_unittest.cc',
         'win/scoped_variant_unittest.cc',
         'win/win_util_unittest.cc',
+        'win/wrapped_window_proc_unittest.cc',
       ],
       'dependencies': [
         'base',
         'base_i18n',
+        'base_static',
         'test_support_base',
         '../testing/gmock.gyp:gmock',
         '../testing/gtest.gyp:gtest',
@@ -211,7 +247,6 @@
         }, {  # OS != "linux" and OS != "freebsd" and OS != "openbsd" and OS != "solaris"
           'sources!': [
             'message_pump_glib_unittest.cc',
-            'crypto/rsa_private_key_nss_unittest.cc',
           ]
         }],
         # This is needed to trigger the dll copy step on windows.
@@ -234,11 +269,6 @@
             'time_win_unittest.cc',
             'trace_event_win_unittest.cc',
             'win_util_unittest.cc',
-          ],
-        }],
-        [ 'use_openssl==1', {
-          'sources!': [
-            'crypto/rsa_private_key_nss_unittest.cc',
           ],
         }],
       ],

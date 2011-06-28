@@ -1,16 +1,16 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <string>
 #include <vector>
 
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/values.h"
 #include "chrome/browser/sessions/session_types.h"
 #include "chrome/browser/sync/glue/session_model_associator.h"
-#include "chrome/common/page_transition_types.h"
 #include "chrome/common/url_constants.h"
+#include "content/common/page_transition_types.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using browser_sync::SessionModelAssociator;

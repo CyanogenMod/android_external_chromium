@@ -8,14 +8,15 @@
 
 #include "base/basictypes.h"
 #include "base/callback.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/string16.h"
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
-#include "chrome/browser/importer/importer_data_types.h"
+#include "chrome/browser/importer/external_process_importer_host.h"
+#include "chrome/browser/importer/importer_host.h"
 #include "chrome/browser/profiles/profile.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
@@ -87,15 +88,15 @@ void ImportDataHandler::ImportData(const ListValue* args) {
     selected_items |= importer::SEARCH_ENGINES;
   }
 
-  const importer::ProfileInfo& source_profile =
-      importer_list_->GetSourceProfileInfoAt(browser_index);
+  const importer::SourceProfile& source_profile =
+      importer_list_->GetSourceProfileAt(browser_index);
   uint16 supported_items = source_profile.services_supported;
 
   uint16 import_services = (selected_items & supported_items);
   if (import_services) {
     FundamentalValue state(true);
-    web_ui_->CallJavascriptFunction(
-        L"ImportDataOverlay.setImportingState", state);
+    web_ui_->CallJavascriptFunction("ImportDataOverlay.setImportingState",
+                                    state);
 
     // TODO(csilv): Out-of-process import has only been qualified on MacOS X,
     // so we will only use it on that platform since it is required. Remove this
@@ -113,8 +114,34 @@ void ImportDataHandler::ImportData(const ListValue* args) {
                                         new ProfileWriter(profile), false);
   } else {
     LOG(WARNING) << "There were no settings to import from '"
-        << source_profile.description << "'.";
+        << source_profile.importer_name << "'.";
   }
+}
+
+void ImportDataHandler::OnSourceProfilesLoaded() {
+  ListValue browser_profiles;
+  for (size_t i = 0; i < importer_list_->count(); ++i) {
+    const importer::SourceProfile& source_profile =
+        importer_list_->GetSourceProfileAt(i);
+    uint16 browser_services = source_profile.services_supported;
+
+    DictionaryValue* browser_profile = new DictionaryValue();
+    browser_profile->SetString("name", source_profile.importer_name);
+    browser_profile->SetInteger("index", i);
+    browser_profile->SetBoolean("history",
+        (browser_services & importer::HISTORY) != 0);
+    browser_profile->SetBoolean("favorites",
+        (browser_services & importer::FAVORITES) != 0);
+    browser_profile->SetBoolean("passwords",
+        (browser_services & importer::PASSWORDS) != 0);
+    browser_profile->SetBoolean("search",
+        (browser_services & importer::SEARCH_ENGINES) != 0);
+
+    browser_profiles.Append(browser_profile);
+  }
+
+  web_ui_->CallJavascriptFunction(
+      "options.ImportDataOverlay.updateSupportedBrowsers", browser_profiles);
 }
 
 void ImportDataHandler::ImportStarted() {
@@ -132,34 +159,5 @@ void ImportDataHandler::ImportEnded() {
   importer_host_->SetObserver(NULL);
   importer_host_ = NULL;
 
-  web_ui_->CallJavascriptFunction(L"ImportDataOverlay.dismiss");
-}
-
-void ImportDataHandler::SourceProfilesLoaded() {
-  ListValue browser_profiles;
-  int profiles_count = importer_list_->GetAvailableProfileCount();
-  for (int i = 0; i < profiles_count; i++) {
-    const importer::ProfileInfo& source_profile =
-        importer_list_->GetSourceProfileInfoAt(i);
-    string16 browser_name = WideToUTF16Hack(source_profile.description);
-    uint16 browser_services = source_profile.services_supported;
-
-    DictionaryValue* browser_profile = new DictionaryValue();
-    browser_profile->SetString("name", browser_name);
-    browser_profile->SetInteger("index", i);
-    browser_profile->SetBoolean("history",
-        (browser_services & importer::HISTORY) != 0);
-    browser_profile->SetBoolean("favorites",
-        (browser_services & importer::FAVORITES) != 0);
-    browser_profile->SetBoolean("passwords",
-        (browser_services & importer::PASSWORDS) != 0);
-    browser_profile->SetBoolean("search",
-        (browser_services & importer::SEARCH_ENGINES) != 0);
-
-    browser_profiles.Append(browser_profile);
-  }
-
-  web_ui_->CallJavascriptFunction(
-      L"options.ImportDataOverlay.updateSupportedBrowsers",
-      browser_profiles);
+  web_ui_->CallJavascriptFunction("ImportDataOverlay.dismiss");
 }

@@ -5,8 +5,10 @@
 #include "chrome/browser/browser_main_posix.h"
 
 #include <errno.h>
+#include <limits.h>
 #include <signal.h>
 #include <sys/resource.h>
+#include <unistd.h>
 
 #include <string>
 
@@ -14,9 +16,8 @@
 #include "base/eintr_wrapper.h"
 #include "base/logging.h"
 #include "base/string_number_conversions.h"
-#include "base/threading/platform_thread.h"
-#include "chrome/browser/browser_list.h"
 #include "chrome/browser/defaults.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/common/chrome_switches.h"
 #include "content/browser/browser_thread.h"
 
@@ -52,29 +53,23 @@ void GracefulShutdownHandler(int signal) {
     RAW_CHECK(rv >= 0);
     bytes_written += rv;
   } while (bytes_written < sizeof(signal));
-
-  RAW_LOG(INFO,
-          "Successfully wrote to shutdown pipe, resetting signal handler.");
 }
 
 // See comment in |PreEarlyInitialization()|, where sigaction is called.
 void SIGHUPHandler(int signal) {
   RAW_CHECK(signal == SIGHUP);
-  RAW_LOG(INFO, "Handling SIGHUP.");
   GracefulShutdownHandler(signal);
 }
 
 // See comment in |PreEarlyInitialization()|, where sigaction is called.
 void SIGINTHandler(int signal) {
   RAW_CHECK(signal == SIGINT);
-  RAW_LOG(INFO, "Handling SIGINT.");
   GracefulShutdownHandler(signal);
 }
 
 // See comment in |PreEarlyInitialization()|, where sigaction is called.
 void SIGTERMHandler(int signal) {
   RAW_CHECK(signal == SIGTERM);
-  RAW_LOG(INFO, "Handling SIGTERM.");
   GracefulShutdownHandler(signal);
 }
 
@@ -95,6 +90,27 @@ ShutdownDetector::ShutdownDetector(int shutdown_fd)
   CHECK_NE(shutdown_fd_, -1);
 }
 
+
+// These functions are used to help us diagnose crash dumps that happen
+// during the shutdown process.
+NOINLINE void ShutdownFDReadError() {
+  // Ensure function isn't optimized away.
+  asm("");
+  sleep(UINT_MAX);
+}
+
+NOINLINE void ShutdownFDClosedError() {
+  // Ensure function isn't optimized away.
+  asm("");
+  sleep(UINT_MAX);
+}
+
+NOINLINE void CloseAllBrowsersAndExitPosted() {
+  // Ensure function isn't optimized away.
+  asm("");
+  sleep(UINT_MAX);
+}
+
 void ShutdownDetector::ThreadMain() {
   base::PlatformThread::SetName("CrShutdownDetector");
 
@@ -108,9 +124,11 @@ void ShutdownDetector::ThreadMain() {
              sizeof(signal) - bytes_read));
     if (ret < 0) {
       NOTREACHED() << "Unexpected error: " << strerror(errno);
+      ShutdownFDReadError();
       break;
     } else if (ret == 0) {
       NOTREACHED() << "Unexpected closure of shutdown pipe.";
+      ShutdownFDClosedError();
       break;
     }
     bytes_read += ret;
@@ -140,6 +158,7 @@ void ShutdownDetector::ThreadMain() {
     RAW_LOG(WARNING, "Still here, exiting really ungracefully.");
     _exit(signal | (1 << 7));
   }
+  CloseAllBrowsersAndExitPosted();
 }
 
 // Sets the file descriptor soft limit to |max_descriptors| or the OS hard
@@ -237,8 +256,7 @@ void BrowserMainPartsPosix::PostMainMessageLoopStart() {
   }
 
 #if defined(OS_LINUX) && !defined(OS_CHROMEOS)
-  printing::PrintingContextCairo::SetPrintingFunctions(
-      &PrintDialogGtk::CreatePrintDialog,
-      &PrintDialogGtk::PrintDocument);
+  printing::PrintingContextCairo::SetCreatePrintDialogFunction(
+      &PrintDialogGtk::CreatePrintDialog);
 #endif  // defined(OS_LINUX) && !defined(OS_CHROMEOS)
 }

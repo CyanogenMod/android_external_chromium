@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,15 +9,18 @@
 #include <vector>
 
 #include "base/callback.h"
+#include "base/file_path.h"
 #include "build/build_config.h"
 #include "chrome/browser/shell_integration.h"
 #include "chrome/common/web_apps.h"
 
-class FilePath;
 class Profile;
-class TabContents;
 
 namespace web_app {
+
+// Compute a deterministic name based on data in the shortcut_info.
+std::string GenerateApplicationNameFromInfo(
+    const ShellIntegration::ShortcutInfo& shortcut_info);
 
 // Compute a deterministic name based on the URL. We use this pseudo name
 // as a key to store window location per application URLs in Browser and
@@ -55,17 +58,25 @@ void GetIconsInfo(const WebApplicationInfo& app_info,
                   IconInfoList* icons);
 #endif
 
-// Extracts shortcut info of given TabContents.
-void GetShortcutInfoForTab(TabContents* tab_contents,
-                           ShellIntegration::ShortcutInfo* info);
+#if defined(TOOLKIT_USES_GTK)
+// GTK+ windows that correspond to web apps need to have a deterministic (and
+// different) WMClass than normal chrome windows so the window manager groups
+// them as a separate application.
+std::string GetWMClassFromAppName(std::string app_name);
+#endif
 
-// Updates web app shortcut of the TabContents. This function checks and
-// updates web app icon and shortcuts if needed. For icon, the check is based
-// on MD5 hash of icon image. For shortcuts, it checks the desktop, start menu
-// and quick launch (as well as pinned shortcut) for shortcut and only
-// updates (recreates) them if they exits.
-void UpdateShortcutForTabContents(TabContents* tab_contents);
+namespace internals {
 
-};  // namespace web_app
+#if defined(OS_WIN)
+FilePath GetSanitizedFileName(const string16& name);
+
+bool CheckAndSaveIcon(const FilePath& icon_file, const SkBitmap& image);
+#endif
+
+FilePath GetWebAppDataDirectory(const FilePath& root_dir,
+                                const ShellIntegration::ShortcutInfo& info);
+}  // namespace internals
+
+}  // namespace web_app
 
 #endif  // CHROME_BROWSER_WEB_APPLICATIONS_WEB_APP_H_

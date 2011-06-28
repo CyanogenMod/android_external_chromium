@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-#include "base/scoped_vector.h"
+#include "base/memory/scoped_vector.h"
 #include "chrome/browser/autofill/autofill_field.h"
 #include "chrome/browser/autofill/autofill_type.h"
 #include "chrome/browser/autofill/field_types.h"
@@ -34,14 +34,18 @@ enum UploadRequired {
 class AutofillMetrics;
 
 // FormStructure stores a single HTML form together with the values entered
-// in the fields along with additional information needed by AutoFill.
+// in the fields along with additional information needed by Autofill.
 class FormStructure {
  public:
   explicit FormStructure(const webkit_glue::FormData& form);
   virtual ~FormStructure();
 
+  // Runs several heuristics against the form fields to determine their possible
+  // types.
+  void DetermineHeuristicTypes();
+
   // Encodes the XML upload request from this FormStructure.
-  bool EncodeUploadRequest(bool auto_fill_used, std::string* encoded_xml) const;
+  bool EncodeUploadRequest(bool autofill_used, std::string* encoded_xml) const;
 
   // Encodes the XML query request for the set of forms.
   // All fields are returned in one XML. For example, there are three forms,
@@ -66,22 +70,26 @@ class FormStructure {
   // Runs a quick heuristic to rule out forms that are obviously not
   // auto-fillable, like google/yahoo/msn search, etc. The requirement that the
   // form's method be POST is only applied if |require_method_post| is true.
-  bool IsAutoFillable(bool require_method_post) const;
-
-  // Returns true if at least one of the form fields relevant for AutoFill
-  // is not empty.
-  bool HasAutoFillableValues() const;
+  bool IsAutofillable(bool require_method_post) const;
 
   // Resets |autofill_count_| and counts the number of auto-fillable fields.
   // This is used when we receive server data for form fields.  At that time,
   // we may have more known fields than just the number of fields we matched
   // heuristically.
-  void UpdateAutoFillCount();
+  void UpdateAutofillCount();
 
-  // Returns true if this form matches the structural requirements for AutoFill.
+  // Returns true if this form matches the structural requirements for Autofill.
   // The requirement that the form's method be POST is only applied if
   // |require_method_post| is true.
   bool ShouldBeParsed(bool require_method_post) const;
+
+  // Sets the field types and experiment id to be those set for |cached_form|.
+  void UpdateFromCache(const FormStructure& cached_form);
+
+  // Logs quality metrics for |this|, which should be a user-submitted form.
+  // This method should only be called after the possible field types have been
+  // set for each field.
+  void LogQualityMetrics(const AutofillMetrics& metric_logger) const;
 
   // Sets the possible types for the field at |index|.
   void set_possible_types(int index, const FieldTypeSet& types);
@@ -120,10 +128,6 @@ class FormStructure {
     QUERY,
     UPLOAD,
   };
-
-  // Runs several heuristics against the form fields to determine their possible
-  // types.
-  void GetHeuristicAutofillTypes();
 
   // Associates the field with the heuristic type for each of the field views.
   void GetHeuristicFieldInfo(FieldTypeMap* field_types_map);

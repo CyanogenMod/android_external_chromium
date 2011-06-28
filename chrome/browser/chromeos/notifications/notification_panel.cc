@@ -66,23 +66,6 @@ chromeos::BalloonViewImpl* GetBalloonViewOf(const Balloon* balloon) {
   return static_cast<chromeos::BalloonViewImpl*>(balloon->view());
 }
 
-// A WidgetGtk to preevnt recursive calls to PaintNow, which is observed
-// with gtk 2.18.6. See http://crbug.com/42235 for more details.
-class PanelWidget : public views::WidgetGtk {
- public:
-  PanelWidget() : WidgetGtk(TYPE_WINDOW) {
-  }
-
-  virtual ~PanelWidget() {
-    // Enable double buffering because the panel has both pure views control and
-    // native controls (scroll bar).
-    EnableDoubleBuffer(true);
-  }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(PanelWidget);
-};
-
 // A WidgetGtk that covers entire ScrollView's viewport. Without this,
 // all renderer's native gtk widgets are moved one by one via
 // View::VisibleBoundsInRootChanged() notification, which makes
@@ -102,9 +85,8 @@ class ViewportWidget : public views::WidgetGtk {
   // views::WidgetGtk overrides.
   virtual gboolean OnMotionNotify(GtkWidget* widget, GdkEventMotion* event) {
     gboolean result = WidgetGtk::OnMotionNotify(widget, event);
-
-    int x = 0, y = 0;
-    GetContainedWidgetEventCoordinates(event, &x, &y);
+    gdouble x = event->x;
+    gdouble y = event->y;
 
     // The window_contents_' allocation has been moved off the top left
     // corner, so we need to adjust it.
@@ -435,7 +417,13 @@ void NotificationPanel::Show() {
   if (!panel_widget_) {
     // TODO(oshima): Using window because Popup widget behaves weird
     // when resizing. This needs to be investigated.
-    panel_widget_ = new PanelWidget();
+    views::WidgetGtk* widget_gtk =
+        new views::WidgetGtk(views::WidgetGtk::TYPE_WINDOW);
+    // Enable double buffering because the panel has both pure views
+    // control and native controls (scroll bar).
+    widget_gtk->EnableDoubleBuffer(true);
+    panel_widget_ = widget_gtk;
+
     gfx::Rect bounds = GetPreferredBounds();
     bounds = bounds.Union(min_bounds_);
     panel_widget_->Init(NULL, bounds);
@@ -604,6 +592,11 @@ bool NotificationPanel::CanClosePanel() {
 void NotificationPanel::ClosePanel() {
   SET_STATE(CLOSED);
   UpdatePanel(false);
+}
+
+void NotificationPanel::ActivatePanel() {
+  if (active_)
+    active_->Activated();
 }
 
 ////////////////////////////////////////////////////////////////////////////////

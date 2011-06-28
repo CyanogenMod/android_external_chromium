@@ -10,9 +10,9 @@
 #include <vector>
 
 #include "base/basictypes.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/observer_list.h"
-#include "base/ref_counted.h"
-#include "base/scoped_ptr.h"
 #include "base/values.h"
 #include "chrome/browser/chromeos/login/signed_settings.h"
 #include "net/proxy/proxy_config.h"
@@ -39,9 +39,9 @@ class ProxyConfigServiceImpl
       public SignedSettings::Delegate<std::string> {
  public:
   // ProxyConfigServiceImpl is created on the UI thread in
-  // chrome/browser/net/chrome_url_request_context.cc::CreateProxyConfigService
-  // via ProfileImpl::GetChromeOSProxyConfigServiceImpl, and stored in Profile
-  // as a scoped_refptr (because it's RefCountedThreadSafe).
+  // chrome/browser/net/proxy_service_factory.cc::CreateProxyConfigService
+  // via BrowserProcess::chromeos_proxy_config_service_impl, and stored in
+  // g_browser_process as a scoped_refptr (because it's RefCountedThreadSafe).
   //
   // Past that point, it can be accessed from the IO or UI threads.
   //
@@ -50,7 +50,7 @@ class ProxyConfigServiceImpl
   // (GetLatestProxyConfig, AddObserver, RemoveObserver).
   //
   // From the UI thread, it is accessed via
-  // WebUI::GetProfile::GetChromeOSProxyConfigServiceImpl to allow user to read
+  // BrowserProcess::chromeos_proxy_config_service_impl to allow user to read
   // or modify the proxy configuration via UIGetProxyConfig or
   // UISetProxyConfigTo* respectively.
   // The new modified proxy config is posted to the IO thread through
@@ -89,25 +89,17 @@ class ProxyConfigServiceImpl
     struct Setting {
       Setting() : source(SOURCE_NONE) {}
       bool CanBeWrittenByUser(bool user_is_owner);
-      virtual DictionaryValue* Encode() const;
-      bool Decode(DictionaryValue* dict);
 
       Source source;
     };
 
     // Proxy setting for mode = direct or auto-detect or using pac script.
     struct AutomaticProxy : public Setting {
-      virtual DictionaryValue* Encode() const;
-      bool Decode(DictionaryValue* dict, Mode mode);
-
       GURL    pac_url;  // Set if proxy is using pac script.
     };
 
     // Proxy setting for mode = single-proxy or proxy-per-scheme.
     struct ManualProxy : public Setting {
-      virtual DictionaryValue* Encode() const;
-      bool Decode(DictionaryValue* dict, net::ProxyServer::Scheme scheme);
-
       net::ProxyServer  server;
     };
 
@@ -154,15 +146,10 @@ class ProxyConfigServiceImpl
     net::ProxyBypassRules  bypass_rules;
 
    private:
-    // Encodes |manual_proxy| and adds it as value into |key_name| of |dict|.
-    void EncodeManualProxy(const ManualProxy& manual_proxy,
-        DictionaryValue* dict, const char* key_name);
-    // Decodes value of |key_name| in |dict| into |manual_proxy| with |scheme|;
-    // if |ok_if_absent| is true, function returns true if |key_name| doesn't
-    // exist in |dict|.
-    bool DecodeManualProxy(DictionaryValue* dict, const char* key_name,
-        bool ok_if_absent, net::ProxyServer::Scheme scheme,
-        ManualProxy* manual_proxy);
+    // Encodes the proxy server as "<url-scheme>=<proxy-scheme>://<proxy>"
+    static void EncodeAndAppendProxyServer(const std::string& scheme,
+                                           const net::ProxyServer& server,
+                                           std::string* spec);
   };
 
   // Usual constructor.
@@ -177,7 +164,8 @@ class ProxyConfigServiceImpl
   void AddObserver(net::ProxyConfigService::Observer* observer);
   void RemoveObserver(net::ProxyConfigService::Observer* observer);
   // Called from GetLatestProxyConfig.
-  bool IOGetProxyConfig(net::ProxyConfig* config);
+  net::ProxyConfigService::ConfigAvailability IOGetProxyConfig(
+      net::ProxyConfig* config);
 
   // Called from UI thread to retrieve proxy configuration in |config|.
   void UIGetProxyConfig(ProxyConfig* config);
@@ -215,11 +203,6 @@ class ProxyConfigServiceImpl
  private:
   friend class base::RefCountedThreadSafe<ProxyConfigServiceImpl>;
 
-  // Init proxy to default config, i.e. AutoDetect.
-  // If |post_to_io_thread| is true, a task will be posted to IO thread to
-  // update |cached_config|.
-  void InitConfigToDefault(bool post_to_io_thread);
-
   // Persists proxy config to device.
   void PersistConfigToDevice();
 
@@ -228,7 +211,9 @@ class ProxyConfigServiceImpl
   void OnUISetProxyConfig(bool update_to_device);
 
   // Posted from UI thread to IO thread to carry the new config information.
-  void IOSetProxyConfig(const ProxyConfig& new_config);
+  void IOSetProxyConfig(
+      const ProxyConfig& new_config,
+      net::ProxyConfigService::ConfigAvailability new_availability);
 
   // Checks that method is called on BrowserThread::IO thread.
   void CheckCurrentlyOnIOThread();
@@ -243,8 +228,8 @@ class ProxyConfigServiceImpl
   // method until the class's ref_count is at least one).
   bool can_post_task_;
 
-  // True if config has been fetched from device or initialized properly.
-  bool has_config_;
+  // Availability status of the configuration.
+  net::ProxyConfigService::ConfigAvailability config_availability_;
 
   // True if settings are to be persisted to device.
   bool persist_to_device_;

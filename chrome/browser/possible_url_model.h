@@ -36,11 +36,8 @@ class PossibleURLModel : public ui::TableModel {
   const GURL& GetURL(int row);
   const std::wstring& GetTitle(int row);
 
-  virtual void OnFavIconAvailable(FaviconService::Handle h,
-                                  bool fav_icon_available,
-                                  scoped_refptr<RefCountedMemory> data,
-                                  bool expired,
-                                  GURL icon_url);
+  virtual void OnFaviconAvailable(FaviconService::Handle h,
+                                  history::FaviconData favicon);
 
   // TableModel overrides
   virtual int RowCount() OVERRIDE;
@@ -64,8 +61,8 @@ class PossibleURLModel : public ui::TableModel {
   std::vector<Result> results_;
 
   // Map Result::index -> Favicon.
-  typedef std::map<size_t, SkBitmap> FavIconMap;
-  FavIconMap fav_icon_map_;
+  typedef std::map<size_t, SkBitmap> FaviconMap;
+  FaviconMap favicon_map_;
 
   DISALLOW_COPY_AND_ASSIGN(PossibleURLModel);
 };

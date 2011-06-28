@@ -8,20 +8,20 @@
 #include "base/file_path.h"
 #include "base/file_util_proxy.h"
 #include "base/logging.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/message_loop.h"
 #include "base/metrics/histogram.h"
 #include "base/platform_file.h"
-#include "base/scoped_ptr.h"
 #include "base/stl_util-inl.h"
 #include "base/task.h"
 #include "base/time.h"
-#include "chrome/browser/safe_browsing/csd.pb.h"
 #include "chrome/common/net/http_return.h"
 #include "chrome/common/net/url_fetcher.h"
-#include "chrome/common/net/url_request_context_getter.h"
+#include "chrome/common/safe_browsing/csd.pb.h"
 #include "content/browser/browser_thread.h"
 #include "googleurl/src/gurl.h"
 #include "net/base/load_flags.h"
+#include "net/url_request/url_request_context_getter.h"
 #include "net/url_request/url_request_status.h"
 
 namespace safe_browsing {
@@ -37,8 +37,14 @@ const base::TimeDelta ClientSideDetectionService::kPositiveCacheInterval =
 
 const char ClientSideDetectionService::kClientReportPhishingUrl[] =
     "https://sb-ssl.google.com/safebrowsing/clientreport/phishing";
+// Note: when updatng the model version, don't forget to change the filename
+// in chrome/common/chrome_constants.cc as well, or else existing users won't
+// download the new model.
+//
+// TODO(bryner): add version metadata so that clients can download new models
+// without needing a new model filename.
 const char ClientSideDetectionService::kClientModelUrl[] =
-    "https://ssl.gstatic.com/safebrowsing/csd/client_model_v0.pb";
+    "https://ssl.gstatic.com/safebrowsing/csd/client_model_v1.pb";
 
 struct ClientSideDetectionService::ClientReportInfo {
   scoped_ptr<ClientReportPhishingRequestCallback> callback;
@@ -51,7 +57,7 @@ ClientSideDetectionService::CacheState::CacheState(bool phish, base::Time time)
 
 ClientSideDetectionService::ClientSideDetectionService(
     const FilePath& model_path,
-    URLRequestContextGetter* request_context_getter)
+    net::URLRequestContextGetter* request_context_getter)
     : model_path_(model_path),
       model_status_(UNKNOWN_STATUS),
       model_file_(base::kInvalidPlatformFileValue),
@@ -71,7 +77,7 @@ ClientSideDetectionService::~ClientSideDetectionService() {
 /* static */
 ClientSideDetectionService* ClientSideDetectionService::Create(
     const FilePath& model_path,
-    URLRequestContextGetter* request_context_getter) {
+    net::URLRequestContextGetter* request_context_getter) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   scoped_ptr<ClientSideDetectionService> service(
       new ClientSideDetectionService(model_path, request_context_getter));
@@ -93,6 +99,14 @@ ClientSideDetectionService* ClientSideDetectionService::Create(
     delete cb;
     return NULL;
   }
+
+  // Delete the previous-version model file.
+  // TODO(bryner): Remove this for M14.
+  base::FileUtilProxy::Delete(
+      BrowserThread::GetMessageLoopProxyForThread(BrowserThread::FILE),
+      model_path.DirName().AppendASCII("Safe Browsing Phishing Model"),
+      false /* not recursive */,
+      NULL /* not interested in result */);
   return service.release();
 }
 
@@ -105,15 +119,14 @@ void ClientSideDetectionService::GetModelFile(OpenModelDoneCallback* callback) {
 }
 
 void ClientSideDetectionService::SendClientReportPhishingRequest(
-    const GURL& phishing_url,
-    double score,
+    ClientPhishingRequest* verdict,
     ClientReportPhishingRequestCallback* callback) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   MessageLoop::current()->PostTask(
       FROM_HERE,
       method_factory_.NewRunnableMethod(
           &ClientSideDetectionService::StartClientReportPhishingRequest,
-          phishing_url, score, callback));
+          verdict, callback));
 }
 
 bool ClientSideDetectionService::IsPrivateIPAddress(
@@ -254,45 +267,17 @@ void ClientSideDetectionService::StartGetModelFile(
 }
 
 void ClientSideDetectionService::StartClientReportPhishingRequest(
-    const GURL& phishing_url,
-    double score,
+    ClientPhishingRequest* verdict,
     ClientReportPhishingRequestCallback* callback) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  scoped_ptr<ClientPhishingRequest> request(verdict);
   scoped_ptr<ClientReportPhishingRequestCallback> cb(callback);
 
-  bool is_phishing;
-  if (GetCachedResult(phishing_url, &is_phishing)) {
-    VLOG(1) << "Satisfying request for " << phishing_url << " from cache";
-    UMA_HISTOGRAM_COUNTS("SBClientPhishing.RequestSatisfiedFromCache", 1);
-    cb->Run(phishing_url, is_phishing);
-    return;
-  }
-
-  // We limit the number of distinct pings to kMaxReports, but we don't count
-  // urls already in the cache against this number. We don't want to start
-  // classifying too many pages as phishing, but for those that we already
-  // think are phishing we want to give ourselves a chance to fix false
-  // positives.
-  if (cache_.find(phishing_url) != cache_.end()) {
-    VLOG(1) << "Refreshing cache for " << phishing_url;
-    UMA_HISTOGRAM_COUNTS("SBClientPhishing.CacheRefresh", 1);
-  } else if (GetNumReports() > kMaxReportsPerInterval) {
-    VLOG(1) << "Too many report phishing requests sent in the last "
-            << kReportsInterval.InHours() << " hours, not checking "
-            << phishing_url;
-    UMA_HISTOGRAM_COUNTS("SBClientPhishing.RequestNotSent", 1);
-    cb->Run(phishing_url, false);
-    return;
-  }
-
-  ClientPhishingRequest request;
-  request.set_url(phishing_url.spec());
-  request.set_client_score(static_cast<float>(score));
   std::string request_data;
-  if (!request.SerializeToString(&request_data)) {
+  if (!request->SerializeToString(&request_data)) {
     UMA_HISTOGRAM_COUNTS("SBClientPhishing.RequestNotSerialized", 1);
     VLOG(1) << "Unable to serialize the CSD request. Proto file changed?";
-    cb->Run(phishing_url, false);
+    cb->Run(GURL(request->url()), false);
     return;
   }
 
@@ -304,7 +289,7 @@ void ClientSideDetectionService::StartClientReportPhishingRequest(
   // Remember which callback and URL correspond to the current fetcher object.
   ClientReportInfo* info = new ClientReportInfo;
   info->callback.swap(cb);  // takes ownership of the callback.
-  info->phishing_url = phishing_url;
+  info->phishing_url = GURL(request->url());
   client_phishing_reports_[fetcher] = info;
 
   fetcher->set_load_flags(net::LOAD_DISABLE_CACHE);
@@ -372,8 +357,14 @@ void ClientSideDetectionService::HandlePhishingVerdict(
   delete source;
 }
 
-bool ClientSideDetectionService::GetCachedResult(const GURL& url,
-                                                 bool* is_phishing) {
+bool ClientSideDetectionService::IsInCache(const GURL& url) {
+  UpdateCache();
+
+  return cache_.find(url) != cache_.end();
+}
+
+bool ClientSideDetectionService::GetValidCachedResult(const GURL& url,
+                                                      bool* is_phishing) {
   UpdateCache();
 
   PhishingCache::iterator it = cache_.find(url);
@@ -413,6 +404,10 @@ void ClientSideDetectionService::UpdateCache() {
       cache_.erase(it++);
     }
   }
+}
+
+bool ClientSideDetectionService::OverReportLimit() {
+  return GetNumReports() > kMaxReportsPerInterval;
 }
 
 int ClientSideDetectionService::GetNumReports() {

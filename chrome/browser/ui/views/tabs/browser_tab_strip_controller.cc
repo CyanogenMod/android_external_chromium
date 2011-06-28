@@ -6,18 +6,19 @@
 
 #include "base/auto_reset.h"
 #include "base/command_line.h"
-#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/extensions/extension_tab_helper.h"
 #include "chrome/browser/metrics/user_metrics.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/browser/ui/tabs/tab_menu_model.h"
 #include "chrome/browser/ui/views/tabs/base_tab_strip.h"
 #include "chrome/browser/ui/views/tabs/tab_renderer_data.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/url_constants.h"
 #include "content/browser/renderer_host/render_view_host.h"
 #include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/notification_service.h"
 #include "views/controls/menu/menu_2.h"
 #include "views/widget/widget.h"
 
@@ -36,7 +37,9 @@ class BrowserTabStripController::TabContextMenuContents
   TabContextMenuContents(BaseTab* tab,
                          BrowserTabStripController* controller)
       : ALLOW_THIS_IN_INITIALIZER_LIST(
-          model_(this, controller->IsTabPinned(tab))),
+          model_(this,
+                 controller->model_,
+                 controller->tabstrip_->GetModelIndexOfBaseTab(tab))),
         tab_(tab),
         controller_(controller),
         last_command_(TabStripModel::CommandFirst) {
@@ -58,19 +61,19 @@ class BrowserTabStripController::TabContextMenuContents
   }
 
   // Overridden from ui::SimpleMenuModel::Delegate:
-  virtual bool IsCommandIdChecked(int command_id) const {
+  virtual bool IsCommandIdChecked(int command_id) const OVERRIDE {
     return controller_->IsCommandCheckedForTab(
         static_cast<TabStripModel::ContextMenuCommand>(command_id),
         tab_);
   }
-  virtual bool IsCommandIdEnabled(int command_id) const {
+  virtual bool IsCommandIdEnabled(int command_id) const OVERRIDE {
     return controller_->IsCommandEnabledForTab(
         static_cast<TabStripModel::ContextMenuCommand>(command_id),
         tab_);
   }
   virtual bool GetAcceleratorForCommandId(
       int command_id,
-      ui::Accelerator* accelerator) {
+      ui::Accelerator* accelerator) OVERRIDE {
     int browser_cmd;
     return TabStripModel::ContextMenuCommandToBrowserCommand(command_id,
                                                              &browser_cmd) ?
@@ -78,12 +81,12 @@ class BrowserTabStripController::TabContextMenuContents
                                                             accelerator) :
         false;
   }
-  virtual void CommandIdHighlighted(int command_id) {
+  virtual void CommandIdHighlighted(int command_id) OVERRIDE {
     controller_->StopHighlightTabsForCommand(last_command_, tab_);
     last_command_ = static_cast<TabStripModel::ContextMenuCommand>(command_id);
     controller_->StartHighlightTabsForCommand(last_command_, tab_);
   }
-  virtual void ExecuteCommand(int command_id) {
+  virtual void ExecuteCommand(int command_id) OVERRIDE {
     // Executing the command destroys |this|, and can also end up destroying
     // |controller_| (e.g. for |CommandUseVerticalTabs|). So stop the highlights
     // before executing the command.
@@ -91,6 +94,11 @@ class BrowserTabStripController::TabContextMenuContents
     controller_->ExecuteCommandForTab(
         static_cast<TabStripModel::ContextMenuCommand>(command_id),
         tab_);
+  }
+
+  virtual void MenuClosed() OVERRIDE {
+    if (controller_)
+      controller_->tabstrip_->StopAllHighlighting();
   }
 
  private:
@@ -143,10 +151,8 @@ void BrowserTabStripController::InitFromModel(BaseTabStrip* tabstrip) {
   tabstrip_ = tabstrip;
   // Walk the model, calling our insertion observer method for each item within
   // it.
-  for (int i = 0; i < model_->count(); ++i) {
-    TabInsertedAt(model_->GetTabContentsAt(i), i,
-                  i == model_->selected_index());
-  }
+  for (int i = 0; i < model_->count(); ++i)
+    TabInsertedAt(model_->GetTabContentsAt(i), i, model_->active_index() == i);
 }
 
 bool BrowserTabStripController::IsCommandEnabledForTab(
@@ -185,8 +191,12 @@ bool BrowserTabStripController::IsValidIndex(int index) const {
   return model_->ContainsIndex(index);
 }
 
+bool BrowserTabStripController::IsActiveTab(int model_index) const {
+  return model_->active_index() == model_index;
+}
+
 bool BrowserTabStripController::IsTabSelected(int model_index) const {
-  return model_->selected_index() == model_index;
+  return model_->IsTabSelected(model_index);
 }
 
 bool BrowserTabStripController::IsTabPinned(int model_index) const {
@@ -205,7 +215,19 @@ bool BrowserTabStripController::IsNewTabPage(int model_index) const {
 }
 
 void BrowserTabStripController::SelectTab(int model_index) {
-  model_->SelectTabContentsAt(model_index, true);
+  model_->ActivateTabAt(model_index, true);
+}
+
+void BrowserTabStripController::ExtendSelectionTo(int model_index) {
+  model_->ExtendSelectionTo(model_index);
+}
+
+void BrowserTabStripController::ToggleSelected(int model_index) {
+  model_->ToggleSelectionAt(model_index);
+}
+
+void BrowserTabStripController::AddSelectionFromAnchorTo(int model_index) {
+  model_->AddSelectionFromAnchorTo(model_index);
 }
 
 void BrowserTabStripController::CloseTab(int model_index) {
@@ -244,23 +266,21 @@ int BrowserTabStripController::HasAvailableDragActions() const {
 void BrowserTabStripController::PerformDrop(bool drop_before,
                                             int index,
                                             const GURL& url) {
+  browser::NavigateParams params(browser_, url, PageTransition::LINK);
+  params.tabstrip_index = index;
+
   if (drop_before) {
     UserMetrics::RecordAction(UserMetricsAction("Tab_DropURLBetweenTabs"),
                               model_->profile());
-
-    // Insert a new tab.
-    TabContentsWrapper* contents = model_->delegate()->CreateTabContentsForURL(
-        url, GURL(), model_->profile(), PageTransition::TYPED, false, NULL);
-    model_->AddTabContents(contents, index, PageTransition::GENERATED,
-                           TabStripModel::ADD_SELECTED);
+    params.disposition = NEW_FOREGROUND_TAB;
   } else {
     UserMetrics::RecordAction(UserMetricsAction("Tab_DropURLOnTab"),
                               model_->profile());
-
-    model_->GetTabContentsAt(index)->controller().LoadURL(
-        url, GURL(), PageTransition::GENERATED);
-    model_->SelectTabContentsAt(index, true);
+    params.disposition = CURRENT_TAB;
+    params.source_contents = model_->GetTabContentsAt(index);
   }
+
+  browser::Navigate(&params);
 }
 
 bool BrowserTabStripController::IsCompatibleWith(BaseTabStrip* other) const {
@@ -281,18 +301,14 @@ void BrowserTabStripController::CreateNewTab() {
 
 void BrowserTabStripController::TabInsertedAt(TabContentsWrapper* contents,
                                               int model_index,
-                                              bool foreground) {
+                                              bool active) {
   DCHECK(contents);
   DCHECK(model_index == TabStripModel::kNoTab ||
          model_->ContainsIndex(model_index));
-  // This tab may be attached to another browser window, we should notify
-  // renderer.
-  contents->render_view_host()->UpdateBrowserWindowId(
-      contents->controller().window_id().id());
 
   TabRendererData data;
   SetTabRendererDataFromModel(contents->tab_contents(), model_index, &data);
-  tabstrip_->AddTabAt(model_index, foreground, data);
+  tabstrip_->AddTabAt(model_index, data);
 }
 
 void BrowserTabStripController::TabDetachedAt(TabContentsWrapper* contents,
@@ -369,25 +385,28 @@ void BrowserTabStripController::SetTabRendererDataFromModel(
     int model_index,
     TabRendererData* data) {
   SkBitmap* app_icon = NULL;
+  TabContentsWrapper* wrapper =
+      TabContentsWrapper::GetCurrentWrapperForContents(contents);
 
   // Extension App icons are slightly larger than favicons, so only allow
   // them if permitted by the model.
   if (model_->delegate()->LargeIconsPermitted())
-    app_icon = contents->GetExtensionAppIcon();
+    app_icon = wrapper->extension_tab_helper()->GetExtensionAppIcon();
 
   if (app_icon)
     data->favicon = *app_icon;
   else
-    data->favicon = contents->GetFavIcon();
+    data->favicon = contents->GetFavicon();
   data->network_state = TabContentsNetworkState(contents);
   data->title = contents->GetTitle();
+  data->url = contents->GetURL();
   data->loading = contents->is_loading();
   data->crashed_status = contents->crashed_status();
-  data->off_the_record = contents->profile()->IsOffTheRecord();
-  data->show_icon = contents->ShouldDisplayFavIcon();
+  data->incognito = contents->profile()->IsOffTheRecord();
+  data->show_icon = contents->ShouldDisplayFavicon();
   data->mini = model_->IsMiniTab(model_index);
   data->blocked = model_->IsTabBlocked(model_index);
-  data->app = contents->is_app();
+  data->app = wrapper->extension_tab_helper()->is_app();
 }
 
 void BrowserTabStripController::StartHighlightTabsForCommand(

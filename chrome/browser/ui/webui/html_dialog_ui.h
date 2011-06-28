@@ -9,8 +9,8 @@
 #include <string>
 #include <vector>
 
-#include "chrome/common/property_bag.h"
 #include "content/browser/webui/web_ui.h"
+#include "content/common/property_bag.h"
 #include "googleurl/src/gurl.h"
 
 namespace gfx {
@@ -46,6 +46,11 @@ class HtmlDialogUIDelegate {
 
   // A callback to notify the delegate that the dialog closed.
   virtual void OnDialogClosed(const std::string& json_retval) = 0;
+
+  // Notifies the delegate that the dialog's containing window has been
+  // closed, and that OnDialogClosed() will be called shortly.
+  // TODO(jamescook): Make this pure virtual.
+  virtual void OnWindowClosed();
 
   // A callback to notify the delegate that the contents have gone
   // away. Only relevant if your dialog hosts code that calls

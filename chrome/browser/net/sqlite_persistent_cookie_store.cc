@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,11 +13,12 @@
 #include "base/file_path.h"
 #include "base/file_util.h"
 #include "base/logging.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/metrics/histogram.h"
-#include "base/ref_counted.h"
-#include "base/scoped_ptr.h"
 #include "base/string_util.h"
 #include "base/threading/thread.h"
+#include "base/threading/thread_restrictions.h"
 #include "chrome/browser/diagnostics/sqlite_diagnostics.h"
 #ifndef ANDROID
 #include "content/browser/browser_thread.h"
@@ -207,6 +208,17 @@ bool SQLitePersistentCookieStore::Backend::Load(
   // This function should be called only once per instance.
   DCHECK(!db_.get());
 
+  // Ensure the parent directory for storing cookies is created before reading
+  // from it.  We make an exception to allow IO on the UI thread here because
+  // we are going to disk anyway in db_->Open.  (This code will be moved to the
+  // DB thread as part of http://crbug.com/52909.)
+  {
+    base::ThreadRestrictions::ScopedAllowIO allow_io;
+    const FilePath dir = path_.DirName();
+    if (!file_util::PathExists(dir) && !file_util::CreateDirectory(dir))
+      return false;
+  }
+
   db_.reset(new sql::Connection);
   if (!db_->Open(path_)) {
     NOTREACHED() << "Unable to open cookie DB.";
@@ -250,10 +262,10 @@ bool SQLitePersistentCookieStore::Backend::Load(
             smt.ColumnString(3),                            // value
             smt.ColumnString(1),                            // domain
             smt.ColumnString(4),                            // path
-            smt.ColumnInt(6) != 0,                          // secure
-            smt.ColumnInt(7) != 0,                          // httponly
             Time::FromInternalValue(smt.ColumnInt64(0)),    // creation_utc
+            Time::FromInternalValue(smt.ColumnInt64(5)),    // expires_utc
             Time::FromInternalValue(smt.ColumnInt64(8)),    // last_access_utc
+<<<<<<< HEAD
 #if defined(ANDROID)
             !expires.is_null(),                             // has_expires
             expires));                                      // expires_utc
@@ -261,6 +273,11 @@ bool SQLitePersistentCookieStore::Backend::Load(
             true,                                           // has_expires
             Time::FromInternalValue(smt.ColumnInt64(5))));  // expires_utc
 #endif
+=======
+            smt.ColumnInt(6) != 0,                          // secure
+            smt.ColumnInt(7) != 0,                          // httponly
+            true));                                         // has_expires
+>>>>>>> chromium.org at r12.0.742.93
     DLOG_IF(WARNING,
             cc->CreationDate() > Time::Now()) << L"CreationDate too recent";
     cookies->push_back(cc.release());

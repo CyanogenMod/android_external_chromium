@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,8 +12,8 @@
 #include <string>
 #include <vector>
 
+#include "base/memory/ref_counted.h"
 #include "base/observer_list.h"
-#include "base/ref_counted.h"
 #include "base/string16.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browsing_data_appcache_helper.h"
@@ -467,7 +467,8 @@ class CookiesTreeModel : public ui::TreeNodeModel<CookieTreeNode> {
       BrowsingDataLocalStorageHelper* local_storage_helper,
       BrowsingDataLocalStorageHelper* session_storage_helper,
       BrowsingDataAppCacheHelper* appcache_helper,
-      BrowsingDataIndexedDBHelper* indexed_db_helper);
+      BrowsingDataIndexedDBHelper* indexed_db_helper,
+      bool use_cookie_source);
   virtual ~CookiesTreeModel();
 
   // ui::TreeModel methods:
@@ -554,6 +555,10 @@ class CookiesTreeModel : public ui::TreeNodeModel<CookieTreeNode> {
   // notifications coming down the pipe). This is an integer is used to balance
   // calls to Begin/EndBatch() if they're called in a nested manner.
   int batch_update_;
+
+  // If true, use the CanonicalCookie::Source attribute to group cookies.
+  // Otherwise, use the CanonicalCookie::Domain attribute.
+  bool use_cookie_source_;
 
   friend class CookieTreeAppCacheNode;
   friend class CookieTreeCookieNode;

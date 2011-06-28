@@ -9,15 +9,15 @@
 #include <set>
 #include <vector>
 
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
+#include "base/memory/scoped_vector.h"
 #include "base/observer_list.h"
-#include "base/ref_counted.h"
-#include "base/scoped_ptr.h"
-#include "base/scoped_vector.h"
 #include "base/string16.h"
-#include "chrome/browser/autofill/autofill_dialog.h"
 #include "chrome/browser/autofill/autofill_profile.h"
 #include "chrome/browser/autofill/credit_card.h"
 #include "chrome/browser/autofill/field_types.h"
+#include "chrome/browser/sync/profile_sync_service_observer.h"
 #include "chrome/browser/webdata/web_data_service.h"
 
 class AutofillManager;
@@ -25,12 +25,12 @@ class AutofillMetrics;
 class FormStructure;
 class Profile;
 
-// Handles loading and saving AutoFill profile information to the web database.
+// Handles loading and saving Autofill profile information to the web database.
 // This class also stores the profiles loaded from the database for use during
-// AutoFill.
+// Autofill.
 class PersonalDataManager
     : public WebDataServiceConsumer,
-      public AutoFillDialogObserver,
+      public ProfileSyncServiceObserver,
       public base::RefCountedThreadSafe<PersonalDataManager> {
  public:
   // An interface the PersonalDataManager uses to notify its clients (observers)
@@ -54,18 +54,17 @@ class PersonalDataManager
   virtual void OnWebDataServiceRequestDone(WebDataService::Handle h,
                                            const WDTypedResult* result);
 
-  // AutoFillDialogObserver implementation:
-  virtual void OnAutoFillDialogApply(std::vector<AutoFillProfile>* profiles,
-                                     std::vector<CreditCard>* credit_cards);
-
   // Sets the listener to be notified of PersonalDataManager events.
   virtual void SetObserver(PersonalDataManager::Observer* observer);
 
   // Removes |observer| as the observer of this PersonalDataManager.
   virtual void RemoveObserver(PersonalDataManager::Observer* observer);
 
+  // ProfileSyncServiceObserver:
+  virtual void OnStateChanged();
+
         // TODO(isherman): Update this comment
-  // If AutoFill is able to determine the field types of a significant number of
+  // If Autofill is able to determine the field types of a significant number of
   // field types that contain information in the FormStructures a profile will
   // be created with all of the information from recognized fields. Returns
   // whether a profile was created.
@@ -73,37 +72,37 @@ class PersonalDataManager
                       const CreditCard** credit_card);
 
   // Saves a credit card value detected in |ImportedFormData|.
-  void SaveImportedCreditCard(const CreditCard& imported_credit_card);
+  virtual void SaveImportedCreditCard(const CreditCard& imported_credit_card);
 
   // Sets |web_profiles_| to the contents of |profiles| and updates the web
   // database by adding, updating and removing profiles.
   //
   // The relationship between this and Refresh is subtle.
   // A call to |SetProfiles| could include out-of-date data that may conflict
-  // if we didn't refresh-to-latest before an AutoFill window was opened for
+  // if we didn't refresh-to-latest before an Autofill window was opened for
   // editing. |SetProfiles| is implemented to make a "best effort" to apply the
   // changes, but in extremely rare edge cases it is possible not all of the
   // updates in |profiles| make it to the DB.  This is why SetProfiles will
   // invoke Refresh after finishing, to ensure we get into a
   // consistent state.  See Refresh for details.
-  void SetProfiles(std::vector<AutoFillProfile>* profiles);
+  void SetProfiles(std::vector<AutofillProfile>* profiles);
 
   // Sets |credit_cards_| to the contents of |credit_cards| and updates the web
   // database by adding, updating and removing credit cards.
   void SetCreditCards(std::vector<CreditCard>* credit_cards);
 
   // Adds |profile| to the web database.
-  void AddProfile(const AutoFillProfile& profile);
+  void AddProfile(const AutofillProfile& profile);
 
   // Updates |profile| which already exists in the web database.
-  void UpdateProfile(const AutoFillProfile& profile);
+  void UpdateProfile(const AutofillProfile& profile);
 
   // Removes the profile represented by |guid|.
   void RemoveProfile(const std::string& guid);
 
   // Returns the profile with the specified |guid|, or NULL if there is no
   // profile with the specified |guid|.
-  AutoFillProfile* GetProfileByGUID(const std::string& guid);
+  AutofillProfile* GetProfileByGUID(const std::string& guid);
 
   // Adds |credit_card| to the web database.
   void AddCreditCard(const CreditCard& credit_card);
@@ -133,8 +132,8 @@ class PersonalDataManager
   // lifetime is until the web database is updated with new profile and credit
   // card information, respectively.  |profiles()| returns both web and
   // auxiliary profiles.  |web_profiles()| returns only web profiles.
-  const std::vector<AutoFillProfile*>& profiles();
-  virtual const std::vector<AutoFillProfile*>& web_profiles();
+  const std::vector<AutofillProfile*>& profiles();
+  virtual const std::vector<AutofillProfile*>& web_profiles();
   virtual const std::vector<CreditCard*>& credit_cards();
 
   // Re-loads profiles and credit cards from the WebDatabase asynchronously.
@@ -150,11 +149,22 @@ class PersonalDataManager
   // Kicks off asynchronous loading of profiles and credit cards.
   void Init(Profile* profile);
 
+  // Checks suitability of |profile| for adding to the user's set of profiles.
+  static bool IsValidLearnableProfile(const AutofillProfile& profile);
+
+  // Merges |profile| into one of the |existing_profiles| if possible; otherwise
+  // appends |profile| to the end of that list. Fills |merged_profiles| with the
+  // result.
+  static bool MergeProfile(
+      const AutofillProfile& profile,
+      const std::vector<AutofillProfile*>& existing_profiles,
+      std::vector<AutofillProfile>* merged_profiles);
+
  protected:
   // Make sure that only Profile and certain tests can create an instance of
   // PersonalDataManager.
   friend class base::RefCountedThreadSafe<PersonalDataManager>;
-  friend class AutoFillMergeTest;
+  friend class AutofillMergeTest;
   friend class PersonalDataManagerTest;
   friend class ProfileImpl;
   friend class ProfileSyncServiceAutofillTest;
@@ -162,14 +172,8 @@ class PersonalDataManager
   friend class ProfileImplAndroid;
 #endif
 
-  // For tests.
-  static void set_has_logged_profile_count(bool has_logged_profile_count);
-
   PersonalDataManager();
   virtual ~PersonalDataManager();
-
-  // Returns the profile of the tab contents.
-  Profile* profile();
 
   // Loads the saved profiles from the web database.
   virtual void LoadProfiles();
@@ -195,18 +199,17 @@ class PersonalDataManager
   void CancelPendingQuery(WebDataService::Handle* handle);
 
   // Saves |imported_profile| to the WebDB if it exists.
-  virtual void SaveImportedProfile(const AutoFillProfile& imported_profile);
+  virtual void SaveImportedProfile(const AutofillProfile& imported_profile);
 
-  // Merges |profile| into one of the |existing_profiles| if possible; otherwise
-  // appends |profile| to the end of that list. Fills |merged_profiles| with the
-  // result.
-  bool MergeProfile(const AutoFillProfile& profile,
-                    const std::vector<AutoFillProfile*>& existing_profiles,
-                    std::vector<AutoFillProfile>* merged_profiles);
+  // Notifies Sync about data migration if necessary.
+  void EmptyMigrationTrash();
 
   // The first time this is called, logs an UMA metrics for the number of
   // profiles the user has. On subsequent calls, does nothing.
   void LogProfileCount() const;
+
+  // Returns the value of the AutofillEnabled pref.
+  virtual bool IsAutofillEnabled() const;
 
   // For tests.
   const AutofillMetrics* metric_logger() const;
@@ -219,14 +222,14 @@ class PersonalDataManager
   bool is_data_loaded_;
 
   // The loaded web profiles.
-  ScopedVector<AutoFillProfile> web_profiles_;
+  ScopedVector<AutofillProfile> web_profiles_;
 
   // Auxiliary profiles.
-  ScopedVector<AutoFillProfile> auxiliary_profiles_;
+  ScopedVector<AutofillProfile> auxiliary_profiles_;
 
   // Storage for combined web and auxiliary profiles.  Contents are weak
   // references.  Lifetime managed by |web_profiles_| and |auxiliary_profiles_|.
-  std::vector<AutoFillProfile*> profiles_;
+  std::vector<AutofillProfile*> profiles_;
 
   // The loaded credit cards.
   ScopedVector<CreditCard> credit_cards_;
@@ -248,6 +251,9 @@ class PersonalDataManager
  private:
   // For logging UMA metrics. Overridden by metrics tests.
   scoped_ptr<const AutofillMetrics> metric_logger_;
+
+  // Whether we have already logged the number of profiles this session.
+  mutable bool has_logged_profile_count_;
 
   DISALLOW_COPY_AND_ASSIGN(PersonalDataManager);
 };

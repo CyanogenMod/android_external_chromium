@@ -8,29 +8,33 @@
 
 #include "base/basictypes.h"
 #include "base/command_line.h"
+#include "base/compiler_specific.h"
 #include "base/logging.h"
+#include "base/stl_util-inl.h"
 #include "base/string_number_conversions.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/custom_handlers/protocol_handler_registry.h"
+#include "chrome/browser/extensions/user_script_master.h"
 #include "chrome/browser/io_thread.h"
 #include "chrome/browser/net/chrome_cookie_notification_details.h"
+#include "chrome/browser/net/chrome_cookie_policy.h"
+#include "chrome/browser/net/chrome_dns_cert_provenance_checker_factory.h"
+#include "chrome/browser/net/chrome_net_log.h"
+#include "chrome/browser/net/chrome_network_delegate.h"
 #include "chrome/browser/net/pref_proxy_config_service.h"
-#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/net/proxy_service_factory.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/extensions/user_script_master.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
 #include "content/browser/browser_thread.h"
+#include "content/browser/resource_context.h"
+#include "content/common/notification_service.h"
 #include "net/http/http_util.h"
 #include "net/proxy/proxy_config_service_fixed.h"
 #include "net/proxy/proxy_script_fetcher_impl.h"
 #include "net/proxy/proxy_service.h"
-
-#if defined(OS_CHROMEOS)
-#include "chrome/browser/chromeos/cros/cros_library.h"
-#include "chrome/browser/chromeos/cros/libcros_service_library.h"
-#include "chrome/browser/chromeos/proxy_config_service.h"
-#endif  // defined(OS_CHROMEOS)
+#include "webkit/database/database_tracker.h"
 
 namespace {
 
@@ -47,13 +51,15 @@ class ChromeCookieMonsterDelegate : public net::CookieMonster::Delegate {
   // net::CookieMonster::Delegate implementation.
   virtual void OnCookieChanged(
       const net::CookieMonster::CanonicalCookie& cookie,
-      bool removed) {
+      bool removed,
+      net::CookieMonster::Delegate::ChangeCause cause) {
     BrowserThread::PostTask(
         BrowserThread::UI, FROM_HERE,
         NewRunnableMethod(this,
             &ChromeCookieMonsterDelegate::OnCookieChangedAsyncHelper,
             cookie,
-            removed));
+            removed,
+            cause));
   }
 
  private:
@@ -106,9 +112,10 @@ class ChromeCookieMonsterDelegate : public net::CookieMonster::Delegate {
 
   void OnCookieChangedAsyncHelper(
       const net::CookieMonster::CanonicalCookie& cookie,
-      bool removed) {
+      bool removed,
+      net::CookieMonster::Delegate::ChangeCause cause) {
     if (profile_getter_->get()) {
-      ChromeCookieDetails cookie_details(&cookie, removed);
+      ChromeCookieDetails cookie_details(&cookie, removed, cause);
       NotificationService::current()->Notify(
           NotificationType::COOKIE_CHANGED,
           Source<Profile>(profile_getter_->get()),
@@ -121,12 +128,12 @@ class ChromeCookieMonsterDelegate : public net::CookieMonster::Delegate {
 
 }  // namespace
 
-void ProfileIOData::InitializeProfileParams(Profile* profile,
-                                            ProfileParams* params) {
+void ProfileIOData::InitializeProfileParams(Profile* profile) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   PrefService* pref_service = profile->GetPrefs();
 
-  params->is_off_the_record = profile->IsOffTheRecord();
+  scoped_ptr<ProfileParams> params(new ProfileParams);
+  params->is_incognito = profile->IsOffTheRecord();
   params->clear_local_state_on_exit =
       pref_service->GetBoolean(prefs::kClearSiteDataOnExit);
 
@@ -153,6 +160,8 @@ void ProfileIOData::InitializeProfileParams(Profile* profile,
   // net_util::GetSuggestedFilename is unlikely to be taken.
   params->referrer_charset = default_charset;
 
+  params->io_thread = g_browser_process->io_thread();
+
   params->host_content_settings_map = profile->GetHostContentSettingsMap();
   params->host_zoom_map = profile->GetHostZoomMap();
   params->transport_security_state = profile->GetTransportSecurityState();
@@ -172,20 +181,25 @@ void ProfileIOData::InitializeProfileParams(Profile* profile,
   params->prerender_manager = profile->GetPrerenderManager();
   params->protocol_handler_registry = profile->GetProtocolHandlerRegistry();
 
-  params->proxy_config_service.reset(CreateProxyConfigService(profile));
+  params->proxy_config_service.reset(
+      ProxyServiceFactory::CreateProxyConfigService(
+          profile->GetProxyConfigTracker()));
   params->profile_id = profile->GetRuntimeId();
+  profile_params_.reset(params.release());
 }
 
 ProfileIOData::RequestContext::RequestContext() {}
 ProfileIOData::RequestContext::~RequestContext() {}
 
 ProfileIOData::ProfileParams::ProfileParams()
-    : is_off_the_record(false),
-      clear_local_state_on_exit(false) {}
+    : is_incognito(false),
+      clear_local_state_on_exit(false),
+      profile_id(Profile::kInvalidProfileId) {}
 ProfileIOData::ProfileParams::~ProfileParams() {}
 
-ProfileIOData::ProfileIOData(bool is_off_the_record)
-    : initialized_(false) {
+ProfileIOData::ProfileIOData(bool is_incognito)
+    : initialized_(false),
+      ALLOW_THIS_IN_INITIALIZER_LIST(resource_context_(this)) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 }
 
@@ -203,9 +217,9 @@ ProfileIOData::~ProfileIOData() {
 scoped_refptr<ChromeURLRequestContext>
 ProfileIOData::GetMainRequestContext() const {
   LazyInitialize();
-  scoped_refptr<ChromeURLRequestContext> context =
-      AcquireMainRequestContext();
-  DCHECK(context);
+  scoped_refptr<RequestContext> context = main_request_context_;
+  context->set_profile_io_data(this);
+  main_request_context_ = NULL;
   return context;
 }
 
@@ -221,126 +235,116 @@ ProfileIOData::GetMediaRequestContext() const {
 scoped_refptr<ChromeURLRequestContext>
 ProfileIOData::GetExtensionsRequestContext() const {
   LazyInitialize();
+  scoped_refptr<RequestContext> context =
+      extensions_request_context_;
+  context->set_profile_io_data(this);
+  extensions_request_context_ = NULL;
+  return context;
+}
+
+scoped_refptr<ChromeURLRequestContext>
+ProfileIOData::GetIsolatedAppRequestContext(
+    scoped_refptr<ChromeURLRequestContext> main_context,
+    const std::string& app_id) const {
+  LazyInitialize();
   scoped_refptr<ChromeURLRequestContext> context =
-      AcquireExtensionsRequestContext();
+      AcquireIsolatedAppRequestContext(main_context, app_id);
   DCHECK(context);
   return context;
+}
+
+const content::ResourceContext& ProfileIOData::GetResourceContext() const {
+  return resource_context_;
+}
+
+ProfileIOData::ResourceContext::ResourceContext(const ProfileIOData* io_data)
+    : io_data_(io_data) {
+  DCHECK(io_data);
+}
+
+ProfileIOData::ResourceContext::~ResourceContext() {}
+
+void ProfileIOData::ResourceContext::EnsureInitialized() const {
+  io_data_->LazyInitialize();
 }
 
 void ProfileIOData::LazyInitialize() const {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
   if (initialized_)
     return;
-  LazyInitializeInternal();
+  DCHECK(profile_params_.get());
+
+  IOThread* const io_thread = profile_params_->io_thread;
+  IOThread::Globals* const io_thread_globals = io_thread->globals();
+  const CommandLine& command_line = *CommandLine::ForCurrentProcess();
+
+  // Create the common request contexts.
+  main_request_context_ = new RequestContext;
+  extensions_request_context_ = new RequestContext;
+
+  profile_params_->appcache_service->set_request_context(main_request_context_);
+
+  // Create objects pointed to by URLRequestContext.
+  cookie_policy_.reset(
+      new ChromeCookiePolicy(profile_params_->host_content_settings_map));
+
+  network_delegate_.reset(new ChromeNetworkDelegate(
+        io_thread_globals->extension_event_router_forwarder.get(),
+        profile_params_->profile_id,
+        &enable_referrers_,
+        profile_params_->protocol_handler_registry));
+
+  dns_cert_checker_.reset(
+      CreateDnsCertProvenanceChecker(io_thread_globals->dnsrr_resolver.get(),
+                                     main_request_context_));
+
+  proxy_service_ =
+      ProxyServiceFactory::CreateProxyService(
+          io_thread->net_log(),
+          io_thread_globals->proxy_script_fetcher_context.get(),
+          profile_params_->proxy_config_service.release(),
+          command_line);
+
+  // Take ownership over these parameters.
+  database_tracker_ = profile_params_->database_tracker;
+  appcache_service_ = profile_params_->appcache_service;
+  blob_storage_context_ = profile_params_->blob_storage_context;
+  file_system_context_ = profile_params_->file_system_context;
+
+  resource_context_.set_host_resolver(io_thread_globals->host_resolver.get());
+  resource_context_.set_request_context(main_request_context_);
+  resource_context_.set_database_tracker(database_tracker_);
+  resource_context_.set_appcache_service(appcache_service_);
+  resource_context_.set_blob_storage_context(blob_storage_context_);
+  resource_context_.set_file_system_context(file_system_context_);
+
+  LazyInitializeInternal(profile_params_.get());
+
+  profile_params_.reset();
   initialized_ = true;
 }
 
-// static
 void ProfileIOData::ApplyProfileParamsToContext(
-    const ProfileParams& profile_params,
-    ChromeURLRequestContext* context) {
-  context->set_is_off_the_record(profile_params.is_off_the_record);
-  context->set_accept_language(profile_params.accept_language);
-  context->set_accept_charset(profile_params.accept_charset);
-  context->set_referrer_charset(profile_params.referrer_charset);
-  context->set_user_script_dir_path(profile_params.user_script_dir_path);
+    ChromeURLRequestContext* context) const {
+  context->set_is_incognito(profile_params_->is_incognito);
+  context->set_accept_language(profile_params_->accept_language);
+  context->set_accept_charset(profile_params_->accept_charset);
+  context->set_referrer_charset(profile_params_->referrer_charset);
+  context->set_user_script_dir_path(profile_params_->user_script_dir_path);
   context->set_host_content_settings_map(
-      profile_params.host_content_settings_map);
-  context->set_host_zoom_map(profile_params.host_zoom_map);
+      profile_params_->host_content_settings_map);
+  context->set_host_zoom_map(profile_params_->host_zoom_map);
   context->set_transport_security_state(
-      profile_params.transport_security_state);
-  context->set_ssl_config_service(profile_params.ssl_config_service);
-  context->set_database_tracker(profile_params.database_tracker);
-  context->set_appcache_service(profile_params.appcache_service);
-  context->set_blob_storage_context(profile_params.blob_storage_context);
-  context->set_file_system_context(profile_params.file_system_context);
-  context->set_extension_info_map(profile_params.extension_info_map);
-  context->set_prerender_manager(profile_params.prerender_manager);
-  context->set_protocol_handler_registry(
-      profile_params.protocol_handler_registry);
+      profile_params_->transport_security_state);
+  context->set_ssl_config_service(profile_params_->ssl_config_service);
+  context->set_appcache_service(profile_params_->appcache_service);
+  context->set_blob_storage_context(profile_params_->blob_storage_context);
+  context->set_file_system_context(profile_params_->file_system_context);
+  context->set_extension_info_map(profile_params_->extension_info_map);
+  context->set_prerender_manager(profile_params_->prerender_manager);
 }
 
-// static
-net::ProxyConfigService* ProfileIOData::CreateProxyConfigService(
-    Profile* profile) {
-  // The linux gconf-based proxy settings getter relies on being initialized
-  // from the UI thread.
+void ProfileIOData::ShutdownOnUIThread() {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-
-  // Create a baseline service that provides proxy configuration in case nothing
-  // is configured through prefs (Note: prefs include command line and
-  // configuration policy).
-  net::ProxyConfigService* base_service = NULL;
-
-  // TODO(port): the IO and FILE message loops are only used by Linux.  Can
-  // that code be moved to chrome/browser instead of being in net, so that it
-  // can use BrowserThread instead of raw MessageLoop pointers? See bug 25354.
-#if defined(OS_CHROMEOS)
-  base_service = new chromeos::ProxyConfigService(
-      profile->GetChromeOSProxyConfigServiceImpl());
-#else
-  base_service = net::ProxyService::CreateSystemProxyConfigService(
-      g_browser_process->io_thread()->message_loop(),
-      g_browser_process->file_thread()->message_loop());
-#endif  // defined(OS_CHROMEOS)
-
-  return new PrefProxyConfigService(profile->GetProxyConfigTracker(),
-                                    base_service);
-}
-
-// static
-net::ProxyService* ProfileIOData::CreateProxyService(
-    net::NetLog* net_log,
-    net::URLRequestContext* context,
-    net::ProxyConfigService* proxy_config_service,
-    const CommandLine& command_line) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
-
-  bool use_v8 = !command_line.HasSwitch(switches::kWinHttpProxyResolver);
-  if (use_v8 && command_line.HasSwitch(switches::kSingleProcess)) {
-    // See the note about V8 multithreading in net/proxy/proxy_resolver_v8.h
-    // to understand why we have this limitation.
-    LOG(ERROR) << "Cannot use V8 Proxy resolver in single process mode.";
-    use_v8 = false;  // Fallback to non-v8 implementation.
-  }
-
-  size_t num_pac_threads = 0u;  // Use default number of threads.
-
-  // Check the command line for an override on the number of proxy resolver
-  // threads to use.
-  if (command_line.HasSwitch(switches::kNumPacThreads)) {
-    std::string s = command_line.GetSwitchValueASCII(switches::kNumPacThreads);
-
-    // Parse the switch (it should be a positive integer formatted as decimal).
-    int n;
-    if (base::StringToInt(s, &n) && n > 0) {
-      num_pac_threads = static_cast<size_t>(n);
-    } else {
-      LOG(ERROR) << "Invalid switch for number of PAC threads: " << s;
-    }
-  }
-
-  net::ProxyService* proxy_service;
-  if (use_v8) {
-    proxy_service = net::ProxyService::CreateUsingV8ProxyResolver(
-        proxy_config_service,
-        num_pac_threads,
-        new net::ProxyScriptFetcherImpl(context),
-        context->host_resolver(),
-        net_log);
-  } else {
-    proxy_service = net::ProxyService::CreateUsingSystemProxyResolver(
-        proxy_config_service,
-        num_pac_threads,
-        net_log);
-  }
-
-#if defined(OS_CHROMEOS)
-  if (chromeos::CrosLibrary::Get()->EnsureLoaded()) {
-    chromeos::CrosLibrary::Get()->GetLibCrosServiceLibrary()->
-        RegisterNetworkProxyHandler(proxy_service);
-  }
-#endif  // defined(OS_CHROMEOS)
-
-  return proxy_service;
+  enable_referrers_.Destroy();
 }

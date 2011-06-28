@@ -1,17 +1,11 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "net/base/ssl_config_service.h"
-#include "net/base/ssl_false_start_blacklist.h"
 
-#if defined(OS_WIN)
-#include "net/base/ssl_config_service_win.h"
-#elif defined(OS_MACOSX)
-#include "net/base/ssl_config_service_mac.h"
-#else
 #include "net/base/ssl_config_service_defaults.h"
-#endif
+#include "net/base/ssl_false_start_blacklist.h"
 
 namespace net {
 
@@ -21,9 +15,9 @@ SSLConfig::CertAndStatus::~CertAndStatus() {}
 
 SSLConfig::SSLConfig()
     : rev_checking_enabled(true), ssl3_enabled(true),
-      tls1_enabled(true), dnssec_enabled(false), snap_start_enabled(false),
+      tls1_enabled(true), dnssec_enabled(false),
       dns_cert_provenance_checking_enabled(false),
-      mitm_proxies_allowed(false), false_start_enabled(true),
+      false_start_enabled(true),
       send_client_cert(false), verify_ev_cert(false), ssl3_fallback(false) {
 }
 
@@ -44,43 +38,9 @@ SSLConfigService::SSLConfigService()
 
 // static
 SSLConfigService* SSLConfigService::CreateSystemSSLConfigService() {
-#if defined(OS_WIN)
-  return new SSLConfigServiceWin;
-#elif defined(OS_MACOSX)
-  return new SSLConfigServiceMac;
-#else
+  // TODO(rtenneti): We don't use the system SSL configuration any more.
+  // Simplify this code after talking with mattm.
   return new SSLConfigServiceDefaults;
-#endif
-}
-
-// static
-bool SSLConfigService::IsKnownStrictTLSServer(const std::string& hostname) {
-  // If you wish to add an entry to this list, please contact agl AT chromium
-  // DOT org.
-  //
-  // If this list starts growing, it'll need to be something more efficient
-  // than a linear list.
-  static const char kStrictServers[][22] = {
-      "www.google.com",
-      "mail.google.com",
-      "www.gmail.com",
-      "docs.google.com",
-      "clients1.google.com",
-      "sunshinepress.org",
-      "www.sunshinepress.org",
-
-      // Removed until we update the XMPP servers with the renegotiation
-      // extension.
-      // "gmail.com",
-  };
-
-  for (size_t i = 0; i < arraysize(kStrictServers); i++) {
-    // Note that the hostname is normalised to lower-case by this point.
-    if (strcmp(hostname.c_str(), kStrictServers[i]) == 0)
-      return true;
-  }
-
-  return false;
 }
 
 // static
@@ -95,8 +55,6 @@ bool SSLConfigService::IsKnownFalseStartIncompatibleServer(
 
 static bool g_dnssec_enabled = false;
 static bool g_false_start_enabled = true;
-static bool g_mitm_proxies_allowed = false;
-static bool g_snap_start_enabled = false;
 static bool g_dns_cert_provenance_checking = false;
 
 // static
@@ -107,26 +65,6 @@ void SSLConfigService::EnableDNSSEC() {
 // static
 bool SSLConfigService::dnssec_enabled() {
   return g_dnssec_enabled;
-}
-
-// static
-void SSLConfigService::EnableSnapStart() {
-  g_snap_start_enabled = true;
-}
-
-// static
-bool SSLConfigService::snap_start_enabled() {
-  return g_snap_start_enabled;
-}
-
-// static
-void SSLConfigService::AllowMITMProxies() {
-  g_mitm_proxies_allowed = true;
-}
-
-// static
-bool SSLConfigService::mitm_proxies_allowed() {
-  return g_mitm_proxies_allowed;
 }
 
 // static
@@ -164,8 +102,6 @@ SSLConfigService::~SSLConfigService() {
 void SSLConfigService::SetSSLConfigFlags(SSLConfig* ssl_config) {
   ssl_config->dnssec_enabled = g_dnssec_enabled;
   ssl_config->false_start_enabled = g_false_start_enabled;
-  ssl_config->mitm_proxies_allowed = g_mitm_proxies_allowed;
-  ssl_config->snap_start_enabled = g_snap_start_enabled;
   ssl_config->dns_cert_provenance_checking_enabled =
       g_dns_cert_provenance_checking;
 }

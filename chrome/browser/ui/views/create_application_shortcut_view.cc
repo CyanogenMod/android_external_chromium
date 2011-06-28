@@ -7,8 +7,11 @@
 #include "base/callback.h"
 #include "base/utf_string_conversions.h"
 #include "base/win/windows_version.h"
+#include "chrome/browser/extensions/extension_tab_helper.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
+#include "chrome/browser/ui/web_applications/web_app_ui.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_resource.h"
@@ -191,7 +194,7 @@ void AppInfoView::OnPaint(gfx::Canvas* canvas) {
 namespace browser {
 
 void ShowCreateWebAppShortcutsDialog(gfx::NativeWindow parent_window,
-                                     TabContents* tab_contents) {
+                                     TabContentsWrapper* tab_contents) {
   views::Window::CreateChromeWindow(parent_window, gfx::Rect(),
       new CreateUrlApplicationShortcutView(tab_contents))->Show();
 }
@@ -407,13 +410,14 @@ void CreateApplicationShortcutView::ButtonPressed(views::Button* sender,
 }
 
 CreateUrlApplicationShortcutView::CreateUrlApplicationShortcutView(
-    TabContents* tab_contents)
+    TabContentsWrapper* tab_contents)
     : CreateApplicationShortcutView(tab_contents->profile()),
       tab_contents_(tab_contents),
       pending_download_(NULL)  {
 
   web_app::GetShortcutInfoForTab(tab_contents_, &shortcut_info_);
-  const WebApplicationInfo& app_info = tab_contents_->web_app_info();
+  const WebApplicationInfo& app_info =
+      tab_contents_->extension_tab_helper()->web_app_info();
   if (!app_info.icons.empty()) {
     web_app::GetIconsInfo(app_info, &unprocessed_icons_);
     FetchIcon();
@@ -431,9 +435,11 @@ bool CreateUrlApplicationShortcutView::Accept() {
   if (!CreateApplicationShortcutView::Accept())
     return false;
 
-  tab_contents_->SetAppIcon(shortcut_info_.favicon);
-  if (tab_contents_->delegate())
-    tab_contents_->delegate()->ConvertContentsToApplication(tab_contents_);
+  tab_contents_->extension_tab_helper()->SetAppIcon(shortcut_info_.favicon);
+  if (tab_contents_->tab_contents()->delegate()) {
+    tab_contents_->tab_contents()->delegate()->ConvertContentsToApplication(
+        tab_contents_->tab_contents());
+  }
   return true;
 }
 
@@ -447,10 +453,11 @@ void CreateUrlApplicationShortcutView::FetchIcon() {
   pending_download_ = new IconDownloadCallbackFunctor(this);
   DCHECK(pending_download_);
 
-  tab_contents_->fav_icon_helper().DownloadImage(
+  tab_contents_->tab_contents()->favicon_helper().DownloadImage(
       unprocessed_icons_.back().url,
       std::max(unprocessed_icons_.back().width,
                unprocessed_icons_.back().height),
+      history::FAVICON,
       NewCallback(pending_download_, &IconDownloadCallbackFunctor::Run));
 
   unprocessed_icons_.pop_back();
@@ -511,7 +518,7 @@ CreateChromeApplicationShortcutView::~CreateChromeApplicationShortcutView() {}
 
 // Called by tracker_ when the app's icon is loaded.
 void CreateChromeApplicationShortcutView::OnImageLoaded(
-    SkBitmap* image, ExtensionResource resource, int index) {
+    SkBitmap* image, const ExtensionResource& resource, int index) {
   if (image->isNull()) {
     NOTREACHED() << "Corrupt image in profile?";
     return;

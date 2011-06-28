@@ -4,7 +4,7 @@
 
 #include "chrome/browser/ui/webui/downloads_ui.h"
 
-#include "base/singleton.h"
+#include "base/memory/singleton.h"
 #include "base/string_piece.h"
 #include "base/threading/thread.h"
 #include "base/values.h"
@@ -38,7 +38,7 @@ class DownloadsUIHTMLSource : public ChromeURLDataManager::DataSource {
   // Called when the network layer has requested a resource underneath
   // the path we registered.
   virtual void StartDataRequest(const std::string& path,
-                                bool is_off_the_record,
+                                bool is_incognito,
                                 int request_id);
   virtual std::string GetMimeType(const std::string&) const {
     return "text/html";
@@ -55,7 +55,7 @@ DownloadsUIHTMLSource::DownloadsUIHTMLSource()
 }
 
 void DownloadsUIHTMLSource::StartDataRequest(const std::string& path,
-                                             bool is_off_the_record,
+                                             bool is_incognito,
                                              int request_id) {
   DictionaryValue localized_strings;
   localized_strings.SetString("title",
@@ -76,6 +76,8 @@ void DownloadsUIHTMLSource::StartDataRequest(const std::string& path,
       l10n_util::GetStringUTF16(IDS_DOWNLOAD_TAB_CANCELED));
   localized_strings.SetString("status_paused",
       l10n_util::GetStringUTF16(IDS_DOWNLOAD_PROGRESS_PAUSED));
+  localized_strings.SetString("status_interrupted",
+      l10n_util::GetStringUTF16(IDS_DOWNLOAD_PROGRESS_INTERRUPTED));
 
   // Dangerous file.
   localized_strings.SetString("danger_file_desc",

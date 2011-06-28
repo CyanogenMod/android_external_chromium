@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,9 +12,11 @@
 
 #include "base/basictypes.h"
 #include "base/gtest_prod_util.h"
-#include "base/ref_counted.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
+#include "net/base/cert_database.h"
 #include "net/base/host_port_pair.h"
+#include "net/base/ip_endpoint.h"
 #include "net/base/net_errors.h"
 #include "net/base/network_change_notifier.h"
 #include "net/base/ssl_config_service.h"
@@ -24,18 +26,21 @@
 
 namespace net {
 
+class AddressList;
 class BoundNetLog;
 class ClientSocketHandle;
+class HostResolver;
 class HttpNetworkSession;
 class SpdySession;
 
 // This is a very simple pool for open SpdySessions.
-// TODO(mbelshe): Make this production ready.
 class SpdySessionPool
     : public NetworkChangeNotifier::IPAddressObserver,
-      public SSLConfigService::Observer {
+      public SSLConfigService::Observer,
+      public CertDatabase::Observer {
  public:
-  explicit SpdySessionPool(SSLConfigService* ssl_config_service);
+  explicit SpdySessionPool(HostResolver* host_resolver,
+                           SSLConfigService* ssl_config_service);
   virtual ~SpdySessionPool();
 
   // Either returns an existing SpdySession or creates a new SpdySession for
@@ -105,6 +110,14 @@ class SpdySessionPool
   // A debugging mode where we compress all accesses through a single domain.
   static void ForceSingleDomain() { g_force_single_domain = true; }
 
+  // Controls whether the pool allows use of a common session for domains
+  // which share IP address resolutions.
+  static void enable_ip_pooling(bool value) { g_enable_ip_pooling = value; }
+
+  // CertDatabase::Observer methods:
+  virtual void OnUserCertAdded(const X509Certificate* cert);
+  virtual void OnCertTrustChanged(const X509Certificate* cert);
+
  private:
   friend class SpdySessionPoolPeer;  // For testing.
   friend class SpdyNetworkTransactionTest;  // For testing.
@@ -112,6 +125,15 @@ class SpdySessionPool
 
   typedef std::list<scoped_refptr<SpdySession> > SpdySessionList;
   typedef std::map<HostPortProxyPair, SpdySessionList*> SpdySessionsMap;
+  typedef std::map<IPEndPoint, HostPortProxyPair> SpdyAliasMap;
+
+  scoped_refptr<SpdySession> GetExistingSession(
+      SpdySessionList* list,
+      const BoundNetLog& net_log) const;
+  scoped_refptr<SpdySession> GetFromAlias(
+      const HostPortProxyPair& host_port_proxy_pair,
+      const BoundNetLog& net_log,
+      bool record_histograms) const;
 
   // Helper functions for manipulating the lists.
   const HostPortProxyPair& NormalizeListPair(
@@ -122,15 +144,30 @@ class SpdySessionPool
       const HostPortProxyPair& host_port_proxy_pair) const;
   void RemoveSessionList(const HostPortProxyPair& host_port_proxy_pair);
 
+  // Does a DNS cache lookup for |pair|, and returns the |addresses| found.
+  // Returns true if addresses found, false otherwise.
+  bool LookupAddresses(const HostPortProxyPair& pair,
+                       AddressList* addresses) const;
+
+  // Add a set of |addresses| as IP-equivalent addresses for |pair|.
+  void AddAliases(const AddressList& addresses, const HostPortProxyPair& pair);
+
+  // Remove all aliases for |pair| from the aliases table.
+  void RemoveAliases(const HostPortProxyPair& pair);
+
   SpdySettingsStorage spdy_settings_;
 
   // This is our weak session pool - one session per domain.
   SpdySessionsMap sessions_;
+  // A map of IPEndPoint aliases for sessions.
+  SpdyAliasMap aliases_;
 
-  static int g_max_sessions_per_domain;
+  static size_t g_max_sessions_per_domain;
   static bool g_force_single_domain;
+  static bool g_enable_ip_pooling;
 
   const scoped_refptr<SSLConfigService> ssl_config_service_;
+  HostResolver* resolver_;
 
   DISALLOW_COPY_AND_ASSIGN(SpdySessionPool);
 };

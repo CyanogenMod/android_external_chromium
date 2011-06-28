@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,8 @@
 #include <string>
 
 #include "base/basictypes.h"
-#include "base/scoped_ptr.h"
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/common/extensions/extension.h"
 #include "content/browser/browser_thread.h"
 #include "ui/gfx/color_utils.h"
@@ -127,7 +127,7 @@ class BrowserThemePack : public base::RefCountedThreadSafe<
 
   // Parses the image names out of an extension.
   void ParseImageNamesFromJSON(DictionaryValue* images_value,
-                               FilePath images_path,
+                               const FilePath& images_path,
                                FilePathMap* file_paths) const;
 
   // Creates the data for |source_images_| from |file_paths|.

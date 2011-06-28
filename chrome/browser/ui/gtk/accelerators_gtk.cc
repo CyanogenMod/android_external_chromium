@@ -8,7 +8,7 @@
 #include <gdk/gdkkeysyms.h>
 #include <X11/XF86keysym.h>
 
-#include "base/singleton.h"
+#include "base/memory/singleton.h"
 #include "chrome/app/chrome_command_ids.h"
 
 namespace {
@@ -133,6 +133,7 @@ const struct AcceleratorMapping {
   { GDK_u, IDC_VIEW_SOURCE, GDK_CONTROL_MASK },
   { GDK_i, IDC_DEV_TOOLS,
     GdkModifierType(GDK_CONTROL_MASK | GDK_SHIFT_MASK) },
+  { GDK_F12, IDC_DEV_TOOLS, GdkModifierType(0) },
   { GDK_j, IDC_DEV_TOOLS_CONSOLE,
     GdkModifierType(GDK_CONTROL_MASK | GDK_SHIFT_MASK) },
   { GDK_c, IDC_DEV_TOOLS_INSPECT,
@@ -144,7 +145,7 @@ const struct AcceleratorMapping {
   { GDK_x, IDC_CUT, GDK_CONTROL_MASK },
   { GDK_v, IDC_PASTE, GDK_CONTROL_MASK },
 
-  // AutoFill.
+  // Autofill.
   { GDK_a, IDC_AUTOFILL_DEFAULT,
     GdkModifierType(GDK_CONTROL_MASK | GDK_SHIFT_MASK) },
 

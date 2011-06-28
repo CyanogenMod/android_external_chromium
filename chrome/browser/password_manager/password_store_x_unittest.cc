@@ -1,22 +1,22 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/basictypes.h"
-#include "base/scoped_temp_dir.h"
+#include "base/memory/scoped_temp_dir.h"
 #include "base/stl_util-inl.h"
 #include "base/string_util.h"
-#include "base/time.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/time.h"
 #include "chrome/browser/password_manager/password_form_data.h"
 #include "chrome/browser/password_manager/password_store_change.h"
 #include "chrome/browser/password_manager/password_store_x.h"
 #include "chrome/browser/webdata/web_data_service.h"
-#include "chrome/common/notification_observer_mock.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/signaling_task.h"
 #include "chrome/test/testing_profile.h"
+#include "content/common/notification_observer_mock.h"
+#include "content/common/notification_service.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -36,7 +36,8 @@ namespace {
 class MockPasswordStoreConsumer : public PasswordStoreConsumer {
  public:
   MOCK_METHOD2(OnPasswordStoreRequestDone,
-               void(int, const std::vector<PasswordForm*>&));
+               void(CancelableRequestProvider::Handle,
+                    const std::vector<PasswordForm*>&));
 };
 
 class MockWebDataServiceConsumer : public WebDataServiceConsumer {

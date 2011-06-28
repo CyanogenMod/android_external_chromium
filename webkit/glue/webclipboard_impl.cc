@@ -10,6 +10,7 @@
 #include "googleurl/src/gurl.h"
 #include "net/base/escape.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebData.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebImage.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebSize.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebString.h"
@@ -24,6 +25,7 @@
 #endif
 
 using WebKit::WebClipboard;
+using WebKit::WebData;
 using WebKit::WebImage;
 using WebKit::WebString;
 using WebKit::WebURL;
@@ -65,7 +67,15 @@ bool WebClipboardImpl::isFormatAvailable(Format format, Buffer buffer) {
   ui::Clipboard::FormatType format_type;
   ui::Clipboard::Buffer buffer_type;
 
+  if (!ConvertBufferType(buffer, &buffer_type))
+    return false;
+
   switch (format) {
+    case FormatPlainText:
+      return ClipboardIsFormatAvailable(ui::Clipboard::GetPlainTextFormatType(),
+                                        buffer_type) ||
+          ClipboardIsFormatAvailable(ui::Clipboard::GetPlainTextWFormatType(),
+                                     buffer_type);
     case FormatHTML:
       format_type = ui::Clipboard::GetHtmlFormatType();
       break;
@@ -81,9 +91,6 @@ bool WebClipboardImpl::isFormatAvailable(Format format, Buffer buffer) {
       NOTREACHED();
       return false;
   }
-
-  if (!ConvertBufferType(buffer, &buffer_type))
-    return false;
 
   return ClipboardIsFormatAvailable(format_type, buffer_type);
 }
@@ -122,6 +129,16 @@ WebString WebClipboardImpl::readHTML(Buffer buffer, WebURL* source_url) {
   ClipboardReadHTML(buffer_type, &html_stdstr, &gurl);
   *source_url = gurl;
   return html_stdstr;
+}
+
+WebData WebClipboardImpl::readImage(Buffer buffer) {
+  ui::Clipboard::Buffer buffer_type;
+  if (!ConvertBufferType(buffer, &buffer_type))
+    return WebData();
+
+  std::string png_data;
+  ClipboardReadImage(buffer_type, &png_data);
+  return WebData(png_data);
 }
 
 void WebClipboardImpl::writeHTML(

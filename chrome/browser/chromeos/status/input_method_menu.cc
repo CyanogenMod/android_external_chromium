@@ -13,7 +13,6 @@
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
-#include "chrome/browser/chromeos/cros/keyboard_library.h"
 #include "chrome/browser/chromeos/input_method/input_method_util.h"
 #include "chrome/browser/chromeos/language_preferences.h"
 #include "chrome/browser/metrics/user_metrics.h"
@@ -88,6 +87,8 @@ const struct {
   { "xkb:us:intl:eng", "INTL" },
   { "xkb:us:colemak:eng", "CO" },
   { "xkb:de:neo:ger", "NEO" },
+  // To distinguish from "xkb:gb::eng"
+  { "xkb:gb:dvorak:eng", "DV" },
   // To distinguish from "xkb:jp::jpn"
   { "mozc", "\xe3\x81\x82" },  // U+3042, Japanese Hiragana letter A in UTF-8.
   { "mozc-dv", "\xe3\x81\x82" },
@@ -95,7 +96,7 @@ const struct {
   // For simplified Chinese input methods
   { "pinyin", "\xe6\x8b\xbc" },  // U+62FC
   // For traditional Chinese input methods
-  { "chewing", "\xe9\x85\xb7" },  // U+9177
+  { "mozc-chewing", "\xe9\x85\xb7" },  // U+9177
   { "m17n:zh:cangjie", "\xe5\x80\x89" },  // U+5009
   { "m17n:zh:quick", "\xe9\x80\x9f" },  // U+901F
   // For Hangul input method.
@@ -221,7 +222,7 @@ bool InputMethodMenu::HasIcons() const  {
   return false;
 }
 
-bool InputMethodMenu::GetIconAt(int index, SkBitmap* icon) const {
+bool InputMethodMenu::GetIconAt(int index, SkBitmap* icon) {
   return false;
 }
 
@@ -247,6 +248,10 @@ void InputMethodMenu::HighlightChangedTo(int index) {
 
 void InputMethodMenu::MenuWillShow() {
   // Views for Chromium OS does not support this interface yet.
+}
+
+void InputMethodMenu::SetMenuModelDelegate(ui::MenuModelDelegate* delegate) {
+  // Not needed for current usage.
 }
 
 int InputMethodMenu::GetItemCount() const {
@@ -296,9 +301,11 @@ string16 InputMethodMenu::GetLabelAt(int index) const {
   if (IndexIsInInputMethodList(index)) {
     name = GetTextForMenu(input_method_descriptors_->at(index));
   } else if (GetPropertyIndex(index, &index)) {
-    const ImePropertyList& property_list
-        = CrosLibrary::Get()->GetInputMethodLibrary()->current_ime_properties();
-    return input_method::GetStringUTF16(property_list.at(index).label);
+    InputMethodLibrary* library = CrosLibrary::Get()->GetInputMethodLibrary();
+    const ImePropertyList& property_list = library->current_ime_properties();
+    const std::string& input_method_id = library->current_input_method().id;
+    return input_method::GetStringUTF16(
+        property_list.at(index).label, input_method_id);
   }
 
   return WideToUTF16(name);
@@ -371,7 +378,6 @@ void InputMethodMenu::InputMethodChanged(
     const InputMethodDescriptor& current_input_method,
     size_t num_active_input_methods) {
   UpdateUIFromInputMethod(current_input_method, num_active_input_methods);
-  PrepareMenu();
 }
 
 void InputMethodMenu::PreferenceUpdateNeeded(
@@ -383,6 +389,7 @@ void InputMethodMenu::PreferenceUpdateNeeded(
       // Sometimes (e.g. initial boot) |previous_input_method.id| is empty.
       previous_input_method_pref_.SetValue(previous_input_method.id);
       current_input_method_pref_.SetValue(current_input_method.id);
+      pref_service_->ScheduleSavePersistentPrefs();
     }
   } else if (screen_mode_ == StatusAreaHost::kLoginMode) {
     if (g_browser_process && g_browser_process->local_state()) {
@@ -390,6 +397,29 @@ void InputMethodMenu::PreferenceUpdateNeeded(
           language_prefs::kPreferredKeyboardLayout, current_input_method.id);
       g_browser_process->local_state()->SavePersistentPrefs();
     }
+  }
+}
+
+void InputMethodMenu::PropertyListChanged(
+    InputMethodLibrary* obj,
+    const ImePropertyList& current_ime_properties) {
+  // Usual order of notifications of input method change is:
+  // 1. RegisterProperties(empty)
+  // 2. RegisterProperties(list-of-new-properties)
+  // 3. GlobalInputMethodChanged
+  // However, due to the asynchronicity, we occasionally (but rarely) face to
+  // 1. RegisterProperties(empty)
+  // 2. GlobalInputMethodChanged
+  // 3. RegisterProperties(list-of-new-properties)
+  // this order. On this unusual case, we must rebuild the menu after the last
+  // RegisterProperties. For the other cases, no rebuild is needed. Actually
+  // it is better to be avoided. Otherwise users can sometimes observe the
+  // awkward clear-then-register behavior.
+  if (!current_ime_properties.empty()) {
+    InputMethodLibrary* library = CrosLibrary::Get()->GetInputMethodLibrary();
+    const InputMethodDescriptor& input_method = library->current_input_method();
+    size_t num_active_input_methods = library->GetNumActiveInputMethods();
+    UpdateUIFromInputMethod(input_method, num_active_input_methods);
   }
 }
 
@@ -604,7 +634,7 @@ std::wstring InputMethodMenu::GetTextForMenu(
       language_code == "de") {
     text = GetLanguageName(language_code) + L" - ";
   }
-  text += input_method::GetString(input_method.display_name);
+  text += input_method::GetString(input_method.display_name, input_method.id);
 
   DCHECK(!text.empty());
   return text;

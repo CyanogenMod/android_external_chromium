@@ -3,8 +3,8 @@
 // found in the LICENSE file.
 
 #include "base/basictypes.h"
-#include "base/ref_counted.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/values.h"
 #include "chrome/browser/extensions/extension_pref_value_map.h"
 #include "chrome/common/pref_store_observer_mock.h"
@@ -35,7 +35,7 @@ class ExtensionPrefValueMapTestBase : public BASECLASS {
  public:
   // Returns an empty string if the key is not set.
   std::string GetValue(const char * key, bool incognito) const {
-    const Value *value = epvm_.GetEffectivePrefValue(key, incognito);
+    const Value *value = epvm_.GetEffectivePrefValue(key, incognito, NULL);
     std::string string_value = "";
     if (value)
       value->GetAsString(&string_value);

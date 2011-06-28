@@ -50,10 +50,10 @@ BufferedResourceLoader::BufferedResourceLoader(
     int64 last_byte_position)
     : buffer_(new media::SeekableBuffer(kBackwardCapcity, kForwardCapacity)),
       deferred_(false),
-      defer_allowed_(true),
+      defer_strategy_(kReadThenDefer),
       completed_(false),
       range_requested_(false),
-      partial_response_(false),
+      range_supported_(false),
       url_(url),
       first_byte_position_(first_byte_position),
       last_byte_position_(last_byte_position),
@@ -90,7 +90,6 @@ void BufferedResourceLoader::Start(net::CompletionCallback* start_callback,
   event_callback_.reset(event_callback);
 
   if (first_byte_position_ != kPositionNotSpecified) {
-    range_requested_ = true;
     // TODO(hclam): server may not support range request so |offset_| may not
     // equal to |first_byte_position_|.
     offset_ = first_byte_position_;
@@ -103,10 +102,14 @@ void BufferedResourceLoader::Start(net::CompletionCallback* start_callback,
   // Prepare the request.
   WebURLRequest request(url_);
   request.setTargetType(WebURLRequest::TargetIsMedia);
-  request.setHTTPHeaderField(WebString::fromUTF8("Range"),
-                             WebString::fromUTF8(GenerateHeaders(
-                                                 first_byte_position_,
-                                                 last_byte_position_)));
+
+  if (IsRangeRequest()) {
+    range_requested_ = true;
+    request.setHTTPHeaderField(WebString::fromUTF8("Range"),
+                               WebString::fromUTF8(GenerateHeaders(
+                                   first_byte_position_,
+                                   last_byte_position_)));
+  }
   frame->setReferrerForRequest(request, WebKit::WebURL());
 
   // This flag is for unittests as we don't want to reset |url_loader|
@@ -180,9 +183,14 @@ void BufferedResourceLoader::Read(int64 position,
   // If we can serve the request now, do the actual read.
   if (CanFulfillRead()) {
     ReadInternal();
-    DisableDeferIfNeeded();
+    UpdateDeferBehavior();
     return;
   }
+
+  // If you're deferred and you can't fulfill the read because you don't have
+  // enough data, you will never fulfill the read.
+  // Update defer behavior to re-enable deferring if need be.
+  UpdateDeferBehavior();
 
   // If we expected the read request to be fulfilled later, returns
   // immediately and let more data to flow in.
@@ -199,11 +207,6 @@ int64 BufferedResourceLoader::GetBufferedPosition() {
   return kPositionNotSpecified;
 }
 
-void BufferedResourceLoader::SetAllowDefer(bool is_allowed) {
-  defer_allowed_ = is_allowed;
-  DisableDeferIfNeeded();
-}
-
 int64 BufferedResourceLoader::content_length() {
   return content_length_;
 }
@@ -212,8 +215,8 @@ int64 BufferedResourceLoader::instance_size() {
   return instance_size_;
 }
 
-bool BufferedResourceLoader::partial_response() {
-  return partial_response_;
+bool BufferedResourceLoader::range_supported() {
+  return range_supported_;
 }
 
 bool BufferedResourceLoader::network_activity() {
@@ -244,7 +247,7 @@ void BufferedResourceLoader::willSendRequest(
     return;
   }
 
-    // Only allow |single_origin_| if we haven't seen a different origin yet.
+  // Only allow |single_origin_| if we haven't seen a different origin yet.
   if (single_origin_)
     single_origin_ = url_.GetOrigin() == GURL(newRequest.url()).GetOrigin();
 
@@ -274,6 +277,8 @@ void BufferedResourceLoader::didReceiveResponse(
   if (!start_callback_.get())
     return;
 
+  bool partial_response = false;
+
   // We make a strong assumption that when we reach here we have either
   // received a response from HTTP/HTTPS protocol or the request was
   // successful (in particular range request). So we only verify the partial
@@ -281,13 +286,20 @@ void BufferedResourceLoader::didReceiveResponse(
   if (url_.SchemeIs(kHttpScheme) || url_.SchemeIs(kHttpsScheme)) {
     int error = net::OK;
 
-    if (response.httpStatusCode() == kHttpPartialContent)
-      partial_response_ = true;
+    // Check to see whether the server supports byte ranges.
+    std::string accept_ranges =
+        response.httpHeaderField("Accept-Ranges").utf8();
+    range_supported_ = (accept_ranges.find("bytes") != std::string::npos);
 
-    if (range_requested_ && partial_response_) {
+    partial_response = (response.httpStatusCode() == kHttpPartialContent);
+
+    if (range_requested_) {
       // If we have verified the partial response and it is correct, we will
-      // return net::OK.
-      if (!VerifyPartialResponse(response))
+      // return net::OK. It's also possible for a server to support range
+      // requests without advertising Accept-Ranges: bytes.
+      if (partial_response && VerifyPartialResponse(response))
+        range_supported_ = true;
+      else
         error = net::ERR_INVALID_RESPONSE;
     } else if (response.httpStatusCode() != kHttpOK) {
       // We didn't request a range but server didn't reply with "200 OK".
@@ -302,7 +314,7 @@ void BufferedResourceLoader::didReceiveResponse(
   } else {
     // For any protocol other than HTTP and HTTPS, assume range request is
     // always fulfilled.
-    partial_response_ = range_requested_;
+    partial_response = range_requested_;
   }
 
   // Expected content length can be |kPositionNotSpecified|, in that case
@@ -311,7 +323,7 @@ void BufferedResourceLoader::didReceiveResponse(
 
   // If we have not requested a range, then the size of the instance is equal
   // to the content length.
-  if (!partial_response_)
+  if (!partial_response)
     instance_size_ = content_length_;
 
   // Calls with a successful response.
@@ -321,7 +333,8 @@ void BufferedResourceLoader::didReceiveResponse(
 void BufferedResourceLoader::didReceiveData(
     WebURLLoader* loader,
     const char* data,
-    int data_length) {
+    int data_length,
+    int encoded_data_length) {
   DCHECK(!completed_);
   DCHECK_GT(data_length, 0);
 
@@ -334,21 +347,19 @@ void BufferedResourceLoader::didReceiveData(
   buffer_->Append(reinterpret_cast<const uint8*>(data), data_length);
 
   // If there is an active read request, try to fulfill the request.
-  if (HasPendingRead() && CanFulfillRead()) {
+  if (HasPendingRead() && CanFulfillRead())
     ReadInternal();
-  } else if (!defer_allowed_) {
-    // If we're not allowed to defer, slide the buffer window forward instead
-    // of deferring.
-    if (buffer_->forward_bytes() > buffer_->forward_capacity()) {
-      size_t excess = buffer_->forward_bytes() - buffer_->forward_capacity();
-      bool success = buffer_->Seek(excess);
-      DCHECK(success);
-      offset_ += first_offset_ + excess;
-    }
-  }
 
   // At last see if the buffer is full and we need to defer the downloading.
-  EnableDeferIfNeeded();
+  UpdateDeferBehavior();
+
+  // Consume excess bytes from our in-memory buffer if necessary.
+  if (buffer_->forward_bytes() > buffer_->forward_capacity()) {
+    size_t excess = buffer_->forward_bytes() - buffer_->forward_capacity();
+    bool success = buffer_->Seek(excess);
+    DCHECK(success);
+    offset_ += first_offset_ + excess;
+  }
 
   // Notify that we have received some data.
   NotifyNetworkEvent();
@@ -372,6 +383,11 @@ void BufferedResourceLoader::didFinishLoading(
     double finishTime) {
   DCHECK(!completed_);
   completed_ = true;
+
+  // If we didn't know the |instance_size_| we do now.
+  if (instance_size_ == kPositionNotSpecified) {
+    instance_size_ = offset_ + buffer_->forward_bytes();
+  }
 
   // If there is a start callback, calls it.
   if (start_callback_.get()) {
@@ -431,32 +447,83 @@ bool BufferedResourceLoader::HasSingleOrigin() const {
 
 /////////////////////////////////////////////////////////////////////////////
 // Helper methods.
-void BufferedResourceLoader::EnableDeferIfNeeded() {
-  if (!defer_allowed_)
+void BufferedResourceLoader::UpdateDeferBehavior() {
+  if (!url_loader_.get() || !buffer_.get())
     return;
 
-  if (!deferred_ &&
-      buffer_->forward_bytes() >= buffer_->forward_capacity()) {
-    deferred_ = true;
-
-  if (url_loader_.get())
-    url_loader_->setDefersLoading(true);
-
-    NotifyNetworkEvent();
+  if ((deferred_ && ShouldDisableDefer()) ||
+      (!deferred_ && ShouldEnableDefer())) {
+    bool eventOccurred = ToggleDeferring();
+    if (eventOccurred)
+      NotifyNetworkEvent();
   }
 }
 
-void BufferedResourceLoader::DisableDeferIfNeeded() {
-  if (deferred_ &&
-      (!defer_allowed_ ||
-       buffer_->forward_bytes() < buffer_->forward_capacity() / 2)) {
-    deferred_ = false;
+void BufferedResourceLoader::UpdateDeferStrategy(DeferStrategy strategy) {
+  defer_strategy_ = strategy;
+  UpdateDeferBehavior();
+}
 
-    if (url_loader_.get())
-      url_loader_->setDefersLoading(false);
+bool BufferedResourceLoader::ShouldEnableDefer() {
+  // If we're already deferring, then enabling makes no sense.
+  if (deferred_)
+    return false;
 
-    NotifyNetworkEvent();
+  switch(defer_strategy_) {
+    // Never defer at all, so never enable defer.
+    case kNeverDefer:
+      return false;
+
+    // Defer if nothing is being requested.
+    case kReadThenDefer:
+      return !read_callback_.get();
+
+    // Defer if we've reached the max capacity of the threshold.
+    case kThresholdDefer:
+      return buffer_->forward_bytes() >= buffer_->forward_capacity();
   }
+  // Otherwise don't enable defer.
+  return false;
+}
+
+bool BufferedResourceLoader::ShouldDisableDefer() {
+  // If we're not deferring, then disabling makes no sense.
+  if (!deferred_)
+    return false;
+
+  switch(defer_strategy_) {
+    // Always disable deferring.
+    case kNeverDefer:
+      return true;
+
+    // We have an outstanding read request, and we have not buffered enough
+    // yet to fulfill the request; disable defer to get more data.
+    case kReadThenDefer: {
+      size_t amount_buffered = buffer_->forward_bytes();
+      size_t amount_to_read = static_cast<size_t>(read_size_);
+      return read_callback_.get() && amount_buffered < amount_to_read;
+    }
+
+    // We have less than half the capacity of our threshold, so
+    // disable defer to get more data.
+    case kThresholdDefer: {
+      size_t amount_buffered = buffer_->forward_bytes();
+      size_t half_capacity = buffer_->forward_capacity() / 2;
+      return amount_buffered < half_capacity;
+    }
+  }
+
+  // Otherwise keep deferring.
+  return false;
+}
+
+bool BufferedResourceLoader::ToggleDeferring() {
+  deferred_ = !deferred_;
+  if (url_loader_.get()) {
+    url_loader_->setDefersLoading(deferred_);
+    return true;
+  }
+  return false;
 }
 
 bool BufferedResourceLoader::CanFulfillRead() {
@@ -577,6 +644,10 @@ void BufferedResourceLoader::DoneStart(int error) {
 void BufferedResourceLoader::NotifyNetworkEvent() {
   if (event_callback_.get())
     event_callback_->Run();
+}
+
+bool BufferedResourceLoader::IsRangeRequest() const {
+  return first_byte_position_ != kPositionNotSpecified;
 }
 
 }  // namespace webkit_glue

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -39,21 +39,21 @@ struct DownloadCreateInfo;
 class DownloadItem {
  public:
   enum DownloadState {
+    // Download is actively progressing.
     IN_PROGRESS,
 
-    // Note that COMPLETE indicates that the download has gotten all of its
-    // data, has figured out its final destination file, has been entered
-    // into the history store, and has been shown in the UI.  The only
-    // operations remaining are acceptance by the user of
-    // a dangerous download (if dangerous), renaming the file
-    // to the final name, and auto-opening it (if it auto-opens).
+    // Download is completely finished.
     COMPLETE,
 
+    // Download has been cancelled.
     CANCELLED,
 
     // This state indicates that the download item is about to be destroyed,
     // and observers seeing this state should release all references.
-    REMOVING
+    REMOVING,
+
+    // This state indicates that the download has been interrupted.
+    INTERRUPTED
   };
 
   enum SafetyState {
@@ -62,6 +62,8 @@ class DownloadItem {
     DANGEROUS_BUT_VALIDATED  // Dangerous but the user confirmed the download.
   };
 
+  // This enum is used by histograms.  Do not change the ordering or remove
+  // items.
   enum DangerType {
     NOT_DANGEROUS = 0,
 
@@ -70,7 +72,17 @@ class DownloadItem {
     DANGEROUS_FILE,
 
     // Safebrowsing service shows this URL leads to malicious file download.
-    DANGEROUS_URL
+    DANGEROUS_URL,
+
+    // Memory space for histograms is determined by the max.
+    // ALWAYS ADD NEW VALUES BEFORE THIS ONE.
+    DANGEROUS_TYPE_MAX
+  };
+
+  // Reason for deleting the download.  Passed to Delete().
+  enum DeleteReason {
+    DELETE_DUE_TO_BROWSER_SHUTDOWN = 0,
+    DELETE_DUE_TO_USER_DISCARD
   };
 
   // Interface that observers of a particular download must implement in order
@@ -78,9 +90,6 @@ class DownloadItem {
   class Observer {
    public:
     virtual void OnDownloadUpdated(DownloadItem* download) = 0;
-
-    // Called when a downloaded file has been completed.
-    virtual void OnDownloadFileCompleted(DownloadItem* download) = 0;
 
     // Called when a downloaded file has been opened.
     virtual void OnDownloadOpened(DownloadItem* download) = 0;
@@ -111,9 +120,6 @@ class DownloadItem {
 
   // Notifies our observers periodically.
   void UpdateObservers();
-
-  // Notifies our observers the downloaded file has been completed.
-  void NotifyObserversDownloadFileCompleted();
 
   // Whether it is OK to open this download.
   bool CanOpenDownload();
@@ -153,17 +159,23 @@ class DownloadItem {
   // Called when all data has been saved.  Only has display effects.
   void OnAllDataSaved(int64 size);
 
-  // Called when ready to consider the data received and move on to the
-  // next stage.
+  // Called by external code (SavePackage) using the DownloadItem interface
+  // to display progress when the DownloadItem should be considered complete.
   void MarkAsComplete();
 
-  // Called when the entire download operation (including renaming etc)
-  // is finished.
-  void Finished();
+  // Download operation had an error.
+  // |size| is the amount of data received so far, and |os_error| is the error
+  // code that the operation received.
+  void Interrupted(int64 size, int os_error);
 
-  // The user wants to remove the download from the views and history. If
-  // |delete_file| is true, the file is deleted on the disk.
-  void Remove(bool delete_file);
+  // Deletes the file from disk and removes the download from the views and
+  // history.  |user| should be true if this is the result of the user clicking
+  // the discard button, and false if it is being deleted for other reasons like
+  // browser shutdown.
+  void Delete(DeleteReason reason);
+
+  // Removes the download from the views and history.
+  void Remove();
 
   // Simple calculation of the amount of time remaining to completion. Fills
   // |*remaining| with the amount of time remaining if successful. Fails and
@@ -202,10 +214,10 @@ class DownloadItem {
   // Called when the name of the download is finalized.
   void OnNameFinalized();
 
-  // Called when the download is finished for safe downloads.
+  // Called when the download is ready to complete.
   // This may perform final rename if necessary and will eventually call
-  // DownloadManager::DownloadFinished().
-  void OnSafeDownloadFinished(DownloadFileManager* file_manager);
+  // DownloadItem::Completed().
+  void OnDownloadCompleting(DownloadFileManager* file_manager);
 
   // Called when the file name for the download is renamed to its final name.
   void OnDownloadRenamedToFinalName(const FilePath& full_path);
@@ -213,13 +225,29 @@ class DownloadItem {
   // Returns true if this item matches |query|. |query| must be lower-cased.
   bool MatchesQuery(const string16& query) const;
 
+  // Returns true if the download needs more data.
+  bool IsPartialDownload() const;
+
+  // Returns true if the download is still receiving data.
+  bool IsInProgress() const;
+
+  // Returns true if the download has been cancelled or was interrupted.
+  bool IsCancelled() const;
+
+  // Returns true if the download was interrupted.
+  bool IsInterrupted() const;
+
+  // Returns true if we have all the data and know the final file name.
+  bool IsComplete() const;
+
   // Accessors
   DownloadState state() const { return state_; }
   FilePath full_path() const { return full_path_; }
   void set_path_uniquifier(int uniquifier) { path_uniquifier_ = uniquifier; }
-  GURL url() const { return url_; }
-  GURL original_url() const { return original_url_; }
-  GURL referrer_url() const { return referrer_url_; }
+  const GURL& url() const { return url_chain_.back(); }
+  const std::vector<GURL>& url_chain() const { return url_chain_; }
+  const GURL& original_url() const { return url_chain_.front(); }
+  const GURL& referrer_url() const { return referrer_url_; }
   std::string mime_type() const { return mime_type_; }
   std::string original_mime_type() const { return original_mime_type_; }
   int64 total_bytes() const { return total_bytes_; }
@@ -274,6 +302,10 @@ class DownloadItem {
   // Internal helper for maintaining consistent received and total sizes.
   void UpdateSize(int64 size);
 
+  // Called when the entire download operation (including renaming etc)
+  // is completed.
+  void Completed();
+
   // Start/stop sending periodic updates to our observers
   void StartProgressTimer();
   void StopProgressTimer();
@@ -288,12 +320,8 @@ class DownloadItem {
   // path should be used as is.
   int path_uniquifier_;
 
-  // The URL from which we are downloading. This is the final URL after any
-  // redirection by the server for |original_url_|.
-  GURL url_;
-
-  // The original URL before any redirection by the server for this URL.
-  GURL original_url_;
+  // The chain of redirects that leading up to and including the final URL.
+  std::vector<GURL> url_chain_;
 
   // The URL of the page that initiated the download.
   GURL referrer_url_;
@@ -310,6 +338,9 @@ class DownloadItem {
 
   // Current received bytes
   int64 received_bytes_;
+
+  // Last error.
+  int last_os_error_;
 
   // Start time for calculating remaining time
   base::TimeTicks start_tick_;

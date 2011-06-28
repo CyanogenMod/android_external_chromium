@@ -15,7 +15,7 @@
 #include "chrome/browser/ui/views/bookmarks/bookmark_bar_instructions_view.h"
 #include "chrome/browser/ui/views/bookmarks/bookmark_menu_controller_views.h"
 #include "chrome/browser/ui/views/detachable_toolbar_view.h"
-#include "chrome/common/notification_registrar.h"
+#include "content/common/notification_registrar.h"
 #include "ui/base/animation/animation_delegate.h"
 #include "views/controls/button/button.h"
 #include "views/controls/menu/view_menu_delegate.h"
@@ -110,32 +110,34 @@ class BookmarkBarView : public DetachableToolbarView,
     infobar_visible_ = infobar_visible;
   }
 
-  // DetachableToolbarView methods:
-  virtual bool IsDetached() const;
   virtual bool IsOnTop() const;
-  virtual double GetAnimationValue() const;
-  virtual int GetToolbarOverlap() const;
+
+  // DetachableToolbarView methods:
+  virtual bool IsDetached() const OVERRIDE;
+  virtual double GetAnimationValue() const OVERRIDE;
+  virtual int GetToolbarOverlap() const OVERRIDE;
 
   // View methods:
-  virtual gfx::Size GetPreferredSize();
-  virtual gfx::Size GetMinimumSize();
-  virtual void Layout();
-  virtual void ViewHierarchyChanged(bool is_add, View* parent, View* child);
-  virtual void PaintChildren(gfx::Canvas* canvas);
+  virtual gfx::Size GetPreferredSize() OVERRIDE;
+  virtual gfx::Size GetMinimumSize() OVERRIDE;
+  virtual void Layout() OVERRIDE;
+  virtual void ViewHierarchyChanged(bool is_add, View* parent, View* child)
+      OVERRIDE;
+  virtual void PaintChildren(gfx::Canvas* canvas) OVERRIDE;
   virtual bool GetDropFormats(
       int* formats,
-      std::set<ui::OSExchangeData::CustomFormat>* custom_formats);
-  virtual bool AreDropTypesRequired();
-  virtual bool CanDrop(const ui::OSExchangeData& data);
-  virtual void OnDragEntered(const views::DropTargetEvent& event);
-  virtual int OnDragUpdated(const views::DropTargetEvent& event);
-  virtual void OnDragExited();
-  virtual int OnPerformDrop(const views::DropTargetEvent& event);
-  virtual void ShowContextMenu(const gfx::Point& p, bool is_mouse_gesture);
+      std::set<ui::OSExchangeData::CustomFormat>* custom_formats) OVERRIDE;
+  virtual bool AreDropTypesRequired() OVERRIDE;
+  virtual bool CanDrop(const ui::OSExchangeData& data) OVERRIDE;
+  virtual void OnDragEntered(const views::DropTargetEvent& event) OVERRIDE;
+  virtual int OnDragUpdated(const views::DropTargetEvent& event) OVERRIDE;
+  virtual void OnDragExited() OVERRIDE;
+  virtual int OnPerformDrop(const views::DropTargetEvent& event) OVERRIDE;
+  virtual void ShowContextMenu(const gfx::Point& p, bool is_mouse_gesture)
+      OVERRIDE;
 
   // AccessiblePaneView methods:
-  virtual bool IsAccessibleViewTraversable(views::View* view);
-  virtual AccessibilityTypes::Role GetAccessibleRole();
+  virtual void GetAccessibleState(ui::AccessibleViewState* state) OVERRIDE;
 
   // ProfileSyncServiceObserver method.
   virtual void OnStateChanged();
@@ -233,7 +235,7 @@ class BookmarkBarView : public DetachableToolbarView,
   // throbs.
   void StopThrobbing(bool immediate);
 
-  // Returns the number of buttons corresponding to starred urls/groups. This
+  // Returns the number of buttons corresponding to starred urls/folders. This
   // is equivalent to the number of children the bookmark bar node from the
   // bookmark bar model has.
   int GetBookmarkButtonCount();
@@ -348,7 +350,7 @@ class BookmarkBarView : public DetachableToolbarView,
   // Invoked when the favicon is available. If the node is a child of the
   // root node, the appropriate button is updated. If a menu is showing, the
   // call is forwarded to the menu to allow for it to update the icon.
-  virtual void BookmarkNodeFavIconLoaded(BookmarkModel* model,
+  virtual void BookmarkNodeFaviconLoaded(BookmarkModel* model,
                                          const BookmarkNode* node);
 
   // DragController method. Determines the node representing sender and invokes
@@ -437,6 +439,13 @@ class BookmarkBarView : public DetachableToolbarView,
   // the overflow menu.
   void StartThrobbing(const BookmarkNode* node, bool overflow_only);
 
+  // Returns the view to throb when a node is removed. |parent| is the parent of
+  // the node that was removed, and |old_index| the index of the node that was
+  // removed.
+  views::CustomButton* DetermineViewToThrobFromRemove(
+      const BookmarkNode* parent,
+      int old_index);
+
   // Updates the colors for all the child objects in the bookmarks bar.
   void UpdateColors();
 
@@ -460,16 +469,16 @@ class BookmarkBarView : public DetachableToolbarView,
   // Used for opening urls.
   PageNavigator* page_navigator_;
 
-  // Model providing details as to the starred entries/groups that should be
+  // Model providing details as to the starred entries/folders that should be
   // shown. This is owned by the Profile.
   BookmarkModel* model_;
 
   // Used to manage showing a Menu, either for the most recently bookmarked
-  // entries, or for the a starred group.
+  // entries, or for the starred folder.
   BookmarkMenuController* bookmark_menu_;
 
   // Used when showing a menu for drag and drop. That is, if the user drags
-  // over a group this becomes non-null and manages the menu showing the
+  // over a folder this becomes non-null and manages the menu showing the
   // contents of the node.
   BookmarkMenuController* bookmark_drop_menu_;
 

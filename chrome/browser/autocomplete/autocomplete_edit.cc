@@ -18,7 +18,6 @@
 #include "chrome/browser/autocomplete/autocomplete_popup_view.h"
 #include "chrome/browser/autocomplete/keyword_provider.h"
 #include "chrome/browser/autocomplete/search_provider.h"
-#include "chrome/browser/browser_list.h"
 #include "chrome/browser/command_updater.h"
 #include "chrome/browser/extensions/extension_omnibox_api.h"
 #include "chrome/browser/google/google_url_tracker.h"
@@ -29,9 +28,10 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/url_constants.h"
+#include "content/common/notification_service.h"
 #include "googleurl/src/gurl.h"
 #include "googleurl/src/url_util.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -79,7 +79,9 @@ AutocompleteEditModel::AutocompleteEditModel(
       is_keyword_hint_(false),
       paste_and_go_transition_(PageTransition::TYPED),
       profile_(profile),
-      update_instant_(true) {
+      update_instant_(true),
+      allow_exact_keyword_match_(false),
+      instant_complete_behavior_(INSTANT_COMPLETE_DELAYED) {
 }
 
 AutocompleteEditModel::~AutocompleteEditModel() {
@@ -172,13 +174,20 @@ void AutocompleteEditModel::FinalizeInstantQuery(
   }
 }
 
-void AutocompleteEditModel::SetSuggestedText(const string16& text) {
-  // This method is internally invoked to reset suggest text, so we only do
-  // anything if the text isn't empty.
-  // TODO: if we keep autocomplete, make it so this isn't invoked with empty
-  // text.
-  if (!text.empty())
-    FinalizeInstantQuery(view_->GetText(), text, false);
+void AutocompleteEditModel::SetSuggestedText(
+    const string16& text,
+    InstantCompleteBehavior behavior) {
+  instant_complete_behavior_ = behavior;
+  if (instant_complete_behavior_ == INSTANT_COMPLETE_NOW) {
+    if (!text.empty())
+      FinalizeInstantQuery(view_->GetText(), text, false);
+    else
+      view_->SetInstantSuggestion(text, false);
+  } else {
+    DCHECK((behavior == INSTANT_COMPLETE_DELAYED) ||
+           (behavior == INSTANT_COMPLETE_NEVER));
+    view_->SetInstantSuggestion(text, behavior == INSTANT_COMPLETE_DELAYED);
+  }
 }
 
 bool AutocompleteEditModel::CommitSuggestedText(bool skip_inline_autocomplete) {
@@ -201,6 +210,7 @@ void AutocompleteEditModel::OnChanged() {
   InstantController* instant = controller_->GetInstant();
   string16 suggested_text;
   TabContentsWrapper* tab = controller_->GetTabContentsWrapper();
+  bool might_support_instant = false;
   if (update_instant_ && instant && tab) {
     if (user_input_in_progress() && popup_->IsOpen()) {
       AutocompleteMatch current_match = CurrentMatch();
@@ -216,11 +226,18 @@ void AutocompleteEditModel::OnChanged() {
     } else {
       instant->DestroyPreviewContents();
     }
-    if (!instant->MightSupportInstant())
-      FinalizeInstantQuery(string16(), string16(), false);
+    might_support_instant = instant->MightSupportInstant();
   }
 
-  SetSuggestedText(suggested_text);
+  if (!might_support_instant) {
+    // Hide any suggestions we might be showing.
+    view_->SetInstantSuggestion(string16(), false);
+
+    // No need to wait any longer for instant.
+    FinalizeInstantQuery(string16(), string16(), false);
+  } else {
+    SetSuggestedText(suggested_text, instant_complete_behavior_);
+  }
 
   controller_->OnChanged();
 }
@@ -234,7 +251,7 @@ void AutocompleteEditModel::GetDataForURLExport(GURL* url,
   if (*url == URLFixerUpper::FixupURL(UTF16ToUTF8(permanent_text_),
                                       std::string())) {
     *title = controller_->GetTitle();
-    *favicon = controller_->GetFavIcon();
+    *favicon = controller_->GetFavicon();
   }
 }
 
@@ -374,7 +391,9 @@ void AutocompleteEditModel::StartAutocomplete(
       user_text_, GetDesiredTLD(),
       prevent_inline_autocomplete || just_deleted_text_ ||
       (has_selected_text && inline_autocomplete_text_.empty()) ||
-      (paste_state_ != NONE), keyword_is_selected, keyword_is_selected, false);
+      (paste_state_ != NONE), keyword_is_selected,
+      keyword_is_selected || allow_exact_keyword_match_,
+      AutocompleteInput::ALL_MATCHES);
 }
 
 void AutocompleteEditModel::StopAutocomplete() {
@@ -568,7 +587,7 @@ void AutocompleteEditModel::OnSetFocus(bool control_down) {
 
 void AutocompleteEditModel::OnWillKillFocus(
     gfx::NativeView view_gaining_focus) {
-  SetSuggestedText(string16());
+  SetSuggestedText(string16(), INSTANT_COMPLETE_NOW);
 
   InstantController* instant = controller_->GetInstant();
   if (instant)
@@ -718,6 +737,8 @@ void AutocompleteEditModel::OnPopupDataChanged(
 
 bool AutocompleteEditModel::OnAfterPossibleChange(
     const string16& new_text,
+    size_t selection_start,
+    size_t selection_end,
     bool selection_differs,
     bool text_differs,
     bool just_deleted_text,
@@ -759,12 +780,25 @@ bool AutocompleteEditModel::OnAfterPossibleChange(
     just_deleted_text_ = just_deleted_text;
   }
 
+  const bool no_selection = selection_start == selection_end;
+
+  // Update the popup for the change, in the process changing to keyword mode
+  // if the user hit space in mid-string after a keyword.
+  // |allow_exact_keyword_match_| will be used by StartAutocomplete() method,
+  // which will be called by |view_->UpdatePopup()|. So we can safely clear
+  // this flag afterwards.
+  allow_exact_keyword_match_ =
+      text_differs && allow_keyword_ui_change &&
+      !just_deleted_text && no_selection &&
+      ShouldAllowExactKeywordMatch(old_user_text, user_text_, selection_start);
   view_->UpdatePopup();
+  allow_exact_keyword_match_ = false;
 
   // Change to keyword mode if the user has typed a keyword name and is now
   // pressing space after the name. Accepting the keyword will update our
   // state, so in that case there's no need to also return true here.
   return !(text_differs && allow_keyword_ui_change && !just_deleted_text &&
+           no_selection && selection_start == user_text_.length() &&
            MaybeAcceptKeywordBySpace(old_user_text, user_text_));
 }
 
@@ -937,6 +971,34 @@ bool AutocompleteEditModel::MaybeAcceptKeywordBySpace(
       !new_user_text.compare(0, new_user_text.length() - 1, old_user_text,
                              0, new_user_text.length() - 1) &&
       AcceptKeyword();
+}
+
+bool AutocompleteEditModel::ShouldAllowExactKeywordMatch(
+    const string16& old_user_text,
+    const string16& new_user_text,
+    size_t caret_position) {
+  // Check simple conditions first.
+  if (paste_state_ != NONE || caret_position < 2 ||
+      new_user_text.length() <= caret_position ||
+      old_user_text.length() < caret_position ||
+      !IsSpaceCharForAcceptingKeyword(new_user_text[caret_position - 1]) ||
+      IsSpaceCharForAcceptingKeyword(new_user_text[caret_position - 2]) ||
+      new_user_text.compare(0, caret_position - 1, old_user_text,
+                            0, caret_position - 1) ||
+      !new_user_text.compare(caret_position - 1,
+                             new_user_text.length() - caret_position + 1,
+                             old_user_text, caret_position - 1,
+                             old_user_text.length() - caret_position + 1)) {
+    return false;
+  }
+
+  // Then check if the text before the inserted space matches a keyword.
+  string16 keyword;
+  TrimWhitespace(new_user_text.substr(0, caret_position - 1),
+                 TRIM_LEADING, &keyword);
+
+  // Only allow exact keyword match if |keyword| represents a keyword hint.
+  return keyword.length() && popup_->GetKeywordForText(keyword, &keyword);
 }
 
 //  static

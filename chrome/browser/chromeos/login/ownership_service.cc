@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,10 +28,19 @@ OwnershipService* OwnershipService::GetSharedInstance() {
 OwnershipService::OwnershipService()
     : manager_(new OwnerManager),
       utils_(OwnerKeyUtils::Create()),
+      policy_(NULL),
       ownership_status_(OWNERSHIP_UNKNOWN) {
-  notification_registrar_.Add(this,
-                              NotificationType::OWNERSHIP_TAKEN,
-                              NotificationService::AllSources());
+  notification_registrar_.Add(
+      this,
+      NotificationType::OWNER_KEY_FETCH_ATTEMPT_SUCCEEDED,
+      NotificationService::AllSources());
+}
+
+OwnershipService::~OwnershipService() {}
+
+void OwnershipService::Prewarm() {
+  // Note that we cannot prewarm in constructor because in current codebase
+  // object is created before spawning threads.
   if (g_ownership_service == this) {
     // Start getting ownership status.
     BrowserThread::PostTask(
@@ -47,7 +56,18 @@ OwnershipService::OwnershipService()
   }
 }
 
-OwnershipService::~OwnershipService() {}
+void OwnershipService::set_cached_policy(const em::PolicyData& pol) {
+  policy_.reset(pol.New());
+  policy_->CheckTypeAndMergeFrom(pol);
+}
+
+bool OwnershipService::has_cached_policy() {
+  return policy_.get();
+}
+
+const em::PolicyData& OwnershipService::cached_policy() {
+  return *(policy_.get());
+}
 
 bool OwnershipService::IsAlreadyOwned() {
   return file_util::PathExists(utils_->GetOwnerKeyFilePath());
@@ -80,6 +100,21 @@ void OwnershipService::StartLoadOwnerKeyAttempt() {
   BrowserThread::PostTask(
       BrowserThread::FILE, FROM_HERE,
       NewRunnableFunction(&TryLoadOwnerKeyAttempt, this));
+}
+
+void OwnershipService::StartUpdateOwnerKey(const std::vector<uint8>& new_key,
+                                           OwnerManager::KeyUpdateDelegate* d) {
+  BrowserThread::ID thread_id;
+  if (!BrowserThread::GetCurrentThreadIdentifier(&thread_id))
+    thread_id = BrowserThread::UI;
+  BrowserThread::PostTask(
+      BrowserThread::FILE, FROM_HERE,
+      NewRunnableFunction(&OwnershipService::UpdateOwnerKey,
+                          this,
+                          thread_id,
+                          new_key,
+                          d));
+  return;
 }
 
 void OwnershipService::StartSigningAttempt(const std::string& data,
@@ -117,7 +152,7 @@ void OwnershipService::StartVerifyAttempt(const std::string& data,
 void OwnershipService::Observe(NotificationType type,
                                const NotificationSource& source,
                                const NotificationDetails& details) {
-  if (type.value == NotificationType::OWNERSHIP_TAKEN) {
+  if (type.value == NotificationType::OWNER_KEY_FETCH_ATTEMPT_SUCCEEDED) {
     SetStatus(OWNERSHIP_TAKEN);
     notification_registrar_.RemoveAll();
   } else {
@@ -129,6 +164,15 @@ bool OwnershipService::CurrentUserIsOwner() {
   // If this user has the private key associated with the owner's
   // public key, this user is the owner.
   return IsAlreadyOwned() && manager_->EnsurePrivateKey();
+}
+
+// static
+void OwnershipService::UpdateOwnerKey(OwnershipService* service,
+                                      const BrowserThread::ID thread_id,
+                                      const std::vector<uint8>& new_key,
+                                      OwnerManager::KeyUpdateDelegate* d) {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
+  service->manager()->UpdateOwnerKey(thread_id, new_key, d);
 }
 
 // static
@@ -192,4 +236,3 @@ void OwnershipService::SetStatus(Status new_status) {
 }
 
 }  // namespace chromeos
-

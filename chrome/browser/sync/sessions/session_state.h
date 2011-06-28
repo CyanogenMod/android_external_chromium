@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,6 +24,7 @@
 #include "chrome/browser/sync/engine/syncproto.h"
 #include "chrome/browser/sync/sessions/ordered_commit_set.h"
 #include "chrome/browser/sync/syncable/model_type.h"
+#include "chrome/browser/sync/syncable/model_type_payload_map.h"
 #include "chrome/browser/sync/syncable/syncable.h"
 
 class DictionaryValue;
@@ -37,51 +38,28 @@ namespace sessions {
 
 class UpdateProgress;
 
-// A container that contains a set of datatypes with possible string payloads.
-typedef std::map<syncable::ModelType, std::string> TypePayloadMap;
-
-// Helper utils for building TypePayloadMaps.
-// Make a TypePayloadMap from all the types in a ModelTypeBitSet using a
-// default payload.
-TypePayloadMap MakeTypePayloadMapFromBitSet(
-    const syncable::ModelTypeBitSet& types,
-    const std::string& payload);
-
-// Make a TypePayloadMap for all the enabled types in a ModelSafeRoutingInfo
-// using a default payload.
-TypePayloadMap MakeTypePayloadMapFromRoutingInfo(
-    const ModelSafeRoutingInfo& routes,
-    const std::string& payload);
-
-// Caller takes ownership of the returned dictionary.
-DictionaryValue* TypePayloadMapToValue(const TypePayloadMap& type_payloads);
-
-// Coalesce |update| into |original|, overwriting only when |update| has
-// a non-empty payload.
-void CoalescePayloads(TypePayloadMap* original, const TypePayloadMap& update);
-
 // A container for the source of a sync session. This includes the update
 // source, the datatypes triggering the sync session, and possible session
 // specific payloads which should be sent to the server.
 struct SyncSourceInfo {
   SyncSourceInfo();
-  SyncSourceInfo(
-      const TypePayloadMap& t);
+  explicit SyncSourceInfo(const syncable::ModelTypePayloadMap& t);
   SyncSourceInfo(
       const sync_pb::GetUpdatesCallerInfo::GetUpdatesSource& u,
-      const TypePayloadMap& t);
+      const syncable::ModelTypePayloadMap& t);
   ~SyncSourceInfo();
 
   // Caller takes ownership of the returned dictionary.
   DictionaryValue* ToValue() const;
 
   sync_pb::GetUpdatesCallerInfo::GetUpdatesSource updates_source;
-  TypePayloadMap types;
+  syncable::ModelTypePayloadMap types;
 };
 
 // Data pertaining to the status of an active Syncer object.
 struct SyncerStatus {
   SyncerStatus();
+  ~SyncerStatus();
 
   // Caller takes ownership of the returned dictionary.
   DictionaryValue* ToValue() const;
@@ -98,6 +76,10 @@ struct SyncerStatus {
   // Download event counters.
   int num_updates_downloaded_total;
   int num_tombstone_updates_downloaded_total;
+
+  // If the syncer encountered a MIGRATION_DONE code, these are the types that
+  // the client must now "migrate", by purging and re-downloading all updates.
+  syncable::ModelTypeSet types_needing_local_migration;
 };
 
 // Counters for various errors that can occur repeatedly during a sync session.

@@ -17,7 +17,7 @@ const char kChildrenKey[] = "children";
 const char kChildIdsKey[] = "childIds";
 const char kRecursiveKey[] = "recursive";
 const char kDateAddedKey[] = "dateAdded";
-const char kDateGroupModifiedKey[] = "dateGroupModified";
+const char kDateFolderModifiedKey[] = "dateGroupModified";
 // TODO(arv): Move bookmark manager related constants out of this file.
 const char kSameProfileKey[] = "sameProfile";
 const char kElementsKey[] = "elements";
@@ -30,6 +30,7 @@ const char kInvalidIdError[] = "Bookmark id is invalid.";
 const char kInvalidIndexError[] = "Index out of bounds.";
 const char kInvalidUrlError[] = "Invalid URL.";
 const char kModifySpecialError[] = "Can't modify the root bookmark folders.";
+const char kEditBookmarksDisabled[] = "Bookmark editing is disabled.";
 
 const char kOnBookmarkCreated[] = "bookmarks.onCreated";
 const char kOnBookmarkRemoved[] = "bookmarks.onRemoved";

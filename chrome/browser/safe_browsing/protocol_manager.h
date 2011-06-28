@@ -18,7 +18,7 @@
 
 #include "base/gtest_prod_util.h"
 #include "base/hash_tables.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/time.h"
 #include "base/timer.h"
 #include "chrome/browser/safe_browsing/chunk_range.h"
@@ -55,7 +55,7 @@ class SBProtocolManagerFactory {
       const std::string& client_name,
       const std::string& client_key,
       const std::string& wrapped_key,
-      URLRequestContextGetter* request_context_getter,
+      net::URLRequestContextGetter* request_context_getter,
       const std::string& info_url_prefix,
       const std::string& mackey_url_prefix,
       bool disable_auto_update) = 0;
@@ -93,7 +93,7 @@ class SafeBrowsingProtocolManager : public URLFetcher::Delegate {
       const std::string& client_name,
       const std::string& client_key,
       const std::string& wrapped_key,
-      URLRequestContextGetter* request_context_getter,
+      net::URLRequestContextGetter* request_context_getter,
       const std::string& info_url_prefix,
       const std::string& mackey_url_prefix,
       bool disable_auto_update);
@@ -132,13 +132,14 @@ class SafeBrowsingProtocolManager : public URLFetcher::Delegate {
   void OnChunkInserted();
 
   // For UMA users we report to Google when a SafeBrowsing interstitial is shown
-  // to the user.  We assume that the threat type is either URL_MALWARE or
-  // URL_PHISHING.
+  // to the user.  |threat_type| should be one of the types known by
+  // SafeBrowsingHitUrl.
   void ReportSafeBrowsingHit(const GURL& malicious_url,
                              const GURL& page_url,
                              const GURL& referrer_url,
                              bool is_subresource,
-                             SafeBrowsingService::UrlCheckResult threat_type);
+                             SafeBrowsingService::UrlCheckResult threat_type,
+                             const std::string& post_data);
 
   // Users can opt-in on the SafeBrowsing interstitial to send detailed
   // malware reports. |report| is the serialized report.
@@ -198,14 +199,15 @@ class SafeBrowsingProtocolManager : public URLFetcher::Delegate {
   // network requests using |request_context_getter|. When |disable_auto_update|
   // is true, protocol manager won't schedule next update until
   // ForceScheduleNextUpdate is called.
-  SafeBrowsingProtocolManager(SafeBrowsingService* sb_service,
-                              const std::string& client_name,
-                              const std::string& client_key,
-                              const std::string& wrapped_key,
-                              URLRequestContextGetter* request_context_getter,
-                              const std::string& http_url_prefix,
-                              const std::string& https_url_prefix,
-                              bool disable_auto_update);
+  SafeBrowsingProtocolManager(
+      SafeBrowsingService* sb_service,
+      const std::string& client_name,
+      const std::string& client_key,
+      const std::string& wrapped_key,
+      net::URLRequestContextGetter* request_context_getter,
+      const std::string& http_url_prefix,
+      const std::string& https_url_prefix,
+      bool disable_auto_update);
  private:
   friend class SBProtocolManagerFactoryImpl;
 
@@ -394,7 +396,7 @@ class SafeBrowsingProtocolManager : public URLFetcher::Delegate {
   std::string additional_query_;
 
   // The context we use to issue network requests.
-  scoped_refptr<URLRequestContextGetter> request_context_getter_;
+  scoped_refptr<net::URLRequestContextGetter> request_context_getter_;
 
   // URL prefix where browser fetches safebrowsing chunk updates, hashes, and
   // reports hits to the safebrowsing list for UMA users.

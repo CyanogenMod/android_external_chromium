@@ -7,7 +7,7 @@
 #include <vector>
 
 #include "base/logging.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/history/history_types.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
@@ -32,7 +32,6 @@ class TestTabContentsDelegate : public HtmlDialogTabContentsDelegate {
   }
 
   virtual void MoveContents(TabContents* source, const gfx::Rect& pos) {}
-  virtual void ToolbarSizeChanged(TabContents* source, bool is_animating) {}
 
  private:
   DISALLOW_COPY_AND_ASSIGN(TestTabContentsDelegate);
@@ -69,7 +68,6 @@ TEST_F(HtmlDialogTabContentsDelegateTest, DoNothingMethodsTest) {
   test_tab_contents_delegate_->CloseContents(NULL);
   test_tab_contents_delegate_->UpdateTargetURL(NULL, GURL());
   test_tab_contents_delegate_->MoveContents(NULL, gfx::Rect());
-  test_tab_contents_delegate_->ToolbarSizeChanged(NULL, false);
   EXPECT_EQ(0, browser()->tab_count());
   EXPECT_EQ(1U, BrowserList::size());
 }

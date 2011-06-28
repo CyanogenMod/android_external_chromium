@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,11 @@
 #define CHROME_BROWSER_SYNC_GLUE_DATA_TYPE_CONTROLLER_H__
 #pragma once
 
+#include <string>
 #include <map>
 
 #include "base/callback.h"
+#include "base/tracked.h"
 #include "chrome/browser/sync/engine/model_safe_worker.h"
 #include "chrome/browser/sync/syncable/model_type.h"
 #include "chrome/browser/sync/unrecoverable_error_handler.h"
@@ -51,7 +53,8 @@ class DataTypeController
     MAX_START_RESULT
   };
 
-  typedef Callback1<StartResult>::Type StartCallback;
+  typedef Callback2<StartResult,
+      const tracked_objects::Location&>::Type StartCallback;
 
   typedef std::map<syncable::ModelType,
                    scoped_refptr<DataTypeController> > TypeMap;
@@ -71,23 +74,19 @@ class DataTypeController
   // result.
   virtual void Stop() = 0;
 
-  // Returns true if the user has indicated that they want this data
-  // type to be enabled.
-  virtual bool enabled() = 0;
-
   // Unique model type for this data type controller.
-  virtual syncable::ModelType type() = 0;
+  virtual syncable::ModelType type() const = 0;
 
   // Name of this data type.  For logging purposes only.
-  virtual const char* name() const = 0;
+  virtual std::string name() const = 0;
 
   // The model safe group of this data type.  This should reflect the
   // thread that should be used to modify the data type's native
   // model.
-  virtual browser_sync::ModelSafeGroup model_safe_group() = 0;
+  virtual browser_sync::ModelSafeGroup model_safe_group() const = 0;
 
   // Current state of the data type controller.
-  virtual State state() = 0;
+  virtual State state() const = 0;
 
  protected:
   friend struct BrowserThread::DeleteOnThread<BrowserThread::UI>;

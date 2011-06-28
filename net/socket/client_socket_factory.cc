@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include "base/lazy_instance.h"
 #include "build/build_config.h"
+#include "net/base/cert_database.h"
 #include "net/socket/client_socket_handle.h"
 #if defined(OS_WIN)
 #include "net/socket/ssl_client_socket_nss.h"
@@ -23,13 +24,35 @@
 
 namespace net {
 
+class X509Certificate;
+
 namespace {
 
 bool g_use_system_ssl = false;
 
-class DefaultClientSocketFactory : public ClientSocketFactory {
+class DefaultClientSocketFactory : public ClientSocketFactory,
+                                   public CertDatabase::Observer {
  public:
-  virtual ClientSocket* CreateTCPClientSocket(
+  DefaultClientSocketFactory() {
+    CertDatabase::AddObserver(this);
+  }
+
+  virtual ~DefaultClientSocketFactory() {
+    CertDatabase::RemoveObserver(this);
+  }
+
+  virtual void OnUserCertAdded(const X509Certificate* cert) {
+    ClearSSLSessionCache();
+  }
+
+  virtual void OnCertTrustChanged(const X509Certificate* cert) {
+    // Per wtc, we actually only need to flush when trust is reduced.
+    // Always flush now because OnCertTrustChanged does not tell us this.
+    // See comments in ClientSocketPoolManager::OnCertTrustChanged.
+    ClearSSLSessionCache();
+  }
+
+  virtual ClientSocket* CreateTransportClientSocket(
       const AddressList& addresses,
       NetLog* net_log,
       const NetLog::Source& source) {

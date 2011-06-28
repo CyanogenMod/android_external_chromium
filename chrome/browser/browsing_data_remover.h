@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,22 +8,25 @@
 
 #include <vector>
 
+#include "base/memory/ref_counted.h"
 #include "base/observer_list.h"
-#include "base/ref_counted.h"
 #include "base/synchronization/waitable_event_watcher.h"
 #include "base/time.h"
-#include "chrome/common/notification_registrar.h"
 #include "content/browser/appcache/chrome_appcache_service.h"
 #include "content/browser/cancelable_request.h"
+#include "content/common/notification_registrar.h"
 
 class ExtensionSpecialStoragePolicy;
 class IOThread;
 class PluginDataRemover;
 class Profile;
-class URLRequestContextGetter;
 
 namespace disk_cache {
 class Backend;
+}
+
+namespace net {
+class URLRequestContextGetter;
 }
 
 namespace webkit_database {
@@ -200,8 +203,8 @@ class BrowsingDataRemover : public NotificationObserver,
   disk_cache::Backend* cache_;
 
   // Used to delete data from HTTP cache and appcache.
-  scoped_refptr<URLRequestContextGetter> main_context_getter_;
-  scoped_refptr<URLRequestContextGetter> media_context_getter_;
+  scoped_refptr<net::URLRequestContextGetter> main_context_getter_;
+  scoped_refptr<net::URLRequestContextGetter> media_context_getter_;
 
   // Used to delete plugin data.
   scoped_refptr<PluginDataRemover> plugin_data_remover_;

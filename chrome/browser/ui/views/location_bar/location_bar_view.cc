@@ -33,10 +33,12 @@
 #include "chrome/browser/ui/views/location_bar/selected_keyword_view.h"
 #include "chrome/browser/ui/views/location_bar/star_view.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/notification_service.h"
+#include "chrome/common/pref_names.h"
 #include "content/browser/renderer_host/render_widget_host_view.h"
+#include "content/common/notification_service.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
+#include "ui/base/accessibility/accessible_view_state.h"
 #include "ui/base/dragdrop/drag_drop_types.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -48,24 +50,26 @@
 #include "views/drag_utils.h"
 
 #if defined(OS_WIN)
-#include "chrome/browser/ui/views/location_bar/suggested_text_view.h"
 #include "chrome/browser/ui/views/first_run_bubble.h"
+#include "chrome/browser/ui/views/location_bar/suggested_text_view.h"
 #endif
 
 using views::View;
 
 namespace {
+
 TabContents* GetTabContentsFromDelegate(LocationBarView::Delegate* delegate) {
   const TabContentsWrapper* wrapper = delegate->GetTabContentsWrapper();
   return wrapper ? wrapper->tab_contents() : NULL;
 }
+
 }  // namespace
 
 // static
 const int LocationBarView::kNormalHorizontalEdgeThickness = 1;
 const int LocationBarView::kVerticalEdgeThickness = 2;
 const int LocationBarView::kItemPadding = 3;
-const int LocationBarView::kExtensionItemPadding = 5;
+const int LocationBarView::kIconInternalPadding = 2;
 const int LocationBarView::kEdgeItemPadding = kItemPadding;
 const int LocationBarView::kBubbleHorizontalPadding = 1;
 const char LocationBarView::kViewClassName[] =
@@ -121,6 +125,9 @@ LocationBarView::LocationBarView(Profile* profile,
 
   if (mode_ == NORMAL)
     painter_.reset(new views::HorizontalPainter(kNormalModeBackgroundImages));
+
+  edit_bookmarks_enabled_.Init(prefs::kEditBookmarksEnabled,
+                               profile_->GetPrefs(), this);
 }
 
 LocationBarView::~LocationBarView() {
@@ -171,8 +178,6 @@ void LocationBarView::Init() {
 
   location_entry_view_ = location_entry_->AddToView(this);
   location_entry_view_->SetID(VIEW_ID_AUTOCOMPLETE);
-  location_entry_view_->SetAccessibleName(
-      l10n_util::GetStringUTF16(IDS_ACCNAME_LOCATION));
 
   selected_keyword_view_ = new SelectedKeywordView(
       kSelectedKeywordBackgroundImages, IDR_KEYWORD_SEARCH_MAGNIFIER,
@@ -203,8 +208,6 @@ void LocationBarView::Init() {
     AddChildView(star_view_);
     star_view_->SetVisible(true);
   }
-
-  SetAccessibleName(l10n_util::GetStringUTF16(IDS_ACCNAME_LOCATION));
 
   // Initialize the location entry. We do this to avoid a black flash which is
   // visible when the location entry has just been initialized.
@@ -267,7 +270,8 @@ SkColor LocationBarView::GetColor(ToolbarModel::SecurityLevel security_level,
 }
 
 void LocationBarView::Update(const TabContents* tab_for_state_restoring) {
-  bool star_enabled = star_view_ && !model_->input_in_progress();
+  bool star_enabled = star_view_ && !model_->input_in_progress() &&
+                      edit_bookmarks_enabled_.GetValue();
   command_updater_->UpdateCommandEnabled(IDC_BOOKMARK_PAGE, star_enabled);
   if (star_view_)
     star_view_->SetVisible(star_enabled);
@@ -315,7 +319,8 @@ void LocationBarView::InvalidatePageActions() {
 void LocationBarView::OnFocus() {
   // Focus the location entry native view.
   location_entry_->SetFocus();
-  NotifyAccessibilityEvent(AccessibilityTypes::EVENT_FOCUS);
+  GetWidget()->NotifyAccessibilityEvent(
+      this, ui::AccessibilityTypes::EVENT_FOCUS, true);
 }
 
 void LocationBarView::SetProfile(Profile* profile) {
@@ -391,15 +396,40 @@ gfx::Point LocationBarView::GetLocationEntryOrigin() const {
   return origin;
 }
 
-string16 LocationBarView::GetInstantSuggestion() const {
 #if defined(OS_WIN)
-  return HasValidSuggestText() ? suggested_text_view_->GetText() : string16();
-#else
-  // On linux the edit shows the suggested text.
-  NOTREACHED();
-  return string16();
-#endif
+void LocationBarView::SetInstantSuggestion(const string16& text,
+                                           bool animate_to_complete) {
+  // Don't show the suggested text if inline autocomplete is prevented.
+  if (!text.empty()) {
+    if (!suggested_text_view_) {
+      suggested_text_view_ = new SuggestedTextView(location_entry_->model());
+      suggested_text_view_->SetHorizontalAlignment(views::Label::ALIGN_LEFT);
+      suggested_text_view_->SetColor(
+          GetColor(ToolbarModel::NONE,
+                   LocationBarView::DEEMPHASIZED_TEXT));
+      suggested_text_view_->SetText(UTF16ToWide(text));
+      suggested_text_view_->SetFont(location_entry_->GetFont());
+      AddChildView(suggested_text_view_);
+    } else if (suggested_text_view_->GetText() != UTF16ToWide(text)) {
+      suggested_text_view_->SetText(UTF16ToWide(text));
+    }
+    if (animate_to_complete && !location_entry_->IsImeComposing())
+      suggested_text_view_->StartAnimation();
+  } else if (suggested_text_view_) {
+    delete suggested_text_view_;
+    suggested_text_view_ = NULL;
+  } else {
+    return;
+  }
+
+  Layout();
+  SchedulePaint();
 }
+
+string16 LocationBarView::GetInstantSuggestion() const {
+  return HasValidSuggestText() ? suggested_text_view_->GetText() : string16();
+}
+#endif
 
 gfx::Size LocationBarView::GetPreferredSize() {
   return gfx::Size(0, GetThemeProvider()->GetBitmapNamed(mode_ == POPUP ?
@@ -516,11 +546,11 @@ void LocationBarView::Layout() {
         const SkBitmap& bitmap = profile_->GetExtensionService()->
             GetOmniboxIcon(template_url->GetExtensionId());
         selected_keyword_view_->SetImage(bitmap);
-        selected_keyword_view_->SetItemPadding(kExtensionItemPadding);
+        selected_keyword_view_->set_is_extension_icon(true);
       } else {
         selected_keyword_view_->SetImage(*ResourceBundle::GetSharedInstance().
             GetBitmapNamed(IDR_OMNIBOX_SEARCH));
-        selected_keyword_view_->SetItemPadding(kItemPadding);
+        selected_keyword_view_->set_is_extension_icon(false);
       }
     }
   } else if (show_keyword_hint) {
@@ -718,12 +748,9 @@ bool LocationBarView::OnMouseDragged(const views::MouseEvent& event) {
   return true;
 }
 
-void LocationBarView::OnMouseReleased(const views::MouseEvent& event,
-                                      bool canceled) {
+void LocationBarView::OnMouseReleased(const views::MouseEvent& event) {
   UINT msg;
-  if (canceled) {
-    msg = WM_CAPTURECHANGED;
-  } else if (event.IsLeftMouseButton()) {
+  if (event.IsLeftMouseButton()) {
     msg = WM_LBUTTONUP;
   } else if (event.IsMiddleMouseButton()) {
     msg = WM_MBUTTONUP;
@@ -734,6 +761,10 @@ void LocationBarView::OnMouseReleased(const views::MouseEvent& event,
     return;
   }
   OnMouseEvent(event, msg);
+}
+
+void LocationBarView::OnMouseCaptureLost() {
+  location_entry_->HandleExternalMsg(WM_CAPTURECHANGED, 0, CPoint());
 }
 #endif
 
@@ -807,8 +838,8 @@ void LocationBarView::OnSetFocus() {
   focus_manager->SetFocusedView(this);
 }
 
-SkBitmap LocationBarView::GetFavIcon() const {
-  return GetTabContentsFromDelegate(delegate_)->GetFavIcon();
+SkBitmap LocationBarView::GetFavicon() const {
+  return GetTabContentsFromDelegate(delegate_)->GetFavicon();
 }
 
 string16 LocationBarView::GetTitle() const {
@@ -819,7 +850,7 @@ InstantController* LocationBarView::GetInstant() {
   return delegate_->GetInstant();
 }
 
-TabContentsWrapper* LocationBarView::GetTabContentsWrapper() {
+TabContentsWrapper* LocationBarView::GetTabContentsWrapper() const {
   return delegate_->GetTabContentsWrapper();
 }
 
@@ -923,18 +954,7 @@ void LocationBarView::RefreshPageActionViews() {
 
 #if defined(OS_WIN)
 void LocationBarView::OnMouseEvent(const views::MouseEvent& event, UINT msg) {
-  UINT flags = 0;
-  if (event.IsControlDown())
-    flags |= MK_CONTROL;
-  if (event.IsShiftDown())
-    flags |= MK_SHIFT;
-  if (event.IsLeftMouseButton())
-    flags |= MK_LBUTTON;
-  if (event.IsMiddleMouseButton())
-    flags |= MK_MBUTTON;
-  if (event.IsRightMouseButton())
-    flags |= MK_RBUTTON;
-
+  UINT flags = event.GetWindowsFlags();
   gfx::Point screen_point(event.location());
   ConvertPointToScreen(this, &screen_point);
   location_entry_->HandleExternalMsg(msg, flags, screen_point.ToPOINT());
@@ -944,11 +964,6 @@ void LocationBarView::OnMouseEvent(const views::MouseEvent& event, UINT msg) {
 void LocationBarView::ShowFirstRunBubbleInternal(
     FirstRun::BubbleType bubble_type) {
 #if defined(OS_WIN)  // First run bubble doesn't make sense for Chrome OS.
-  // If the browser is no longer active, let's not show the info bubble, as this
-  // would make the browser the active window again.
-  if (!location_entry_view_ || !location_entry_view_->GetWidget()->IsActive())
-    return;
-
   // Point at the start of the edit control; adjust to look as good as possible.
   const int kXOffset = kNormalHorizontalEdgeThickness + kEdgeItemPadding +
       ResourceBundle::GetSharedInstance().GetBitmapNamed(
@@ -971,14 +986,15 @@ std::string LocationBarView::GetClassName() const {
   return kViewClassName;
 }
 
-bool LocationBarView::SkipDefaultKeyEventProcessing(const views::KeyEvent& e) {
+bool LocationBarView::SkipDefaultKeyEventProcessing(
+    const views::KeyEvent& event) {
 #if defined(OS_WIN)
-  if (views::FocusManager::IsTabTraversalKeyEvent(e)) {
+  if (views::FocusManager::IsTabTraversalKeyEvent(event)) {
     if (HasValidSuggestText()) {
       // Return true so that the edit sees the tab and commits the suggestion.
       return true;
     }
-    if (keyword_hint_view_->IsVisible() && !e.IsShiftDown()) {
+    if (keyword_hint_view_->IsVisible() && !event.IsShiftDown()) {
       // Return true so the edit gets the tab event and enters keyword mode.
       return true;
     }
@@ -994,7 +1010,7 @@ bool LocationBarView::SkipDefaultKeyEventProcessing(const views::KeyEvent& e) {
       return true;
   }
 
-  return location_entry_->SkipDefaultKeyEventProcessing(e);
+  return location_entry_->SkipDefaultKeyEventProcessing(event);
 #else
   // This method is not used for Linux ports. See FocusManager::OnKeyEvent() in
   // src/views/focus/focus_manager.cc for details.
@@ -1002,20 +1018,16 @@ bool LocationBarView::SkipDefaultKeyEventProcessing(const views::KeyEvent& e) {
 #endif
 }
 
-AccessibilityTypes::Role LocationBarView::GetAccessibleRole() {
-  return AccessibilityTypes::ROLE_GROUPING;
-}
+void LocationBarView::GetAccessibleState(ui::AccessibleViewState* state) {
+  state->role = ui::AccessibilityTypes::ROLE_GROUPING;
+  state->name = l10n_util::GetStringUTF16(IDS_ACCNAME_LOCATION);
+  state->value = location_entry_->GetText();
 
-string16 LocationBarView::GetAccessibleValue() {
-  return location_entry_->GetText();
-}
-
-void LocationBarView::GetSelectionBounds(int* start_index, int* end_index) {
   string16::size_type entry_start;
   string16::size_type entry_end;
   location_entry_->GetSelectionBounds(&entry_start, &entry_end);
-  *start_index = entry_start;
-  *end_index = entry_end;
+  state->selection_start = entry_start;
+  state->selection_end = entry_end;
 }
 
 void LocationBarView::WriteDragDataForView(views::View* sender,
@@ -1028,7 +1040,7 @@ void LocationBarView::WriteDragDataForView(views::View* sender,
   DCHECK(tab_contents);
   drag_utils::SetURLAndDragImage(tab_contents->GetURL(),
                                  UTF16ToWideHack(tab_contents->GetTitle()),
-                                 tab_contents->GetFavIcon(), data);
+                                 tab_contents->GetFavicon(), data);
 }
 
 int LocationBarView::GetDragOperationsForView(views::View* sender,
@@ -1062,8 +1074,9 @@ void LocationBarView::ShowFirstRunBubble(FirstRun::BubbleType bubble_type) {
   ShowFirstRunBubbleInternal(bubble_type);
 }
 
-void LocationBarView::SetSuggestedText(const string16& text) {
-  location_entry_->model()->SetSuggestedText(text);
+void LocationBarView::SetSuggestedText(const string16& text,
+                                       InstantCompleteBehavior behavior) {
+  location_entry_->model()->SetSuggestedText(text, behavior);
 }
 
 std::wstring LocationBarView::GetInputString() const {
@@ -1169,7 +1182,20 @@ void LocationBarView::TestPageActionPressed(size_t index) {
 void LocationBarView::OnTemplateURLModelChanged() {
   template_url_model_->RemoveObserver(this);
   template_url_model_ = NULL;
-  ShowFirstRunBubble(bubble_type_);
+  // If the browser is no longer active, let's not show the info bubble, as this
+  // would make the browser the active window again.
+  if (location_entry_view_ && location_entry_view_->GetWidget()->IsActive())
+    ShowFirstRunBubble(bubble_type_);
+}
+
+void LocationBarView::Observe(NotificationType type,
+                              const NotificationSource& source,
+                              const NotificationDetails& details) {
+  if (type.value == NotificationType::PREF_CHANGED) {
+    std::string* name = Details<std::string>(details).ptr();
+    if (*name == prefs::kEditBookmarksEnabled)
+      Update(NULL);
+  }
 }
 
 #if defined(OS_WIN)

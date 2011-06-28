@@ -48,13 +48,14 @@ class InputMethodMenu : public views::ViewMenuDelegate,
                                 ui::Accelerator* accelerator) const;
   virtual bool IsItemCheckedAt(int index) const;
   virtual int GetGroupIdAt(int index) const;
-  virtual bool GetIconAt(int index, SkBitmap* icon) const;
+  virtual bool GetIconAt(int index, SkBitmap* icon);
   virtual ui::ButtonMenuItemModel* GetButtonMenuItemAt(int index) const;
   virtual bool IsEnabledAt(int index) const;
   virtual ui::MenuModel* GetSubmenuModelAt(int index) const;
   virtual void HighlightChangedTo(int index);
   virtual void ActivatedAt(int index);
   virtual void MenuWillShow();
+  virtual void SetMenuModelDelegate(ui::MenuModelDelegate* delegate);
 
   // views::ViewMenuDelegate implementation. Sub classes can override the method
   // to adjust the position of the menu.
@@ -74,6 +75,9 @@ class InputMethodMenu : public views::ViewMenuDelegate,
     InputMethodLibrary* obj,
     const InputMethodDescriptor& previous_input_method,
     const InputMethodDescriptor& current_input_method);
+  virtual void PropertyListChanged(
+      InputMethodLibrary* obj,
+      const ImePropertyList& current_ime_properties);
   virtual void FirstObserverIsAdded(InputMethodLibrary* obj);
 
   // NotificationObserver implementation.
@@ -83,6 +87,9 @@ class InputMethodMenu : public views::ViewMenuDelegate,
 
   // Sets the minimum width of the dropdown menu.
   void SetMinimumWidth(int width);
+
+  // Rebuilds model and menu2 objects.
+  void PrepareMenu();
 
   // Registers input method preferences for the login screen.
   static void RegisterPrefs(PrefService* local_state);
@@ -106,9 +113,6 @@ class InputMethodMenu : public views::ViewMenuDelegate,
   }
 
  private:
-  // Rebuilds model and menu2 objects.
-  void PrepareMenu();
-
   // Updates UI of a container of the menu (e.g. the "US" menu button in the
   // status area). Sub classes have to implement the interface for their own UI.
   virtual void UpdateUI(const std::string& input_method_id,  // e.g. "mozc"

@@ -12,11 +12,11 @@
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
-#include "chrome/common/notification_source.h"
-#include "chrome/common/notification_type.h"
 #include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
+#include "content/common/notification_source.h"
+#include "content/common/notification_type.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
@@ -570,7 +570,6 @@ WrenchMenu::WrenchMenu(Browser* browser)
 void WrenchMenu::Init(ui::MenuModel* model) {
   DCHECK(!root_.get());
   root_.reset(new MenuItemView(this));
-  root_->SetAccessibleName(l10n_util::GetStringUTF16(IDS_ACCNAME_APP));
   root_->set_has_icons(true);  // We have checks, radios and icons, set this
                                // so we get the taller menu style.
   int next_id = 1;

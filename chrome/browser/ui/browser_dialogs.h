@@ -11,7 +11,6 @@
 
 class Browser;
 class Extension;
-class ImporterHost;
 class HtmlDialogUIDelegate;
 class Profile;
 class SkBitmap;
@@ -37,20 +36,13 @@ void ShowAboutIPCDialog();
 gfx::NativeWindow ShowHtmlDialog(gfx::NativeWindow parent, Profile* profile,
                                  HtmlDialogUIDelegate* delegate);
 
-// This function is called by an ImporterHost, and displays the Firefox profile
-// locked warning by creating a dialog.  On the closing of the dialog, the
-// ImportHost receives a callback with the message either to skip the import,
-// or to try again.
-void ShowImportLockDialog(gfx::NativeWindow parent,
-                          ImporterHost* importer_host);
-
 // Creates the ExtensionInstalledBubble and schedules it to be shown once
 // the extension has loaded. |extension| is the installed extension. |browser|
 // is the browser window which will host the bubble. |icon| is the install
 // icon of the extension.
 void ShowExtensionInstalledBubble(const Extension* extension,
                                   Browser* browser,
-                                  SkBitmap icon,
+                                  const SkBitmap& icon,
                                   Profile* profile);
 
 // Shows or hide the hung renderer dialog for the given TabContents.

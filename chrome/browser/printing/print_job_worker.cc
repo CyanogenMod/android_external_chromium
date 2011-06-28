@@ -8,8 +8,8 @@
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/printing/print_job.h"
-#include "chrome/common/notification_service.h"
 #include "content/browser/browser_thread.h"
+#include "content/common/notification_service.h"
 #include "printing/printed_document.h"
 #include "printing/printed_page.h"
 
@@ -127,10 +127,9 @@ void PrintJobWorker::UpdatePrintSettings(
       }
     }
   }
-  // We don't update any other print job settings now, so delete |new_settings|.
-  delete new_settings;
   PrintingContext::Result result =
-      printing_context_->UpdatePrintSettings(new_ranges);
+      printing_context_->UpdatePrintSettings(*new_settings, new_ranges);
+  delete new_settings;
   GetSettingsDone(result);
 }
 

@@ -14,8 +14,6 @@
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/app/chrome_dll_resource.h"
 #include "chrome/browser/automation/automation_provider.h"
-#include "chrome/browser/automation/automation_extension_function.h"
-#include "chrome/browser/browser_window.h"
 #include "chrome/browser/debugger/devtools_manager.h"
 #include "chrome/browser/debugger/devtools_toggle_action.h"
 #include "chrome/browser/google/google_util.h"
@@ -24,27 +22,29 @@
 #include "chrome/browser/page_info_window.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/browser/ui/views/browser_dialogs.h"
+#include "chrome/browser/ui/views/infobars/infobar_container_view.h"
 #include "chrome/browser/ui/views/page_info_bubble_view.h"
 #include "chrome/browser/ui/views/tab_contents/render_view_context_menu_views.h"
 #include "chrome/browser/ui/views/tab_contents/tab_contents_container.h"
 #include "chrome/common/automation_messages.h"
-#include "chrome/common/bindings_policy.h"
 #include "chrome/common/chrome_constants.h"
-#include "chrome/common/render_messages.h"
-#include "chrome/common/render_messages_params.h"
-#include "chrome/common/native_web_keyboard_event.h"
-#include "chrome/common/notification_service.h"
-#include "chrome/common/page_transition_types.h"
 #include "chrome/common/url_constants.h"
 #include "content/browser/renderer_host/render_process_host.h"
 #include "content/browser/renderer_host/render_view_host.h"
 #include "content/browser/renderer_host/resource_dispatcher_host_request_info.h"
 #include "content/browser/tab_contents/provisional_load_details.h"
+#include "content/common/bindings_policy.h"
+#include "content/common/native_web_keyboard_event.h"
+#include "content/common/notification_service.h"
+#include "content/common/page_transition_types.h"
+#include "content/common/view_messages.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
 #include "ui/base/view_prop.h"
 #include "views/layout/grid_layout.h"
 #include "views/widget/root_view.h"
@@ -95,13 +95,13 @@ ExternalTabContainer::ExternalTabContainer(
       load_requests_via_automation_(false),
       handle_top_level_requests_(false),
       external_method_factory_(this),
-      enabled_extension_automation_(false),
       pending_(false),
       infobars_enabled_(true),
       focus_manager_(NULL),
       external_tab_view_(NULL),
       unload_reply_message_(NULL),
-      route_all_top_level_navigations_(false) {
+      route_all_top_level_navigations_(false),
+      is_popup_window_(false) {
 }
 
 ExternalTabContainer::~ExternalTabContainer() {
@@ -174,7 +174,7 @@ bool ExternalTabContainer::Init(Profile* profile,
   registrar_.Add(this, NotificationType::RENDER_VIEW_HOST_CREATED_FOR_TAB,
                  Source<TabContents>(tab_contents_->tab_contents()));
   registrar_.Add(this, NotificationType::RENDER_VIEW_HOST_DELETED,
-                 Source<TabContents>(tab_contents_->tab_contents()));
+                 NotificationService::AllSources());
 
   NotificationService::current()->Notify(
       NotificationType::EXTERNAL_TAB_CREATED,
@@ -210,19 +210,9 @@ bool ExternalTabContainer::Init(Profile* profile,
 }
 
 void ExternalTabContainer::Uninitialize() {
-  if (enabled_extension_automation_) {
-    AutomationExtensionFunction::Disable();
-  }
-
   registrar_.RemoveAll();
   if (tab_contents_.get()) {
-    RenderViewHost* rvh = tab_contents_->render_view_host();
-    if (rvh) {
-      if (DevToolsManager::GetInstance())
-        DevToolsManager::GetInstance()->UnregisterDevToolsClientHostFor(rvh);
-
-      UnregisterRenderViewHost(rvh);
-    }
+    UnregisterRenderViewHost(tab_contents_->render_view_host());
 
     if (GetRootView()) {
       GetRootView()->RemoveAllChildViews(true);
@@ -287,7 +277,7 @@ void ExternalTabContainer::FocusThroughTabTraversal(
     tab_contents_->tab_contents()->Focus();
 
   // The tab_contents_ member can get destroyed in the context of the call to
-  // TabContentsViewWin::Focus() above. This method eventually calls SetFocus
+  // TabContentsViewViews::Focus() above. This method eventually calls SetFocus
   // on the native window, which could end up dispatching messages like
   // WM_DESTROY for the external tab.
   if (tab_contents_.get() && restore_focus_to_view)
@@ -445,6 +435,7 @@ void ExternalTabContainer::AddNewContents(TabContents* source,
     uintptr_t cookie = reinterpret_cast<uintptr_t>(new_container.get());
     pending_tabs_.Get()[cookie] = new_container;
     new_container->set_pending(true);
+    new_container->set_is_popup_window(disposition == NEW_POPUP);
     AttachExternalTabParams attach_params_;
     attach_params_.cookie = static_cast<uint64>(cookie);
     attach_params_.dimensions = initial_pos;
@@ -498,6 +489,12 @@ void ExternalTabContainer::CloseContents(TabContents* source) {
 
 void ExternalTabContainer::MoveContents(TabContents* source,
                                         const gfx::Rect& pos) {
+  if (automation_ && is_popup_window_)
+    automation_->Send(new AutomationMsg_MoveWindow(tab_handle_, pos));
+}
+
+bool ExternalTabContainer::IsPopup(const TabContents* source) const {
+  return is_popup_window_;
 }
 
 void ExternalTabContainer::UpdateTargetURL(TabContents* source,
@@ -510,10 +507,6 @@ void ExternalTabContainer::UpdateTargetURL(TabContents* source,
 }
 
 void ExternalTabContainer::ContentsZoomChange(bool zoom_in) {
-}
-
-void ExternalTabContainer::ToolbarSizeChanged(TabContents* source,
-                                              bool finished) {
 }
 
 void ExternalTabContainer::ForwardMessageToExternalHost(
@@ -575,11 +568,9 @@ void ExternalTabContainer::ShowPageInfo(Profile* profile,
   PageInfoBubbleView* page_info_bubble =
       new ExternalTabPageInfoBubbleView(this, NULL, profile, url,
                                         ssl, show_history);
-  InfoBubble* info_bubble =
-      InfoBubble::Show(this, bounds,
-                       BubbleBorder::TOP_LEFT,
-                       page_info_bubble, page_info_bubble);
-  page_info_bubble->set_info_bubble(info_bubble);
+  Bubble* bubble = Bubble::Show(this, bounds, BubbleBorder::TOP_LEFT,
+                                page_info_bubble, page_info_bubble);
+  page_info_bubble->set_bubble(bubble);
 }
 
 void ExternalTabContainer::RegisterRenderViewHostForAutomation(
@@ -593,7 +584,6 @@ void ExternalTabContainer::RegisterRenderViewHostForAutomation(
         pending_view);
   }
 }
-
 
 void ExternalTabContainer::RegisterRenderViewHost(
     RenderViewHost* render_view_host) {
@@ -686,8 +676,7 @@ void ExternalTabContainer::ShowHtmlDialog(HtmlDialogUIDelegate* delegate,
                                           tab_contents_->profile()));
   }
 
-  gfx::NativeWindow parent = parent_window ? parent_window
-                                           : GetParent();
+  gfx::NativeWindow parent = parent_window ? parent_window : GetParent();
   browser_->window()->ShowHTMLDialog(delegate, parent);
 }
 
@@ -702,8 +691,12 @@ void ExternalTabContainer::BeforeUnloadFired(TabContents* tab,
     return;
   }
 
+  if (!unload_reply_message_) {
+    NOTREACHED() << "**** NULL unload reply message pointer.";
+    return;
+  }
+
   if (!proceed) {
-    DCHECK(unload_reply_message_);
     AutomationMsg_RunUnloadHandlers::WriteReplyParams(unload_reply_message_,
                                                       false);
     automation_->Send(unload_reply_message_);
@@ -787,7 +780,7 @@ void ExternalTabContainer::Observe(NotificationType type,
     }
     case NotificationType::RENDER_VIEW_HOST_DELETED: {
       if (load_requests_via_automation_) {
-        RenderViewHost* rvh = Details<RenderViewHost>(details).ptr();
+        RenderViewHost* rvh = Source<RenderViewHost>(source).ptr();
         UnregisterRenderViewHost(rvh);
       }
       break;
@@ -836,12 +829,15 @@ void ExternalTabContainer::RunUnloadHandlers(IPC::Message* reply_message) {
      automation_->Send(reply_message);
      return;
   }
-  if (tab_contents_.get() &&
-      Browser::RunUnloadEventsHelper(tab_contents_->tab_contents())) {
-    unload_reply_message_ = reply_message;
-  } else {
+
+  unload_reply_message_ = reply_message;
+  bool wait_for_unload_handlers =
+      tab_contents_.get() &&
+      Browser::RunUnloadEventsHelper(tab_contents_->tab_contents());
+  if (!wait_for_unload_handlers) {
     AutomationMsg_RunUnloadHandlers::WriteReplyParams(reply_message, true);
     automation_->Send(reply_message);
+    unload_reply_message_ = NULL;
   }
 }
 
@@ -914,26 +910,17 @@ scoped_refptr<ExternalTabContainer> ExternalTabContainer::RemovePendingTab(
   return NULL;
 }
 
-void ExternalTabContainer::SetEnableExtensionAutomation(
-    const std::vector<std::string>& functions_enabled) {
-  if (!functions_enabled.empty()) {
-    if (!tab_contents_.get()) {
-      NOTREACHED() << "Being invoked via tab so should have TabContents";
-      return;
-    }
-
-    AutomationExtensionFunction::Enable(tab_contents_->tab_contents(),
-                                        functions_enabled);
-    enabled_extension_automation_ = true;
-  } else {
-    AutomationExtensionFunction::Disable();
-    enabled_extension_automation_ = false;
-  }
+SkColor ExternalTabContainer::GetInfoBarSeparatorColor() const {
+  return ResourceBundle::toolbar_separator_color;
 }
 
-void ExternalTabContainer::InfoBarContainerSizeChanged(bool is_animating) {
+void ExternalTabContainer::InfoBarContainerStateChanged(bool is_animating) {
   if (external_tab_view_)
     external_tab_view_->Layout();
+}
+
+bool ExternalTabContainer::DrawInfoBarArrows(int* x) const {
+  return false;
 }
 
 // ExternalTabContainer instances do not have a window.
@@ -1080,7 +1067,7 @@ void ExternalTabContainer::SetupExternalTabView() {
   // widget is torn down.
   external_tab_view_ = new views::View();
 
-  InfoBarContainer* info_bar_container = new InfoBarContainer(this);
+  InfoBarContainerView* info_bar_container = new InfoBarContainerView(this);
   info_bar_container->ChangeTabContents(tab_contents());
 
   views::GridLayout* layout = new views::GridLayout(external_tab_view_);

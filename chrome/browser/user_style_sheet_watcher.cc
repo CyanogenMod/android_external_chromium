@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,10 @@
 
 #include "base/base64.h"
 #include "base/file_util.h"
-#include "chrome/common/notification_service.h"
-#include "chrome/common/notification_type.h"
+#include "content/common/notification_service.h"
+#include "content/common/notification_type.h"
+
+using ::base::files::FilePathWatcher;
 
 namespace {
 
@@ -148,8 +150,11 @@ void UserStyleSheetWatcher::Init() {
     file_watcher_.reset(new FilePathWatcher);
     FilePath style_sheet_file = profile_path_.AppendASCII(kStyleSheetDir)
                                              .AppendASCII(kUserStyleSheetFile);
-    if (!file_watcher_->Watch(style_sheet_file, loader_.get()))
+    if (!file_watcher_->Watch(
+        style_sheet_file,
+        loader_.get())) {
       LOG(ERROR) << "Failed to setup watch for " << style_sheet_file.value();
+    }
     loader_->LoadStyleSheet(style_sheet_file);
   }
 }

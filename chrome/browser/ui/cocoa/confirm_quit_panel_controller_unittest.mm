@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/scoped_nsobject.h"
+#include "base/memory/scoped_nsobject.h"
 #import "chrome/browser/ui/cocoa/cocoa_test_helper.h"
 #include "chrome/browser/ui/cocoa/confirm_quit_panel_controller.h"
 #include "testing/gtest_mac.h"
@@ -40,8 +40,7 @@ TEST_F(ConfirmQuitPanelControllerTest, ShowAndDismiss) {
 }
 
 TEST_F(ConfirmQuitPanelControllerTest, KeyCombinationForAccelerator) {
-  scoped_nsobject<ConfirmQuitPanelController> controller(
-      [[ConfirmQuitPanelController alloc] init]);
+  Class controller = [ConfirmQuitPanelController class];
 
   ui::AcceleratorCocoa item = ui::AcceleratorCocoa(@"q", NSCommandKeyMask);
   EXPECT_NSEQ(TestString(@"{Cmd}Q"),

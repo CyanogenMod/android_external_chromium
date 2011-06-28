@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,23 +8,29 @@
 #include <string>
 
 #include "base/callback.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/synchronization/lock.h"
+#include "media/base/filter_factories.h"
+#include "media/base/filters.h"
 #include "webkit/glue/media/buffered_resource_loader.h"
 
 namespace webkit_glue {
 
 class BufferedDataSource : public WebDataSource {
  public:
+  // Creates a DataSourceFactory for building BufferedDataSource objects.
+  static media::DataSourceFactory* CreateFactory(
+      MessageLoop* render_loop,
+      WebKit::WebFrame* frame,
+      WebDataSourceBuildObserverHack* build_observer);
+
   BufferedDataSource(MessageLoop* render_loop,
                      WebKit::WebFrame* frame);
 
   virtual ~BufferedDataSource();
 
   // media::Filter implementation.
-  virtual void Initialize(const std::string& url,
-                          media::FilterCallback* callback);
-  virtual bool IsUrlSupported(const std::string& url);
+  virtual void set_host(media::FilterHost* host);
   virtual void Stop(media::FilterCallback* callback);
   virtual void SetPlaybackRate(float playback_rate);
 
@@ -35,12 +41,16 @@ class BufferedDataSource : public WebDataSource {
                     media::DataSource::ReadCallback* read_callback);
   virtual bool GetSize(int64* size_out);
   virtual bool IsStreaming();
+  virtual void SetPreload(media::Preload preload);
 
   const media::MediaFormat& media_format() {
     return media_format_;
   }
 
   // webkit_glue::WebDataSource implementation.
+  virtual void Initialize(const std::string& url,
+                          media::PipelineStatusCallback* callback);
+  virtual void CancelInitialize();
   virtual bool HasSingleOrigin();
   virtual void Abort();
 
@@ -82,6 +92,13 @@ class BufferedDataSource : public WebDataSource {
   // and signals the buffered resource loader accordingly.
   void SetPlaybackRateTask(float playback_rate);
 
+  // This task saves the preload value for the media.
+  void SetPreloadTask(media::Preload preload);
+
+  // Decides which DeferStrategy to used based on the current state of the
+  // BufferedDataSource.
+  BufferedResourceLoader::DeferStrategy ChooseDeferStrategy();
+
   // The method that performs actual read. This method can only be executed on
   // the render thread.
   void ReadInternal();
@@ -90,7 +107,7 @@ class BufferedDataSource : public WebDataSource {
   void DoneRead_Locked(int error);
 
   // Calls |initialize_callback_| and reset it.
-  void DoneInitialization_Locked();
+  void DoneInitialization_Locked(media::PipelineStatus status);
 
   // Callback method for |loader_| if URL for the resource requested is using
   // HTTP protocol. This method is called when response for initial request is
@@ -116,6 +133,8 @@ class BufferedDataSource : public WebDataSource {
   // Callback method when a network event is received.
   void NetworkEventCallback();
 
+  void UpdateHostState();
+
   media::MediaFormat media_format_;
 
   // URL of the resource requested.
@@ -126,6 +145,7 @@ class BufferedDataSource : public WebDataSource {
   // member is guaranteed to happen after it is first written, so we don't
   // need to protect it.
   int64 total_bytes_;
+  int64 buffered_bytes_;
 
   // True if this data source is considered loaded.
   bool loaded_;
@@ -144,7 +164,7 @@ class BufferedDataSource : public WebDataSource {
   bool network_activity_;
 
   // Callback method from the pipeline for initialization.
-  scoped_ptr<media::FilterCallback> initialize_callback_;
+  scoped_ptr<media::PipelineStatusCallback> initialize_callback_;
 
   // Read parameters received from the Read() method call.
   scoped_ptr<media::DataSource::ReadCallback> read_callback_;
@@ -184,6 +204,14 @@ class BufferedDataSource : public WebDataSource {
   // This variable is true when we are in a paused state and false when we
   // are in a playing state.
   bool media_is_paused_;
+
+  // This variable is true when the user has requested the video to play at
+  // least once.
+  bool media_has_played_;
+
+  // This variable holds the value of the preload attribute for the video
+  // element.
+  media::Preload preload_;
 
   // This timer is to run the WatchDogTask repeatedly. We use a timer instead
   // of doing PostDelayedTask() reduce the extra reference held by the message

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -34,16 +34,10 @@ ExtensionDevToolsBridge::ExtensionDevToolsBridge(int tab_id,
 ExtensionDevToolsBridge::~ExtensionDevToolsBridge() {
 }
 
-static std::string FormatDevToolsMessage(int seq,
-                                         const std::string& domain,
-                                         const std::string& command,
-                                         DictionaryValue* arguments) {
-
+static std::string FormatDevToolsMessage(int id, const std::string& method) {
   DictionaryValue message;
-  message.SetInteger("seq", seq);
-  message.SetString("domain", domain);
-  message.SetString("command", command);
-  message.Set("arguments", arguments);
+  message.SetInteger("id", id);
+  message.SetString("method", method);
 
   std::string json;
   base::JSONWriter::Write(&message, false, &json);
@@ -80,10 +74,14 @@ bool ExtensionDevToolsBridge::RegisterAsDevToolsClientHost() {
     devtools_manager->ForwardToDevToolsAgent(
         this,
         DevToolsAgentMsg_DispatchOnInspectorBackend(
-            FormatDevToolsMessage(2,
-                                  "Timeline",
-                                  "start",
-                                  new DictionaryValue())));
+            FormatDevToolsMessage(2, "Timeline.start")));
+
+    // 3. Enable network resource tracking.
+    devtools_manager->ForwardToDevToolsAgent(
+        this,
+        DevToolsAgentMsg_DispatchOnInspectorBackend(
+            FormatDevToolsMessage(3, "Network.enable")));
+
     return true;
   }
   return false;

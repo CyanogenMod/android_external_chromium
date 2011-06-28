@@ -9,13 +9,12 @@
 #include "base/base64.h"
 #include "base/callback.h"
 #include "base/file_util.h"
-#include "base/singleton.h"
+#include "base/memory/singleton.h"
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
-#include "base/utf_string_conversions.h"
 #include "base/threading/thread.h"
+#include "base/utf_string_conversions.h"
 #include "base/version.h"
-#include "chrome/browser/browser_list.h"
 #include "chrome/browser/debugger/devtools_manager.h"
 #include "chrome/browser/debugger/devtools_toggle_action.h"
 #include "chrome/browser/extensions/crx_installer.h"
@@ -30,21 +29,22 @@
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tab_contents/background_contents.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/webui/extension_icon_source.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_icon_set.h"
-#include "chrome/common/extensions/user_script.h"
 #include "chrome/common/extensions/url_pattern.h"
+#include "chrome/common/extensions/user_script.h"
 #include "chrome/common/jstemplate_builder.h"
-#include "chrome/common/notification_service.h"
-#include "chrome/common/notification_type.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "content/browser/renderer_host/render_process_host.h"
-#include "content/browser/renderer_host/render_widget_host.h"
 #include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/renderer_host/render_widget_host.h"
 #include "content/browser/tab_contents/tab_contents.h"
 #include "content/browser/tab_contents/tab_contents_view.h"
+#include "content/common/notification_service.h"
+#include "content/common/notification_type.h"
 #include "googleurl/src/gurl.h"
 #include "grit/browser_resources.h"
 #include "grit/chromium_strings.h"
@@ -90,7 +90,7 @@ ExtensionsUIHTMLSource::ExtensionsUIHTMLSource()
 }
 
 void ExtensionsUIHTMLSource::StartDataRequest(const std::string& path,
-    bool is_off_the_record, int request_id) {
+    bool is_incognito, int request_id) {
   DictionaryValue localized_strings;
   localized_strings.SetString("title",
       l10n_util::GetStringUTF16(IDS_EXTENSIONS_TITLE));
@@ -130,6 +130,8 @@ void ExtensionsUIHTMLSource::StartDataRequest(const std::string& path,
       l10n_util::GetStringUTF16(IDS_EXTENSIONS_VIEW_INCOGNITO));
   localized_strings.SetString("extensionId",
       l10n_util::GetStringUTF16(IDS_EXTENSIONS_ID));
+  localized_strings.SetString("extensionPath",
+      l10n_util::GetStringUTF16(IDS_EXTENSIONS_PATH));
   localized_strings.SetString("extensionVersion",
       l10n_util::GetStringUTF16(IDS_EXTENSIONS_VERSION));
   localized_strings.SetString("inspectViews",
@@ -153,6 +155,8 @@ void ExtensionsUIHTMLSource::StartDataRequest(const std::string& path,
       l10n_util::GetStringUTF16(IDS_EXTENSIONS_UNINSTALL));
   localized_strings.SetString("options",
       l10n_util::GetStringUTF16(IDS_EXTENSIONS_OPTIONS));
+  localized_strings.SetString("policyControlled",
+      l10n_util::GetStringUTF16(IDS_EXTENSIONS_POLICY_CONTROLLED));
   localized_strings.SetString("packDialogTitle",
       l10n_util::GetStringUTF16(IDS_EXTENSION_PACK_DIALOG_TITLE));
   localized_strings.SetString("packDialogHeading",
@@ -283,7 +287,7 @@ void ExtensionsDOMHandler::HandleRequestExtensionsData(const ListValue* args) {
       ->GetBoolean(prefs::kExtensionsUIDeveloperMode);
   results.SetBoolean("developerMode", developer_mode);
 
-  web_ui_->CallJavascriptFunction(L"returnExtensionsData", results);
+  web_ui_->CallJavascriptFunction("returnExtensionsData", results);
 }
 
 void ExtensionsDOMHandler::RegisterForNotifications() {
@@ -318,10 +322,12 @@ void ExtensionsDOMHandler::RegisterForNotifications() {
       NotificationService::AllSources());
 }
 
-ExtensionInstallUI* ExtensionsDOMHandler::GetExtensionInstallUI() {
-  if (!install_ui_.get())
-    install_ui_.reset(new ExtensionInstallUI(web_ui_->GetProfile()));
-  return install_ui_.get();
+ExtensionUninstallDialog* ExtensionsDOMHandler::GetExtensionUninstallDialog() {
+  if (!extension_uninstall_dialog_.get()) {
+    extension_uninstall_dialog_.reset(
+        new ExtensionUninstallDialog(web_ui_->GetProfile()));
+  }
+  return extension_uninstall_dialog_.get();
 }
 
 void ExtensionsDOMHandler::HandleToggleDeveloperMode(const ListValue* args) {
@@ -352,7 +358,7 @@ void ExtensionsDOMHandler::HandleInspectMessage(const ListValue* args) {
 }
 
 void ExtensionsDOMHandler::HandleReloadMessage(const ListValue* args) {
-  std::string extension_id = WideToASCII(ExtractStringValue(args));
+  std::string extension_id = UTF16ToASCII(ExtractStringValue(args));
   CHECK(!extension_id.empty());
   extensions_service_->ReloadExtension(extension_id);
 }
@@ -362,11 +368,18 @@ void ExtensionsDOMHandler::HandleEnableMessage(const ListValue* args) {
   std::string extension_id, enable_str;
   CHECK(args->GetString(0, &extension_id));
   CHECK(args->GetString(1, &enable_str));
+  const Extension* extension =
+      extensions_service_->GetExtensionById(extension_id, true);
+  DCHECK(extension);
+  if (!Extension::UserMayDisable(extension->location())) {
+    LOG(ERROR) << "Attempt to enable an extension that is non-usermanagable was"
+               << "made. Extension id: " << extension->id();
+    return;
+  }
+
   if (enable_str == "true") {
     ExtensionPrefs* prefs = extensions_service_->extension_prefs();
     if (prefs->DidExtensionEscalatePermissions(extension_id)) {
-      const Extension* extension =
-          extensions_service_->GetExtensionById(extension_id, true);
       ShowExtensionDisabledDialog(extensions_service_,
                                   web_ui_->GetProfile(), extension);
     } else {
@@ -398,7 +411,8 @@ void ExtensionsDOMHandler::HandleEnableIncognitoMessage(const ListValue* args) {
   //
   // Bug: http://crbug.com/41384
   ignore_notifications_ = true;
-  extensions_service_->SetIsIncognitoEnabled(extension, enable_str == "true");
+  extensions_service_->SetIsIncognitoEnabled(extension_id,
+                                             enable_str == "true");
   ignore_notifications_ = false;
 }
 
@@ -410,12 +424,18 @@ void ExtensionsDOMHandler::HandleAllowFileAccessMessage(const ListValue* args) {
   const Extension* extension =
       extensions_service_->GetExtensionById(extension_id, true);
   DCHECK(extension);
+  if (!Extension::UserMayDisable(extension->location())) {
+    LOG(ERROR) << "Attempt to change allow file access of an extension that is "
+               << "non-usermanagable was made. Extension id : "
+               << extension->id();
+    return;
+  }
 
   extensions_service_->SetAllowFileAccess(extension, allow_str == "true");
 }
 
 void ExtensionsDOMHandler::HandleUninstallMessage(const ListValue* args) {
-  std::string extension_id = WideToASCII(ExtractStringValue(args));
+  std::string extension_id = UTF16ToASCII(ExtractStringValue(args));
   CHECK(!extension_id.empty());
   const Extension* extension =
       extensions_service_->GetExtensionById(extension_id, true);
@@ -424,15 +444,21 @@ void ExtensionsDOMHandler::HandleUninstallMessage(const ListValue* args) {
   if (!extension)
     return;
 
+  if (!Extension::UserMayDisable(extension->location())) {
+    LOG(ERROR) << "Attempt to uninstall an extension that is non-usermanagable "
+               << "was made. Extension id : " << extension->id();
+    return;
+  }
+
   if (!extension_id_prompting_.empty())
     return;  // Only one prompt at a time.
 
   extension_id_prompting_ = extension_id;
 
-  GetExtensionInstallUI()->ConfirmUninstall(this, extension);
+  GetExtensionUninstallDialog()->ConfirmUninstall(this, extension);
 }
 
-void ExtensionsDOMHandler::InstallUIProceed() {
+void ExtensionsDOMHandler::ExtensionDialogAccepted() {
   DCHECK(!extension_id_prompting_.empty());
 
   bool was_terminated = false;
@@ -450,7 +476,7 @@ void ExtensionsDOMHandler::InstallUIProceed() {
     return;
 
   extensions_service_->UninstallExtension(extension_id_prompting_,
-                                          false /* external_uninstall */);
+                                          false /* external_uninstall */, NULL);
   extension_id_prompting_ = "";
 
   // There will be no EXTENSION_UNLOADED notification for terminated
@@ -459,7 +485,7 @@ void ExtensionsDOMHandler::InstallUIProceed() {
     HandleRequestExtensionsData(NULL);
 }
 
-void ExtensionsDOMHandler::InstallUIAbort() {
+void ExtensionsDOMHandler::ExtensionDialogCanceled() {
   extension_id_prompting_ = "";
 }
 
@@ -486,7 +512,7 @@ void ExtensionsDOMHandler::HandleLoadMessage(const ListValue* args) {
 void ExtensionsDOMHandler::ShowAlert(const std::string& message) {
   ListValue arguments;
   arguments.Append(Value::CreateStringValue(message));
-  web_ui_->CallJavascriptFunction(L"alert", arguments);
+  web_ui_->CallJavascriptFunction("alert", arguments);
 }
 
 void ExtensionsDOMHandler::HandlePackMessage(const ListValue* args) {
@@ -528,7 +554,7 @@ void ExtensionsDOMHandler::OnPackSuccess(const FilePath& crx_file,
                                                                  pem_file)));
 
   ListValue results;
-  web_ui_->CallJavascriptFunction(L"hidePackDialog", results);
+  web_ui_->CallJavascriptFunction("hidePackDialog", results);
 }
 
 void ExtensionsDOMHandler::OnPackFailure(const std::string& error) {
@@ -577,7 +603,7 @@ void ExtensionsDOMHandler::HandleSelectFilePathMessage(const ListValue* args) {
 
   load_extension_dialog_ = SelectFileDialog::Create(this);
   load_extension_dialog_->SelectFile(type, select_title, FilePath(), &info,
-      file_type_index, FILE_PATH_LITERAL(""),
+      file_type_index, FILE_PATH_LITERAL(""), web_ui_->tab_contents(),
       web_ui_->tab_contents()->view()->GetTopLevelNativeWindow(), NULL);
 }
 
@@ -587,7 +613,7 @@ void ExtensionsDOMHandler::FileSelected(const FilePath& path, int index,
   // Add the extensions to the results structure.
   ListValue results;
   results.Append(Value::CreateStringValue(path.value()));
-  web_ui_->CallJavascriptFunction(L"window.handleFilePathSelected", results);
+  web_ui_->CallJavascriptFunction("window.handleFilePathSelected", results);
 }
 
 void ExtensionsDOMHandler::MultiFilesSelected(
@@ -612,7 +638,7 @@ void ExtensionsDOMHandler::Observe(NotificationType type,
     // Doing it this way gets everything but causes the page to be rendered
     // more than we need. It doesn't seem to result in any noticeable flicker.
     case NotificationType::RENDER_VIEW_HOST_DELETED:
-      deleting_rvh_ = Details<RenderViewHost>(details).ptr();
+      deleting_rvh_ = Source<RenderViewHost>(source).ptr();
       MaybeUpdateAfterNotification();
       break;
     case NotificationType::BACKGROUND_CONTENTS_DELETED:
@@ -636,7 +662,7 @@ void ExtensionsDOMHandler::Observe(NotificationType type,
 }
 
 const Extension* ExtensionsDOMHandler::GetExtension(const ListValue* args) {
-  std::string extension_id = WideToASCII(ExtractStringValue(args));
+  std::string extension_id = UTF16ToASCII(ExtractStringValue(args));
   CHECK(!extension_id.empty());
   return extensions_service_->GetExtensionById(extension_id, true);
 }
@@ -648,60 +674,6 @@ void ExtensionsDOMHandler::MaybeUpdateAfterNotification() {
     HandleRequestExtensionsData(NULL);
   }
   deleting_rvh_ = NULL;
-}
-
-static void CreateScriptFileDetailValue(
-    const FilePath& extension_path, const UserScript::FileList& scripts,
-    const char* key, DictionaryValue* script_data) {
-  if (scripts.empty())
-    return;
-
-  ListValue *list = new ListValue();
-  for (size_t i = 0; i < scripts.size(); ++i) {
-    const UserScript::File& file = scripts[i];
-    // TODO(cira): this information is not used on extension page yet. We
-    // may want to display actual resource that got loaded, not default.
-    list->Append(
-        new StringValue(file.relative_path().value()));
-  }
-  script_data->Set(key, list);
-}
-
-// Static
-DictionaryValue* ExtensionsDOMHandler::CreateContentScriptDetailValue(
-  const UserScript& script, const FilePath& extension_path) {
-  DictionaryValue* script_data = new DictionaryValue();
-  CreateScriptFileDetailValue(extension_path, script.js_scripts(), "js",
-    script_data);
-  CreateScriptFileDetailValue(extension_path, script.css_scripts(), "css",
-    script_data);
-
-  // Get list of glob "matches" strings
-  ListValue *url_pattern_list = new ListValue();
-  const std::vector<URLPattern>& url_patterns = script.url_patterns();
-  for (std::vector<URLPattern>::const_iterator url_pattern =
-      url_patterns.begin();
-    url_pattern != url_patterns.end(); ++url_pattern) {
-    url_pattern_list->Append(new StringValue(url_pattern->GetAsString()));
-  }
-
-  script_data->Set("matches", url_pattern_list);
-
-  return script_data;
-}
-
-static bool ExtensionWantsFileAccess(const Extension* extension) {
-  for (UserScriptList::const_iterator it = extension->content_scripts().begin();
-       it != extension->content_scripts().end(); ++it) {
-    for (UserScript::PatternList::const_iterator pattern =
-             it->url_patterns().begin();
-         pattern != it->url_patterns().end(); ++pattern) {
-      if (pattern->MatchesScheme(chrome::kFileScheme))
-        return true;
-    }
-  }
-
-  return false;
 }
 
 // Static
@@ -717,14 +689,19 @@ DictionaryValue* ExtensionsDOMHandler::CreateExtensionDetailValue(
   extension_data->SetString("id", extension->id());
   extension_data->SetString("name", extension->name());
   extension_data->SetString("description", extension->description());
+  if (extension->location() == Extension::LOAD)
+    extension_data->SetString("path", extension->path().value());
   extension_data->SetString("version", extension->version()->GetString());
   extension_data->SetString("icon", icon.spec());
+  extension_data->SetBoolean("isUnpacked",
+                             extension->location() == Extension::LOAD);
+  extension_data->SetBoolean("mayDisable",
+                             Extension::UserMayDisable(extension->location()));
   extension_data->SetBoolean("enabled", enabled);
   extension_data->SetBoolean("terminated", terminated);
   extension_data->SetBoolean("enabledIncognito",
-      service ? service->IsIncognitoEnabled(extension) : false);
-  extension_data->SetBoolean("wantsFileAccess",
-      ExtensionWantsFileAccess(extension));
+      service ? service->IsIncognitoEnabled(extension->id()) : false);
+  extension_data->SetBoolean("wantsFileAccess", extension->wants_file_access());
   extension_data->SetBoolean("allowFileAccess",
       service ? service->AllowFileAccess(extension) : false);
   extension_data->SetBoolean("allow_reload",
@@ -743,26 +720,6 @@ DictionaryValue* ExtensionsDOMHandler::CreateExtensionDetailValue(
 
   if (service && !service->GetBrowserActionVisibility(extension))
     extension_data->SetBoolean("enable_show_button", true);
-
-  // Add list of content_script detail DictionaryValues.
-  ListValue *content_script_list = new ListValue();
-  UserScriptList content_scripts = extension->content_scripts();
-  for (UserScriptList::const_iterator script = content_scripts.begin();
-    script != content_scripts.end(); ++script) {
-      content_script_list->Append(
-          CreateContentScriptDetailValue(*script, extension->path()));
-  }
-  extension_data->Set("content_scripts", content_script_list);
-
-  // Add permissions.
-  ListValue *permission_list = new ListValue;
-  std::vector<URLPattern> permissions = extension->host_permissions();
-  for (std::vector<URLPattern>::iterator permission = permissions.begin();
-       permission != permissions.end(); ++permission) {
-    permission_list->Append(Value::CreateStringValue(
-        permission->GetAsString()));
-  }
-  extension_data->Set("permissions", permission_list);
 
   // Add views
   ListValue* views = new ListValue;
@@ -847,6 +804,11 @@ void ExtensionsDOMHandler::GetActivePagesForExtensionProcess(
 }
 
 ExtensionsDOMHandler::~ExtensionsDOMHandler() {
+  // There may be pending file dialogs, we need to tell them that we've gone
+  // away so they don't try and call back to us.
+  if (load_extension_dialog_.get())
+    load_extension_dialog_->ListenerDestroyed();
+
   if (pack_job_.get())
     pack_job_->ClearClient();
 

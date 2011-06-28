@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 
 #include "base/basictypes.h"
 #include "base/compiler_specific.h"
-#include "base/memory_debug.h"
+#include "base/memory/memory_debug.h"
 #include "base/metrics/stats_counters.h"
 #include "base/string_util.h"
 #include "base/sys_info.h"
@@ -16,92 +16,18 @@
 #include "net/base/address_list_net_log_param.h"
 #include "net/base/connection_type_histograms.h"
 #include "net/base/io_buffer.h"
+#include "net/base/ip_endpoint.h"
 #include "net/base/net_errors.h"
 #include "net/base/net_log.h"
 #include "net/base/net_util.h"
 #include "net/base/network_change_notifier.h"
 #include "net/base/sys_addrinfo.h"
 #include "net/base/winsock_init.h"
+#include "net/base/winsock_util.h"
 
 namespace net {
 
 namespace {
-
-// Assert that the (manual-reset) event object is not signaled.
-void AssertEventNotSignaled(WSAEVENT hEvent) {
-  DWORD wait_rv = WaitForSingleObject(hEvent, 0);
-  if (wait_rv != WAIT_TIMEOUT) {
-    DWORD err = ERROR_SUCCESS;
-    if (wait_rv == WAIT_FAILED)
-      err = GetLastError();
-    CHECK(false);  // Crash.
-    // This LOG statement is unreachable since we have already crashed, but it
-    // should prevent the compiler from optimizing away the |wait_rv| and
-    // |err| variables so they appear nicely on the stack in crash dumps.
-    VLOG(1) << "wait_rv=" << wait_rv << ", err=" << err;
-  }
-}
-
-// If the (manual-reset) event object is signaled, resets it and returns true.
-// Otherwise, does nothing and returns false.  Called after a Winsock function
-// succeeds synchronously
-//
-// Our testing shows that except in rare cases (when running inside QEMU),
-// the event object is already signaled at this point, so we call this method
-// to avoid a context switch in common cases.  This is just a performance
-// optimization.  The code still works if this function simply returns false.
-bool ResetEventIfSignaled(WSAEVENT hEvent) {
-  // TODO(wtc): Remove the CHECKs after enough testing.
-  DWORD wait_rv = WaitForSingleObject(hEvent, 0);
-  if (wait_rv == WAIT_TIMEOUT)
-    return false;  // The event object is not signaled.
-  CHECK_EQ(WAIT_OBJECT_0, wait_rv);
-  BOOL ok = WSAResetEvent(hEvent);
-  CHECK(ok);
-  return true;
-}
-
-//-----------------------------------------------------------------------------
-
-int MapWinsockError(int os_error) {
-  // There are numerous Winsock error codes, but these are the ones we thus far
-  // find interesting.
-  switch (os_error) {
-    case WSAEACCES:
-      return ERR_ACCESS_DENIED;
-    case WSAENETDOWN:
-      return ERR_INTERNET_DISCONNECTED;
-    case WSAETIMEDOUT:
-      return ERR_TIMED_OUT;
-    case WSAECONNRESET:
-    case WSAENETRESET:  // Related to keep-alive
-      return ERR_CONNECTION_RESET;
-    case WSAECONNABORTED:
-      return ERR_CONNECTION_ABORTED;
-    case WSAECONNREFUSED:
-      return ERR_CONNECTION_REFUSED;
-    case WSA_IO_INCOMPLETE:
-    case WSAEDISCON:
-      // WSAEDISCON is returned by WSARecv or WSARecvFrom for message-oriented
-      // sockets (where a return value of zero means a zero-byte message) to
-      // indicate graceful connection shutdown.  We should not ever see this
-      // error code for TCP sockets, which are byte stream oriented.
-      LOG(DFATAL) << "Unexpected error " << os_error
-                  << " mapped to net::ERR_UNEXPECTED";
-      return ERR_UNEXPECTED;
-    case WSAEHOSTUNREACH:
-    case WSAENETUNREACH:
-      return ERR_ADDRESS_UNREACHABLE;
-    case WSAEADDRNOTAVAIL:
-      return ERR_ADDRESS_INVALID;
-    case ERROR_SUCCESS:
-      return OK;
-    default:
-      LOG(WARNING) << "Unknown error " << os_error
-                   << " mapped to net::ERR_FAILED";
-      return ERR_FAILED;
-  }
-}
 
 int MapConnectError(int os_error) {
   switch (os_error) {
@@ -112,7 +38,7 @@ int MapConnectError(int os_error) {
     case WSAETIMEDOUT:
       return ERR_CONNECTION_TIMED_OUT;
     default: {
-      int net_error = MapWinsockError(os_error);
+      int net_error = MapSystemError(os_error);
       if (net_error == ERR_FAILED)
         return ERR_CONNECTION_FAILED;  // More specific than ERR_FAILED.
 
@@ -239,9 +165,9 @@ TCPClientSocketWin::Core::~Core() {
   write_watcher_.StopWatching();
 
   WSACloseEvent(read_overlapped_.hEvent);
-  memset(&read_overlapped_, 0, sizeof(read_overlapped_));
+  memset(&read_overlapped_, 0xaf, sizeof(read_overlapped_));
   WSACloseEvent(write_overlapped_.hEvent);
-  memset(&write_overlapped_, 0, sizeof(write_overlapped_));
+  memset(&write_overlapped_, 0xaf, sizeof(write_overlapped_));
 }
 
 void TCPClientSocketWin::Core::WatchForRead() {
@@ -314,6 +240,7 @@ void TCPClientSocketWin::AdoptSocket(SOCKET socket) {
   socket_ = socket;
   int error = SetupSocket();
   DCHECK_EQ(0, error);
+  core_ = new Core(this);
   current_ai_ = addresses_.head();
   use_history_.set_was_ever_connected();
 }
@@ -333,7 +260,7 @@ int TCPClientSocketWin::Connect(CompletionCallback* callback
   if (socket_ != INVALID_SOCKET)
     return OK;
 
-  static base::StatsCounter connects("tcp.connect");
+  base::StatsCounter connects("tcp.connect");
   connects.Increment();
 
   net_log_.BeginEvent(NetLog::TYPE_TCP_CONNECT,
@@ -399,7 +326,7 @@ int TCPClientSocketWin::DoConnect() {
 
   connect_os_error_ = CreateSocket(ai);
   if (connect_os_error_ != 0)
-    return MapWinsockError(connect_os_error_);
+    return MapSystemError(connect_os_error_);
 
   DCHECK(!core_);
   core_ = new Core(this);
@@ -553,6 +480,22 @@ int TCPClientSocketWin::GetPeerAddress(AddressList* address) const {
   return OK;
 }
 
+int TCPClientSocketWin::GetLocalAddress(IPEndPoint* address) const {
+  DCHECK(CalledOnValidThread());
+  DCHECK(address);
+  if (!IsConnected())
+    return ERR_SOCKET_NOT_CONNECTED;
+
+  struct sockaddr_storage addr_storage;
+  socklen_t addr_len = sizeof(addr_storage);
+  struct sockaddr* addr = reinterpret_cast<struct sockaddr*>(&addr_storage);
+  if (getsockname(socket_, addr, &addr_len))
+    return MapSystemError(WSAGetLastError());
+  if (!address->FromSockAddr(addr, addr_len))
+    return ERR_FAILED;
+  return OK;
+}
+
 void TCPClientSocketWin::SetSubresourceSpeculation() {
   use_history_.set_subresource_speculation();
 }
@@ -598,7 +541,7 @@ int TCPClientSocketWin::Read(IOBuffer* buf,
       // false error reports.
       // See bug 5297.
       base::MemoryDebug::MarkAsInitialized(core_->read_buffer_.buf, num);
-      static base::StatsCounter read_bytes("tcp.read_bytes");
+      base::StatsCounter read_bytes("tcp.read_bytes");
       read_bytes.Add(num);
       if (num > 0)
         use_history_.set_was_used_to_convey_data();
@@ -609,7 +552,7 @@ int TCPClientSocketWin::Read(IOBuffer* buf,
   } else {
     int os_error = WSAGetLastError();
     if (os_error != WSA_IO_PENDING)
-      return MapWinsockError(os_error);
+      return MapSystemError(os_error);
   }
   core_->WatchForRead();
   waiting_read_ = true;
@@ -628,7 +571,7 @@ int TCPClientSocketWin::Write(IOBuffer* buf,
   DCHECK_GT(buf_len, 0);
   DCHECK(!core_->write_iobuffer_);
 
-  static base::StatsCounter writes("tcp.writes");
+  base::StatsCounter writes("tcp.writes");
   writes.Increment();
 
   core_->write_buffer_.len = buf_len;
@@ -650,7 +593,7 @@ int TCPClientSocketWin::Write(IOBuffer* buf,
                    << " bytes, but " << rv << " bytes reported.";
         return ERR_WINSOCK_UNEXPECTED_WRITTEN_BYTES;
       }
-      static base::StatsCounter write_bytes("tcp.write_bytes");
+      base::StatsCounter write_bytes("tcp.write_bytes");
       write_bytes.Add(rv);
       if (rv > 0)
         use_history_.set_was_used_to_convey_data();
@@ -661,7 +604,7 @@ int TCPClientSocketWin::Write(IOBuffer* buf,
   } else {
     int os_error = WSAGetLastError();
     if (os_error != WSA_IO_PENDING)
-      return MapWinsockError(os_error);
+      return MapSystemError(os_error);
   }
   core_->WatchForWrite();
   waiting_write_ = true;
@@ -826,7 +769,7 @@ void TCPClientSocketWin::DidCompleteConnect() {
   if (rv == SOCKET_ERROR) {
     NOTREACHED();
     os_error = WSAGetLastError();
-    result = MapWinsockError(os_error);
+    result = MapSystemError(os_error);
   } else if (events.lNetworkEvents & FD_CONNECT) {
     os_error = events.iErrorCode[FD_CONNECT_BIT];
     result = MapConnectError(os_error);
@@ -852,14 +795,14 @@ void TCPClientSocketWin::DidCompleteRead() {
   waiting_read_ = false;
   core_->read_iobuffer_ = NULL;
   if (ok) {
-    static base::StatsCounter read_bytes("tcp.read_bytes");
+    base::StatsCounter read_bytes("tcp.read_bytes");
     read_bytes.Add(num_bytes);
     if (num_bytes > 0)
       use_history_.set_was_used_to_convey_data();
     LogByteTransfer(net_log_, NetLog::TYPE_SOCKET_BYTES_RECEIVED, num_bytes,
                     core_->read_buffer_.buf);
   }
-  DoReadCallback(ok ? num_bytes : MapWinsockError(WSAGetLastError()));
+  DoReadCallback(ok ? num_bytes : MapSystemError(WSAGetLastError()));
 }
 
 void TCPClientSocketWin::DidCompleteWrite() {
@@ -872,7 +815,7 @@ void TCPClientSocketWin::DidCompleteWrite() {
   waiting_write_ = false;
   int rv;
   if (!ok) {
-    rv = MapWinsockError(WSAGetLastError());
+    rv = MapSystemError(WSAGetLastError());
   } else {
     rv = static_cast<int>(num_bytes);
     if (rv > core_->write_buffer_length_ || rv < 0) {
@@ -883,7 +826,7 @@ void TCPClientSocketWin::DidCompleteWrite() {
                  << " bytes reported.";
       rv = ERR_WINSOCK_UNEXPECTED_WRITTEN_BYTES;
     } else {
-      static base::StatsCounter write_bytes("tcp.write_bytes");
+      base::StatsCounter write_bytes("tcp.write_bytes");
       write_bytes.Add(num_bytes);
       if (num_bytes > 0)
         use_history_.set_was_used_to_convey_data();

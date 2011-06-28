@@ -7,9 +7,10 @@
 #include "base/logging.h"
 #include "base/mac/mac_util.h"
 #include "base/message_loop.h"
-#import "base/scoped_nsobject.h"
+#import "base/memory/scoped_nsobject.h"
 #import "base/sys_string_conversions.h"
 #include "base/utf_string_conversions.h"
+#include "chrome/browser/importer/importer_host.h"
 #include "chrome/browser/importer/importer_observer.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
@@ -54,7 +55,7 @@ NSString* keyForImportItem(importer::ImportItem item) {
 @synthesize historyImportEnabled = history_import_enabled_;
 
 - (id)initWithImporterHost:(ImporterHost*)host
-               browserName:(string16)browserName
+              importerName:(string16)importerName
                   observer:(ImporterObserver*)observer
               itemsEnabled:(int16)items {
   NSString* nib_path =
@@ -71,7 +72,7 @@ NSString* keyForImportItem(importer::ImportItem item) {
     NSString* explanatory_text = l10n_util::GetNSStringF(
         IDS_IMPORT_PROGRESS_EXPLANATORY_TEXT_MAC,
         productName,
-        browserName);
+        importerName);
     [self setExplanatoryText:explanatory_text];
 
     progress_text_ =
@@ -160,16 +161,16 @@ ImporterObserverBridge::ImporterObserverBridge(
 
 ImporterObserverBridge::~ImporterObserverBridge() {}
 
+void ImporterObserverBridge::ImportStarted() {
+  // Not needed for out of process import.
+}
+
 void ImporterObserverBridge::ImportItemStarted(importer::ImportItem item) {
   [owner_ ImportItemStarted:item];
 }
 
 void ImporterObserverBridge::ImportItemEnded(importer::ImportItem item) {
   [owner_ ImportItemEnded:item];
-}
-
-void ImporterObserverBridge::ImportStarted() {
-  // Not needed for out of process import.
 }
 
 void ImporterObserverBridge::ImportEnded() {
@@ -182,20 +183,16 @@ void ShowImportProgressDialog(gfx::NativeWindow parent_window,
                               uint16 items,
                               ImporterHost* importer_host,
                               ImporterObserver* importer_observer,
-                              const ProfileInfo& source_profile,
+                              const SourceProfile& source_profile,
                               Profile* target_profile,
                               bool first_run) {
   DCHECK(items != 0);
 
-  // Retrieve name of browser we're importing from and do a little dance to
-  // convert wstring -> string16.
-  string16 import_browser_name = WideToUTF16Hack(source_profile.description);
-
-  // progress_dialog_ is responsible for deleting itself.
-  ImportProgressDialogController* progress_dialog_ =
+  // |progress_dialog| is responsible for deleting itself.
+  ImportProgressDialogController* progress_dialog =
       [[ImportProgressDialogController alloc]
           initWithImporterHost:importer_host
-                  browserName:import_browser_name
+                  importerName:source_profile.importer_name
                       observer:importer_observer
                   itemsEnabled:items];
    // Call is async.
@@ -205,9 +202,9 @@ void ShowImportProgressDialog(gfx::NativeWindow parent_window,
 
   // Display the window while spinning a message loop.
   // For details on why we need a modal message loop see http://crbug.com/19169
-  NSWindow* progress_window = [progress_dialog_ window];
+  NSWindow* progress_window = [progress_dialog window];
   NSModalSession session = [NSApp beginModalSessionForWindow:progress_window];
-  [progress_dialog_ showWindow:nil];
+  [progress_dialog showWindow:nil];
   while (true) {
     if ([NSApp runModalSession:session] != NSRunContinuesResponse)
         break;

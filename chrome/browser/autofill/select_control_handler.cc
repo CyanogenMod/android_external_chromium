@@ -8,7 +8,6 @@
 
 #include "base/basictypes.h"
 #include "base/logging.h"
-#include "base/string16.h"
 #include "base/string_number_conversions.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/autofill/autofill_country.h"
@@ -125,10 +124,10 @@ bool SetSelectControlValue(const string16& value,
   string16 value_lowercase = StringToLowerASCII(value);
 
   for (std::vector<string16>::const_iterator iter =
-           field->option_strings().begin();
-       iter != field->option_strings().end(); ++iter) {
+           field->option_strings.begin();
+       iter != field->option_strings.end(); ++iter) {
     if (value_lowercase == StringToLowerASCII(*iter)) {
-      field->set_value(*iter);
+      field->value = *iter;
       return true;
     }
   }
@@ -159,19 +158,19 @@ bool FillStateSelectControl(const string16& value,
 
 bool FillCountrySelectControl(const FormGroup& form_group,
                               webkit_glue::FormField* field) {
-  const AutoFillProfile& profile =
-      static_cast<const AutoFillProfile&>(form_group);
+  const AutofillProfile& profile =
+      static_cast<const AutofillProfile&>(form_group);
   std::string country_code = profile.CountryCode();
   std::string app_locale = AutofillCountry::ApplicationLocale();
 
   for (std::vector<string16>::const_iterator iter =
-           field->option_strings().begin();
-       iter != field->option_strings().end();
+           field->option_strings.begin();
+       iter != field->option_strings.end();
        ++iter) {
     // Canonicalize each <option> value to a country code, and compare to the
     // target country code.
     if (country_code == AutofillCountry::GetCountryCode(*iter, app_locale)) {
-      field->set_value(*iter);
+      field->value = *iter;
       return true;
     }
   }
@@ -199,47 +198,48 @@ bool FillExpirationMonthSelectControl(const string16& value,
 namespace autofill {
 
 void FillSelectControl(const FormGroup& form_group,
-                       AutofillType type,
+                       AutofillFieldType type,
                        webkit_glue::FormField* field) {
   DCHECK(field);
-  DCHECK_EQ(ASCIIToUTF16("select-one"), field->form_control_type());
+  DCHECK_EQ(ASCIIToUTF16("select-one"), field->form_control_type);
 
-  string16 field_text = form_group.GetFieldText(type);
+  string16 field_text = form_group.GetInfo(type);
   if (field_text.empty())
     return;
 
   string16 value;
-  for (size_t i = 0; i < field->option_strings().size(); ++i) {
-    if (field_text == field->option_strings()[i]) {
+  for (size_t i = 0; i < field->option_strings.size(); ++i) {
+    if (field_text == field->option_strings[i]) {
       // An exact match, use it.
       value = field_text;
       break;
     }
 
-    if (StringToLowerASCII(field->option_strings()[i]) ==
+    if (StringToLowerASCII(field->option_strings[i]) ==
         StringToLowerASCII(field_text)) {
       // A match, but not in the same case. Save it in case an exact match is
       // not found.
-      value = field->option_strings()[i];
+      value = field->option_strings[i];
     }
   }
 
   if (!value.empty()) {
-    field->set_value(value);
+    field->value = value;
     return;
   }
 
-  if (type.field_type() == ADDRESS_HOME_STATE ||
-      type.field_type() == ADDRESS_BILLING_STATE) {
+  if (type == ADDRESS_HOME_STATE || type == ADDRESS_BILLING_STATE)
     FillStateSelectControl(field_text, field);
-  } else if (type.field_type() == ADDRESS_HOME_COUNTRY ||
-             type.field_type() == ADDRESS_BILLING_COUNTRY) {
+  else if (type == ADDRESS_HOME_COUNTRY || type == ADDRESS_BILLING_COUNTRY)
     FillCountrySelectControl(form_group, field);
-  } else if (type.field_type() == CREDIT_CARD_EXP_MONTH) {
+  else if (type == CREDIT_CARD_EXP_MONTH)
     FillExpirationMonthSelectControl(field_text, field);
-  }
 
   return;
+}
+
+bool IsValidState(const string16& value) {
+  return !State::Abbreviation(value).empty() || !State::FullName(value).empty();
 }
 
 }  // namespace autofill

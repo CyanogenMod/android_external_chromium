@@ -3,23 +3,25 @@
 // found in the LICENSE file.
 
 #include "chrome/browser/notifications/balloon_host.h"
-
-#include "chrome/browser/browser_list.h"
 #include "chrome/browser/extensions/extension_process_manager.h"
+#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/notifications/balloon.h"
 #include "chrome/browser/notifications/notification.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_preferences_util.h"
-#include "chrome/common/bindings_policy.h"
-#include "chrome/common/notification_service.h"
-#include "chrome/common/notification_source.h"
-#include "chrome/common/notification_type.h"
+#include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/webui/chrome_web_ui_factory.h"
 #include "chrome/common/render_messages.h"
-#include "chrome/common/render_messages_params.h"
-#include "chrome/common/renderer_preferences.h"
 #include "chrome/common/url_constants.h"
+#include "content/browser/renderer_host/browser_render_process_host.h"
 #include "content/browser/renderer_host/render_view_host.h"
 #include "content/browser/site_instance.h"
+#include "content/common/bindings_policy.h"
+#include "content/common/notification_service.h"
+#include "content/common/notification_source.h"
+#include "content/common/notification_type.h"
+#include "content/common/renderer_preferences.h"
+#include "content/common/view_messages.h"
 #include "webkit/glue/webpreferences.h"
 
 BalloonHost::BalloonHost(Balloon* balloon)
@@ -130,7 +132,7 @@ RenderViewHostDelegate::View* BalloonHost::GetViewDelegate() {
 }
 
 void BalloonHost::ProcessWebUIMessage(
-    const ViewHostMsg_DomMessage_Params& params) {
+    const ExtensionHostMsg_DomMessage_Params& params) {
   if (extension_function_dispatcher_.get()) {
     extension_function_dispatcher_->HandleRequest(params);
   }
@@ -145,7 +147,7 @@ void BalloonHost::CreateNewWindow(
       route_id,
       balloon_->profile(),
       site_instance_.get(),
-      WebUIFactory::GetWebUIType(balloon_->profile(),
+      ChromeWebUIFactory::GetInstance()->GetWebUIType(balloon_->profile(),
           balloon_->notification().content_url()),
       this,
       params.window_container_type,
@@ -201,6 +203,11 @@ void BalloonHost::Init() {
   if (extension_function_dispatcher_.get()) {
     rvh->AllowBindings(BindingsPolicy::EXTENSION);
     rvh->set_is_extension_process(true);
+    const Extension* installed_app =
+        GetProfile()->GetExtensionService()->GetInstalledApp(
+            balloon_->notification().content_url());
+    static_cast<BrowserRenderProcessHost*>(rvh->process())->set_installed_app(
+        installed_app);
   } else if (enable_web_ui_) {
     rvh->AllowBindings(BindingsPolicy::WEB_UI);
   }

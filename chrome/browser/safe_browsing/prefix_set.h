@@ -37,8 +37,7 @@
 // 2^16 apart, which would need 512k (versus 256k to store the raw
 // data).
 //
-// TODO(shess): Write serialization code.  Something like this should
-// work:
+// The on-disk format looks like:
 //         4 byte magic number
 //         4 byte version number
 //         4 byte |index_.size()|
@@ -55,6 +54,8 @@
 
 #include "chrome/browser/safe_browsing/safe_browsing_util.h"
 
+class FilePath;
+
 namespace safe_browsing {
 
 class PrefixSet {
@@ -65,18 +66,44 @@ class PrefixSet {
   // |true| if |prefix| was in |prefixes| passed to the constructor.
   bool Exists(SBPrefix prefix) const;
 
+  // Persist the set on disk.
+  static PrefixSet* LoadFile(const FilePath& filter_name);
+  bool WriteFile(const FilePath& filter_name) const;
+
   // Regenerate the vector of prefixes passed to the constructor into
   // |prefixes|.  Prefixes will be added in sorted order.
-  void GetPrefixes(std::vector<SBPrefix>* prefixes);
+  void GetPrefixes(std::vector<SBPrefix>* prefixes) const;
+
+  // TODO(shess): The following are debugging accessors.  Delete once
+  // the encoding problem is figured out.
+
+  size_t IndexBinFor(size_t target_index) const;
+
+  // The number of prefixes represented.
+  size_t GetSize() const;
+
+  // Returns |true| if the element at |target_index| is between items in the
+  // |index_| array.
+  bool IsDeltaAt(size_t target_index) const;
+
+  // Returns the delta used to calculate the element at
+  // |target_index|.  Only call if |IsDeltaAt()| returned |true|.
+  uint16 DeltaAt(size_t target_index) const;
+
+  // Check whether |index_| and |deltas_| still match the CRC
+  // generated during construction.
+  bool CheckChecksum() const;
 
  private:
-  // Maximum delta that can be encoded in a 16-bit unsigned.
-  static const unsigned kMaxDelta = 256 * 256;
-
   // Maximum number of consecutive deltas to encode before generating
   // a new index entry.  This helps keep the worst-case performance
   // for |Exists()| under control.
   static const size_t kMaxRun = 100;
+
+  // Helper for |LoadFile()|.  Steals the contents of |index| and
+  // |deltas| using |swap()|.
+  PrefixSet(std::vector<std::pair<SBPrefix,size_t> > *index,
+            std::vector<uint16> *deltas);
 
   // Top-level index of prefix to offset in |deltas_|.  Each pair
   // indicates a base prefix and where the deltas from that prefix
@@ -88,6 +115,11 @@ class PrefixSet {
   // prefixes.  Deltas are only valid between consecutive items from
   // |index_|, or the end of |deltas_| for the last |index_| pair.
   std::vector<uint16> deltas_;
+
+  // For debugging, used to verify that |index_| and |deltas| were not
+  // changed after generation during construction.  |checksum_| is
+  // calculated from the data used to construct those vectors.
+  uint32 checksum_;
 
   DISALLOW_COPY_AND_ASSIGN(PrefixSet);
 };

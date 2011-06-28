@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,9 @@
 #define NET_SOCKET_TCP_CLIENT_SOCKET_LIBEVENT_H_
 #pragma once
 
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/message_loop.h"
-#include "base/ref_counted.h"
-#include "base/scoped_ptr.h"
 #include "base/threading/non_thread_safe.h"
 #include "net/base/address_list.h"
 #include "net/base/completion_callback.h"
@@ -36,7 +36,8 @@ class TCPClientSocketLibevent : public ClientSocket, base::NonThreadSafe {
   // AdoptSocket causes the given, connected socket to be adopted as a TCP
   // socket. This object must not be connected. This object takes ownership of
   // the given socket and then acts as if Connect() had been called. This
-  // function is intended for testing only.
+  // function is used by TCPServerSocket() to adopt accepted connections
+  // and for testing.
   void AdoptSocket(int socket);
 
   // ClientSocket methods:
@@ -49,6 +50,7 @@ class TCPClientSocketLibevent : public ClientSocket, base::NonThreadSafe {
   virtual bool IsConnected() const;
   virtual bool IsConnectedAndIdle() const;
   virtual int GetPeerAddress(AddressList* address) const;
+  virtual int GetLocalAddress(IPEndPoint* address) const;
   virtual const BoundNetLog& NetLog() const;
   virtual void SetSubresourceSpeculation();
   virtual void SetOmniboxSpeculation();

@@ -1,38 +1,12 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "net/url_request/url_request_throttler_manager.h"
 
-#include <list>
-
 #include "base/logging.h"
 #include "base/string_util.h"
-
-namespace {
-
-// TODO(joi): Remove after crbug.com/71721 is fixed.
-struct IteratorHistory {
-  // Copy of 'this' pointer at time of access; this helps both because
-  // the this pointer is often obfuscated (at least for this particular
-  // stack trace) in fully optimized builds, and possibly to detect
-  // changes in the this pointer during iteration over the map (e.g.
-  // from another thread overwriting memory).
-  net::URLRequestThrottlerManager* self;
-
-  // Copy of URL key.
-  char url[256];
-
-  // Not a refptr, we don't want to change behavior by keeping it alive.
-  net::URLRequestThrottlerEntryInterface* entry;
-
-  // Set to true if the entry gets erased. Helpful to verify that entries
-  // with 0 refcount (since we don't take a refcount above) have been
-  // erased from the map.
-  bool was_erased;
-};
-
-}  // namespace
+#include "net/base/net_util.h"
 
 namespace net {
 
@@ -45,7 +19,7 @@ URLRequestThrottlerManager* URLRequestThrottlerManager::GetInstance() {
 
 scoped_refptr<URLRequestThrottlerEntryInterface>
     URLRequestThrottlerManager::RegisterRequestUrl(const GURL &url) {
-  CHECK(being_tested_ || thread_checker_.CalledOnValidThread());
+  DCHECK(!enable_thread_checks_ || CalledOnValidThread());
 
   // Normalize the url.
   std::string url_id = GetIdFromUrl(url);
@@ -55,13 +29,35 @@ scoped_refptr<URLRequestThrottlerEntryInterface>
 
   // Find the entry in the map or create it.
   scoped_refptr<URLRequestThrottlerEntry>& entry = url_entries_[url_id];
-  if (entry.get() == NULL)
-    entry = new URLRequestThrottlerEntry();
+  if (entry.get() == NULL) {
+    entry = new URLRequestThrottlerEntry(this);
 
-  // TODO(joi): Demote CHECKs in this file to DCHECKs (or remove them) once
-  // we fully understand crbug.com/71721
-  CHECK(entry.get());
+    // We only disable back-off throttling on an entry that we have
+    // just constructed.  This is to allow unit tests to explicitly override
+    // the entry for localhost URLs.  Given that we do not attempt to
+    // disable throttling for entries already handed out (see comment
+    // in AddToOptOutList), this is not a problem.
+    std::string host = url.host();
+    if (opt_out_hosts_.find(host) != opt_out_hosts_.end() ||
+        IsLocalhost(host)) {
+      // TODO(joi): Once sliding window is separate from back-off throttling,
+      // we can simply return a dummy implementation of
+      // URLRequestThrottlerEntryInterface here that never blocks anything (and
+      // not keep entries in url_entries_ for opted-out sites).
+      entry->DisableBackoffThrottling();
+    }
+  }
+
   return entry;
+}
+
+void URLRequestThrottlerManager::AddToOptOutList(const std::string& host) {
+  // There is an edge case here that we are not handling, to keep things
+  // simple.  If a host starts adding the opt-out header to its responses
+  // after there are already one or more entries in url_entries_ for that
+  // host, the pre-existing entries may still perform back-off throttling.
+  // In practice, this would almost never occur.
+  opt_out_hosts_.insert(host);
 }
 
 void URLRequestThrottlerManager::OverrideEntryForTests(
@@ -82,33 +78,53 @@ void URLRequestThrottlerManager::EraseEntryForTests(const GURL& url) {
   url_entries_.erase(url_id);
 }
 
-void URLRequestThrottlerManager::InitializeOptions(bool enforce_throttling) {
-  enforce_throttling_ = enforce_throttling;
-  being_tested_ = false;
+void URLRequestThrottlerManager::set_enable_thread_checks(bool enable) {
+  enable_thread_checks_ = enable;
 }
 
+bool URLRequestThrottlerManager::enable_thread_checks() const {
+  return enable_thread_checks_;
+}
+
+void URLRequestThrottlerManager::set_enforce_throttling(bool enforce) {
+  enforce_throttling_ = enforce;
+}
+
+bool URLRequestThrottlerManager::enforce_throttling() {
+  return enforce_throttling_;
+}
+
+// TODO(joi): Turn throttling on by default when appropriate.
 URLRequestThrottlerManager::URLRequestThrottlerManager()
     : requests_since_last_gc_(0),
-      enforce_throttling_(true),
-      being_tested_(true) {
+      enforce_throttling_(false),
+      enable_thread_checks_(false) {
   // Construction/destruction is on main thread (because BrowserMain
   // retrieves an instance to call InitializeOptions), but is from then on
   // used on I/O thread.
-  thread_checker_.DetachFromThread();
+  DetachFromThread();
 
   url_id_replacements_.ClearPassword();
   url_id_replacements_.ClearUsername();
   url_id_replacements_.ClearQuery();
   url_id_replacements_.ClearRef();
-
-  // TODO(joi): Remove after crbug.com/71721 is fixed.
-  base::strlcpy(magic_buffer_1_, "MAGICZZ", arraysize(magic_buffer_1_));
-  base::strlcpy(magic_buffer_2_, "GOOGYZZ", arraysize(magic_buffer_2_));
 }
 
 URLRequestThrottlerManager::~URLRequestThrottlerManager() {
   // Destruction is on main thread (AtExit), but real use is on I/O thread.
-  thread_checker_.DetachFromThread();
+  DetachFromThread();
+
+  // Since, for now, the manager object might conceivably go away before
+  // the entries, detach the entries' back-pointer to the manager.
+  //
+  // TODO(joi): Revisit whether to make entries non-refcounted.
+  UrlEntryMap::iterator i = url_entries_.begin();
+  while (i != url_entries_.end()) {
+    if (i->second != NULL) {
+      i->second->DetachManager();
+    }
+    ++i;
+  }
 
   // Delete all entries.
   url_entries_.clear();
@@ -119,8 +135,7 @@ std::string URLRequestThrottlerManager::GetIdFromUrl(const GURL& url) const {
     return url.possibly_invalid_spec();
 
   GURL id = url.ReplaceComponents(url_id_replacements_);
-  // TODO(joi): Remove "GOOGY/MONSTA" stuff once crbug.com/71721 is done
-  return StringPrintf("GOOGY%sMONSTA", StringToLowerASCII(id.spec()).c_str());
+  return StringToLowerASCII(id.spec()).c_str();
 }
 
 void URLRequestThrottlerManager::GarbageCollectEntriesIfNecessary() {
@@ -133,47 +148,14 @@ void URLRequestThrottlerManager::GarbageCollectEntriesIfNecessary() {
 }
 
 void URLRequestThrottlerManager::GarbageCollectEntries() {
-  // TODO(joi): Remove these crash report aids once crbug.com/71721
-  // is figured out.
-  IteratorHistory history[32] = { { 0 } };
-  size_t history_ix = 0;
-  history[history_ix++].self = this;
-
-  int nulls_found = 0;
   UrlEntryMap::iterator i = url_entries_.begin();
   while (i != url_entries_.end()) {
-    if (i->second == NULL) {
-      ++nulls_found;
-    }
-
-    // Keep a log of the first 31 items accessed after the first
-    // NULL encountered (hypothesis is there are multiple NULLs,
-    // and we may learn more about pattern of memory overwrite).
-    // We also log when we access the first entry, to get an original
-    // value for our this pointer.
-    if (nulls_found > 0 && history_ix < arraysize(history)) {
-      history[history_ix].self = this;
-      base::strlcpy(history[history_ix].url, i->first.c_str(),
-                    arraysize(history[history_ix].url));
-      history[history_ix].entry = i->second.get();
-      history[history_ix].was_erased = false;
-      ++history_ix;
-    }
-
-    // TODO(joi): Remove first i->second check when crbug.com/71721 is fixed.
-    if (i->second == NULL || (i->second)->IsEntryOutdated()) {
+    if ((i->second)->IsEntryOutdated()) {
       url_entries_.erase(i++);
-
-      if (nulls_found > 0 && (history_ix - 1) < arraysize(history)) {
-        history[history_ix - 1].was_erased = true;
-      }
     } else {
       ++i;
     }
   }
-
-  // TODO(joi): Make this a CHECK again after M11 branch point.
-  DCHECK(nulls_found == 0);
 
   // In case something broke we want to make sure not to grow indefinitely.
   while (url_entries_.size() > kMaximumNumberOfEntries) {

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,10 @@
 
 #include <vector>
 
+#include "base/memory/ref_counted.h"
 #include "base/process_util.h"
-#include "base/ref_counted.h"
 #include "base/string16.h"
-#include "chrome/common/child_process_info.h"
+#include "content/common/child_process_info.h"
 
 // We collect data about each browser process.  A browser may
 // have multiple processes (of course!).  Even IE has multiple
@@ -122,7 +122,7 @@ class MemoryDetails : public base::RefCountedThreadSafe<MemoryDetails> {
   // Note - this function enumerates memory details from many processes
   // and is fairly expensive to run, hence it's run on the file thread.
   // The parameter holds information about processes from the IO thread.
-  void CollectProcessData(std::vector<ProcessMemoryInformation>);
+  void CollectProcessData(const std::vector<ProcessMemoryInformation>&);
 
 #if defined(OS_MACOSX)
   // A helper for |CollectProcessData()|, collecting data on the Chrome/Chromium

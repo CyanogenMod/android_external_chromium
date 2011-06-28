@@ -12,9 +12,11 @@
 #include "chrome/browser/defaults.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/extensions/extension_service.h"
+#include "chrome/browser/extensions/extension_tab_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tabs/pinned_tab_codec.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
+#include "chrome/browser/translate/translate_tab_helper.h"
 #include "chrome/browser/ui/app_modal_dialogs/app_modal_dialog.h"
 #include "chrome/browser/ui/app_modal_dialogs/js_modal_dialog.h"
 #include "chrome/browser/ui/app_modal_dialogs/native_app_modal_dialog.h"
@@ -26,14 +28,14 @@
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/extension.h"
-#include "chrome/common/notification_source.h"
-#include "chrome/common/page_transition_types.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/in_process_browser_test.h"
 #include "chrome/test/ui_test_utils.h"
 #include "content/browser/renderer_host/render_process_host.h"
 #include "content/browser/renderer_host/render_view_host.h"
 #include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/notification_source.h"
+#include "content/common/page_transition_types.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "net/base/mock_host_resolver.h"
@@ -208,7 +210,7 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, JavascriptAlertActivatesTab) {
   ui_test_utils::NavigateToURL(browser(), url);
   AddTabAtIndex(0, url, PageTransition::TYPED);
   EXPECT_EQ(2, browser()->tab_count());
-  EXPECT_EQ(0, browser()->selected_index());
+  EXPECT_EQ(0, browser()->active_index());
   TabContents* second_tab = browser()->GetTabContentsAt(1);
   ASSERT_TRUE(second_tab);
   second_tab->render_view_host()->ExecuteJavascriptInWebFrame(
@@ -217,8 +219,18 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, JavascriptAlertActivatesTab) {
   AppModalDialog* alert = ui_test_utils::WaitForAppModalDialog();
   alert->CloseModalDialog();
   EXPECT_EQ(2, browser()->tab_count());
-  EXPECT_EQ(1, browser()->selected_index());
+  EXPECT_EQ(1, browser()->active_index());
 }
+
+
+
+#if defined(OS_WIN)
+// http://crbug.com/75274. On XP crashes inside
+// URLFetcher::Core::Registry::RemoveURLFetcherCore.
+#define MAYBE_ThirtyFourTabs FLAKY_ThirtyFourTabs
+#else
+#define MAYBE_ThirtyFourTabs ThirtyFourTabs
+#endif
 
 // Create 34 tabs and verify that a lot of processes have been created. The
 // exact number of processes depends on the amount of memory. Previously we
@@ -226,7 +238,7 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, JavascriptAlertActivatesTab) {
 // verifying that we don't crash when we pass this limit.
 // Warning: this test can take >30 seconds when running on a slow (low
 // memory?) Mac builder.
-IN_PROC_BROWSER_TEST_F(BrowserTest, ThirtyFourTabs) {
+IN_PROC_BROWSER_TEST_F(BrowserTest, MAYBE_ThirtyFourTabs) {
   GURL url(ui_test_utils::GetTestUrl(FilePath(FilePath::kCurrentDirectory),
                                      FilePath(kTitle2File)));
 
@@ -480,7 +492,7 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, TabClosingWhenRemovingExtension) {
   TabContentsWrapper* app_contents =
       Browser::TabContentsFactory(browser()->profile(), NULL,
                                   MSG_ROUTING_NONE, NULL, NULL);
-  app_contents->tab_contents()->SetExtensionApp(extension_app);
+  app_contents->extension_tab_helper()->SetExtensionApp(extension_app);
 
   model->AddTabContents(app_contents, 0, 0, TabStripModel::ADD_NONE);
   model->SetTabPinned(0, true);
@@ -491,7 +503,7 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, TabClosingWhenRemovingExtension) {
 
   // Uninstall the extension and make sure TabClosing is sent.
   ExtensionService* service = browser()->profile()->GetExtensionService();
-  service->UninstallExtension(GetExtension()->id(), false);
+  service->UninstallExtension(GetExtension()->id(), false, NULL);
   EXPECT_EQ(1, observer.closing_count());
 
   model->RemoveObserver(&observer);
@@ -549,6 +561,8 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, MAYBE_PageLanguageDetection) {
   ASSERT_TRUE(test_server()->Start());
 
   TabContents* current_tab = browser()->GetSelectedTabContents();
+  TabContentsWrapper* wrapper = browser()->GetSelectedTabContentsWrapper();
+  TranslateTabHelper* helper = wrapper->translate_tab_helper();
   Source<TabContents> source(current_tab);
 
   // Navigate to a page in English.
@@ -557,13 +571,13 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, MAYBE_PageLanguageDetection) {
                                   source);
   ui_test_utils::NavigateToURL(
       browser(), GURL(test_server()->GetURL("files/english_page.html")));
-  EXPECT_TRUE(current_tab->language_state().original_language().empty());
+  EXPECT_TRUE(helper->language_state().original_language().empty());
   en_language_detected_signal.Wait();
   std::string lang;
   EXPECT_TRUE(en_language_detected_signal.GetDetailsFor(
         source.map_key(), &lang));
   EXPECT_EQ("en", lang);
-  EXPECT_EQ("en", current_tab->language_state().original_language());
+  EXPECT_EQ("en", helper->language_state().original_language());
 
   // Now navigate to a page in French.
   ui_test_utils::WindowedNotificationObserverWithDetails<std::string>
@@ -571,13 +585,13 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, MAYBE_PageLanguageDetection) {
                                   source);
   ui_test_utils::NavigateToURL(
       browser(), GURL(test_server()->GetURL("files/french_page.html")));
-  EXPECT_TRUE(current_tab->language_state().original_language().empty());
+  EXPECT_TRUE(helper->language_state().original_language().empty());
   fr_language_detected_signal.Wait();
   lang.clear();
   EXPECT_TRUE(fr_language_detected_signal.GetDetailsFor(
         source.map_key(), &lang));
   EXPECT_EQ("fr", lang);
-  EXPECT_EQ("fr", current_tab->language_state().original_language());
+  EXPECT_EQ("fr", helper->language_state().original_language());
 }
 
 // Chromeos defaults to restoring the last session, so this test isn't
@@ -601,7 +615,7 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, RestorePinnedTabs) {
   TabContentsWrapper* app_contents =
     Browser::TabContentsFactory(browser()->profile(), NULL,
                                 MSG_ROUTING_NONE, NULL, NULL);
-  app_contents->tab_contents()->SetExtensionApp(extension_app);
+  app_contents->extension_tab_helper()->SetExtensionApp(extension_app);
   model->AddTabContents(app_contents, 0, 0, TabStripModel::ADD_NONE);
   model->SetTabPinned(0, true);
   ui_test_utils::NavigateToURL(browser(), url);
@@ -654,7 +668,7 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, RestorePinnedTabs) {
       new_model->GetTabContentsAt(2)->tab_contents()->GetURL());
 
   EXPECT_TRUE(
-      new_model->GetTabContentsAt(0)->tab_contents()->extension_app() ==
+      new_model->GetTabContentsAt(0)->extension_tab_helper()->extension_app() ==
           extension_app);
 }
 #endif  // !defined(OS_CHROMEOS)
@@ -686,7 +700,9 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, OpenAppWindowLikeNtp) {
 
   // Apps launched in a window from the NTP do not have extension_app set in
   // tab contents.
-  EXPECT_FALSE(app_window->extension_app());
+  TabContentsWrapper* wrapper =
+          TabContentsWrapper::GetCurrentWrapperForContents(app_window);
+  EXPECT_FALSE(wrapper->extension_tab_helper()->extension_app());
   EXPECT_EQ(extension_app->GetFullLaunchURL(), app_window->GetURL());
 
   // The launch should have created a new browser.

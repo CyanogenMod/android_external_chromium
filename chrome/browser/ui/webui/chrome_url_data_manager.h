@@ -8,7 +8,7 @@
 
 #include <string>
 
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
 #include "base/task.h"
 #include "content/browser/browser_thread.h"
 
@@ -67,7 +67,7 @@ class ChromeURLDataManager {
     // call SendResponse() when the data is available or if the request could
     // not be satisfied.
     virtual void StartDataRequest(const std::string& path,
-                                  bool is_off_the_record,
+                                  bool is_incognito,
                                   int request_id) = 0;
 
     // Return the mimetype that should be sent with this response, or empty
@@ -147,7 +147,7 @@ class ChromeURLDataManager {
   // as there are no other references to it. |DataSource| uses the
   // |DeleteOnUIThread| trait to insure that the destructor is called on the UI
   // thread. This is necessary as some |DataSource|s notably |FileIconSource|
-  // and |FavIconSource|, have members that will DCHECK if they are not
+  // and |FaviconSource|, have members that will DCHECK if they are not
   // destructed in the same thread as they are constructed (the UI thread).
   void AddDataSource(DataSource* source);
 

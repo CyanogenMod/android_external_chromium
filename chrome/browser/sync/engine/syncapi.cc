@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,31 +15,31 @@
 #include "base/base64.h"
 #include "base/command_line.h"
 #include "base/logging.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/message_loop.h"
 #include "base/observer_list.h"
-#include "base/scoped_ptr.h"
 #include "base/sha1.h"
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
 #include "base/synchronization/lock.h"
 #include "base/task.h"
+#include "base/time.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
-#include "chrome/browser/sync/sync_constants.h"
 #include "chrome/browser/sync/engine/all_status.h"
 #include "chrome/browser/sync/engine/change_reorder_buffer.h"
 #include "chrome/browser/sync/engine/model_safe_worker.h"
+#include "chrome/browser/sync/engine/nudge_source.h"
 #include "chrome/browser/sync/engine/net/server_connection_manager.h"
 #include "chrome/browser/sync/engine/net/syncapi_server_connection_manager.h"
 #include "chrome/browser/sync/engine/syncer.h"
 #include "chrome/browser/sync/engine/syncer_thread.h"
-#include "chrome/browser/sync/engine/syncer_thread2.h"
-#include "chrome/browser/sync/engine/syncer_thread_adapter.h"
+#include "chrome/browser/sync/engine/http_post_provider_factory.h"
 #include "chrome/browser/sync/js_arg_list.h"
 #include "chrome/browser/sync/js_backend.h"
 #include "chrome/browser/sync/js_event_router.h"
-#include "chrome/browser/sync/notifier/server_notifier_thread.h"
-#include "chrome/browser/sync/notifier/state_writer.h"
+#include "chrome/browser/sync/notifier/sync_notifier.h"
+#include "chrome/browser/sync/notifier/sync_notifier_observer.h"
 #include "chrome/browser/sync/protocol/app_specifics.pb.h"
 #include "chrome/browser/sync/protocol/autofill_specifics.pb.h"
 #include "chrome/browser/sync/protocol/bookmark_specifics.pb.h"
@@ -55,7 +55,10 @@
 #include "chrome/browser/sync/sessions/sync_session.h"
 #include "chrome/browser/sync/sessions/sync_session_context.h"
 #include "chrome/browser/sync/syncable/autofill_migration.h"
+#include "chrome/browser/sync/syncable/directory_change_listener.h"
 #include "chrome/browser/sync/syncable/directory_manager.h"
+#include "chrome/browser/sync/syncable/model_type_payload_map.h"
+#include "chrome/browser/sync/syncable/model_type.h"
 #include "chrome/browser/sync/syncable/nigori_util.h"
 #include "chrome/browser/sync/syncable/syncable.h"
 #include "chrome/browser/sync/util/crypto_helpers.h"
@@ -63,12 +66,9 @@
 #include "chrome/common/deprecated/event_sys.h"
 #include "chrome/common/net/gaia/gaia_authenticator.h"
 #include "content/browser/browser_thread.h"
-#include "jingle/notifier/listener/mediator_thread_impl.h"
-#include "jingle/notifier/listener/notification_constants.h"
-#include "jingle/notifier/listener/talk_mediator.h"
-#include "jingle/notifier/listener/talk_mediator_impl.h"
 #include "net/base/network_change_notifier.h"
 
+using base::TimeDelta;
 using browser_sync::AllStatus;
 using browser_sync::Cryptographer;
 using browser_sync::KeyParams;
@@ -76,15 +76,14 @@ using browser_sync::ModelSafeRoutingInfo;
 using browser_sync::ModelSafeWorker;
 using browser_sync::ModelSafeWorkerRegistrar;
 using browser_sync::ServerConnectionEvent;
+using browser_sync::ServerConnectionEvent2;
+using browser_sync::ServerConnectionEventListener;
 using browser_sync::SyncEngineEvent;
 using browser_sync::SyncEngineEventListener;
 using browser_sync::Syncer;
 using browser_sync::SyncerThread;
-using browser_sync::SyncerThreadAdapter;
 using browser_sync::kNigoriTag;
 using browser_sync::sessions::SyncSessionContext;
-using notifier::TalkMediator;
-using notifier::TalkMediatorImpl;
 using std::list;
 using std::hex;
 using std::string;
@@ -92,6 +91,9 @@ using std::vector;
 using syncable::Directory;
 using syncable::DirectoryManager;
 using syncable::Entry;
+using syncable::ModelTypeBitSet;
+using syncable::OriginalEntries;
+using syncable::WriterTag;
 using syncable::SPECIFICS;
 using sync_pb::AutofillProfileSpecifics;
 
@@ -319,21 +321,9 @@ DictionaryValue* BaseNode::ToValue() const {
   node_info->SetBoolean("isFolder", GetIsFolder());
   // TODO(akalin): Add a std::string accessor for the title.
   node_info->SetString("title", WideToUTF8(GetTitle()));
-  {
-    syncable::ModelType model_type = GetModelType();
-    if (model_type >= syncable::FIRST_REAL_MODEL_TYPE) {
-      node_info->SetString("type", ModelTypeToString(model_type));
-    } else if (model_type == syncable::TOP_LEVEL_FOLDER) {
-      node_info->SetString("type", "Top-level folder");
-    } else if (model_type == syncable::UNSPECIFIED) {
-      node_info->SetString("type", "Unspecified");
-    } else {
-      node_info->SetString("type", base::IntToString(model_type));
-    }
-  }
-  node_info->Set(
-      "specifics",
-      browser_sync::EntitySpecificsToValue(GetEntry()->Get(SPECIFICS)));
+  node_info->Set("type", ModelTypeToValue(GetModelType()));
+  // Specifics are already in the Entry value, so no need to duplicate
+  // it here.
   node_info->SetString("externalId",
                        base::Int64ToString(GetExternalId()));
   node_info->SetString("predecessorId",
@@ -342,6 +332,7 @@ DictionaryValue* BaseNode::ToValue() const {
                        base::Int64ToString(GetSuccessorId()));
   node_info->SetString("firstChildId",
                        base::Int64ToString(GetFirstChildId()));
+  node_info->Set("entry", GetEntry()->ToValue());
   return node_info;
 }
 
@@ -566,10 +557,25 @@ void WriteNode::PutNigoriSpecificsAndMarkForSyncing(
 void WriteNode::SetPasswordSpecifics(
     const sync_pb::PasswordSpecificsData& data) {
   DCHECK_EQ(syncable::PASSWORDS, GetModelType());
+
+  Cryptographer* cryptographer = GetTransaction()->GetCryptographer();
+
+  // Idempotency check to prevent unnecessary syncing: if the plaintexts match
+  // and the old ciphertext is encrypted with the most current key, there's
+  // nothing to do here.  Because each encryption is seeded with a different
+  // random value, checking for equivalence post-encryption doesn't suffice.
+  const sync_pb::EncryptedData& old_ciphertext =
+      GetEntry()->Get(SPECIFICS).GetExtension(sync_pb::password).encrypted();
+  scoped_ptr<sync_pb::PasswordSpecificsData> old_plaintext(
+      DecryptPasswordSpecifics(GetEntry()->Get(SPECIFICS), cryptographer));
+  if (old_plaintext.get() &&
+      old_plaintext->SerializeAsString() == data.SerializeAsString() &&
+      cryptographer->CanDecryptUsingDefaultKey(old_ciphertext)) {
+    return;
+  }
+
   sync_pb::PasswordSpecifics new_value;
-  if (!GetTransaction()->GetCryptographer()->Encrypt(
-      data,
-      new_value.mutable_encrypted())) {
+  if (!cryptographer->Encrypt(data, new_value.mutable_encrypted())) {
     NOTREACHED();
   }
   PutPasswordSpecificsAndMarkForSyncing(new_value);
@@ -1091,6 +1097,21 @@ DictionaryValue* SyncManager::ChangeRecord::ToValue(
   return value;
 }
 
+bool BaseNode::ContainsString(const std::string& lowercase_query) const {
+  DCHECK(GetEntry());
+  // TODO(lipalani) - figure out what to do if the node is encrypted.
+  const sync_pb::EntitySpecifics& specifics = GetEntry()->Get(SPECIFICS);
+  std::string temp;
+  // The protobuf serialized string contains the original strings. So
+  // we will just serialize it and search it.
+  specifics.SerializeToString(&temp);
+
+  // Now convert to lower case.
+  StringToLowerASCII(&temp);
+
+  return temp.find(lowercase_query) != std::string::npos;
+}
+
 SyncManager::ExtraPasswordChangeRecordData::ExtraPasswordChangeRecordData() {}
 
 SyncManager::ExtraPasswordChangeRecordData::ExtraPasswordChangeRecordData(
@@ -1109,15 +1130,53 @@ const sync_pb::PasswordSpecificsData&
   return unencrypted_;
 }
 
+namespace {
+
+struct NotificationInfo {
+  int total_count;
+  std::string payload;
+
+  NotificationInfo() : total_count(0) {}
+
+  ~NotificationInfo() {}
+
+  // Returned pointer owned by the caller.
+  DictionaryValue* ToValue() const {
+    DictionaryValue* value = new DictionaryValue();
+    value->SetInteger("totalCount", total_count);
+    value->SetString("payload", payload);
+    return value;
+  }
+};
+
+typedef std::map<syncable::ModelType, NotificationInfo> NotificationInfoMap;
+
+// returned pointer is owned by the caller.
+DictionaryValue* NotificationInfoToValue(
+    const NotificationInfoMap& notification_info) {
+  DictionaryValue* value = new DictionaryValue();
+
+  for (NotificationInfoMap::const_iterator it = notification_info.begin();
+      it != notification_info.end(); ++it) {
+    const std::string& model_type_str =
+        syncable::ModelTypeToString(it->first);
+    value->Set(model_type_str, it->second.ToValue());
+  }
+
+  return value;
+}
+
+}  // namespace
+
 //////////////////////////////////////////////////////////////////////////
 // SyncManager's implementation: SyncManager::SyncInternal
 class SyncManager::SyncInternal
     : public net::NetworkChangeNotifier::IPAddressObserver,
-      public TalkMediator::Delegate,
-      public sync_notifier::StateWriter,
-      public browser_sync::ChannelEventHandler<syncable::DirectoryChangeEvent>,
+      public sync_notifier::SyncNotifierObserver,
       public browser_sync::JsBackend,
-      public SyncEngineEventListener {
+      public SyncEngineEventListener,
+      public ServerConnectionEventListener,
+      public syncable::DirectoryChangeListener {
   static const int kDefaultNudgeDelayMilliseconds;
   static const int kPreferencesNudgeDelayMilliseconds;
  public:
@@ -1126,15 +1185,13 @@ class SyncManager::SyncInternal
         parent_router_(NULL),
         sync_manager_(sync_manager),
         registrar_(NULL),
-        notification_pending_(false),
         initialized_(false),
-        ALLOW_THIS_IN_INITIALIZER_LIST(method_factory_(this)),
-        server_notifier_thread_(NULL) {
+        ALLOW_THIS_IN_INITIALIZER_LIST(method_factory_(this)) {
     DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   }
 
   virtual ~SyncInternal() {
-    DCHECK(!core_message_loop_);
+    CHECK(!core_message_loop_);
     DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   }
 
@@ -1146,7 +1203,7 @@ class SyncManager::SyncInternal
             ModelSafeWorkerRegistrar* model_safe_worker_registrar,
             const char* user_agent,
             const SyncCredentials& credentials,
-            const notifier::NotifierOptions& notifier_options,
+            sync_notifier::SyncNotifier* sync_notifier,
             const std::string& restored_key_for_bootstrapping,
             bool setup_for_test_mode);
 
@@ -1159,9 +1216,8 @@ class SyncManager::SyncInternal
   // Update tokens that we're using in Sync. Email must stay the same.
   void UpdateCredentials(const SyncCredentials& credentials);
 
-  // Update the set of enabled sync types. Usually called when the user disables
-  // or enables a sync type.
-  void UpdateEnabledTypes(const syncable::ModelTypeSet& types);
+  // Called when the user disables or enables a sync type.
+  void UpdateEnabledTypes();
 
   // Tell the sync engine to start the syncing process.
   void StartSyncing();
@@ -1181,18 +1237,22 @@ class SyncManager::SyncInternal
   // to the syncapi model.
   void SaveChanges();
 
+  // DirectoryChangeListener implementation.
   // This listener is called upon completion of a syncable transaction, and
   // builds the list of sync-engine initiated changes that will be forwarded to
   // the SyncManager's Observers.
-  virtual void HandleChannelEvent(const syncable::DirectoryChangeEvent& event);
-  void HandleTransactionCompleteChangeEvent(
-      const syncable::DirectoryChangeEvent& event);
-  void HandleTransactionEndingChangeEvent(
-      const syncable::DirectoryChangeEvent& event);
-  void HandleCalculateChangesChangeEventFromSyncApi(
-      const syncable::DirectoryChangeEvent& event);
-  void HandleCalculateChangesChangeEventFromSyncer(
-      const syncable::DirectoryChangeEvent& event);
+  virtual void HandleTransactionCompleteChangeEvent(
+      const ModelTypeBitSet& models_with_changes);
+  virtual ModelTypeBitSet HandleTransactionEndingChangeEvent(
+      syncable::BaseTransaction* trans);
+  virtual void HandleCalculateChangesChangeEventFromSyncApi(
+      const OriginalEntries& originals,
+      const WriterTag& writer,
+      syncable::BaseTransaction* trans);
+  virtual void HandleCalculateChangesChangeEventFromSyncer(
+      const OriginalEntries& originals,
+      const WriterTag& writer,
+      syncable::BaseTransaction* trans);
 
   // Listens for notifications from the ServerConnectionManager
   void HandleServerConnectionEvent(const ServerConnectionEvent& event);
@@ -1200,21 +1260,14 @@ class SyncManager::SyncInternal
   // Open the directory named with username_for_share
   bool OpenDirectory();
 
-  // Login to the talk mediator with the given credentials.
-  void TalkMediatorLogin(
-      const std::string& email, const std::string& token);
-
-  // TalkMediator::Delegate implementation.
+  // SyncNotifierObserver implementation.
   virtual void OnNotificationStateChange(
       bool notifications_enabled);
 
   virtual void OnIncomingNotification(
-      const IncomingNotificationData& notification_data);
+      const syncable::ModelTypePayloadMap& type_payloads);
 
-  virtual void OnOutgoingNotification();
-
-  // sync_notifier::StateWriter implementation.
-  virtual void WriteState(const std::string& state);
+  virtual void StoreState(const std::string& cookie);
 
   void AddObserver(SyncManager::Observer* observer);
 
@@ -1225,8 +1278,7 @@ class SyncManager::SyncInternal
   SyncAPIServerConnectionManager* connection_manager() {
     return connection_manager_.get();
   }
-  SyncerThreadAdapter* syncer_thread() { return syncer_thread_.get(); }
-  TalkMediator* talk_mediator() { return talk_mediator_.get(); }
+  SyncerThread* syncer_thread() { return syncer_thread_.get(); }
   UserShare* GetUserShare() { return &share_; }
 
   // Return the currently active (validated) username for use with syncable
@@ -1236,6 +1288,12 @@ class SyncManager::SyncInternal
   }
 
   Status GetStatus();
+
+  void RequestNudge(const tracked_objects::Location& nudge_location);
+
+  void RequestNudgeWithDataTypes(const TimeDelta& delay,
+      browser_sync::NudgeSource source, const ModelTypeBitSet& types,
+      const tracked_objects::Location& nudge_location);
 
   // See SyncManager::Shutdown for information.
   void Shutdown();
@@ -1325,6 +1383,9 @@ class SyncManager::SyncInternal
   // SyncEngineEventListener implementation.
   virtual void OnSyncEngineEvent(const SyncEngineEvent& event);
 
+  // ServerConnectionEventListener implementation.
+  virtual void OnServerConnectionEvent(const ServerConnectionEvent2& event);
+
   // browser_sync::JsBackend implementation.
   virtual void SetParentJsEventRouter(browser_sync::JsEventRouter* router);
   virtual void RemoveParentJsEventRouter();
@@ -1333,11 +1394,9 @@ class SyncManager::SyncInternal
                               const browser_sync::JsArgList& args,
                               const browser_sync::JsEventHandler* sender);
 
- private:
-  // Helper to handle the details of initializing the TalkMediator.
-  // Must be called only after OpenDirectory() is called.
-  void InitializeTalkMediator();
+  ListValue* FindNodesContainingString(const std::string& query);
 
+ private:
   // Helper to call OnAuthError when no authentication credentials are
   // available.
   void RaiseAuthNeededEvent();
@@ -1347,10 +1406,8 @@ class SyncManager::SyncInternal
   // already initialized, this is a no-op.
   void MarkAndNotifyInitializationComplete();
 
-  // If there's a pending notification to be sent, either from the
-  // new_pending_notification flag or a previous unsuccessfully sent
-  // notification, tries to send a notification.
-  void SendPendingXMPPNotification(bool new_pending_notification);
+  // Sends notifications to peers.
+  void SendNotification();
 
   // Determine if the parents or predecessors differ between the old and new
   // versions of an entry stored in |a| and |b|.  Note that a node's index may
@@ -1436,17 +1493,26 @@ class SyncManager::SyncInternal
   // decryption.  Otherwise, the cryptographer is made ready (is_ready()).
   void BootstrapEncryption(const std::string& restored_key_for_bootstrapping);
 
+  // Called for every notification. This updates the notification statistics
+  // to be displayed in about:sync.
+  void UpdateNotificationInfo(
+      const syncable::ModelTypePayloadMap& type_payloads);
+
   // Helper for migration to new nigori proto to set
   // 'using_explicit_passphrase' in the NigoriSpecifics.
   // TODO(tim): Bug 62103.  Remove this after it has been pushed out to dev
   // channel users.
-  void SetUsingExplicitPassphrasePrefForMigration();
+  void SetUsingExplicitPassphrasePrefForMigration(
+      WriteTransaction* const trans);
 
   // Checks for server reachabilty and requests a nudge.
   void OnIPAddressChangedImpl();
 
   // Functions called by ProcessMessage().
   browser_sync::JsArgList ProcessGetNodeByIdMessage(
+      const browser_sync::JsArgList& args);
+
+  browser_sync::JsArgList ProcessFindNodesContainingString(
       const browser_sync::JsArgList& args);
 
   // We couple the DirectoryManager and username together in a UserShare member
@@ -1465,10 +1531,10 @@ class SyncManager::SyncInternal
   scoped_ptr<SyncAPIServerConnectionManager> connection_manager_;
 
   // The thread that runs the Syncer. Needs to be explicitly Start()ed.
-  scoped_ptr<SyncerThreadAdapter> syncer_thread_;
+  scoped_ptr<SyncerThread> syncer_thread_;
 
-  // Notification (xmpp) handler.
-  scoped_ptr<TalkMediator> talk_mediator_;
+  // The SyncNotifier which notifies us when updates need to be downloaded.
+  sync_notifier::SyncNotifier* sync_notifier_;
 
   // A multi-purpose status watch object that aggregates stats from various
   // sync components.
@@ -1482,17 +1548,6 @@ class SyncManager::SyncInternal
   // TRANSACTION_COMPLETE step by HandleTransactionCompleteChangeEvent.
   ChangeReorderBuffer change_buffers_[syncable::MODEL_TYPE_COUNT];
 
-  // Bit vector keeping track of which models need to have their
-  // OnChangesComplete observer set.
-  //
-  // Set by HandleTransactionEndingChangeEvent, cleared in
-  // HandleTransactionCompleteChangeEvent.
-  std::bitset<syncable::MODEL_TYPE_COUNT> model_has_change_;
-
-  // The event listener hookup that is registered for HandleChangeEvent.
-  scoped_ptr<browser_sync::ChannelHookup<syncable::DirectoryChangeEvent> >
-      dir_change_hookup_;
-
   // Event listener hookup for the ServerConnectionManager.
   scoped_ptr<EventListenerHookup> connection_manager_hookup_;
 
@@ -1503,9 +1558,6 @@ class SyncManager::SyncInternal
   // The instance is shared between the SyncManager and the Syncer.
   ModelSafeWorkerRegistrar* registrar_;
 
-  // True if the next SyncCycle should notify peers of an update.
-  bool notification_pending_;
-
   // Set to true once Init has been called, and we know of an authenticated
   // valid) username either from a fresh authentication attempt (as in
   // first-use case) or from a previous attempt stored in our UserSettings
@@ -1515,17 +1567,15 @@ class SyncManager::SyncInternal
   bool initialized_;
   mutable base::Lock initialized_mutex_;
 
-  notifier::NotifierOptions notifier_options_;
-
   // True if the SyncManager should be running in test mode (no syncer thread
   // actually communicating with the server).
   bool setup_for_test_mode_;
 
-  syncable::ModelTypeSet enabled_types_;
-
   ScopedRunnableMethodFactory<SyncManager::SyncInternal> method_factory_;
 
-  sync_notifier::ServerNotifierThread* server_notifier_thread_;
+  // Map used to store the notification info to be displayed in about:sync page.
+  // TODO(lipalani) - prefill the map with enabled data types.
+  NotificationInfoMap notification_info_map_;
 };
 const int SyncManager::SyncInternal::kDefaultNudgeDelayMilliseconds = 200;
 const int SyncManager::SyncInternal::kPreferencesNudgeDelayMilliseconds = 2000;
@@ -1544,7 +1594,7 @@ bool SyncManager::Init(const FilePath& database_location,
                        ModelSafeWorkerRegistrar* registrar,
                        const char* user_agent,
                        const SyncCredentials& credentials,
-                       const notifier::NotifierOptions& notifier_options,
+                       sync_notifier::SyncNotifier* sync_notifier,
                        const std::string& restored_key_for_bootstrapping,
                        bool setup_for_test_mode) {
   DCHECK(post_factory);
@@ -1558,7 +1608,7 @@ bool SyncManager::Init(const FilePath& database_location,
                      registrar,
                      user_agent,
                      credentials,
-                     notifier_options,
+                     sync_notifier,
                      restored_key_for_bootstrapping,
                      setup_for_test_mode);
 }
@@ -1567,8 +1617,8 @@ void SyncManager::UpdateCredentials(const SyncCredentials& credentials) {
   data_->UpdateCredentials(credentials);
 }
 
-void SyncManager::UpdateEnabledTypes(const syncable::ModelTypeSet& types) {
-  data_->UpdateEnabledTypes(types);
+void SyncManager::UpdateEnabledTypes() {
+  data_->UpdateEnabledTypes();
 }
 
 
@@ -1615,35 +1665,27 @@ bool SyncManager::IsUsingExplicitPassphrase() {
   return data_ && data_->IsUsingExplicitPassphrase();
 }
 
-bool SyncManager::RequestPause() {
-  if (data_->syncer_thread())
-    return data_->syncer_thread()->RequestPause();
-  return false;
-}
-
-bool SyncManager::RequestResume() {
-  if (data_->syncer_thread())
-    return data_->syncer_thread()->RequestResume();
-  return false;
-}
-
-void SyncManager::RequestNudge() {
-  if (data_->syncer_thread())
-    data_->syncer_thread()->NudgeSyncer(0, SyncerThread::kLocal);
+void SyncManager::RequestNudge(const tracked_objects::Location& location) {
+  data_->RequestNudge(location);
 }
 
 void SyncManager::RequestClearServerData() {
   if (data_->syncer_thread())
-    data_->syncer_thread()->NudgeSyncer(0, SyncerThread::kClearPrivateData);
+    data_->syncer_thread()->ScheduleClearUserData();
 }
 
 void SyncManager::RequestConfig(const syncable::ModelTypeBitSet& types) {
   if (!data_->syncer_thread())
     return;
-  // It is an error for this to be called if new_impl is null.
-  data_->syncer_thread()->new_impl()->Start(
-      browser_sync::s3::SyncerThread::CONFIGURATION_MODE);
-  data_->syncer_thread()->new_impl()->ScheduleConfig(types);
+  StartConfigurationMode(NULL);
+  data_->syncer_thread()->ScheduleConfig(types);
+}
+
+void SyncManager::StartConfigurationMode(ModeChangeCallback* callback) {
+  if (!data_->syncer_thread())
+    return;
+  data_->syncer_thread()->Start(
+      browser_sync::SyncerThread::CONFIGURATION_MODE, callback);
 }
 
 const std::string& SyncManager::GetAuthenticatedUsername() {
@@ -1660,7 +1702,7 @@ bool SyncManager::SyncInternal::Init(
     ModelSafeWorkerRegistrar* model_safe_worker_registrar,
     const char* user_agent,
     const SyncCredentials& credentials,
-    const notifier::NotifierOptions& notifier_options,
+    sync_notifier::SyncNotifier* sync_notifier,
     const std::string& restored_key_for_bootstrapping,
     bool setup_for_test_mode) {
 
@@ -1668,20 +1710,21 @@ bool SyncManager::SyncInternal::Init(
 
   core_message_loop_ = MessageLoop::current();
   DCHECK(core_message_loop_);
-  notifier_options_ = notifier_options;
   registrar_ = model_safe_worker_registrar;
   setup_for_test_mode_ = setup_for_test_mode;
+
+  sync_notifier_ = sync_notifier;
+  sync_notifier_->AddObserver(this);
 
   share_.dir_manager.reset(new DirectoryManager(database_location));
 
   connection_manager_.reset(new SyncAPIServerConnectionManager(
       sync_server_and_path, port, use_ssl, user_agent, post_factory));
 
-  connection_manager_hookup_.reset(
-      NewEventListenerHookup(connection_manager()->channel(), this,
-          &SyncManager::SyncInternal::HandleServerConnectionEvent));
-
   net::NetworkChangeNotifier::AddIPAddressObserver(this);
+
+  connection_manager()->AddListener(this);
+
   // TODO(akalin): CheckServerReachable() can block, which may cause jank if we
   // try to shut down sync.  Fix this.
   core_message_loop_->PostTask(FROM_HERE,
@@ -1701,15 +1744,19 @@ bool SyncManager::SyncInternal::Init(
         listeners);
     context->set_account_name(credentials.email);
     // The SyncerThread takes ownership of |context|.
-    syncer_thread_.reset(new SyncerThreadAdapter(context,
-        CommandLine::ForCurrentProcess()->HasSwitch(
-            switches::kNewSyncerThread)));
+    syncer_thread_.reset(new SyncerThread(context, new Syncer()));
   }
 
   bool signed_in = SignIn(credentials);
 
+  if (signed_in && syncer_thread()) {
+    syncer_thread()->Start(
+        browser_sync::SyncerThread::CONFIGURATION_MODE, NULL);
+  }
+
   // Do this once the directory is opened.
   BootstrapEncryption(restored_key_for_bootstrapping);
+  MarkAndNotifyInitializationComplete();
   return signed_in;
 }
 
@@ -1724,12 +1771,13 @@ void SyncManager::SyncInternal::BootstrapEncryption(
   if (!lookup->initial_sync_ended_for_type(syncable::NIGORI))
     return;
 
-  Cryptographer* cryptographer = share_.dir_manager->cryptographer();
-  cryptographer->Bootstrap(restored_key_for_bootstrapping);
-
   sync_pb::NigoriSpecifics nigori;
   {
+    // Cryptographer should only be accessed while holding a transaction.
     ReadTransaction trans(GetUserShare());
+    Cryptographer* cryptographer = trans.GetCryptographer();
+    cryptographer->Bootstrap(restored_key_for_bootstrapping);
+
     ReadNode node(&trans);
     if (!node.InitByTagLookup(kNigoriTag)) {
       NOTREACHED();
@@ -1757,11 +1805,12 @@ void SyncManager::SyncInternal::BootstrapEncryption(
 }
 
 void SyncManager::SyncInternal::StartSyncing() {
+  // Start the syncer thread. This won't actually
+  // result in any syncing until at least the
+  // DirectoryManager broadcasts the OPENED event,
+  // and a valid server connection is detected.
   if (syncer_thread())  // NULL during certain unittests.
-    syncer_thread()->Start();  // Start the syncer thread. This won't actually
-                               // result in any syncing until at least the
-                               // DirectoryManager broadcasts the OPENED event,
-                               // and a valid server connection is detected.
+    syncer_thread()->Start(SyncerThread::NORMAL_MODE, NULL);
 }
 
 void SyncManager::SyncInternal::MarkAndNotifyInitializationComplete() {
@@ -1782,38 +1831,14 @@ void SyncManager::SyncInternal::MarkAndNotifyInitializationComplete() {
                     OnInitializationComplete());
 }
 
-void SyncManager::SyncInternal::SendPendingXMPPNotification(
-    bool new_pending_notification) {
+void SyncManager::SyncInternal::SendNotification() {
   DCHECK_EQ(MessageLoop::current(), core_message_loop_);
-  DCHECK_NE(notifier_options_.notification_method,
-            notifier::NOTIFICATION_SERVER);
-  notification_pending_ = notification_pending_ || new_pending_notification;
-  if (!notification_pending_) {
-    VLOG(1) << "Not sending notification: no pending notification";
+  if (!sync_notifier_) {
+    VLOG(1) << "Not sending notification: sync_notifier_ is NULL";
     return;
   }
-  if (!talk_mediator()) {
-    VLOG(1) << "Not sending notification: shutting down (talk_mediator_ is "
-               "NULL)";
-    return;
-  }
-  VLOG(1) << "Sending XMPP notification...";
-  OutgoingNotificationData notification_data;
-  notification_data.service_id = browser_sync::kSyncServiceId;
-  notification_data.service_url = browser_sync::kSyncServiceUrl;
-  notification_data.send_content = true;
-  notification_data.priority = browser_sync::kSyncPriority;
-  notification_data.write_to_cache_only = true;
-  notification_data.service_specific_data =
-      browser_sync::kSyncServiceSpecificData;
-  notification_data.require_subscription = true;
-  bool success = talk_mediator()->SendNotification(notification_data);
-  if (success) {
-    notification_pending_ = false;
-    VLOG(1) << "Sent XMPP notification";
-  } else {
-    VLOG(1) << "Could not send XMPP notification";
-  }
+  allstatus_.IncrementNotificationsSent();
+  sync_notifier_->SendNotification();
 }
 
 bool SyncManager::SyncInternal::OpenDirectory() {
@@ -1838,11 +1863,7 @@ bool SyncManager::SyncInternal::OpenDirectory() {
 
   connection_manager()->set_client_id(lookup->cache_guid());
 
-  if (syncer_thread())
-    syncer_thread()->CreateSyncer(username_for_share());
-
-  MarkAndNotifyInitializationComplete();
-  dir_change_hookup_.reset(lookup->AddChangeObserver(this));
+  lookup->SetChangeListener(this);
   return true;
 }
 
@@ -1855,9 +1876,24 @@ bool SyncManager::SyncInternal::SignIn(const SyncCredentials& credentials) {
   if (!OpenDirectory())
     return false;
 
-  if (!setup_for_test_mode_) {
-    UpdateCredentials(credentials);
+  // Retrieve and set the sync notifier state. This should be done
+  // only after OpenDirectory is called.
+  syncable::ScopedDirLookup lookup(dir_manager(), username_for_share());
+  std::string state;
+  if (lookup.good()) {
+    state = lookup->GetAndClearNotificationState();
+  } else {
+    LOG(ERROR) << "Could not read notification state";
   }
+  if (VLOG_IS_ON(1)) {
+    std::string encoded_state;
+    base::Base64Encode(state, &encoded_state);
+    VLOG(1) << "Read notification state: " << encoded_state;
+  }
+  sync_notifier_->SetState(state);
+
+  UpdateCredentials(credentials);
+  UpdateEnabledTypes();
   return true;
 }
 
@@ -1865,64 +1901,26 @@ void SyncManager::SyncInternal::UpdateCredentials(
     const SyncCredentials& credentials) {
   DCHECK_EQ(MessageLoop::current(), core_message_loop_);
   DCHECK_EQ(credentials.email, share_.name);
+  DCHECK(!credentials.email.empty());
+  DCHECK(!credentials.sync_token.empty());
   connection_manager()->set_auth_token(credentials.sync_token);
-  TalkMediatorLogin(credentials.email, credentials.sync_token);
-  CheckServerReachable();
-  // TODO(tim): Why is this nudge necessary? Possibly just to realize that
-  // our credentials are invalid (may have been cached, etc), rather than
-  // wait until a sync needs to happen.  Not sure that justifies it...
-  sync_manager_->RequestNudge();
+  sync_notifier_->UpdateCredentials(
+      credentials.email, credentials.sync_token);
+  if (!setup_for_test_mode_) {
+    CheckServerReachable();
+  }
 }
 
-void SyncManager::SyncInternal::UpdateEnabledTypes(
-  const syncable::ModelTypeSet& types) {
+void SyncManager::SyncInternal::UpdateEnabledTypes() {
   DCHECK_EQ(MessageLoop::current(), core_message_loop_);
-
-  enabled_types_ = types;
-  if (server_notifier_thread_ != NULL) {
-    server_notifier_thread_->UpdateEnabledTypes(types);
+  ModelSafeRoutingInfo routes;
+  registrar_->GetModelSafeRoutingInfo(&routes);
+  syncable::ModelTypeSet enabled_types;
+  for (ModelSafeRoutingInfo::const_iterator it = routes.begin();
+       it != routes.end(); ++it) {
+    enabled_types.insert(it->first);
   }
-}
-
-void SyncManager::SyncInternal::InitializeTalkMediator() {
-  if (notifier_options_.notification_method ==
-      notifier::NOTIFICATION_SERVER) {
-    syncable::ScopedDirLookup lookup(dir_manager(), username_for_share());
-    std::string state;
-    if (lookup.good())
-      state = lookup->GetAndClearNotificationState();
-    else
-      LOG(ERROR) << "Could not read notification state";
-    if (VLOG_IS_ON(1)) {
-      std::string encoded_state;
-      base::Base64Encode(state, &encoded_state);
-      VLOG(1) << "Read notification state: " << encoded_state;
-    }
-
-    // |talk_mediator_| takes ownership of |sync_notifier_thread_|
-    // but it is. guaranteed that |sync_notifier_thread_| is destroyed only
-    // when |talk_mediator_| is (see the comments in talk_mediator.h).
-    server_notifier_thread_ = new sync_notifier::ServerNotifierThread(
-        notifier_options_, state, this);
-    talk_mediator_.reset(
-        new TalkMediatorImpl(server_notifier_thread_,
-                             notifier_options_.invalidate_xmpp_login,
-                             notifier_options_.allow_insecure_connection));
-
-    // Since we may be initialized more than once, make sure that any
-    // newly created server notifier thread has the latest enabled types.
-    server_notifier_thread_->UpdateEnabledTypes(enabled_types_);
-  } else {
-    notifier::MediatorThread* mediator_thread =
-        new notifier::MediatorThreadImpl(notifier_options_);
-    talk_mediator_.reset(
-        new TalkMediatorImpl(mediator_thread,
-                             notifier_options_.invalidate_xmpp_login,
-                             notifier_options_.allow_insecure_connection));
-    talk_mediator_->AddSubscribedServiceUrl(browser_sync::kSyncServiceUrl);
-    server_notifier_thread_ = NULL;
-  }
-  talk_mediator()->SetDelegate(this);
+  sync_notifier_->UpdateEnabledTypes(enabled_types);
 }
 
 void SyncManager::SyncInternal::RaiseAuthNeededEvent() {
@@ -1931,9 +1929,9 @@ void SyncManager::SyncInternal::RaiseAuthNeededEvent() {
       OnAuthError(AuthError(AuthError::INVALID_GAIA_CREDENTIALS)));
 }
 
-void SyncManager::SyncInternal::SetUsingExplicitPassphrasePrefForMigration() {
-  WriteTransaction trans(&share_);
-  WriteNode node(&trans);
+void SyncManager::SyncInternal::SetUsingExplicitPassphrasePrefForMigration(
+    WriteTransaction* const trans) {
+  WriteNode node(trans);
   if (!node.InitByTagLookup(kNigoriTag)) {
     // TODO(albertb): Plumb an UnrecoverableError all the way back to the PSS.
     NOTREACHED();
@@ -1946,8 +1944,11 @@ void SyncManager::SyncInternal::SetUsingExplicitPassphrasePrefForMigration() {
 
 void SyncManager::SyncInternal::SetPassphrase(
     const std::string& passphrase, bool is_explicit) {
-  Cryptographer* cryptographer = dir_manager()->cryptographer();
+  // All accesses to the cryptographer are protected by a transaction.
+  WriteTransaction trans(GetUserShare());
+  Cryptographer* cryptographer = trans.GetCryptographer();
   KeyParams params = {"localhost", "dummy", passphrase};
+
   if (cryptographer->has_pending_keys()) {
     if (!cryptographer->DecryptPendingKeys(params)) {
       VLOG(1) << "Passphrase failed to decrypt pending keys.";
@@ -1960,14 +1961,13 @@ void SyncManager::SyncInternal::SetPassphrase(
     // since the protocol changed to store passphrase preferences in the cloud,
     // make sure we update this preference. See bug 62103.
     if (is_explicit)
-      SetUsingExplicitPassphrasePrefForMigration();
+      SetUsingExplicitPassphrasePrefForMigration(&trans);
 
     // Nudge the syncer so that encrypted datatype updates that were waiting for
     // this passphrase get applied as soon as possible.
-    sync_manager_->RequestNudge();
+    RequestNudge(FROM_HERE);
   } else {
     VLOG(1) << "No pending keys, adding provided passphrase.";
-    WriteTransaction trans(GetUserShare());
     WriteNode node(&trans);
     if (!node.InitByTagLookup(kNigoriTag)) {
       // TODO(albertb): Plumb an UnrecoverableError all the way back to the PSS.
@@ -2046,6 +2046,52 @@ void SyncManager::SyncInternal::EncryptDataTypes(
   // (redundant changes are ignored).
   ReEncryptEverything(&trans);
   return;
+}
+
+namespace {
+
+void FindChildNodesContainingString(const std::string& lowercase_query,
+    const ReadNode& parent_node,
+    sync_api::ReadTransaction* trans,
+    ListValue* result) {
+  int64 child_id = parent_node.GetFirstChildId();
+  while (child_id != kInvalidId) {
+    ReadNode node(trans);
+    if (node.InitByIdLookup(child_id)) {
+      if (node.ContainsString(lowercase_query)) {
+        result->Append(new StringValue(base::Int64ToString(child_id)));
+      }
+      FindChildNodesContainingString(lowercase_query, node, trans, result);
+      child_id = node.GetSuccessorId();
+    } else {
+      LOG(WARNING) << "Lookup of node failed. Id: " << child_id;
+      return;
+    }
+  }
+}
+}  // namespace
+
+// Returned pointer owned by the caller.
+ListValue* SyncManager::SyncInternal::FindNodesContainingString(
+    const std::string& query) {
+  // Convert the query string to lower case to perform case insensitive
+  // searches.
+  std::string lowercase_query = query;
+  StringToLowerASCII(&lowercase_query);
+  ReadTransaction trans(GetUserShare());
+  ReadNode root(&trans);
+  root.InitByRootLookup();
+
+  ListValue* result = new ListValue();
+
+  base::Time start_time = base::Time::Now();
+  FindChildNodesContainingString(lowercase_query, root, &trans, result);
+  base::Time end_time = base::Time::Now();
+
+  base::TimeDelta delta = end_time - start_time;
+  VLOG(1) << "Time taken in milliseconds to search " << delta.InMilliseconds();
+
+  return result;
 }
 
 void SyncManager::SyncInternal::ReEncryptEverything(WriteTransaction* trans) {
@@ -2140,36 +2186,24 @@ void SyncManager::Shutdown() {
 void SyncManager::SyncInternal::Shutdown() {
   method_factory_.RevokeAll();
 
-  // We NULL out talk_mediator_ so that any tasks pumped below do not
-  // trigger further XMPP actions.
-  //
-  // TODO(akalin): NULL the other member variables defensively, too.
-  scoped_ptr<TalkMediator> talk_mediator(talk_mediator_.release());
-
   if (syncer_thread()) {
-    if (!syncer_thread()->Stop(kThreadExitTimeoutMsec)) {
-      LOG(FATAL) << "Unable to stop the syncer, it won't be happy...";
-    }
+    syncer_thread()->Stop();
     syncer_thread_.reset();
   }
 
-  // Shutdown the xmpp buzz connection.
-  if (talk_mediator.get()) {
-    VLOG(1) << "P2P: Mediator logout started.";
-    talk_mediator->Logout();
-    VLOG(1) << "P2P: Mediator logout completed.";
-    talk_mediator.reset();
-
-    // |server_notifier_thread_| is owned by |talk_mediator|. We NULL
-    // it out here so as to not have a dangling pointer.
-    server_notifier_thread_= NULL;
-    VLOG(1) << "P2P: Mediator destroyed.";
+  // We NULL out sync_notifer_ so that any pending tasks do not
+  // trigger further notifications.
+  // TODO(akalin): NULL the other member variables defensively, too.
+  if (sync_notifier_) {
+    sync_notifier_->RemoveObserver(this);
   }
 
-  // Pump any messages the auth watcher, syncer thread, or talk
-  // mediator posted before they shut down. (See OnSyncEngineEvent(),
-  // and HandleTalkMediatorEvent() for the
-  // events that may be posted.)
+  // |this| is about to be destroyed, so we have to ensure any messages
+  // that were posted to core_thread_ before or during syncer thread shutdown
+  // are flushed out, else they refer to garbage memory.  SendNotification
+  // is an example.
+  // TODO(tim): Remove this monstrosity, perhaps with ObserverListTS once core
+  // thread is removed. Bug 78190.
   {
     CHECK(core_message_loop_);
     bool old_state = core_message_loop_->NestableTasksAllowed();
@@ -2190,9 +2224,6 @@ void SyncManager::SyncInternal::Shutdown() {
   // Reset the DirectoryManager and UserSettings so they relinquish sqlite
   // handles to backing files.
   share_.dir_manager.reset();
-
-  // We don't want to process any more events.
-  dir_change_hookup_.reset();
 
   core_message_loop_ = NULL;
 }
@@ -2215,50 +2246,16 @@ void SyncManager::SyncInternal::OnIPAddressChangedImpl() {
   // TODO(akalin): CheckServerReachable() can block, which may cause
   // jank if we try to shut down sync.  Fix this.
   connection_manager()->CheckServerReachable();
-  sync_manager_->RequestNudge();
+  RequestNudge(FROM_HERE);
 }
 
-// Listen to model changes, filter out ones initiated by the sync API, and
-// saves the rest (hopefully just backend Syncer changes resulting from
-// ApplyUpdates) to data_->changelist.
-void SyncManager::SyncInternal::HandleChannelEvent(
-    const syncable::DirectoryChangeEvent& event) {
-  if (event.todo == syncable::DirectoryChangeEvent::TRANSACTION_COMPLETE) {
-    // Safe to perform slow I/O operations now, go ahead and commit.
-    HandleTransactionCompleteChangeEvent(event);
-    return;
-  } else if (event.todo == syncable::DirectoryChangeEvent::TRANSACTION_ENDING) {
-    HandleTransactionEndingChangeEvent(event);
-    return;
-  } else if (event.todo == syncable::DirectoryChangeEvent::CALCULATE_CHANGES) {
-    if (event.writer == syncable::SYNCAPI) {
-      HandleCalculateChangesChangeEventFromSyncApi(event);
-      return;
-    }
-    HandleCalculateChangesChangeEventFromSyncer(event);
-    return;
-  } else if (event.todo == syncable::DirectoryChangeEvent::SHUTDOWN) {
-    dir_change_hookup_.reset();
-  }
-}
-
-void SyncManager::SyncInternal::HandleTransactionCompleteChangeEvent(
-    const syncable::DirectoryChangeEvent& event) {
-  // This notification happens immediately after the channel mutex is released
-  // This allows work to be performed without holding the WriteTransaction lock
-  // but before the transaction is finished.
-  DCHECK_EQ(event.todo, syncable::DirectoryChangeEvent::TRANSACTION_COMPLETE);
-  if (observers_.size() <= 0)
-    return;
-
-  // Call commit
-  for (int i = 0; i < syncable::MODEL_TYPE_COUNT; ++i) {
-    if (model_has_change_.test(i)) {
-      FOR_EACH_OBSERVER(SyncManager::Observer, observers_,
-                        OnChangesComplete(syncable::ModelTypeFromInt(i)));
-      model_has_change_.reset(i);
-    }
-  }
+void SyncManager::SyncInternal::OnServerConnectionEvent(
+    const ServerConnectionEvent2& event) {
+  ServerConnectionEvent legacy;
+  legacy.what_happened = ServerConnectionEvent::STATUS_CHANGED;
+  legacy.connection_code = event.connection_code;
+  legacy.server_reachable = event.server_reachable;
+  HandleServerConnectionEvent(legacy);
 }
 
 void SyncManager::SyncInternal::HandleServerConnectionEvent(
@@ -2279,55 +2276,74 @@ void SyncManager::SyncInternal::HandleServerConnectionEvent(
   }
 }
 
-void SyncManager::SyncInternal::HandleTransactionEndingChangeEvent(
-    const syncable::DirectoryChangeEvent& event) {
+void SyncManager::SyncInternal::HandleTransactionCompleteChangeEvent(
+    const syncable::ModelTypeBitSet& models_with_changes) {
+  // This notification happens immediately after the transaction mutex is
+  // released. This allows work to be performed without blocking other threads
+  // from acquiring a transaction.
+  if (observers_.size() <= 0)
+    return;
+
+  // Call commit.
+  for (int i = 0; i < syncable::MODEL_TYPE_COUNT; ++i) {
+    if (models_with_changes.test(i)) {
+      FOR_EACH_OBSERVER(SyncManager::Observer, observers_,
+                        OnChangesComplete(syncable::ModelTypeFromInt(i)));
+    }
+  }
+}
+
+ModelTypeBitSet SyncManager::SyncInternal::HandleTransactionEndingChangeEvent(
+    syncable::BaseTransaction* trans) {
   // This notification happens immediately before a syncable WriteTransaction
   // falls out of scope. It happens while the channel mutex is still held,
   // and while the transaction mutex is held, so it cannot be re-entrant.
-  DCHECK_EQ(event.todo, syncable::DirectoryChangeEvent::TRANSACTION_ENDING);
   if (observers_.size() <= 0 || ChangeBuffersAreEmpty())
-    return;
+    return ModelTypeBitSet();
 
   // This will continue the WriteTransaction using a read only wrapper.
   // This is the last chance for read to occur in the WriteTransaction
   // that's closing. This special ReadTransaction will not close the
   // underlying transaction.
-  ReadTransaction trans(GetUserShare(), event.trans);
+  ReadTransaction read_trans(GetUserShare(), trans);
 
+  syncable::ModelTypeBitSet models_with_changes;
   for (int i = 0; i < syncable::MODEL_TYPE_COUNT; ++i) {
     if (change_buffers_[i].IsEmpty())
       continue;
 
     vector<ChangeRecord> ordered_changes;
-    change_buffers_[i].GetAllChangesInTreeOrder(&trans, &ordered_changes);
+    change_buffers_[i].GetAllChangesInTreeOrder(&read_trans, &ordered_changes);
     if (!ordered_changes.empty()) {
       FOR_EACH_OBSERVER(
           SyncManager::Observer, observers_,
-          OnChangesApplied(syncable::ModelTypeFromInt(i), &trans,
+          OnChangesApplied(syncable::ModelTypeFromInt(i), &read_trans,
                            &ordered_changes[0], ordered_changes.size()));
-      model_has_change_.set(i, true);
+      models_with_changes.set(i, true);
     }
     change_buffers_[i].Clear();
   }
+  return models_with_changes;
 }
 
 void SyncManager::SyncInternal::HandleCalculateChangesChangeEventFromSyncApi(
-    const syncable::DirectoryChangeEvent& event) {
-  // We have been notified about a user action changing the bookmark model.
-  DCHECK_EQ(event.todo, syncable::DirectoryChangeEvent::CALCULATE_CHANGES);
-  DCHECK(event.writer == syncable::SYNCAPI ||
-         event.writer == syncable::UNITTEST);
+    const OriginalEntries& originals,
+    const WriterTag& writer,
+    syncable::BaseTransaction* trans) {
+  // We have been notified about a user action changing a sync model.
+  DCHECK(writer == syncable::SYNCAPI ||
+         writer == syncable::UNITTEST);
   LOG_IF(WARNING, !ChangeBuffersAreEmpty()) <<
       "CALCULATE_CHANGES called with unapplied old changes.";
 
   bool exists_unsynced_items = false;
   bool only_preference_changes = true;
   syncable::ModelTypeBitSet model_types;
-  for (syncable::OriginalEntries::const_iterator i = event.originals->begin();
-       i != event.originals->end() && !exists_unsynced_items;
+  for (syncable::OriginalEntries::const_iterator i = originals.begin();
+       i != originals.end() && !exists_unsynced_items;
        ++i) {
     int64 id = i->ref(syncable::META_HANDLE);
-    syncable::Entry e(event.trans, syncable::GET_BY_HANDLE, id);
+    syncable::Entry e(trans, syncable::GET_BY_HANDLE, id);
     DCHECK(e.good());
 
     syncable::ModelType model_type = e.GetModelType();
@@ -2349,10 +2365,12 @@ void SyncManager::SyncInternal::HandleCalculateChangesChangeEventFromSyncApi(
   if (exists_unsynced_items && syncer_thread()) {
     int nudge_delay = only_preference_changes ?
         kPreferencesNudgeDelayMilliseconds : kDefaultNudgeDelayMilliseconds;
-    syncer_thread()->NudgeSyncerWithDataTypes(
-        nudge_delay,
-        SyncerThread::kLocal,
-        model_types);
+    core_message_loop_->PostTask(FROM_HERE,
+        NewRunnableMethod(this, &SyncInternal::RequestNudgeWithDataTypes,
+        TimeDelta::FromMilliseconds(nudge_delay),
+        browser_sync::NUDGE_SOURCE_LOCAL,
+        model_types,
+        FROM_HERE));
   }
 }
 
@@ -2387,19 +2405,21 @@ void SyncManager::SyncInternal::SetExtraChangeRecordData(int64 id,
 }
 
 void SyncManager::SyncInternal::HandleCalculateChangesChangeEventFromSyncer(
-    const syncable::DirectoryChangeEvent& event) {
+    const OriginalEntries& originals,
+    const WriterTag& writer,
+    syncable::BaseTransaction* trans) {
   // We only expect one notification per sync step, so change_buffers_ should
   // contain no pending entries.
-  DCHECK_EQ(event.todo, syncable::DirectoryChangeEvent::CALCULATE_CHANGES);
-  DCHECK(event.writer == syncable::SYNCER ||
-         event.writer == syncable::UNITTEST);
+  DCHECK(writer == syncable::SYNCER ||
+         writer == syncable::UNITTEST);
   LOG_IF(WARNING, !ChangeBuffersAreEmpty()) <<
       "CALCULATE_CHANGES called with unapplied old changes.";
 
-  for (syncable::OriginalEntries::const_iterator i = event.originals->begin();
-       i != event.originals->end(); ++i) {
+  Cryptographer* crypto = dir_manager()->GetCryptographer(trans);
+  for (syncable::OriginalEntries::const_iterator i = originals.begin();
+       i != originals.end(); ++i) {
     int64 id = i->ref(syncable::META_HANDLE);
-    syncable::Entry e(event.trans, syncable::GET_BY_HANDLE, id);
+    syncable::Entry e(trans, syncable::GET_BY_HANDLE, id);
     bool existed_before = !i->ref(syncable::IS_DEL);
     bool exists_now = e.good() && !e.Get(syncable::IS_DEL);
     DCHECK(e.good());
@@ -2414,18 +2434,33 @@ void SyncManager::SyncInternal::HandleCalculateChangesChangeEventFromSyncer(
     else if (!exists_now && existed_before)
       change_buffers_[type].PushDeletedItem(id);
     else if (exists_now && existed_before &&
-             VisiblePropertiesDiffer(*i, e, dir_manager()->cryptographer())) {
+             VisiblePropertiesDiffer(*i, e, crypto)) {
       change_buffers_[type].PushUpdatedItem(id, VisiblePositionsDiffer(*i, e));
     }
 
-    SetExtraChangeRecordData(id, type, &change_buffers_[type],
-                             dir_manager()->cryptographer(), *i,
+    SetExtraChangeRecordData(id, type, &change_buffers_[type], crypto, *i,
                              existed_before, exists_now);
   }
 }
 
 SyncManager::Status SyncManager::SyncInternal::GetStatus() {
   return allstatus_.status();
+}
+
+void SyncManager::SyncInternal::RequestNudge(
+    const tracked_objects::Location& location) {
+  if (syncer_thread())
+     syncer_thread()->ScheduleNudge(
+        TimeDelta::FromMilliseconds(0), browser_sync::NUDGE_SOURCE_LOCAL,
+        ModelTypeBitSet(), location);
+}
+
+void SyncManager::SyncInternal::RequestNudgeWithDataTypes(
+    const TimeDelta& delay,
+    browser_sync::NudgeSource source, const ModelTypeBitSet& types,
+    const tracked_objects::Location& nudge_location) {
+  if (syncer_thread())
+     syncer_thread()->ScheduleNudge(delay, source, types, nudge_location);
 }
 
 void SyncManager::SyncInternal::OnSyncEngineEvent(
@@ -2459,8 +2494,7 @@ void SyncManager::SyncInternal::OnSyncEngineEvent(
       if (enabled_types.count(syncable::PASSWORDS) > 0)
         encrypted_types.insert(syncable::PASSWORDS);
       if (!encrypted_types.empty()) {
-        Cryptographer* cryptographer =
-            GetUserShare()->dir_manager->cryptographer();
+        Cryptographer* cryptographer = trans.GetCryptographer();
         if (!cryptographer->is_ready() && !cryptographer->has_pending_keys()) {
           if (!nigori.encrypted().blob().empty()) {
             DCHECK(!cryptographer->CanDecrypt(nigori.encrypted()));
@@ -2491,31 +2525,20 @@ void SyncManager::SyncInternal::OnSyncEngineEvent(
                         OnSyncCycleCompleted(event.snapshot));
     }
 
-    if (notifier_options_.notification_method !=
-        notifier::NOTIFICATION_SERVER) {
-      // TODO(chron): Consider changing this back to track has_more_to_sync
-      // only notify peers if a successful commit has occurred.
-      bool new_pending_notification =
-          (event.snapshot->syncer_status.num_successful_commits > 0);
+    // This is here for tests, which are still using p2p notifications.
+    // SendNotification does not do anything if we are using server based
+    // notifications.
+    // TODO(chron): Consider changing this back to track has_more_to_sync
+    // only notify peers if a successful commit has occurred.
+    bool new_notification =
+        (event.snapshot->syncer_status.num_successful_commits > 0);
+    if (new_notification) {
       core_message_loop_->PostTask(
           FROM_HERE,
           NewRunnableMethod(
               this,
-              &SyncManager::SyncInternal::SendPendingXMPPNotification,
-              new_pending_notification));
+              &SyncManager::SyncInternal::SendNotification));
     }
-  }
-
-  if (event.what_happened == SyncEngineEvent::SYNCER_THREAD_PAUSED) {
-    FOR_EACH_OBSERVER(SyncManager::Observer, observers_,
-                      OnPaused());
-    return;
-  }
-
-  if (event.what_happened == SyncEngineEvent::SYNCER_THREAD_RESUMED) {
-    FOR_EACH_OBSERVER(SyncManager::Observer, observers_,
-                      OnResumed());
-    return;
   }
 
   if (event.what_happened == SyncEngineEvent::STOP_SYNCING_PERMANENTLY) {
@@ -2583,6 +2606,16 @@ void SyncManager::SyncInternal::ProcessMessage(
     parent_router_->RouteJsEvent(
         "onGetNotificationStateFinished",
         browser_sync::JsArgList(return_args), sender);
+  } else if (name == "getNotificationInfo") {
+    if (!parent_router_) {
+      LogNoRouter(name, args);
+      return;
+    }
+
+    ListValue return_args;
+    return_args.Append(NotificationInfoToValue(notification_info_map_));
+    parent_router_->RouteJsEvent("onGetNotificationInfoFinished",
+        browser_sync::JsArgList(return_args), sender);
   } else if (name == "getRootNode") {
     if (!parent_router_) {
       LogNoRouter(name, args);
@@ -2603,6 +2636,14 @@ void SyncManager::SyncInternal::ProcessMessage(
     }
     parent_router_->RouteJsEvent(
         "onGetNodeByIdFinished", ProcessGetNodeByIdMessage(args), sender);
+  } else if (name == "findNodesContainingString") {
+    if (!parent_router_) {
+      LogNoRouter(name, args);
+      return;
+    }
+    parent_router_->RouteJsEvent(
+        "onFindNodesContainingStringFinished",
+        ProcessFindNodesContainingString(args), sender);
   } else {
     VLOG(1) << "Dropping unknown message " << name
               << " with args " << args.ToString();
@@ -2635,13 +2676,28 @@ browser_sync::JsArgList SyncManager::SyncInternal::ProcessGetNodeByIdMessage(
   return browser_sync::JsArgList(return_args);
 }
 
+browser_sync::JsArgList SyncManager::SyncInternal::
+    ProcessFindNodesContainingString(
+    const browser_sync::JsArgList& args) {
+  std::string query;
+  ListValue return_args;
+  if (!args.Get().GetString(0, &query)) {
+    return_args.Append(new ListValue());
+    return browser_sync::JsArgList(return_args);
+  }
+
+  ListValue* result = FindNodesContainingString(query);
+  return_args.Append(result);
+  return browser_sync::JsArgList(return_args);
+}
+
 void SyncManager::SyncInternal::OnNotificationStateChange(
     bool notifications_enabled) {
   VLOG(1) << "P2P: Notifications enabled = "
           << (notifications_enabled ? "true" : "false");
   allstatus_.SetNotificationsEnabled(notifications_enabled);
   if (syncer_thread()) {
-    syncer_thread()->SetNotificationsEnabled(notifications_enabled);
+    syncer_thread()->set_notifications_enabled(notifications_enabled);
   }
   if (parent_router_) {
     ListValue args;
@@ -2650,89 +2706,29 @@ void SyncManager::SyncInternal::OnNotificationStateChange(
     parent_router_->RouteJsEvent("onSyncNotificationStateChange",
                                  browser_sync::JsArgList(args), NULL);
   }
-  if ((notifier_options_.notification_method !=
-       notifier::NOTIFICATION_SERVER) && notifications_enabled) {
-    // Nudge the syncer thread when notifications are enabled, in case there is
-    // any data that has not yet been synced. If we are listening to
-    // server-issued notifications, we are already guaranteed to receive a
-    // notification on a successful connection.
-    if (syncer_thread()) {
-      syncer_thread()->NudgeSyncer(0, SyncerThread::kLocal);
-    }
-
-    // Send a notification as soon as subscriptions are on
-    // (see http://code.google.com/p/chromium/issues/detail?id=38563 ).
-    core_message_loop_->PostTask(
-        FROM_HERE,
-        NewRunnableMethod(
-            this,
-            &SyncManager::SyncInternal::SendPendingXMPPNotification,
-            true));
-  }
 }
 
-void SyncManager::SyncInternal::TalkMediatorLogin(
-    const std::string& email, const std::string& token) {
-  DCHECK_EQ(MessageLoop::current(), core_message_loop_);
-  DCHECK(!email.empty());
-  DCHECK(!token.empty());
-  InitializeTalkMediator();
-  talk_mediator()->SetAuthToken(email, token, SYNC_SERVICE_NAME);
-  talk_mediator()->Login();
+void SyncManager::SyncInternal::UpdateNotificationInfo(
+    const syncable::ModelTypePayloadMap& type_payloads) {
+  for (syncable::ModelTypePayloadMap::const_iterator it = type_payloads.begin();
+       it != type_payloads.end(); ++it) {
+    NotificationInfo* info = &notification_info_map_[it->first];
+    info->total_count++;
+    info->payload = it->second;
+  }
 }
 
 void SyncManager::SyncInternal::OnIncomingNotification(
-    const IncomingNotificationData& notification_data) {
-  browser_sync::sessions::TypePayloadMap model_types_with_payloads;
-
-  // Check if the service url is a sync URL.  An empty service URL is
-  // treated as a legacy sync notification.  If we're listening to
-  // server-issued notifications, no need to check the service_url.
-  if (notifier_options_.notification_method ==
-      notifier::NOTIFICATION_SERVER) {
-    VLOG(1) << "Sync received server notification from " <<
-        notification_data.service_url << ": " <<
-        notification_data.service_specific_data;
-    syncable::ModelTypeBitSet model_types;
-    const std::string& model_type_list = notification_data.service_url;
-    const std::string& notification_payload =
-        notification_data.service_specific_data;
-
-    if (!syncable::ModelTypeBitSetFromString(model_type_list, &model_types)) {
-      LOG(DFATAL) << "Could not extract model types from server data.";
-      model_types.set();
-    }
-
-    model_types_with_payloads =
-        browser_sync::sessions::MakeTypePayloadMapFromBitSet(model_types,
-            notification_payload);
-  } else if (notification_data.service_url.empty() ||
-             (notification_data.service_url ==
-              browser_sync::kSyncLegacyServiceUrl) ||
-             (notification_data.service_url ==
-              browser_sync::kSyncServiceUrl)) {
-    VLOG(1) << "Sync received P2P notification.";
-
-    // Catch for sync integration tests (uses p2p). Just set all enabled
-    // datatypes.
-    ModelSafeRoutingInfo routes;
-    registrar_->GetModelSafeRoutingInfo(&routes);
-    model_types_with_payloads =
-        browser_sync::sessions::MakeTypePayloadMapFromRoutingInfo(routes,
-            std::string());
-  } else {
-    LOG(WARNING) << "Notification fron unexpected source: "
-                 << notification_data.service_url;
-  }
-
-  if (!model_types_with_payloads.empty()) {
+    const syncable::ModelTypePayloadMap& type_payloads) {
+  if (!type_payloads.empty()) {
     if (syncer_thread()) {
-      syncer_thread()->NudgeSyncerWithPayloads(
-          kSyncerThreadDelayMsec,
-          SyncerThread::kNotification,
-          model_types_with_payloads);
+      syncer_thread()->ScheduleNudgeWithPayloads(
+          TimeDelta::FromMilliseconds(kSyncerThreadDelayMsec),
+          browser_sync::NUDGE_SOURCE_NOTIFICATION,
+          type_payloads, FROM_HERE);
     }
     allstatus_.IncrementNotificationsReceived();
+    UpdateNotificationInfo(type_payloads);
   } else {
     LOG(WARNING) << "Sync received notification without any type information.";
   }
@@ -2741,9 +2737,9 @@ void SyncManager::SyncInternal::OnIncomingNotification(
     ListValue args;
     ListValue* changed_types = new ListValue();
     args.Append(changed_types);
-    for (browser_sync::sessions::TypePayloadMap::const_iterator
-             it = model_types_with_payloads.begin();
-         it != model_types_with_payloads.end(); ++it) {
+    for (syncable::ModelTypePayloadMap::const_iterator
+             it = type_payloads.begin();
+         it != type_payloads.end(); ++it) {
       const std::string& model_type_str =
           syncable::ModelTypeToString(it->first);
       changed_types->Append(Value::CreateStringValue(model_type_str));
@@ -2753,13 +2749,8 @@ void SyncManager::SyncInternal::OnIncomingNotification(
   }
 }
 
-void SyncManager::SyncInternal::OnOutgoingNotification() {
-  DCHECK_NE(notifier_options_.notification_method,
-            notifier::NOTIFICATION_SERVER);
-  allstatus_.IncrementNotificationsSent();
-}
-
-void SyncManager::SyncInternal::WriteState(const std::string& state) {
+void SyncManager::SyncInternal::StoreState(
+    const std::string& state) {
   syncable::ScopedDirLookup lookup(dir_manager(), username_for_share());
   if (!lookup.good()) {
     LOG(ERROR) << "Could not write notification state";
@@ -2816,7 +2807,7 @@ BaseTransaction::BaseTransaction(UserShare* share)
   DCHECK(share && share->dir_manager.get());
   lookup_ = new syncable::ScopedDirLookup(share->dir_manager.get(),
                                           share->name);
-  cryptographer_ = share->dir_manager->cryptographer();
+  cryptographer_ = share->dir_manager->GetCryptographer(this);
   if (!(lookup_->good()))
     DCHECK(false) << "ScopedDirLookup failed on valid DirManager.";
 }
@@ -2841,10 +2832,11 @@ void SyncManager::TriggerOnNotificationStateChangeForTest(
 
 void SyncManager::TriggerOnIncomingNotificationForTest(
     const syncable::ModelTypeBitSet& model_types) {
-  IncomingNotificationData notification_data;
-  notification_data.service_url = model_types.to_string();
-  // Here we rely on the default notification method being SERVER.
-  data_->OnIncomingNotification(notification_data);
+  syncable::ModelTypePayloadMap model_types_with_payloads =
+      syncable::ModelTypePayloadMapFromBitSet(model_types,
+          std::string());
+
+  data_->OnIncomingNotification(model_types_with_payloads);
 }
 
 }  // namespace sync_api

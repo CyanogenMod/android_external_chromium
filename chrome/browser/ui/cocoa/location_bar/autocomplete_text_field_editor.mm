@@ -1,19 +1,46 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "chrome/browser/ui/cocoa/location_bar/autocomplete_text_field_editor.h"
 
 #include "base/string_util.h"
-#include "grit/generated_resources.h"
 #include "base/sys_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"  // IDC_*
-#include "chrome/browser/browser_list.h"
+#include "chrome/browser/ui/browser_list.h"
 #import "chrome/browser/ui/cocoa/browser_window_controller.h"
 #import "chrome/browser/ui/cocoa/location_bar/autocomplete_text_field.h"
 #import "chrome/browser/ui/cocoa/location_bar/autocomplete_text_field_cell.h"
 #import "chrome/browser/ui/cocoa/toolbar/toolbar_controller.h"
+#include "grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util_mac.h"
+
+namespace {
+
+// When too much data is put into a single-line text field, things get
+// janky due to the cost of computing the blink rect.  Sometimes users
+// accidentally paste large amounts, so place a limit on what will be
+// accepted.
+//
+// 10k characters was arbitrarily chosen by seeing how much a text
+// field could handle in a single line before it started getting too
+// janky to recover from (jankiness was detectable around 5k).
+// www.google.com returns an error for searches around 2k characters,
+// so this is conservative.
+const NSUInteger kMaxPasteLength = 10000;
+
+// Returns |YES| if too much text would be pasted.
+BOOL ThePasteboardIsTooDamnBig() {
+  NSPasteboard* pb = [NSPasteboard generalPasteboard];
+  NSString* type =
+      [pb availableTypeFromArray:[NSArray arrayWithObject:NSStringPboardType]];
+  if (!type)
+    return NO;
+
+  return [[pb stringForType:type] length] > kMaxPasteLength;
+}
+
+}  // namespace
 
 @implementation AutocompleteTextFieldEditor
 
@@ -90,6 +117,11 @@
 }
 
 - (void)paste:(id)sender {
+  if (ThePasteboardIsTooDamnBig()) {
+    NSBeep();
+    return;
+  }
+
   AutocompleteTextFieldObserver* observer = [self observer];
   DCHECK(observer);
   if (observer) {
@@ -98,6 +130,11 @@
 }
 
 - (void)pasteAndGo:sender {
+  if (ThePasteboardIsTooDamnBig()) {
+    NSBeep();
+    return;
+  }
+
   AutocompleteTextFieldObserver* observer = [self observer];
   DCHECK(observer);
   if (observer) {

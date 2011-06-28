@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,8 @@
 #include <string>
 #include <vector>
 
-#include "base/ref_counted.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "net/server/http_server.h"
 #include "net/url_request/url_request.h"
 
@@ -21,7 +21,7 @@ class TabContents;
 class TabContentsWrapper;
 
 class DevToolsHttpProtocolHandler
-    : public HttpServer::Delegate,
+    : public net::HttpServer::Delegate,
       public net::URLRequest::Delegate,
       public base::RefCountedThreadSafe<DevToolsHttpProtocolHandler> {
  public:
@@ -56,19 +56,21 @@ class DevToolsHttpProtocolHandler
   virtual ~DevToolsHttpProtocolHandler();
   void Start();
 
-  // HttpServer::Delegate implementation.
+  // net::HttpServer::Delegate implementation.
   virtual void OnHttpRequest(int connection_id,
-                             const HttpServerRequestInfo& info);
+                             const net::HttpServerRequestInfo& info);
   virtual void OnWebSocketRequest(int connection_id,
-                                  const HttpServerRequestInfo& info);
+                                  const net::HttpServerRequestInfo& info);
   virtual void OnWebSocketMessage(int connection_id,
                                   const std::string& data);
   virtual void OnClose(int connection_id);
 
-  virtual void OnHttpRequestUI(int connection_id,
-                               const HttpServerRequestInfo& info);
+  virtual void OnRootRequestUI(int connection_id,
+                             const net::HttpServerRequestInfo& info);
+  virtual void OnJsonRequestUI(int connection_id,
+                             const net::HttpServerRequestInfo& info);
   virtual void OnWebSocketRequestUI(int connection_id,
-                                    const HttpServerRequestInfo& info);
+                                    const net::HttpServerRequestInfo& info);
   virtual void OnWebSocketMessageUI(int connection_id,
                                     const std::string& data);
   virtual void OnCloseUI(int connection_id);
@@ -89,14 +91,14 @@ class DevToolsHttpProtocolHandler
   void Send500(int connection_id,
                const std::string& message);
   void AcceptWebSocket(int connection_id,
-                       const HttpServerRequestInfo& request);
+                       const net::HttpServerRequestInfo& request);
 
   TabContents* GetTabContents(int session_id);
 
   std::string ip_;
   int port_;
   std::string overriden_frontend_url_;
-  scoped_refptr<HttpServer> server_;
+  scoped_refptr<net::HttpServer> server_;
   typedef std::map<net::URLRequest*, int>
       RequestToSocketMap;
   RequestToSocketMap request_to_connection_io_;

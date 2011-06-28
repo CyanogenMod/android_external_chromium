@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,10 +11,10 @@
 
 #include "base/basictypes.h"
 #include "base/environment.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/message_loop.h"
 #include "base/observer_list.h"
-#include "base/ref_counted.h"
-#include "base/scoped_ptr.h"
 #include "net/proxy/proxy_config.h"
 #include "net/proxy/proxy_config_service.h"
 #include "net/proxy/proxy_server.h"
@@ -144,7 +144,8 @@ class ProxyConfigServiceLinux : public ProxyConfigService {
     // Called from IO thread.
     void AddObserver(Observer* observer);
     void RemoveObserver(Observer* observer);
-    bool GetLatestProxyConfig(ProxyConfig* config);
+    ProxyConfigService::ConfigAvailability GetLatestProxyConfig(
+        ProxyConfig* config);
 
     // Posts a call to OnDestroy() to the UI thread. Called from
     // ProxyConfigServiceLinux's destructor.
@@ -239,7 +240,8 @@ class ProxyConfigServiceLinux : public ProxyConfigService {
   // Called from IO thread.
   virtual void AddObserver(Observer* observer);
   virtual void RemoveObserver(Observer* observer);
-  virtual bool GetLatestProxyConfig(ProxyConfig* config);
+  virtual ProxyConfigService::ConfigAvailability GetLatestProxyConfig(
+      ProxyConfig* config);
 
  private:
   scoped_refptr<Delegate> delegate_;

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 
-#include "base/linked_ptr.h"
+#include "base/memory/linked_ptr.h"
 
 class DictionaryValue;
 
@@ -159,6 +159,6 @@ typedef std::map<std::string, L10nMessagesMap > ExtensionToL10nMessagesMap;
 ExtensionToL10nMessagesMap* GetExtensionToL10nMessagesMap();
 
 // Returns message map that matches given extension_id, or NULL.
-L10nMessagesMap* GetL10nMessagesMap(const std::string extension_id);
+L10nMessagesMap* GetL10nMessagesMap(const std::string& extension_id);
 
 #endif  // CHROME_COMMON_EXTENSIONS_EXTENSION_MESSAGE_BUNDLE_H_

@@ -10,20 +10,19 @@
 #include <string>
 #include <vector>
 
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/timer.h"
 #include "build/build_config.h"
-#include "chrome/browser/browser_window.h"
 #include "chrome/browser/tabs/tab_strip_model_observer.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/views/frame/browser_bubble_host.h"
 #include "chrome/browser/ui/views/frame/browser_frame.h"
 #include "chrome/browser/ui/views/infobars/infobar_container.h"
 #include "chrome/browser/ui/views/tab_contents/tab_contents_container.h"
-#include "chrome/browser/ui/views/tabs/base_tab_strip.h"
-#include "chrome/browser/ui/views/tabs/tab_strip.h"
+#include "chrome/browser/ui/views/tabs/abstract_tab_strip_view.h"
 #include "chrome/browser/ui/views/unhandled_keyboard_event_handler.h"
-#include "chrome/common/notification_registrar.h"
+#include "content/common/notification_registrar.h"
 #include "ui/base/models/simple_menu_model.h"
 #include "ui/gfx/native_widget_types.h"
 #include "views/controls/single_split_view.h"
@@ -49,7 +48,7 @@ class DownloadShelfView;
 class EncodingMenuModel;
 class FullscreenExitBubble;
 class HtmlDialogUIDelegate;
-class InfoBarContainer;
+class InfoBarContainerView;
 class LocationBarView;
 class SideTabStrip;
 class StatusBubbleViews;
@@ -89,11 +88,6 @@ class BrowserView : public BrowserBubbleHost,
   // The browser view's class name.
   static const char kViewClassName[];
 
-  // Explicitly sets how windows are shown. Use a value of -1 to give the
-  // default behavior. This is used during testing and not generally useful
-  // otherwise.
-  static void SetShowState(int state);
-
   explicit BrowserView(Browser* browser);
   virtual ~BrowserView();
 
@@ -108,23 +102,11 @@ class BrowserView : public BrowserBubbleHost,
   // Returns a Browser instance of this view.
   Browser* browser() const { return browser_.get(); }
 
-  // Returns the show flag that should be used to show the frame containing
-  // this view.
-  int GetShowState() const;
-
-  // Called by the frame to notify the BrowserView that it was moved, and that
-  // any dependent popup windows should be repositioned.
-  void WindowMoved();
-
-  // Called by the frame to notify the BrowserView that a move or resize was
-  // initiated.
-  void WindowMoveOrResizeStarted();
-
   // Returns the apparent bounds of the toolbar, in BrowserView coordinates.
   // These differ from |toolbar_.bounds()| in that they match where the toolbar
   // background image is drawn -- slightly outside the "true" bounds
   // horizontally, and, when using vertical tabs, behind the tab column.
-  gfx::Rect GetToolbarBounds() const;
+  virtual gfx::Rect GetToolbarBounds() const;
 
   // Returns the bounds of the content area, in the coordinates of the
   // BrowserView's parent.
@@ -139,7 +121,7 @@ class BrowserView : public BrowserBubbleHost,
 
   // Returns the preferred height of the TabStrip. Used to position the OTR
   // avatar icon.
-  int GetTabStripHeight() const;
+  virtual int GetTabStripHeight() const;
 
   // Takes some view's origin (relative to this BrowserView) and offsets it such
   // that it can be used as the source origin for seamlessly tiling the toolbar
@@ -151,24 +133,24 @@ class BrowserView : public BrowserBubbleHost,
   int GetSidebarWidth() const;
 
   // Accessor for the TabStrip.
-  BaseTabStrip* tabstrip() const { return tabstrip_; }
+  AbstractTabStripView* tabstrip() const { return tabstrip_; }
 
   // Accessor for the Toolbar.
   ToolbarView* toolbar() const { return toolbar_; }
 
   // Returns true if various window components are visible.
-  bool IsTabStripVisible() const;
+  virtual bool IsTabStripVisible() const;
 
   // Returns true if the vertical tabstrip is in use.
   bool UseVerticalTabs() const;
 
   // Returns true if the profile associated with this Browser window is
-  // off the record.
+  // incognito.
   bool IsOffTheRecord() const;
 
-  // Returns true if the non-client view should render the Off-The-Record
-  // avatar icon if the window is off the record.
-  bool ShouldShowOffTheRecordAvatar() const;
+  // Returns true if the non-client view should render the Incognito
+  // avatar icon if the window is incognito.
+  virtual bool ShouldShowOffTheRecordAvatar() const;
 
   // Handle the specified |accelerator| being pressed.
   virtual bool AcceleratorPressed(const views::Accelerator& accelerator);
@@ -238,166 +220,166 @@ class BrowserView : public BrowserBubbleHost,
   // when a new browser window is created.
   void RestoreFocus();
 
-  // Called when the activation of the frame changes.
-  virtual void ActivationChanged(bool activated);
-
   // Overridden from BrowserWindow:
-  virtual void Show();
-  virtual void SetBounds(const gfx::Rect& bounds);
-  virtual void Close();
-  virtual void Activate();
-  virtual void Deactivate();
-  virtual bool IsActive() const;
-  virtual void FlashFrame();
-  virtual gfx::NativeWindow GetNativeHandle();
-  virtual BrowserWindowTesting* GetBrowserWindowTesting();
-  virtual StatusBubble* GetStatusBubble();
-  virtual void SelectedTabToolbarSizeChanged(bool is_animating);
-  virtual void UpdateTitleBar();
-  virtual void ShelfVisibilityChanged();
-  virtual void UpdateDevTools();
-  virtual void UpdateLoadingAnimations(bool should_animate);
-  virtual void SetStarredState(bool is_starred);
-  virtual gfx::Rect GetRestoredBounds() const;
-  virtual gfx::Rect GetBounds() const;
-  virtual bool IsMaximized() const;
-  virtual void SetFullscreen(bool fullscreen);
-  virtual bool IsFullscreen() const;
-  virtual LocationBar* GetLocationBar() const;
-  virtual void SetFocusToLocationBar(bool select_all);
-  virtual void UpdateReloadStopState(bool is_loading, bool force);
+  virtual void Show() OVERRIDE;
+  virtual void ShowInactive() OVERRIDE;
+  virtual void SetBounds(const gfx::Rect& bounds) OVERRIDE;
+  virtual void Close() OVERRIDE;
+  virtual void Activate() OVERRIDE;
+  virtual void Deactivate() OVERRIDE;
+  virtual bool IsActive() const OVERRIDE;
+  virtual void FlashFrame() OVERRIDE;
+  virtual gfx::NativeWindow GetNativeHandle() OVERRIDE;
+  virtual BrowserWindowTesting* GetBrowserWindowTesting() OVERRIDE;
+  virtual StatusBubble* GetStatusBubble() OVERRIDE;
+  virtual void ToolbarSizeChanged(bool is_animating) OVERRIDE;
+  virtual void UpdateTitleBar() OVERRIDE;
+  virtual void ShelfVisibilityChanged() OVERRIDE;
+  virtual void UpdateDevTools() OVERRIDE;
+  virtual void UpdateLoadingAnimations(bool should_animate) OVERRIDE;
+  virtual void SetStarredState(bool is_starred) OVERRIDE;
+  virtual gfx::Rect GetRestoredBounds() const OVERRIDE;
+  virtual gfx::Rect GetBounds() const OVERRIDE;
+  virtual bool IsMaximized() const OVERRIDE;
+  virtual void SetFullscreen(bool fullscreen) OVERRIDE;
+  virtual bool IsFullscreen() const OVERRIDE;
+  virtual LocationBar* GetLocationBar() const OVERRIDE;
+  virtual void SetFocusToLocationBar(bool select_all) OVERRIDE;
+  virtual void UpdateReloadStopState(bool is_loading, bool force) OVERRIDE;
   virtual void UpdateToolbar(TabContentsWrapper* contents,
-                             bool should_restore_state);
-  virtual void FocusToolbar();
-  virtual void FocusAppMenu();
-  virtual void FocusBookmarksToolbar();
-  virtual void FocusChromeOSStatus() {}
-  virtual void RotatePaneFocus(bool forwards);
-  virtual void DestroyBrowser();
-  virtual bool IsBookmarkBarVisible() const;
-  virtual bool IsBookmarkBarAnimating() const;
-  virtual bool IsTabStripEditable() const;
-  virtual bool IsToolbarVisible() const;
-  virtual void DisableInactiveFrame();
+                             bool should_restore_state) OVERRIDE;
+  virtual void FocusToolbar() OVERRIDE;
+  virtual void FocusAppMenu() OVERRIDE;
+  virtual void FocusBookmarksToolbar() OVERRIDE;
+  virtual void FocusChromeOSStatus() OVERRIDE {}
+  virtual void RotatePaneFocus(bool forwards) OVERRIDE;
+  virtual void DestroyBrowser() OVERRIDE;
+  virtual bool IsBookmarkBarVisible() const OVERRIDE;
+  virtual bool IsBookmarkBarAnimating() const OVERRIDE;
+  virtual bool IsTabStripEditable() const OVERRIDE;
+  virtual bool IsToolbarVisible() const OVERRIDE;
+  virtual void DisableInactiveFrame() OVERRIDE;
   virtual void ConfirmSetDefaultSearchProvider(
       TabContents* tab_contents,
       TemplateURL* template_url,
-      TemplateURLModel* template_url_model);
+      TemplateURLModel* template_url_model) OVERRIDE;
   virtual void ConfirmAddSearchProvider(const TemplateURL* template_url,
-                                        Profile* profile);
-  virtual void ToggleBookmarkBar();
-  virtual void ShowAboutChromeDialog();
-  virtual void ShowUpdateChromeDialog();
-  virtual void ShowTaskManager();
-  virtual void ShowBackgroundPages();
-  virtual void ShowBookmarkBubble(const GURL& url, bool already_bookmarked);
-  virtual void SetDownloadShelfVisible(bool visible);
-  virtual bool IsDownloadShelfVisible() const;
-  virtual DownloadShelf* GetDownloadShelf();
-  virtual void ShowClearBrowsingDataDialog();
-  virtual void ShowImportDialog();
-  virtual void ShowSearchEnginesDialog();
-  virtual void ShowPasswordManager();
-  virtual void ShowRepostFormWarningDialog(TabContents* tab_contents);
-  virtual void ShowContentSettingsWindow(ContentSettingsType content_type,
-                                         Profile* profile);
-  virtual void ShowCollectedCookiesDialog(TabContents* tab_contents);
-  virtual void ShowProfileErrorDialog(int message_id);
-  virtual void ShowThemeInstallBubble();
-  virtual void ConfirmBrowserCloseWithPendingDownloads();
+                                        Profile* profile) OVERRIDE;
+  virtual void ToggleBookmarkBar() OVERRIDE;
+  virtual void ShowAboutChromeDialog() OVERRIDE;
+  virtual void ShowUpdateChromeDialog() OVERRIDE;
+  virtual void ShowTaskManager() OVERRIDE;
+  virtual void ShowBackgroundPages() OVERRIDE;
+  virtual void ShowBookmarkBubble(const GURL& url, bool already_bookmarked)
+      OVERRIDE;
+  // TODO(beng): Not an override, move somewhere else.
+  void SetDownloadShelfVisible(bool visible);
+  virtual bool IsDownloadShelfVisible() const OVERRIDE;
+  virtual DownloadShelf* GetDownloadShelf() OVERRIDE;
+  virtual void ShowRepostFormWarningDialog(TabContents* tab_contents) OVERRIDE;
+  virtual void ShowCollectedCookiesDialog(TabContents* tab_contents) OVERRIDE;
+  virtual void ShowThemeInstallBubble() OVERRIDE;
+  virtual void ConfirmBrowserCloseWithPendingDownloads() OVERRIDE;
   virtual void ShowHTMLDialog(HtmlDialogUIDelegate* delegate,
-                              gfx::NativeWindow parent_window);
-  virtual void UserChangedTheme();
-  virtual int GetExtraRenderViewHeight() const;
-  virtual void TabContentsFocused(TabContents* source);
+                              gfx::NativeWindow parent_window) OVERRIDE;
+  virtual void UserChangedTheme() OVERRIDE;
+  virtual int GetExtraRenderViewHeight() const OVERRIDE;
+  virtual void TabContentsFocused(TabContents* source) OVERRIDE;
   virtual void ShowPageInfo(Profile* profile,
                             const GURL& url,
                             const NavigationEntry::SSLStatus& ssl,
-                            bool show_history);
-  virtual void ShowAppMenu();
+                            bool show_history) OVERRIDE;
+  virtual void ShowAppMenu() OVERRIDE;
   virtual bool PreHandleKeyboardEvent(const NativeWebKeyboardEvent& event,
-                                      bool* is_keyboard_shortcut);
-  virtual void HandleKeyboardEvent(const NativeWebKeyboardEvent& event);
-  virtual void ShowCreateWebAppShortcutsDialog(TabContents* tab_contents);
-  virtual void ShowCreateChromeAppShortcutsDialog(Profile*,
-                                                  const Extension* app);
-  virtual void Cut();
-  virtual void Copy();
-  virtual void Paste();
-  virtual void ToggleTabStripMode();
-  virtual void PrepareForInstant();
-  virtual void ShowInstant(TabContents* preview_contents);
-  virtual void HideInstant(bool instant_is_active);
-  virtual gfx::Rect GetInstantBounds();
-
+                                      bool* is_keyboard_shortcut) OVERRIDE;
+  virtual void HandleKeyboardEvent(const NativeWebKeyboardEvent& event)
+      OVERRIDE;
+  virtual void ShowCreateWebAppShortcutsDialog(TabContentsWrapper* tab_contents)
+      OVERRIDE;
+  virtual void ShowCreateChromeAppShortcutsDialog(
+      Profile*, const Extension* app) OVERRIDE;
+  virtual void Cut() OVERRIDE;
+  virtual void Copy() OVERRIDE;
+  virtual void Paste() OVERRIDE;
+  virtual void ToggleTabStripMode() OVERRIDE;
+  virtual void PrepareForInstant() OVERRIDE;
+  virtual void ShowInstant(TabContentsWrapper* preview) OVERRIDE;
+  virtual void HideInstant(bool instant_is_active) OVERRIDE;
+  virtual gfx::Rect GetInstantBounds() OVERRIDE;
 #if defined(OS_CHROMEOS)
-  virtual void ShowKeyboardOverlay(gfx::NativeWindow owning_window);
+  virtual void ShowKeyboardOverlay(gfx::NativeWindow owning_window) OVERRIDE;
 #endif
 
   // Overridden from BrowserWindowTesting:
-  virtual BookmarkBarView* GetBookmarkBarView() const;
-  virtual LocationBarView* GetLocationBarView() const;
-  virtual views::View* GetTabContentsContainerView() const;
-  virtual views::View* GetSidebarContainerView() const;
-  virtual ToolbarView* GetToolbarView() const;
+  virtual BookmarkBarView* GetBookmarkBarView() const OVERRIDE;
+  virtual LocationBarView* GetLocationBarView() const OVERRIDE;
+  virtual views::View* GetTabContentsContainerView() const OVERRIDE;
+  virtual views::View* GetSidebarContainerView() const OVERRIDE;
+  virtual ToolbarView* GetToolbarView() const OVERRIDE;
 
   // Overridden from NotificationObserver:
   virtual void Observe(NotificationType type,
                        const NotificationSource& source,
-                       const NotificationDetails& details);
+                       const NotificationDetails& details) OVERRIDE;
 
   // Overridden from TabStripModelObserver:
-  virtual void TabDetachedAt(TabContentsWrapper* contents, int index);
-  virtual void TabDeselected(TabContentsWrapper* contents);
+  virtual void TabDetachedAt(TabContentsWrapper* contents, int index) OVERRIDE;
+  virtual void TabDeselected(TabContentsWrapper* contents) OVERRIDE;
   virtual void TabSelectedAt(TabContentsWrapper* old_contents,
                              TabContentsWrapper* new_contents,
                              int index,
-                             bool user_gesture);
+                             bool user_gesture) OVERRIDE;
   virtual void TabReplacedAt(TabStripModel* tab_strip_model,
                              TabContentsWrapper* old_contents,
                              TabContentsWrapper* new_contents,
-                             int index);
-  virtual void TabStripEmpty();
+                             int index) OVERRIDE;
+  virtual void TabStripEmpty() OVERRIDE;
 
   // Overridden from ui::SimpleMenuModel::Delegate:
-  virtual bool IsCommandIdChecked(int command_id) const;
-  virtual bool IsCommandIdEnabled(int command_id) const;
-  virtual bool GetAcceleratorForCommandId(int command_id,
-                                          ui::Accelerator* accelerator);
-  virtual bool IsItemForCommandIdDynamic(int command_id) const;
-  virtual string16 GetLabelForCommandId(int command_id) const;
-  virtual void ExecuteCommand(int command_id);
+  virtual bool IsCommandIdChecked(int command_id) const OVERRIDE;
+  virtual bool IsCommandIdEnabled(int command_id) const OVERRIDE;
+  virtual bool GetAcceleratorForCommandId(
+      int command_id, ui::Accelerator* accelerator) OVERRIDE;
+  virtual bool IsItemForCommandIdDynamic(int command_id) const OVERRIDE;
+  virtual string16 GetLabelForCommandId(int command_id) const OVERRIDE;
+  virtual void ExecuteCommand(int command_id) OVERRIDE;
 
   // Overridden from views::WindowDelegate:
-  virtual bool CanResize() const;
-  virtual bool CanMaximize() const;
-  virtual bool IsModal() const;
-  virtual std::wstring GetWindowTitle() const;
-  virtual std::wstring GetAccessibleWindowTitle() const;
-  virtual views::View* GetInitiallyFocusedView();
-  virtual bool ShouldShowWindowTitle() const;
-  virtual SkBitmap GetWindowAppIcon();
-  virtual SkBitmap GetWindowIcon();
-  virtual bool ShouldShowWindowIcon() const;
-  virtual bool ExecuteWindowsCommand(int command_id);
-  virtual std::wstring GetWindowName() const;
+  virtual bool CanResize() const OVERRIDE;
+  virtual bool CanMaximize() const OVERRIDE;
+  virtual bool CanActivate() const OVERRIDE;
+  virtual bool IsModal() const OVERRIDE;
+  virtual std::wstring GetWindowTitle() const OVERRIDE;
+  virtual std::wstring GetAccessibleWindowTitle() const OVERRIDE;
+  virtual views::View* GetInitiallyFocusedView() OVERRIDE;
+  virtual bool ShouldShowWindowTitle() const OVERRIDE;
+  virtual SkBitmap GetWindowAppIcon() OVERRIDE;
+  virtual SkBitmap GetWindowIcon() OVERRIDE;
+  virtual bool ShouldShowWindowIcon() const OVERRIDE;
+  virtual bool ExecuteWindowsCommand(int command_id) OVERRIDE;
+  virtual std::wstring GetWindowName() const OVERRIDE;
   virtual void SaveWindowPlacement(const gfx::Rect& bounds,
-                                   bool maximized);
-  virtual bool GetSavedWindowBounds(gfx::Rect* bounds) const;
-  virtual bool GetSavedMaximizedState(bool* maximized) const;
-  virtual views::View* GetContentsView();
-  virtual views::ClientView* CreateClientView(views::Window* window);
+                                   bool maximized) OVERRIDE;
+  virtual bool GetSavedWindowBounds(gfx::Rect* bounds) const OVERRIDE;
+  virtual bool GetSavedMaximizedState(bool* maximized) const OVERRIDE;
+  virtual views::View* GetContentsView() OVERRIDE;
+  virtual views::ClientView* CreateClientView(views::Window* window) OVERRIDE;
+  virtual void OnWindowActivationChanged(bool active) OVERRIDE;
+  virtual void OnWindowBeginUserBoundsChange() OVERRIDE;
+  virtual void OnWidgetMove() OVERRIDE;
 
   // Overridden from views::ClientView:
-  virtual bool CanClose();
-  virtual int NonClientHitTest(const gfx::Point& point);
-  virtual gfx::Size GetMinimumSize();
+  virtual bool CanClose() OVERRIDE;
+  virtual int NonClientHitTest(const gfx::Point& point) OVERRIDE;
+  virtual gfx::Size GetMinimumSize() OVERRIDE;
 
   // InfoBarContainer::Delegate overrides
-  virtual void InfoBarContainerSizeChanged(bool is_animating);
+  virtual SkColor GetInfoBarSeparatorColor() const OVERRIDE;
+  virtual void InfoBarContainerStateChanged(bool is_animating) OVERRIDE;
+  virtual bool DrawInfoBarArrows(int* x) const OVERRIDE;
 
   // views::SingleSplitView::Observer overrides:
-  virtual bool SplitHandleMoved(views::SingleSplitView* view);
+  virtual bool SplitHandleMoved(views::SingleSplitView* view) OVERRIDE;
 
  protected:
   // Appends to |toolbars| a pointer to each AccessiblePaneView that
@@ -414,18 +396,18 @@ class BrowserView : public BrowserBubbleHost,
   }
 
   // Overridden from views::View:
-  virtual std::string GetClassName() const;
-  virtual void Layout();
-  virtual void PaintChildren(gfx::Canvas* canvas);
+  virtual std::string GetClassName() const OVERRIDE;
+  virtual void Layout() OVERRIDE;
+  virtual void PaintChildren(gfx::Canvas* canvas) OVERRIDE;
   virtual void ViewHierarchyChanged(bool is_add,
                                     views::View* parent,
-                                    views::View* child);
-  virtual void ChildPreferredSizeChanged(View* child);
-  virtual AccessibilityTypes::Role GetAccessibleRole();
+                                    views::View* child) OVERRIDE;
+  virtual void ChildPreferredSizeChanged(View* child) OVERRIDE;
+  virtual void GetAccessibleState(ui::AccessibleViewState* state) OVERRIDE;
 
-  // Factory Methods.
+  // Factory Method.
   // Returns a new LayoutManager for this browser view. A subclass may
-  // override to implemnet different layout pocily.
+  // override to implement different layout policy.
   virtual views::LayoutManager* CreateLayoutManager() const;
 
   // Initializes a new TabStrip for the browser view. This can be performed
@@ -433,8 +415,16 @@ class BrowserView : public BrowserBubbleHost,
   // mode for the tabstrip changes from horizontal to vertical.
   virtual void InitTabStrip(TabStripModel* tab_strip_model);
 
+  // Factory Method.
+  // Returns a new ToolbarView for this browser view. A subclass may
+  // override to implement different layout policy.
+  virtual ToolbarView* CreateToolbar() const;
+
   // Browser window related initializations.
   virtual void Init();
+
+  // Callback for the loading animation(s) associated with this view.
+  virtual void LoadingAnimationCallback();
 
  private:
   friend class BrowserViewLayout;
@@ -445,11 +435,6 @@ class BrowserView : public BrowserBubbleHost,
   // Creates the system menu.
   void InitSystemMenu();
 #endif
-
-  // Get the X value, in this BrowserView's coordinate system, where
-  // the points of the infobar arrows should be anchored.  This is the
-  // center of the omnibox location icon.
-  int GetInfoBarArrowCenterX() const;
 
   // Returns the BrowserViewLayout.
   BrowserViewLayout* GetBrowserViewLayout() const;
@@ -511,9 +496,6 @@ class BrowserView : public BrowserBubbleHost,
   // Retrieves the command id for the specified Windows app command.
   int GetCommandIDForAppCommandID(int app_command_id) const;
 
-  // Callback for the loading animation(s) associated with this view.
-  void LoadingAnimationCallback();
-
   // Initialize the hung plugin detector.
   void InitHangMonitor();
 
@@ -535,6 +517,9 @@ class BrowserView : public BrowserBubbleHost,
 
   // Shows the about chrome modal dialog and returns the Window object.
   views::Window* DoShowAboutChromeDialog();
+
+  // Set the value of |toolbar_| and hook it into the views hiearchy
+  void SetToolbar(ToolbarView* toolbar);
 
   // Last focused view that issued a tab traversal.
   int last_focused_view_storage_id_;
@@ -592,7 +577,7 @@ class BrowserView : public BrowserBubbleHost,
   views::View* active_bookmark_bar_;
 
   // The TabStrip.
-  BaseTabStrip* tabstrip_;
+  AbstractTabStripView* tabstrip_;
 
   // The Toolbar containing the navigation buttons, menus and the address bar.
   ToolbarView* toolbar_;
@@ -603,8 +588,8 @@ class BrowserView : public BrowserBubbleHost,
   // The download shelf view (view at the bottom of the page).
   scoped_ptr<DownloadShelfView> download_shelf_;
 
-  // The InfoBarContainer that contains InfoBars for the current tab.
-  InfoBarContainer* infobar_container_;
+  // The InfoBarContainerView that contains InfoBars for the current tab.
+  InfoBarContainerView* infobar_container_;
 
   // The view that contains sidebar for the current tab.
   TabContentsContainer* sidebar_container_;

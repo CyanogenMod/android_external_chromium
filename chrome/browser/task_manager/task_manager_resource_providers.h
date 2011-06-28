@@ -13,9 +13,9 @@
 #include "base/compiler_specific.h"
 #include "base/process_util.h"
 #include "chrome/browser/task_manager/task_manager.h"
-#include "chrome/common/child_process_info.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
+#include "content/common/child_process_info.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebCache.h"
 
 class BackgroundContents;
@@ -23,7 +23,11 @@ class BalloonHost;
 class Extension;
 class ExtensionHost;
 class RenderViewHost;
-class TabContents;
+class TabContentsWrapper;
+
+namespace prerender {
+class PrerenderContents;
+}
 
 // These file contains the resource providers used in the task manager.
 
@@ -79,18 +83,18 @@ class TaskManagerRendererResource : public TaskManager::Resource {
 
 class TaskManagerTabContentsResource : public TaskManagerRendererResource {
  public:
-  explicit TaskManagerTabContentsResource(TabContents* tab_contents);
+  explicit TaskManagerTabContentsResource(TabContentsWrapper* tab_contents);
   virtual ~TaskManagerTabContentsResource();
 
   // TaskManager::Resource methods:
   virtual Type GetType() const OVERRIDE;
   virtual string16 GetTitle() const OVERRIDE;
   virtual SkBitmap GetIcon() const OVERRIDE;
-  virtual TabContents* GetTabContents() const OVERRIDE;
+  virtual TabContentsWrapper* GetTabContents() const OVERRIDE;
   virtual const Extension* GetExtension() const OVERRIDE;
 
  private:
-  TabContents* tab_contents_;
+  TabContentsWrapper* tab_contents_;
 
   DISALLOW_COPY_AND_ASSIGN(TaskManagerTabContentsResource);
 };
@@ -115,10 +119,10 @@ class TaskManagerTabContentsResourceProvider
  private:
   virtual ~TaskManagerTabContentsResourceProvider();
 
-  void Add(TabContents* tab_contents);
-  void Remove(TabContents* tab_contents);
+  void Add(TabContentsWrapper* tab_contents);
+  void Remove(TabContentsWrapper* tab_contents);
 
-  void AddToTaskManager(TabContents* tab_contents);
+  void AddToTaskManager(TabContentsWrapper* tab_contents);
 
   // Whether we are currently reporting to the task manager. Used to ignore
   // notifications sent after StopUpdating().
@@ -126,14 +130,64 @@ class TaskManagerTabContentsResourceProvider
 
   TaskManager* task_manager_;
 
-  // Maps the actual resources (the TabContents) to the Task Manager
+  // Maps the actual resources (the TabContentsWrappers) to the Task Manager
   // resources.
-  std::map<TabContents*, TaskManagerTabContentsResource*> resources_;
+  std::map<TabContentsWrapper*, TaskManagerTabContentsResource*> resources_;
 
   // A scoped container for notification registries.
   NotificationRegistrar registrar_;
 
   DISALLOW_COPY_AND_ASSIGN(TaskManagerTabContentsResourceProvider);
+};
+
+class TaskManagerPrerenderResource : public TaskManagerRendererResource {
+ public:
+  explicit TaskManagerPrerenderResource(RenderViewHost* render_view_host);
+  virtual ~TaskManagerPrerenderResource();
+
+  // TaskManager::Resource methods:
+  virtual Type GetType() const OVERRIDE;
+  virtual string16 GetTitle() const OVERRIDE;
+  virtual SkBitmap GetIcon() const OVERRIDE;
+
+ private:
+  static SkBitmap* default_icon_;
+  std::pair<int, int> process_route_id_pair_;
+
+  DISALLOW_COPY_AND_ASSIGN(TaskManagerPrerenderResource);
+};
+
+class TaskManagerPrerenderResourceProvider
+    : public TaskManager::ResourceProvider,
+      public NotificationObserver {
+ public:
+  explicit TaskManagerPrerenderResourceProvider(TaskManager* task_manager);
+
+  virtual TaskManager::Resource* GetResource(int origin_pid,
+                                             int render_process_host_id,
+                                             int routing_id);
+  virtual void StartUpdating();
+  virtual void StopUpdating();
+
+  virtual void Observe(NotificationType type,
+                       const NotificationSource& source,
+                       const NotificationDetails& details);
+ private:
+  virtual ~TaskManagerPrerenderResourceProvider();
+
+  void Add(const std::pair<int, int>& process_route_id_pair);
+  void Remove(const std::pair<int, int>& process_route_id_pair);
+
+  void AddToTaskManager(const std::pair<int, int>& process_route_id_pair);
+
+  bool updating_;
+  TaskManager* task_manager_;
+  typedef std::map<std::pair<int, int>, TaskManagerPrerenderResource*>
+      ResourceMap;
+  ResourceMap resources_;
+  NotificationRegistrar registrar_;
+
+  DISALLOW_COPY_AND_ASSIGN(TaskManagerPrerenderResourceProvider);
 };
 
 class TaskManagerBackgroundContentsResource
@@ -224,6 +278,10 @@ class TaskManagerChildProcessResource : public TaskManager::Resource {
   int process_id() const { return pid_; }
 
  private:
+  // Returns a localized title for the child process.  For example, a plugin
+  // process would be "Plug-in: Flash" when name is "Flash".
+  string16 GetLocalizedTitle() const;
+
   ChildProcessInfo child_process_;
   int pid_;
   mutable string16 title_;

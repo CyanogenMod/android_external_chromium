@@ -45,8 +45,7 @@ PlatformFile CreatePlatformFile(const FilePath& name, int flags,
       !(flags & PLATFORM_FILE_OPEN_ALWAYS)) {
     NOTREACHED();
     errno = EOPNOTSUPP;
-    if (error_code)
-      *error_code = PLATFORM_FILE_ERROR_FAILED;
+    *error_code = error_code ? PLATFORM_FILE_ERROR_FAILED : PLATFORM_FILE_OK;
     return kInvalidPlatformFileValue;
   }
 
@@ -67,7 +66,8 @@ PlatformFile CreatePlatformFile(const FilePath& name, int flags,
 
   COMPILE_ASSERT(O_RDONLY == 0, O_RDONLY_must_equal_zero);
 
-  int descriptor = open(name.value().c_str(), open_flags, S_IRUSR | S_IWUSR);
+  int descriptor =
+      HANDLE_EINTR(open(name.value().c_str(), open_flags, S_IRUSR | S_IWUSR));
 
   if (flags & PLATFORM_FILE_OPEN_ALWAYS) {
     if (descriptor > 0) {
@@ -79,7 +79,8 @@ PlatformFile CreatePlatformFile(const FilePath& name, int flags,
           flags & PLATFORM_FILE_EXCLUSIVE_WRITE) {
         open_flags |= O_EXCL;   // together with O_CREAT implies O_NOFOLLOW
       }
-      descriptor = open(name.value().c_str(), open_flags, S_IRUSR | S_IWUSR);
+      descriptor = HANDLE_EINTR(
+          open(name.value().c_str(), open_flags, S_IRUSR | S_IWUSR));
       if (created && descriptor > 0)
         *created = true;
     }
@@ -134,14 +135,8 @@ PlatformFile CreatePlatformFile(const FilePath& name, int flags,
   return descriptor;
 }
 
-PlatformFile CreatePlatformFile(const std::wstring& name, int flags,
-                                bool* created) {
-  return CreatePlatformFile(FilePath::FromWStringHack(name), flags,
-                            created, NULL);
-}
-
 bool ClosePlatformFile(PlatformFile file) {
-  return !close(file);
+  return !HANDLE_EINTR(close(file));
 }
 
 int ReadPlatformFile(PlatformFile file, int64 offset, char* data, int size) {
@@ -164,7 +159,7 @@ bool TruncatePlatformFile(PlatformFile file, int64 length) {
 }
 
 bool FlushPlatformFile(PlatformFile file) {
-  return !fsync(file);
+  return !HANDLE_EINTR(fsync(file));
 }
 
 bool TouchPlatformFile(PlatformFile file, const base::Time& last_access_time,

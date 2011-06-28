@@ -8,8 +8,8 @@
 
 #import <Cocoa/Cocoa.h>
 
-#include "base/scoped_nsobject.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_nsobject.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/download/download_item.h"
 #include "chrome/browser/download/download_manager.h"
 #include "chrome/browser/icon_manager.h"
@@ -38,7 +38,6 @@ class DownloadItemMac : DownloadItem::Observer {
   // DownloadItem::Observer implementation
   virtual void OnDownloadUpdated(DownloadItem* download);
   virtual void OnDownloadOpened(DownloadItem* download);
-  virtual void OnDownloadFileCompleted(DownloadItem* download) { }
 
   BaseDownloadItemModel* download_model() { return download_model_.get(); }
 

@@ -4,8 +4,8 @@
 
 #include "chrome/browser/password_manager_delegate_impl.h"
 
+#include "base/memory/singleton.h"
 #include "base/metrics/histogram.h"
-#include "base/singleton.h"
 #include "chrome/browser/password_manager/password_form_manager.h"
 #include "chrome/browser/password_manager/password_manager.h"
 #include "chrome/browser/tab_contents/confirm_infobar_delegate.h"
@@ -114,7 +114,7 @@ bool SavePasswordInfoBarDelegate::Cancel() {
 
 void PasswordManagerDelegateImpl::FillPasswordForm(
     const webkit_glue::PasswordFormFillData& form_data) {
-  tab_contents_->render_view_host()->Send(new AutoFillMsg_FillPasswordForm(
+  tab_contents_->render_view_host()->Send(new AutofillMsg_FillPasswordForm(
       tab_contents_->render_view_host()->routing_id(), form_data));
 }
 

@@ -13,7 +13,7 @@
 
 #include <string>
 
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 
 class BreakpadInfo;
 
@@ -144,6 +144,23 @@ class RendererCrashHandlerHostLinux : public CrashHandlerHostLinux {
 #endif
 
   DISALLOW_COPY_AND_ASSIGN(RendererCrashHandlerHostLinux);
+};
+
+class PpapiCrashHandlerHostLinux : public CrashHandlerHostLinux {
+ public:
+  // Returns the singleton instance.
+  static PpapiCrashHandlerHostLinux* GetInstance();
+
+ private:
+  friend struct DefaultSingletonTraits<PpapiCrashHandlerHostLinux>;
+  PpapiCrashHandlerHostLinux();
+  virtual ~PpapiCrashHandlerHostLinux();
+
+#if defined(USE_LINUX_BREAKPAD)
+  virtual void SetProcessType();
+#endif
+
+  DISALLOW_COPY_AND_ASSIGN(PpapiCrashHandlerHostLinux);
 };
 
 #endif  // CHROME_BROWSER_CRASH_HANDLER_HOST_LINUX_H_

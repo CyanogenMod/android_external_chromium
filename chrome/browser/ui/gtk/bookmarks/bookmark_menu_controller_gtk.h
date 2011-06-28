@@ -8,7 +8,7 @@
 
 #include <map>
 
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/bookmarks/base_bookmark_model_observer.h"
 #include "chrome/browser/bookmarks/bookmark_context_menu_controller.h"
 #include "chrome/browser/ui/gtk/owned_widget_gtk.h"
@@ -50,7 +50,7 @@ class BookmarkMenuController : public BaseBookmarkModelObserver,
 
   // Overridden from BaseBookmarkModelObserver:
   virtual void BookmarkModelChanged();
-  virtual void BookmarkNodeFavIconLoaded(BookmarkModel* model,
+  virtual void BookmarkNodeFaviconLoaded(BookmarkModel* model,
                                          const BookmarkNode* node);
 
   // Overridden from BookmarkContextMenuController::Delegate:

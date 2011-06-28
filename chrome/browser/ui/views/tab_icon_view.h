@@ -13,7 +13,7 @@ class TabContents;
 
 ////////////////////////////////////////////////////////////////////////////////
 //
-// A view to display a tab fav icon or a throbber.
+// A view to display a tab favicon or a throbber.
 //
 ////////////////////////////////////////////////////////////////////////////////
 class TabIconView : public views::View {
@@ -25,7 +25,7 @@ class TabIconView : public views::View {
     virtual bool ShouldTabIconViewAnimate() const = 0;
 
     // Returns the favicon to display in the icon view
-    virtual SkBitmap GetFavIconForTabIconView() = 0;
+    virtual SkBitmap GetFaviconForTabIconView() = 0;
   };
 
   static void InitializeIfNeeded();
@@ -45,7 +45,7 @@ class TabIconView : public views::View {
 
  private:
   void PaintThrobber(gfx::Canvas* canvas);
-  void PaintFavIcon(gfx::Canvas* canvas, const SkBitmap& bitmap);
+  void PaintFavicon(gfx::Canvas* canvas, const SkBitmap& bitmap);
   void PaintIcon(gfx::Canvas* canvas,
                  const SkBitmap& bitmap,
                  int src_x,

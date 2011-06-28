@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 
 #include <iosfwd>
 
+#include "base/base_api.h"
 #include "build/build_config.h"
 
 #if defined(OS_WIN)
@@ -20,7 +21,7 @@ namespace debug {
 // A stacktrace can be helpful in debugging. For example, you can include a
 // stacktrace member in a object (probably around #ifndef NDEBUG) so that you
 // can later see where the given object was created from.
-class StackTrace {
+class BASE_API StackTrace {
  public:
   // Creates a stacktrace from the current location.
   StackTrace();
@@ -38,13 +39,13 @@ class StackTrace {
 
   // Gets an array of instruction pointer values. |*count| will be set to the
   // number of elements in the returned array.
-  const void* const* Addresses(size_t* count);
+  const void* const* Addresses(size_t* count) const;
 
   // Prints a backtrace to stderr
-  void PrintBacktrace();
+  void PrintBacktrace() const;
 
   // Resolves backtrace to symbols and write to stream.
-  void OutputToStream(std::ostream* os);
+  void OutputToStream(std::ostream* os) const;
 
  private:
   // From http://msdn.microsoft.com/en-us/library/bb204633.aspx,

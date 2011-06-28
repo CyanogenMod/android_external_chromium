@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -45,6 +45,11 @@ using net::X509Certificate;
 
 std::string GetCertNameOrNickname(X509Certificate::OSCertHandle cert_handle) {
   // TODO(bulach): implement me.
+  return "";
+}
+
+std::string GetNickname(X509Certificate::OSCertHandle cert_handle) {
+  // TODO(jamescook): implement me.
   return "";
 }
 
@@ -173,6 +178,11 @@ void GetNicknameStringsFromCertList(
     const std::string& cert_not_yet_valid,
     std::vector<std::string>* nick_names) {
   // TODO(bulach): implement me.
+}
+
+std::string GetPkcs11Id(net::X509Certificate::OSCertHandle cert_handle) {
+  // TODO(jamescook): implement me.
+  return "";
 }
 
 void GetExtensions(

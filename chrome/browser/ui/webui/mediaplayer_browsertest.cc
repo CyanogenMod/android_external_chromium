@@ -3,7 +3,7 @@
 // found in the LICENSE file.
 
 #include "base/command_line.h"
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
@@ -21,10 +21,6 @@ class MediaPlayerBrowserTest : public InProcessBrowserTest {
  public:
   MediaPlayerBrowserTest() {}
 
-  virtual void SetUpCommandLine(CommandLine* command_line) {
-    command_line->AppendSwitch(switches::kEnableMediaPlayer);
-  }
-
   GURL GetMusicTestURL() {
     return GURL("http://localhost:1337/files/plugin/sample_mp3.mp3");
   }
@@ -34,7 +30,7 @@ class MediaPlayerBrowserTest : public InProcessBrowserTest {
          it != BrowserList::end(); ++it) {
       if ((*it)->type() == Browser::TYPE_APP_PANEL) {
         const GURL& url =
-            (*it)->GetTabContentsAt((*it)->selected_index())->GetURL();
+            (*it)->GetTabContentsAt((*it)->active_index())->GetURL();
 
         if (url.SchemeIs(chrome::kChromeUIScheme) &&
             url.host() == chrome::kChromeUIMediaplayerHost) {
@@ -50,7 +46,7 @@ class MediaPlayerBrowserTest : public InProcessBrowserTest {
          it != BrowserList::end(); ++it) {
       if ((*it)->type() == Browser::TYPE_APP_PANEL) {
         const GURL& url =
-            (*it)->GetTabContentsAt((*it)->selected_index())->GetURL();
+            (*it)->GetTabContentsAt((*it)->active_index())->GetURL();
 
         if (url.SchemeIs(chrome::kChromeUIScheme) &&
             url.host() == chrome::kChromeUIMediaplayerHost &&
@@ -73,7 +69,7 @@ IN_PROC_BROWSER_TEST_F(MediaPlayerBrowserTest, Popup) {
   // Check that its not currently visible
   ASSERT_FALSE(IsPlayerVisible());
 
-  player->EnqueueMediaURL(GetMusicTestURL(), NULL);
+  player->EnqueueMediaFileUrl(GetMusicTestURL(), NULL);
 
   ASSERT_TRUE(IsPlayerVisible());
 }
@@ -87,7 +83,7 @@ IN_PROC_BROWSER_TEST_F(MediaPlayerBrowserTest, PopupPlaylist) {
 
   MediaPlayer* player = MediaPlayer::GetInstance();
 
-  player->EnqueueMediaURL(GetMusicTestURL(), NULL);
+  player->EnqueueMediaFileUrl(GetMusicTestURL(), NULL);
 
   EXPECT_FALSE(IsPlaylistVisible());
 

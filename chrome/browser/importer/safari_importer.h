@@ -15,8 +15,7 @@
 #include "base/file_path.h"
 #include "base/gtest_prod_util.h"
 #include "chrome/browser/importer/importer.h"
-#include "chrome/browser/importer/importer_data_types.h"
-#include "chrome/common/sqlite_utils.h"
+#include "chrome/browser/importer/profile_writer.h"
 
 #if __OBJC__
 @class NSDictionary;
@@ -26,6 +25,17 @@ class NSDictionary;
 class NSString;
 #endif
 
+class GURL;
+
+namespace history {
+class URLRow;
+struct ImportedFaviconUsage;
+}
+
+namespace sql {
+class Connection;
+}
+
 // Importer for Safari on OS X.
 class SafariImporter : public Importer {
  public:
@@ -34,25 +44,25 @@ class SafariImporter : public Importer {
   explicit SafariImporter(const FilePath& library_dir);
 
   // Importer:
-  virtual void StartImport(const importer::ProfileInfo& profile_info,
+  virtual void StartImport(const importer::SourceProfile& source_profile,
                            uint16 items,
                            ImporterBridge* bridge) OVERRIDE;
-
 
  // Does this user account have a Safari Profile and if so, what items
  // are supported?
  // in: library_dir - ~/Library or a standin for testing purposes.
  // out: services_supported - the service supported for import.
- // returns true if we can import the Safari profile.
- static bool CanImport(const FilePath& library_dir, uint16 *services_supported);
+ // Returns true if we can import the Safari profile.
+ static bool CanImport(const FilePath& library_dir, uint16* services_supported);
+
  private:
   FRIEND_TEST_ALL_PREFIXES(SafariImporterTest, BookmarkImport);
-  FRIEND_TEST_ALL_PREFIXES(SafariImporterTest, FavIconImport);
+  FRIEND_TEST_ALL_PREFIXES(SafariImporterTest, FaviconImport);
   FRIEND_TEST_ALL_PREFIXES(SafariImporterTest, HistoryImport);
 
   virtual ~SafariImporter();
 
-  // Multiple URLs can share the same FavIcon, this is a map
+  // Multiple URLs can share the same favicon; this is a map
   // of URLs -> IconIDs that we load as a temporary step before
   // actually loading the icons.
   typedef std::map<int64, std::set<GURL> > FaviconMap;
@@ -71,10 +81,9 @@ class SafariImporter : public Importer {
   // |out_bookmarks| BookMark element array to write into.
   void RecursiveReadBookmarksFolder(
       NSDictionary* bookmark_folder,
-      const std::vector<std::wstring>& parent_path_elements,
+      const std::vector<string16>& parent_path_elements,
       bool is_in_toolbar,
       std::vector<ProfileWriter::BookmarkEntry>* out_bookmarks);
-
 
   // Converts history time stored by Safari as a double serialized as a string,
   // to seconds-since-UNIX-Ephoch-format used by Chrome.
@@ -83,16 +92,16 @@ class SafariImporter : public Importer {
   // Parses Safari's history and loads it into the input array.
   void ParseHistoryItems(std::vector<history::URLRow>* history_items);
 
-  // Loads the favicon Database file, returns NULL on failure.
-  sqlite3* OpenFavIconDB();
+  // Opens the favicon database file.
+  bool OpenDatabase(sql::Connection* db);
 
   // Loads the urls associated with the favicons into favicon_map;
-  void ImportFavIconURLs(sqlite3* db, FaviconMap* favicon_map);
+  void ImportFaviconURLs(sql::Connection* db, FaviconMap* favicon_map);
 
   // Loads and reencodes the individual favicons.
-  void LoadFaviconData(sqlite3* db,
+  void LoadFaviconData(sql::Connection* db,
                        const FaviconMap& favicon_map,
-                       std::vector<history::ImportedFavIconUsage>* favicons);
+                       std::vector<history::ImportedFaviconUsage>* favicons);
 
   FilePath library_dir_;
 

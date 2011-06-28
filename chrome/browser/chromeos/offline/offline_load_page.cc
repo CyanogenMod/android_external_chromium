@@ -10,13 +10,13 @@
 #include "base/stringprintf.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
-#include "chrome/browser/browser_list.h"
+#include "chrome/browser/chromeos/cros/cros_library.h"
+#include "chrome/browser/chromeos/cros/network_library.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tab_contents/tab_util.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/browser/chromeos/cros/cros_library.h"
-#include "chrome/browser/chromeos/cros/network_library.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/jstemplate_builder.h"
 #include "chrome/common/url_constants.h"
@@ -82,18 +82,14 @@ std::string OfflineLoadPage::GetHTMLContents() {
       kMaxBlankPeriod -
       NetworkStateNotifier::GetOfflineDuration().InMilliseconds());
   // Set the timeout to show the page.
-  strings.SetInteger("timeToWait", static_cast<int>(time_to_wait));
+  strings.SetInteger("time_to_wait", static_cast<int>(time_to_wait));
   // Button labels
   SetString(&strings, "heading", IDS_OFFLINE_LOAD_HEADLINE);
   SetString(&strings, "try_loading", IDS_OFFLINE_TRY_LOADING);
   SetString(&strings, "network_settings", IDS_OFFLINE_NETWORK_SETTINGS);
 
   // Activation
-  SetString(&strings, "activation_heading", IDS_OFFLINE_ACTIVATION_HEADLINE);
-  SetString(&strings, "activation_msg", IDS_OFFLINE_ACTIVATION_MESSAGE);
-  SetString(&strings, "activation_button", IDS_OFFLINE_ACTIVATION_BUTTON);
-  strings.SetString("display_activation",
-                    ShowActivationMessage() ? "block" : "none");
+  strings.SetBoolean("show_activation", ShowActivationMessage());
 
   bool rtl = base::i18n::IsRTL();
   strings.SetString("textdirection", rtl ? "rtl" : "ltr");

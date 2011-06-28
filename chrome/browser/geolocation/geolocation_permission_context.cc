@@ -17,16 +17,16 @@
 #include "chrome/browser/tab_contents/confirm_infobar_delegate.h"
 #include "chrome/browser/tab_contents/tab_util.h"
 #include "chrome/common/extensions/extension.h"
-#include "chrome/common/notification_registrar.h"
-#include "chrome/common/notification_source.h"
-#include "chrome/common/notification_type.h"
 #include "chrome/common/pref_names.h"
-#include "chrome/common/render_messages.h"
 #include "content/browser/browser_thread.h"
 #include "content/browser/geolocation/geolocation_provider.h"
 #include "content/browser/renderer_host/render_process_host.h"
 #include "content/browser/renderer_host/render_view_host.h"
 #include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/geolocation_messages.h"
+#include "content/common/notification_registrar.h"
+#include "content/common/notification_source.h"
+#include "content/common/notification_type.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "grit/theme_resources.h"
@@ -214,9 +214,9 @@ bool GeolocationConfirmInfoBarDelegate::LinkClicked(
     WindowOpenDisposition disposition) {
   const char kGeolocationLearnMoreUrl[] =
 #if defined(OS_CHROMEOS)
-      "http://www.google.com/support/chromeos/bin/answer.py?answer=142065";
+      "https://www.google.com/support/chromeos/bin/answer.py?answer=142065";
 #else
-      "http://www.google.com/support/chrome/bin/answer.py?answer=142065";
+      "https://www.google.com/support/chrome/bin/answer.py?answer=142065";
 #endif
 
   // Ignore the click disposition and always open in a new top level tab.
@@ -236,8 +236,8 @@ struct GeolocationInfoBarQueueController::PendingInfoBarRequest {
   PendingInfoBarRequest(int render_process_id,
                         int render_view_id,
                         int bridge_id,
-                        GURL requesting_frame,
-                        GURL embedder);
+                        const GURL& requesting_frame,
+                        const GURL& embedder);
 
   bool IsForTab(int p_render_process_id, int p_render_view_id) const;
   bool IsForPair(const GURL& p_requesting_frame,
@@ -258,8 +258,8 @@ GeolocationInfoBarQueueController::PendingInfoBarRequest::PendingInfoBarRequest(
     int render_process_id,
     int render_view_id,
     int bridge_id,
-    GURL requesting_frame,
-    GURL embedder)
+    const GURL& requesting_frame,
+    const GURL& embedder)
     : render_process_id(render_process_id),
       render_view_id(render_view_id),
       bridge_id(bridge_id),
@@ -596,7 +596,7 @@ void GeolocationPermissionContext::NotifyPermissionSet(
 
   RenderViewHost* r = RenderViewHost::FromID(render_process_id, render_view_id);
   if (r) {
-    r->Send(new ViewMsg_Geolocation_PermissionSet(
+    r->Send(new GeolocationMsg_PermissionSet(
         render_view_id, bridge_id, allowed));
   }
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,10 +13,10 @@
 #include "chrome/browser/extensions/extension_webrequest_api.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/extensions/extension.h"
-#include "chrome/common/notification_service.h"
-#include "chrome/common/render_messages.h"
+#include "chrome/common/extensions/extension_messages.h"
 #include "content/browser/child_process_security_policy.h"
 #include "content/browser/renderer_host/render_process_host.h"
+#include "content/common/notification_service.h"
 
 namespace {
 
@@ -30,8 +30,16 @@ static void DispatchEvent(RenderProcessHost* renderer,
   ListValue args;
   args.Set(0, Value::CreateStringValue(event_name));
   args.Set(1, Value::CreateStringValue(event_args));
-  renderer->Send(new ViewMsg_ExtensionMessageInvoke(MSG_ROUTING_CONTROL,
+  renderer->Send(new ExtensionMsg_MessageInvoke(MSG_ROUTING_CONTROL,
       extension_id, kDispatchEvent, args, event_url));
+}
+
+static void NotifyEventListenerRemovedOnIOThread(
+    ProfileId profile_id,
+    const std::string& extension_id,
+    const std::string& sub_event_name) {
+  ExtensionWebRequestEventRouter::GetInstance()->RemoveEventListener(
+      profile_id, extension_id, sub_event_name);
 }
 
 }  // namespace
@@ -67,8 +75,9 @@ bool ExtensionEventRouter::CanCrossIncognito(Profile* profile,
   // We allow the extension to see events and data from another profile iff it
   // uses "spanning" behavior and it has incognito access. "split" mode
   // extensions only see events for a matching profile.
-  return (profile->GetExtensionService()->IsIncognitoEnabled(extension) &&
-          !extension->incognito_split_mode());
+  return
+      (profile->GetExtensionService()->IsIncognitoEnabled(extension->id()) &&
+       !extension->incognito_split_mode());
 }
 
 ExtensionEventRouter::ExtensionEventRouter(Profile* profile)
@@ -120,8 +129,11 @@ void ExtensionEventRouter::RemoveEventListener(
   if (event_name.compare(extension_processes_api_constants::kOnUpdated) == 0)
     ExtensionProcessesEventRouter::GetInstance()->ListenerRemoved();
 
-  ExtensionWebRequestEventRouter::RemoveEventListenerOnUIThread(
-      listener.extension_id, event_name);
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
+      NewRunnableFunction(
+          &NotifyEventListenerRemovedOnIOThread,
+          profile_->GetRuntimeId(), listener.extension_id, event_name));
 }
 
 bool ExtensionEventRouter::HasEventListener(const std::string& event_name) {

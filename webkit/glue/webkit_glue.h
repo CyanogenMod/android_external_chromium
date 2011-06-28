@@ -156,11 +156,6 @@ int GetGlyphPageCount();
 
 //---- BEGIN FUNCTIONS IMPLEMENTED BY EMBEDDER --------------------------------
 
-// This function is called to request a prefetch of the entire URL, loading it
-// into our cache for (expected) future needs.  The given URL may NOT be in
-// canonical form and it will NOT be null-terminated; use the length instead.
-void PrecacheUrl(const char16* url, int url_length);
-
 // This function is called to add a line to the application's log file.
 void AppendToLog(const char* filename, int line, const char* message);
 
@@ -188,6 +183,11 @@ ui::Clipboard* ClipboardGetClipboard();
 bool ClipboardIsFormatAvailable(const ui::Clipboard::FormatType& format,
                                 ui::Clipboard::Buffer buffer);
 
+// Reads the available types from the clipboard, if available.
+void ClipboardReadAvailableTypes(ui::Clipboard::Buffer buffer,
+                                 std::vector<string16>* types,
+                                 bool* contains_filenames);
+
 // Reads UNICODE text from the clipboard, if available.
 void ClipboardReadText(ui::Clipboard::Buffer buffer, string16* result);
 
@@ -198,10 +198,7 @@ void ClipboardReadAsciiText(ui::Clipboard::Buffer buffer, std::string* result);
 void ClipboardReadHTML(ui::Clipboard::Buffer buffer, string16* markup,
                        GURL* url);
 
-// Reads the available types from the clipboard, if available.
-bool ClipboardReadAvailableTypes(ui::Clipboard::Buffer buffer,
-                                 std::vector<string16>* types,
-                                 bool* contains_filenames);
+void ClipboardReadImage(ui::Clipboard::Buffer buffer, std::string* data);
 
 // Reads one type of data from the clipboard, if available.
 bool ClipboardReadData(ui::Clipboard::Buffer buffer, const string16& type,
@@ -264,6 +261,13 @@ void SetCacheMode(bool enabled);
 // |preserve_ssl_host_info| indicates whether disk cache entries related to
 // SSL information should be purged.
 void ClearCache(bool preserve_ssl_host_info);
+
+// Clear the host resolver cache.  Used for debugging.
+void ClearHostResolverCache();
+
+// Clear the predictor cache (for DNS prefetch and preconnect).  Used for
+// debugging.
+void ClearPredictorCache();
 
 // Returns the product version.  E.g., Chrome/4.1.333.0
 std::string GetProductVersion();

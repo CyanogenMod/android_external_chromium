@@ -4,15 +4,17 @@
 
 #include "chrome/browser/chromeos/preferences.h"
 
+#include "base/i18n/time_formatting.h"
+#include "base/metrics/histogram.h"
 #include "base/string_split.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/cros/input_method_library.h"
-#include "chrome/browser/chromeos/cros/keyboard_library.h"
 #include "chrome/browser/chromeos/cros/power_library.h"
 #include "chrome/browser/chromeos/cros/touchpad_library.h"
 #include "chrome/browser/chromeos/input_method/input_method_util.h"
+#include "chrome/browser/chromeos/input_method/xkeyboard.h"
 #include "chrome/browser/chromeos/login/login_utils.h"
 #include "chrome/browser/prefs/pref_member.h"
 #include "chrome/browser/prefs/pref_service.h"
@@ -42,6 +44,9 @@ void Preferences::RegisterUserPrefs(PrefService* prefs) {
     prefs->RegisterBooleanPref(prefs::kAccessibilityEnabled, false);
   }
   prefs->RegisterIntegerPref(prefs::kTouchpadSensitivity, 3);
+  // Set the default based on the hour clock type of the current locale.
+  prefs->RegisterBooleanPref(prefs::kUse24HourClock,
+                             base::GetHourClockType() == base::k24HourClock);
   prefs->RegisterStringPref(prefs::kLanguageCurrentInputMethod, "");
   prefs->RegisterStringPref(prefs::kLanguagePreviousInputMethod, "");
   prefs->RegisterStringPref(prefs::kLanguageHotkeyNextEngineInMenu,
@@ -106,10 +111,12 @@ void Preferences::RegisterUserPrefs(PrefService* prefs) {
         language_prefs::kMozcIntegerPrefs[i].pref_name,
         language_prefs::kMozcIntegerPrefs[i].default_pref_value);
   }
-  prefs->RegisterIntegerPref(prefs::kLanguageXkbRemapSearchKeyTo, kSearchKey);
+  prefs->RegisterIntegerPref(prefs::kLanguageXkbRemapSearchKeyTo,
+                             input_method::kSearchKey);
   prefs->RegisterIntegerPref(prefs::kLanguageXkbRemapControlKeyTo,
-                             kLeftControlKey);
-  prefs->RegisterIntegerPref(prefs::kLanguageXkbRemapAltKeyTo, kLeftAltKey);
+                             input_method::kLeftControlKey);
+  prefs->RegisterIntegerPref(prefs::kLanguageXkbRemapAltKeyTo,
+                             input_method::kLeftAltKey);
   prefs->RegisterBooleanPref(prefs::kLanguageXkbAutoRepeatEnabled, true);
   prefs->RegisterIntegerPref(prefs::kLanguageXkbAutoRepeatDelay,
                              language_prefs::kXkbAutoRepeatDelayInMs);
@@ -121,12 +128,22 @@ void Preferences::RegisterUserPrefs(PrefService* prefs) {
 
   // Mobile plan notifications default to on.
   prefs->RegisterBooleanPref(prefs::kShowPlanNotifications, true);
+
+  // 3G first-time usage promo will be shown at least once.
+  prefs->RegisterBooleanPref(prefs::kShow3gPromoNotification, true);
+
+  // Carrier deal notification shown count defaults to 0.
+  prefs->RegisterIntegerPref(prefs::kCarrierDealPromoShown, 0);
+
+  // The map of timestamps of the last used file browser handlers.
+  prefs->RegisterDictionaryPref(prefs::kLastUsedFileBrowserHandlers);
 }
 
 void Preferences::Init(PrefService* prefs) {
   tap_to_click_enabled_.Init(prefs::kTapToClickEnabled, prefs, this);
   accessibility_enabled_.Init(prefs::kAccessibilityEnabled, prefs, this);
   sensitivity_.Init(prefs::kTouchpadSensitivity, prefs, this);
+  use_24hour_clock_.Init(prefs::kUse24HourClock, prefs, this);
   language_hotkey_next_engine_in_menu_.Init(
       prefs::kLanguageHotkeyNextEngineInMenu, prefs, this);
   language_hotkey_previous_engine_.Init(
@@ -188,7 +205,7 @@ void Preferences::Init(PrefService* prefs) {
 
   enable_screen_lock_.Init(prefs::kEnableScreenLock, prefs, this);
 
-  // Initialize touchpad settings to what's saved in user preferences.
+  // Initialize preferences to currently saved state.
   NotifyPrefChanged(NULL);
 
   // If a guest is logged in, initialize the prefs as if this is the first
@@ -207,12 +224,23 @@ void Preferences::Observe(NotificationType type,
 
 void Preferences::NotifyPrefChanged(const std::string* pref_name) {
   if (!pref_name || *pref_name == prefs::kTapToClickEnabled) {
-    CrosLibrary::Get()->GetTouchpadLibrary()->SetTapToClick(
-        tap_to_click_enabled_.GetValue());
+    bool enabled = tap_to_click_enabled_.GetValue();
+    CrosLibrary::Get()->GetTouchpadLibrary()->SetTapToClick(enabled);
+    if (pref_name)
+      UMA_HISTOGRAM_BOOLEAN("Touchpad.TapToClick.Changed", enabled);
+    else
+      UMA_HISTOGRAM_BOOLEAN("Touchpad.TapToClick.Started", enabled);
   }
   if (!pref_name || *pref_name == prefs::kTouchpadSensitivity) {
-    CrosLibrary::Get()->GetTouchpadLibrary()->SetSensitivity(
-        sensitivity_.GetValue());
+    int sensitivity = sensitivity_.GetValue();
+    CrosLibrary::Get()->GetTouchpadLibrary()->SetSensitivity(sensitivity);
+    if (pref_name) {
+      UMA_HISTOGRAM_CUSTOM_COUNTS(
+          "Touchpad.Sensitivity.Changed", sensitivity, 1, 5, 5);
+    } else {
+      UMA_HISTOGRAM_CUSTOM_COUNTS(
+          "Touchpad.Sensitivity.Started", sensitivity, 1, 5, 5);
+    }
   }
 
   // We don't handle prefs::kLanguageCurrentInputMethod and PreviousInputMethod
@@ -247,7 +275,7 @@ void Preferences::NotifyPrefChanged(const std::string* pref_name) {
   }
   if (!pref_name || *pref_name == prefs::kLanguageXkbAutoRepeatEnabled) {
     const bool enabled = language_xkb_auto_repeat_enabled_.GetValue();
-    CrosLibrary::Get()->GetKeyboardLibrary()->SetAutoRepeatEnabled(enabled);
+    input_method::SetAutoRepeatEnabled(enabled);
   }
   if (!pref_name || ((*pref_name == prefs::kLanguageXkbAutoRepeatDelay) ||
                      (*pref_name == prefs::kLanguageXkbAutoRepeatInterval))) {
@@ -426,17 +454,24 @@ void Preferences::UpdateModifierKeyMapping() {
   const int search_remap = language_xkb_remap_search_key_to_.GetValue();
   const int control_remap = language_xkb_remap_control_key_to_.GetValue();
   const int alt_remap = language_xkb_remap_alt_key_to_.GetValue();
-  if ((search_remap < kNumModifierKeys) && (search_remap >= 0) &&
-      (control_remap < kNumModifierKeys) && (control_remap >= 0) &&
-      (alt_remap < kNumModifierKeys) && (alt_remap >= 0)) {
-    chromeos::ModifierMap modifier_map;
+  if ((search_remap < input_method::kNumModifierKeys) && (search_remap >= 0) &&
+      (control_remap < input_method::kNumModifierKeys) &&
+      (control_remap >= 0) &&
+      (alt_remap < input_method::kNumModifierKeys) && (alt_remap >= 0)) {
+    input_method::ModifierMap modifier_map;
     modifier_map.push_back(
-        ModifierKeyPair(kSearchKey, ModifierKey(search_remap)));
+        input_method::ModifierKeyPair(
+            input_method::kSearchKey,
+            input_method::ModifierKey(search_remap)));
     modifier_map.push_back(
-        ModifierKeyPair(kLeftControlKey, ModifierKey(control_remap)));
+        input_method::ModifierKeyPair(
+            input_method::kLeftControlKey,
+            input_method::ModifierKey(control_remap)));
     modifier_map.push_back(
-        ModifierKeyPair(kLeftAltKey, ModifierKey(alt_remap)));
-    CrosLibrary::Get()->GetKeyboardLibrary()->RemapModifierKeys(modifier_map);
+        input_method::ModifierKeyPair(
+            input_method::kLeftAltKey,
+            input_method::ModifierKey(alt_remap)));
+    input_method::RemapModifierKeys(modifier_map);
   } else {
     LOG(ERROR) << "Failed to remap modifier keys. Unexpected value(s): "
                << search_remap << ", " << control_remap << ", " << alt_remap;
@@ -444,13 +479,13 @@ void Preferences::UpdateModifierKeyMapping() {
 }
 
 void Preferences::UpdateAutoRepeatRate() {
-  AutoRepeatRate rate;
+  input_method::AutoRepeatRate rate;
   rate.initial_delay_in_ms = language_xkb_auto_repeat_delay_pref_.GetValue();
   rate.repeat_interval_in_ms =
       language_xkb_auto_repeat_interval_pref_.GetValue();
   DCHECK(rate.initial_delay_in_ms > 0);
   DCHECK(rate.repeat_interval_in_ms > 0);
-  CrosLibrary::Get()->GetKeyboardLibrary()->SetAutoRepeatRate(rate);
+  input_method::SetAutoRepeatRate(rate);
 }
 
 }  // namespace chromeos

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -40,7 +40,7 @@ HttpNetworkSession::HttpNetworkSession(const Params& params)
                            params.ssl_host_info_factory,
                            params.proxy_service,
                            params.ssl_config_service),
-      spdy_session_pool_(params.ssl_config_service),
+      spdy_session_pool_(params.host_resolver, params.ssl_config_service),
       ALLOW_THIS_IN_INITIALIZER_LIST(http_stream_factory_(
           new HttpStreamFactoryImpl(this))) {
   DCHECK(params.proxy_service);

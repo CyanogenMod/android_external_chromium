@@ -73,19 +73,6 @@ bool GetInternalPluginsDirectory(FilePath* result) {
   return PathService::Get(base::DIR_MODULE, result);
 }
 
-bool GetGearsPluginPathFromCommandLine(FilePath* path) {
-#ifndef NDEBUG
-  // for debugging, support a cmd line based override
-  FilePath plugin_path =
-      CommandLine::ForCurrentProcess()->GetSwitchValuePath(
-          switches::kGearsPluginPathOverride);
-  *path = plugin_path;
-  return !plugin_path.empty();
-#else
-  return false;
-#endif
-}
-
 bool PathProvider(int key, FilePath* result) {
   // Some keys are just aliases...
   switch (key) {
@@ -208,6 +195,14 @@ bool PathProvider(int key, FilePath* result) {
       if (!GetInternalPluginsDirectory(&cur))
         return false;
       break;
+    case chrome::DIR_MEDIA_LIBS:
+#if defined(OS_MACOSX)
+      *result = base::mac::MainAppBundlePath();
+      *result = result->Append("Libraries");
+      return true;
+#else
+      return PathService::Get(chrome::DIR_APP, result);
+#endif
     case chrome::FILE_LOCAL_STATE:
       if (!PathService::Get(chrome::DIR_USER_DATA, &cur))
         return false;
@@ -217,29 +212,6 @@ bool PathProvider(int key, FilePath* result) {
       if (!PathService::Get(chrome::DIR_USER_DATA, &cur))
         return false;
       cur = cur.Append(FILE_PATH_LITERAL("script.log"));
-      break;
-    case chrome::FILE_GEARS_PLUGIN:
-      if (!GetGearsPluginPathFromCommandLine(&cur)) {
-#if defined(OS_WIN)
-        // Search for gears.dll alongside chrome.dll first.  This new model
-        // allows us to package gears.dll with the Chrome installer and update
-        // it while Chrome is running.
-        if (!GetInternalPluginsDirectory(&cur))
-          return false;
-        cur = cur.Append(FILE_PATH_LITERAL("gears.dll"));
-
-        if (!file_util::PathExists(cur)) {
-          if (!PathService::Get(base::DIR_EXE, &cur))
-            return false;
-          cur = cur.Append(FILE_PATH_LITERAL("plugins"));
-          cur = cur.Append(FILE_PATH_LITERAL("gears"));
-          cur = cur.Append(FILE_PATH_LITERAL("gears.dll"));
-        }
-#else
-        // No gears.dll on non-Windows systems.
-        return false;
-#endif
-      }
       break;
     case chrome::FILE_FLASH_PLUGIN:
       if (!GetInternalPluginsDirectory(&cur))

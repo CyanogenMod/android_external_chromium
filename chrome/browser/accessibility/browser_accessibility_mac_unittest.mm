@@ -1,10 +1,10 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import <Cocoa/Cocoa.h>
 
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/accessibility/browser_accessibility_cocoa.h"
@@ -47,26 +47,21 @@ class BrowserAccessibilityTest : public CocoaTest {
   virtual void SetUp() {
     CocoaTest::SetUp();
     WebAccessibility root;
-    root.location.x = 0;
-    root.location.y = 0;
-    root.location.width = 500;
-    root.location.height = 100;
+    root.location.set_width(500);
+    root.location.set_height(100);
     root.role = WebAccessibility::ROLE_WEB_AREA;
     root.attributes[WebAccessibility::ATTR_HELP] = ASCIIToUTF16("HelpText");
 
     WebAccessibility child1;
     child1.name = ASCIIToUTF16("Child1");
-    child1.location.x = 0;
-    child1.location.y = 0;
-    child1.location.width = 250;
-    child1.location.height = 100;
+    child1.location.set_width(250);
+    child1.location.set_height(100);
     child1.role = WebAccessibility::ROLE_BUTTON;
 
     WebAccessibility child2;
-    child2.location.x = 250;
-    child2.location.y = 0;
-    child2.location.width = 250;
-    child2.location.height = 100;
+    child2.location.set_x(250);
+    child2.location.set_width(250);
+    child2.location.set_height(100);
     child2.role = WebAccessibility::ROLE_HEADING;
 
     root.children.push_back(child1);

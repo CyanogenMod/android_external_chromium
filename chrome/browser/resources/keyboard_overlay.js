@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,10 +32,10 @@ var LABEL_TO_KEY_TEXT = {
   glyph_brightness_up: 'bright up',
   glyph_enter: 'enter',
   glyph_forward: 'forward',
-  glyph_fullscreen: 'fullscreen',
+  glyph_fullscreen: 'full screen',
   glyph_ime: 'ime',
   glyph_lock: 'lock',
-  glyph_overview: 'windows',
+  glyph_overview: 'switch window',
   glyph_power: 'power',
   glyph_right: 'right',
   glyph_reload: 'reload',
@@ -120,17 +120,27 @@ function getModifiers(e) {
   if (!e) {
     return [];
   }
-  var modifiers = [];
-  if (e.keyCode == 16 || e.shiftKey) {
-    modifiers.push('SHIFT');
+  var isKeyDown = (e.type == 'keydown');
+  var keyCodeToModifier = {
+    16: 'SHIFT',
+    17: 'CTRL',
+    18: 'ALT',
+    91: 'ALT', // left ALT pressed with SHIFT
+    92: 'ALT', // right ALT pressed with SHIFT
+  };
+  var modifierWithKeyCode = keyCodeToModifier[e.keyCode];
+  var isPressed = {'SHIFT': e.shiftKey, 'CTRL': e.ctrlKey, 'ALT': e.altKey};
+  // if e.keyCode is one of Shift, Ctrl and Alt, isPressed should
+  // be changed because the key currently pressed
+  // does not affect the values of e.shiftKey, e.ctrlKey and e.altKey
+  if(modifierWithKeyCode){
+    isPressed[modifierWithKeyCode] = isKeyDown;
   }
-  if (e.keyCode == 17 || e.ctrlKey) {
-    modifiers.push('CTRL');
-  }
-  if (e.keyCode == 18 || e.altKey) {
-    modifiers.push('ALT');
-  }
-  return modifiers.sort();
+  // make the result array
+  return ['SHIFT', 'CTRL', 'ALT'].filter(
+      function(modifier) {
+        return isPressed[modifier];
+      }).sort();
 }
 
 /**
@@ -221,9 +231,24 @@ function getKeyLabel(keyData, modifiers) {
 
 /**
  * Returns a normalized string used for a key of shortcutData.
+ *
+ * Examples:
+ *   keycode: 'd', modifiers: ['CTRL', 'SHIFT'] => 'd<>CTRL<>SHIFT'
+ *   keycode: 'alt', modifiers: ['ALT', 'SHIFT'] => 'ALT<>SHIFT'
  */
 function getAction(keycode, modifiers) {
-  return [keycode].concat(modifiers).join(' ');
+  const SEPARATOR = '<>';
+  if (keycode.toUpperCase() in MODIFIER_TO_CLASS) {
+    keycode = keycode.toUpperCase();
+    if (keycode in modifiers) {
+      return modifiers.join(SEPARATOR);
+    } else {
+      var action = [keycode].concat(modifiers)
+      action.sort();
+      return action.join(SEPARATOR);
+    }
+  }
+  return [keycode].concat(modifiers).join(SEPARATOR);
 }
 
 /**
@@ -250,8 +275,7 @@ function getKeyTextValue(keyData) {
 /**
  * Updates the whole keyboard.
  */
-function update(e) {
-  var modifiers = getModifiers(e);
+function update(modifiers) {
   var instructions = document.getElementById('instructions');
   if (modifiers.length == 0) {
     instructions.style.visibility = 'visible';
@@ -307,23 +331,14 @@ function update(e) {
 }
 
 /**
- * A callback furnction for the onkeydown event.
+ * A callback function for onkeydown and onkeyup events.
  */
-function keydown(e) {
+function handleKeyEvent(e){
+  var modifiers = getModifiers(e);
   if (!getKeyboardOverlayId()) {
     return;
   }
-  update(e);
-}
-
-/**
- * A callback furnction for the onkeyup event.
- */
-function keyup(e) {
-  if (!getKeyboardOverlayId()) {
-    return;
-  }
-  update();
+  update(modifiers);
 }
 
 /**
@@ -409,8 +424,8 @@ function initLayout() {
  * A callback function for the onload event of the body element.
  */
 function init() {
-  document.addEventListener('keydown', keydown);
-  document.addEventListener('keyup', keyup);
+  document.addEventListener('keydown', handleKeyEvent);
+  document.addEventListener('keyup', handleKeyEvent);
   chrome.send('getKeyboardOverlayId');
 }
 

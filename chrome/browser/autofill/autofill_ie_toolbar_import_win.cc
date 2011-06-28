@@ -4,13 +4,20 @@
 
 #include "chrome/browser/autofill/autofill_ie_toolbar_import_win.h"
 
+#include <stddef.h>
+#include <map>
+#include <string>
+#include <vector>
+
 #include "base/basictypes.h"
+#include "base/logging.h"
 #include "base/string16.h"
 #include "base/win/registry.h"
 #include "chrome/browser/autofill/autofill_profile.h"
 #include "chrome/browser/autofill/credit_card.h"
 #include "chrome/browser/autofill/crypto/rc4_decryptor.h"
 #include "chrome/browser/autofill/field_types.h"
+#include "chrome/browser/autofill/form_group.h"
 #include "chrome/browser/autofill/personal_data_manager.h"
 #include "chrome/browser/sync/util/data_encryption.h"
 
@@ -18,7 +25,7 @@ using base::win::RegKey;
 
 // Forward declaration. This function is not in unnamed namespace as it
 // is referenced in the unittest.
-bool ImportCurrentUserProfiles(std::vector<AutoFillProfile>* profiles,
+bool ImportCurrentUserProfiles(std::vector<AutofillProfile>* profiles,
                                std::vector<CreditCard>* credit_cards);
 namespace {
 
@@ -30,7 +37,7 @@ const wchar_t* const kPasswordHashValue = L"password_hash";
 const wchar_t* const kSaltValue = L"salt";
 
 // This is RC4 decryption for Toolbar credit card data. This is necessary
-// because it is not standard, so Crypto api cannot be used.
+// because it is not standard, so Crypto API cannot be used.
 std::wstring DecryptCCNumber(const std::wstring& data) {
   const wchar_t* kEmptyKey =
     L"\x3605\xCEE5\xCE49\x44F7\xCF4E\xF6CC\x604B\xFCBE\xC70A\x08FD";
@@ -137,7 +144,7 @@ bool ImportSingleProfile(FormGroup* profile,
       if (it->second == CREDIT_CARD_NUMBER) {
         field_value = DecryptCCNumber(field_value);
       }
-      profile->SetInfo(AutofillType(it->second), field_value);
+      profile->SetInfo(it->second, field_value);
     }
   }
   return has_non_empty_fields;
@@ -145,9 +152,9 @@ bool ImportSingleProfile(FormGroup* profile,
 
 // Imports profiles from the IE toolbar and stores them. Asynchronous
 // if PersonalDataManager has not been loaded yet. Deletes itself on completion.
-class AutoFillImporter : public PersonalDataManager::Observer {
+class AutofillImporter : public PersonalDataManager::Observer {
  public:
-  explicit AutoFillImporter(PersonalDataManager* personal_data_manager)
+  explicit AutofillImporter(PersonalDataManager* personal_data_manager)
     : personal_data_manager_(personal_data_manager) {
       personal_data_manager_->SetObserver(this);
   }
@@ -172,21 +179,21 @@ class AutoFillImporter : public PersonalDataManager::Observer {
   }
 
  private:
-  ~AutoFillImporter() {
+  ~AutofillImporter() {
     personal_data_manager_->RemoveObserver(this);
   }
 
   PersonalDataManager* personal_data_manager_;
-  std::vector<AutoFillProfile> profiles_;
+  std::vector<AutofillProfile> profiles_;
   std::vector<CreditCard> credit_cards_;
 };
 
 }  // namespace
 
-// Imports AutoFill profiles and credit cards from IE Toolbar if present and not
+// Imports Autofill profiles and credit cards from IE Toolbar if present and not
 // password protected. Returns true if data is successfully retrieved. False if
 // there is no data, data is password protected or error occurred.
-bool ImportCurrentUserProfiles(std::vector<AutoFillProfile>* profiles,
+bool ImportCurrentUserProfiles(std::vector<AutofillProfile>* profiles,
                                std::vector<CreditCard>* credit_cards) {
   DCHECK(profiles);
   DCHECK(credit_cards);
@@ -205,18 +212,18 @@ bool ImportCurrentUserProfiles(std::vector<AutoFillProfile>* profiles,
     key_name.append(L"\\");
     key_name.append(iterator_profiles.Name());
     RegKey key(HKEY_CURRENT_USER, key_name.c_str(), KEY_READ);
-    AutoFillProfile profile;
+    AutofillProfile profile;
     if (ImportSingleProfile(&profile, &key, reg_to_field)) {
       // Combine phones into whole phone #.
       string16 phone;
-      phone = profile.GetFieldText(AutofillType(PHONE_HOME_COUNTRY_CODE));
-      phone.append(profile.GetFieldText(AutofillType(PHONE_HOME_CITY_CODE)));
-      phone.append(profile.GetFieldText(AutofillType(PHONE_HOME_NUMBER)));
-      profile.SetInfo(AutofillType(PHONE_HOME_WHOLE_NUMBER), phone);
-      phone = profile.GetFieldText(AutofillType(PHONE_FAX_COUNTRY_CODE));
-      phone.append(profile.GetFieldText(AutofillType(PHONE_FAX_CITY_CODE)));
-      phone.append(profile.GetFieldText(AutofillType(PHONE_FAX_NUMBER)));
-      profile.SetInfo(AutofillType(PHONE_FAX_WHOLE_NUMBER), phone);
+      phone = profile.GetInfo(PHONE_HOME_COUNTRY_CODE);
+      phone.append(profile.GetInfo(PHONE_HOME_CITY_CODE));
+      phone.append(profile.GetInfo(PHONE_HOME_NUMBER));
+      profile.SetInfo(PHONE_HOME_WHOLE_NUMBER, phone);
+      phone = profile.GetInfo(PHONE_FAX_COUNTRY_CODE);
+      phone.append(profile.GetInfo(PHONE_FAX_CITY_CODE));
+      phone.append(profile.GetInfo(PHONE_FAX_NUMBER));
+      profile.SetInfo(PHONE_FAX_WHOLE_NUMBER, phone);
       profiles->push_back(profile);
     }
   }
@@ -239,8 +246,7 @@ bool ImportCurrentUserProfiles(std::vector<AutoFillProfile>* profiles,
       RegKey key(HKEY_CURRENT_USER, key_name.c_str(), KEY_READ);
       CreditCard credit_card;
       if (ImportSingleProfile(&credit_card, &key, reg_to_field)) {
-        string16 cc_number = credit_card.GetFieldText(
-            AutofillType(CREDIT_CARD_NUMBER));
+        string16 cc_number = credit_card.GetInfo(CREDIT_CARD_NUMBER);
         if (!cc_number.empty())
           credit_cards->push_back(credit_card);
       }
@@ -253,7 +259,7 @@ bool ImportAutofillDataWin(PersonalDataManager* pdm) {
   // In incognito mode we do not have PDM - and we should not import anything.
   if (!pdm)
     return false;
-  AutoFillImporter *importer = new AutoFillImporter(pdm);
+  AutofillImporter *importer = new AutofillImporter(pdm);
   // importer will self delete.
   return importer->ImportProfiles();
 }

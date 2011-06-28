@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,38 +13,23 @@
 
 #include "base/basictypes.h"
 #include "base/task.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
-#include "chrome/common/notification_type.h"
-
-class NotificationSource;
-class NotificationDetails;
 
 namespace browser_sync {
 
 class DataTypeController;
 class SyncBackendHost;
 
-class DataTypeManagerImpl : public DataTypeManager,
-                            public NotificationObserver {
+class DataTypeManagerImpl : public DataTypeManager {
  public:
   DataTypeManagerImpl(SyncBackendHost* backend,
-                      const DataTypeController::TypeMap& controllers);
+                       const DataTypeController::TypeMap& controllers);
   virtual ~DataTypeManagerImpl();
 
   // DataTypeManager interface.
   virtual void Configure(const TypeSet& desired_types);
-
   virtual void Stop();
-
   virtual const DataTypeController::TypeMap& controllers();
-
   virtual State state();
-
-  // NotificationObserver implementation.
-  virtual void Observe(NotificationType type,
-                       const NotificationSource& source,
-                       const NotificationDetails& details);
 
  private:
   // Starts the next data type in the kStartOrder list, indicated by
@@ -53,38 +38,40 @@ class DataTypeManagerImpl : public DataTypeManager,
   void StartNextType();
 
   // Callback passed to each data type controller on startup.
-  void TypeStartCallback(DataTypeController::StartResult result);
+  void TypeStartCallback(DataTypeController::StartResult result,
+      const tracked_objects::Location& from_here);
 
   // Stops all data types.
   void FinishStop();
-  void FinishStopAndNotify(ConfigureResult result);
+  void FinishStopAndNotify(ConfigureResult result,
+       const tracked_objects::Location& location);
+
+  // Returns true if any last_requested_types_ currently needs to start model
+  // association.  If non-null, fills |needs_start| with all such controllers.
+  bool GetControllersNeedingStart(
+      std::vector<DataTypeController*>* needs_start);
 
   void Restart();
   void DownloadReady();
-  void AddObserver(NotificationType type);
-  void RemoveObserver(NotificationType type);
   void NotifyStart();
-  void NotifyDone(ConfigureResult result);
-  void ResumeSyncer();
-  void PauseSyncer();
+  void NotifyDone(ConfigureResult result,
+      const tracked_objects::Location& location);
+  void SetBlockedAndNotify();
 
   SyncBackendHost* backend_;
   // Map of all data type controllers that are available for sync.
   // This list is determined at startup by various command line flags.
   const DataTypeController::TypeMap controllers_;
   State state_;
-  DataTypeController* current_dtc_;
   std::map<syncable::ModelType, int> start_order_;
   TypeSet last_requested_types_;
   std::vector<DataTypeController*> needs_start_;
   std::vector<DataTypeController*> needs_stop_;
 
-  // Safety check to ensure we never request more than one pause. This can be
-  // true while state_ != PAUSE_PENDING if we attempt to restart while in
-  // PAUSE_PENDING state. See http://crbug.com/73218.
-  bool pause_pending_;
+  // Whether an attempt to reconfigure was made while we were busy configuring.
+  // The |last_requested_types_| will reflect the newest set of requested types.
+  bool needs_reconfigure_;
 
-  NotificationRegistrar notification_registrar_;
   ScopedRunnableMethodFactory<DataTypeManagerImpl> method_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(DataTypeManagerImpl);

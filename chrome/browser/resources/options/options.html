@@ -9,12 +9,12 @@
 <title i18n-content="browserPageTabTitle"></title>
 
 <link rel="icon" href="../../../app/theme/settings_favicon.png">
+<link rel="stylesheet" href="chrome://resources/css/button.css">
 <link rel="stylesheet" href="chrome://resources/css/list.css">
 <link rel="stylesheet" href="chrome://resources/css/throbber.css">
 <link rel="stylesheet" href="chrome://resources/css/tree.css">
 <link rel="stylesheet" href="../webui.css">
 <link rel="stylesheet" href="options_page.css">
-<link rel="stylesheet" href="add_startup_page_overlay.css">
 <link rel="stylesheet" href="advanced_options.css">
 <link rel="stylesheet" href="alert_overlay.css">
 <link rel="stylesheet" href="autofill_options.css">
@@ -31,12 +31,14 @@
 <link rel="stylesheet" href="search_engine_manager.css">
 <link rel="stylesheet" href="search_page.css">
 <link rel="stylesheet" href="subpages_tab_controls.css">
+<link rel="stylesheet" href="sync_setup_overlay.css">
 <if expr="pp_ifdef('chromeos')">
   <link rel="stylesheet" href="about_page.css">
-  <link rel="stylesheet" href="chromeos_accounts_options_page.css">
-  <link rel="stylesheet" href="chromeos_internet_options_page.css">
-  <link rel="stylesheet" href="chromeos_proxy.css">
-  <link rel="stylesheet" href="chromeos_system_options_page.css">
+  <link rel="stylesheet" href="chromeos/accounts_options_page.css">
+  <link rel="stylesheet" href="chromeos/change_picture_options.css">
+  <link rel="stylesheet" href="chromeos/internet_options_page.css">
+  <link rel="stylesheet" href="chromeos/proxy.css">
+  <link rel="stylesheet" href="chromeos/system_options_page.css">
 </if>
 
 <if expr="not pp_ifdef('win32') and not pp_ifdef('darwin')">
@@ -55,6 +57,7 @@
 <script src="chrome://resources/js/cr/ui/list_single_selection_model.js"></script>
 <script src="chrome://resources/js/cr/ui/list_item.js"></script>
 <script src="chrome://resources/js/cr/ui/list.js"></script>
+<script src="chrome://resources/js/cr/ui/position_util.js"></script>
 <script src="chrome://resources/js/cr/ui/tree.js"></script>
 <script src="chrome://resources/js/local_strings.js"></script>
 <script src="chrome://resources/js/util.js"></script>
@@ -65,20 +68,21 @@
 <script src="options_page.js"></script>
 <if expr="pp_ifdef('chromeos')">
   <script src="about_page.js"></script>
-  <script src="chromeos_cellular_plan_element.js"></script>
-  <script src="chromeos_internet_network_element.js"></script>
-  <script src="chromeos_internet_options.js"></script>
-  <script src="chromeos_system_options.js"></script>
-  <script src="chromeos_accounts_options.js"></script>
-  <script src="chromeos_proxy_options.js"></script>
-  <script src="chromeos_proxy_rules_list.js"></script>
-  <script src="chromeos_accounts_user_list.js"></script>
-  <script src="chromeos_accounts_user_name_edit.js"></script>
+  <script src="chromeos/cellular_plan_element.js"></script>
+  <script src="chromeos/change_picture_options.js"></script>
+  <script src="chromeos/internet_network_element.js"></script>
+  <script src="chromeos/internet_options.js"></script>
+  <script src="chromeos/system_options.js"></script>
+  <script src="chromeos/accounts_options.js"></script>
+  <script src="chromeos/proxy_options.js"></script>
+  <script src="chromeos/proxy_rules_list.js"></script>
+  <script src="chromeos/accounts_user_list.js"></script>
+  <script src="chromeos/accounts_user_name_edit.js"></script>
   <script>
     var AboutPage = options.AboutPage;
     var AccountsOptions = options.AccountsOptions;
+    var ChangePictureOptions = options.ChangePictureOptions;
     var InternetOptions = options.InternetOptions;
-    var LanguageHangulOptions = options.LanguageHangulOptions;
     var SystemOptions = options.SystemOptions;
   </script>
 </if>
@@ -97,10 +101,9 @@
     var CertificateImportErrorOverlay = options.CertificateImportErrorOverlay;
   </script>
 </if>
-<script src="add_startup_page_overlay.js"></script>
-<script src="add_startup_page_recent_pages_list.js"></script>
 <script src="advanced_options.js"></script>
 <script src="alert_overlay.js"></script>
+<script src="autocomplete_list.js"></script>
 <script src="autofill_edit_address_overlay.js"></script>
 <script src="autofill_edit_creditcard_overlay.js"></script>
 <script src="autofill_options_list.js"></script>
@@ -125,6 +128,7 @@
 <script src="search_engine_manager.js"></script>
 <script src="search_engine_manager_engine_list.js"></script>
 <script src="search_page.js"></script>
+<script src="sync_setup_overlay.js"></script>
 <script src="options.js"></script>
 
 </head>
@@ -132,7 +136,6 @@
 <div class="header">
 </div>
 <div id="overlay" class="overlay transparent" hidden>
-  <include src="add_startup_page_overlay.html">
   <include src="alert_overlay.html">
   <include src="autofill_edit_address_overlay.html">
   <include src="autofill_edit_creditcard_overlay.html">
@@ -140,10 +143,11 @@
   <include src="import_data_overlay.html">
   <include src="instant_confirm_overlay.html">
   <include src="language_add_language_overlay.html">
+  <include src="sync_setup_overlay.html">
   <if expr="pp_ifdef('chromeos')">
      <include
-         src="chromeos_language_customize_modifier_keys_overlay.html">
-     <include src="chromeos_internet_detail.html">
+         src="chromeos/language_customize_modifier_keys_overlay.html">
+     <include src="chromeos/internet_detail.html">
   </if>
   <if expr="not pp_ifdef('win32') and not pp_ifdef('darwin')">
     <include src="certificate_restore_overlay.html">
@@ -173,9 +177,9 @@
          <include src="browser_options.html">
          <include src="personal_options.html">
          <if expr="pp_ifdef('chromeos')">
-           <include src="chromeos_system_options.html">
-           <include src="chromeos_internet_options.html">
-           <include src="chromeos_accounts_options.html">
+           <include src="chromeos/system_options.html">
+           <include src="chromeos/internet_options.html">
+           <include src="chromeos/accounts_options.html">
          </if>
          <include src="advanced_options.html">
        </div>
@@ -186,7 +190,8 @@
            <div class="subpage-sheet-contents">
              <if expr="pp_ifdef('chromeos')">
                <include src="about_page.html">
-               <include src="chromeos_proxy.html">
+               <include src="chromeos/change_picture_options.html">
+               <include src="chromeos/proxy.html">
              </if>
              <if expr="not pp_ifdef('win32') and not pp_ifdef('darwin')">
                <include src="certificate_manager.html">
@@ -206,10 +211,10 @@
            <button class="raw-button close-subpage"></button>
            <div class="subpage-sheet-contents">
              <if expr="pp_ifdef('chromeos')">
-               <include src="chromeos_language_chewing_options.html">
-               <include src="chromeos_language_hangul_options.html">
-               <include src="chromeos_language_mozc_options.html">
-               <include src="chromeos_language_pinyin_options.html">
+               <include src="chromeos/language_chewing_options.html">
+               <include src="chromeos/language_hangul_options.html">
+               <include src="chromeos/language_mozc_options.html">
+               <include src="chromeos/language_pinyin_options.html">
              </if>
              <include src="cookies_view.html">
              <include src="content_settings_exceptions_area.html">

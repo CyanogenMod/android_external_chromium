@@ -13,12 +13,12 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/io_thread.h"
 #include "chrome/browser/upgrade_detector.h"
-#include "chrome/common/child_process_host.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/service_messages.h"
 #include "chrome/common/service_process_util.h"
 #include "content/browser/browser_thread.h"
+#include "content/common/child_process_host.h"
+#include "content/common/notification_service.h"
 #include "ui/base/ui_base_switches.h"
 
 
@@ -147,6 +147,11 @@ void ServiceProcessControl::Launch(Task* success_task, Task* failure_task) {
   if (!v_level.empty())
     cmd_line->AppendSwitchASCII(switches::kV, v_level);
 
+  std::string v_modules = browser_command_line.GetSwitchValueASCII(
+      switches::kVModule);
+  if (!v_modules.empty())
+    cmd_line->AppendSwitchASCII(switches::kVModule, v_modules);
+
   if (browser_command_line.HasSwitch(switches::kWaitForDebuggerChildren)) {
     cmd_line->AppendSwitch(switches::kWaitForDebugger);
   }
@@ -240,7 +245,7 @@ void ServiceProcessControl::OnCloudPrintProxyIsEnabled(bool enabled,
 }
 
 void ServiceProcessControl::OnRemotingHostInfo(
-    remoting::ChromotingHostInfo host_info) {
+    const remoting::ChromotingHostInfo& host_info) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   for (std::set<MessageHandler*>::iterator it = message_handlers_.begin();
        it != message_handlers_.end(); ++it) {

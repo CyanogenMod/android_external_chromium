@@ -8,7 +8,9 @@
 #include "base/test/test_timeouts.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/autofill/autofill_download.h"
+#include "chrome/browser/autofill/autofill_field.h"
 #include "chrome/browser/autofill/autofill_metrics.h"
+#include "chrome/browser/autofill/form_structure.h"
 #include "chrome/common/net/test_url_fetcher_factory.h"
 #include "chrome/test/test_url_request_context_getter.h"
 #include "chrome/test/testing_browser_process.h"
@@ -109,12 +111,12 @@ class AutofillDownloadTestHelper : public AutofillDownloadManager::Observer {
 
   TestingProfile profile;
   AutofillDownloadManager download_manager;
-  scoped_refptr<URLRequestContextGetter> request_context_getter;
+  scoped_refptr<net::URLRequestContextGetter> request_context_getter;
 };
 
-typedef TestingBrowserProcessTest AutoFillDownloadTest;
+typedef TestingBrowserProcessTest AutofillDownloadTest;
 
-TEST_F(AutoFillDownloadTest, QueryAndUploadTest) {
+TEST_F(AutofillDownloadTest, QueryAndUploadTest) {
   MessageLoopForUI message_loop;
   // Create and register factory.
   AutofillDownloadTestHelper helper;
@@ -357,7 +359,7 @@ TEST_F(AutoFillDownloadTest, QueryAndUploadTest) {
   URLFetcher::set_factory(NULL);
 }
 
-TEST_F(AutoFillDownloadTest, CacheQueryTest) {
+TEST_F(AutofillDownloadTest, CacheQueryTest) {
   MessageLoopForUI message_loop;
   AutofillDownloadTestHelper helper;
   // Create and register factory.

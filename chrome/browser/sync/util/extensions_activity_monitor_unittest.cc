@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,8 +11,8 @@
 #include "chrome/browser/extensions/extension_bookmarks_module.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_constants.h"
-#include "chrome/common/notification_service.h"
 #include "content/browser/browser_thread.h"
+#include "content/common/notification_service.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using browser_sync::ExtensionsActivityMonitor;
@@ -73,8 +73,8 @@ class BookmarkAPIEventGenerator {
     input.SetString(keys::kVersion, kTestExtensionVersion);
     input.SetString(keys::kName, kTestExtensionName);
     scoped_refptr<Extension> extension(Extension::Create(
-        FilePath(extension_path), Extension::INVALID, input, false, true,
-        &error));
+        FilePath(extension_path), Extension::INVALID, input,
+        Extension::STRICT_ERROR_CHECKS, &error));
     bookmarks_function->set_name(T::function_name());
     base::WaitableEvent done_event(false, false);
     BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
@@ -132,8 +132,8 @@ class ExtensionsActivityMonitorTest : public testing::Test {
     input.SetString(keys::kVersion, kTestExtensionVersion);
     input.SetString(keys::kName, kTestExtensionName);
     scoped_refptr<Extension> extension(Extension::Create(
-        FilePath(extension_path), Extension::INVALID, input, false, true,
-        &error));
+        FilePath(extension_path), Extension::INVALID, input,
+        Extension::STRICT_ERROR_CHECKS, &error));
     EXPECT_EQ("", error);
     return extension->id();
   }

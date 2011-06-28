@@ -125,7 +125,7 @@ void SearchEngineManagerHandler::OnModelChanged() {
     others_list.Append(CreateDictionaryForEngine(i, i == default_index));
   }
 
-  web_ui_->CallJavascriptFunction(L"SearchEngineManager.updateSearchEngineList",
+  web_ui_->CallJavascriptFunction("SearchEngineManager.updateSearchEngineList",
                                   defaults_list, others_list);
 }
 
@@ -154,7 +154,7 @@ DictionaryValue* SearchEngineManagerHandler::CreateDictionaryForEngine(
     index, IDS_SEARCH_ENGINES_EDITOR_KEYWORD_COLUMN));
   dict->SetString("url", template_url->url()->DisplayURL());
   dict->SetBoolean("urlLocked", template_url->prepopulate_id() > 0);
-  GURL icon_url = template_url->GetFavIconURL();
+  GURL icon_url = template_url->GetFaviconURL();
   if (icon_url.is_valid())
     dict->SetString("iconURL", icon_url.spec());
   dict->SetString("modelIndex", base::IntToString(index));
@@ -246,8 +246,8 @@ void SearchEngineManagerHandler::CheckSearchEngineInfoValidity(
   validity.SetBoolean("keyword", edit_controller_->IsKeywordValid(keyword));
   validity.SetBoolean("url", edit_controller_->IsURLValid(url));
   StringValue indexValue(modelIndex);
-  web_ui_->CallJavascriptFunction(
-      L"SearchEngineManager.validityCheckCallback", validity, indexValue);
+  web_ui_->CallJavascriptFunction("SearchEngineManager.validityCheckCallback",
+                                  validity, indexValue);
 }
 
 void SearchEngineManagerHandler::EditCancelled(const ListValue* args) {

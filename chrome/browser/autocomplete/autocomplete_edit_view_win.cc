@@ -16,7 +16,7 @@
 #include "base/basictypes.h"
 #include "base/i18n/rtl.h"
 #include "base/lazy_instance.h"
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
@@ -32,8 +32,8 @@
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
-#include "chrome/common/notification_service.h"
 #include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/notification_service.h"
 #include "googleurl/src/url_util.h"
 #include "grit/generated_resources.h"
 #include "net/base/escape.h"
@@ -89,8 +89,8 @@ int CopyOrLinkDragOperation(int drag_operation) {
 // typing, caret position, etc. across tab changes.  We explicitly don't
 // preserve things like whether the popup was open as this might be weird.
 struct AutocompleteEditState {
-  AutocompleteEditState(const AutocompleteEditModel::State model_state,
-                        const AutocompleteEditViewWin::State view_state)
+  AutocompleteEditState(const AutocompleteEditModel::State& model_state,
+                        const AutocompleteEditViewWin::State& view_state)
       : model_state(model_state),
         view_state(view_state) {
   }
@@ -289,10 +289,11 @@ AutocompleteEditViewWin::ScopedFreeze::~ScopedFreeze() {
     long count;
     text_object_model_->Unfreeze(&count);
     if (count == 0) {
-      // We need to UpdateWindow() here instead of InvalidateRect() because, as
-      // far as I can tell, the edit likes to synchronously erase its background
-      // when unfreezing, thus requiring us to synchronously redraw if we don't
-      // want flicker.
+      // We need to UpdateWindow() here in addition to InvalidateRect() because,
+      // as far as I can tell, the edit likes to synchronously erase its
+      // background when unfreezing, thus requiring us to synchronously redraw
+      // if we don't want flicker.
+      edit_->InvalidateRect(NULL, false);
       edit_->UpdateWindow();
     }
   }
@@ -515,7 +516,7 @@ int AutocompleteEditViewWin::WidthOfTextAfterCursor() {
   GetSelection(selection);
   const int start = std::max(0, static_cast<int>(selection.cpMax - 1));
   return WidthNeededToDisplay(GetText().substr(start));
- }
+}
 
 gfx::Font AutocompleteEditViewWin::GetFont() {
   return font_;
@@ -736,8 +737,10 @@ void AutocompleteEditViewWin::ClosePopup() {
 
 void AutocompleteEditViewWin::SetFocus() {
   ::SetFocus(m_hWnd);
-  parent_view_->
-      NotifyAccessibilityEvent(AccessibilityTypes::EVENT_FOCUS, false);
+  parent_view_->GetWidget()->NotifyAccessibilityEvent(
+      parent_view_,
+      ui::AccessibilityTypes::EVENT_FOCUS,
+      false);
 }
 
 IAccessible* AutocompleteEditViewWin::GetIAccessible() {
@@ -748,7 +751,7 @@ IAccessible* AutocompleteEditViewWin::GetIAccessible() {
       return NULL;
 
     // Wrap the created object in a smart pointer so it won't leak.
-    ScopedComPtr<IAccessible> accessibility_comptr(accessibility);
+    base::win::ScopedComPtr<IAccessible> accessibility_comptr(accessibility);
     if (!SUCCEEDED(accessibility->Initialize(this)))
       return NULL;
 
@@ -875,8 +878,6 @@ bool AutocompleteEditViewWin::OnAfterPossibleChangeInternal(
        (sel_before_change_.cpMin != sel_before_change_.cpMax)) &&
       ((new_sel.cpMin != sel_before_change_.cpMin) ||
        (new_sel.cpMax != sel_before_change_.cpMax));
-  const bool at_end_of_edit =
-      (new_sel.cpMin == length) && (new_sel.cpMax == length);
 
   // See if the text or selection have changed since OnBeforePossibleChange().
   const string16 new_text(GetText());
@@ -893,10 +894,9 @@ bool AutocompleteEditViewWin::OnAfterPossibleChangeInternal(
       (new_sel.cpMin <= std::min(sel_before_change_.cpMin,
                                  sel_before_change_.cpMax));
 
-  const bool allow_keyword_ui_change = at_end_of_edit && !IsImeComposing();
-  const bool something_changed = model_->OnAfterPossibleChange(new_text,
-      selection_differs, text_differs, just_deleted_text,
-      allow_keyword_ui_change);
+  const bool something_changed = model_->OnAfterPossibleChange(
+      new_text, new_sel.cpMin, new_sel.cpMax, selection_differs,
+      text_differs, just_deleted_text, !IsImeComposing());
 
   if (selection_differs)
     controller_->OnSelectionBoundsChanged();
@@ -907,12 +907,12 @@ bool AutocompleteEditViewWin::OnAfterPossibleChangeInternal(
   if (text_differs) {
     // Note that a TEXT_CHANGED event implies that the cursor/selection
     // probably changed too, so we don't need to send both.
-    parent_view_->NotifyAccessibilityEvent(
-        AccessibilityTypes::EVENT_TEXT_CHANGED);
+    parent_view_->GetWidget()->NotifyAccessibilityEvent(
+        parent_view_, ui::AccessibilityTypes::EVENT_TEXT_CHANGED, true);
   } else if (selection_differs) {
     // Notify assistive technology that the cursor or selection changed.
-    parent_view_->NotifyAccessibilityEvent(
-        AccessibilityTypes::EVENT_SELECTION_CHANGED);
+    parent_view_->GetWidget()->NotifyAccessibilityEvent(
+        parent_view_, ui::AccessibilityTypes::EVENT_SELECTION_CHANGED, true);
   } else if (delete_at_end_pressed_) {
     model_->OnChanged();
   }
@@ -928,9 +928,9 @@ CommandUpdater* AutocompleteEditViewWin::GetCommandUpdater() {
   return command_updater_;
 }
 
-void AutocompleteEditViewWin::SetInstantSuggestion(const string16& suggestion) {
-  // On Windows, we shows the suggestion in LocationBarView.
-  NOTREACHED();
+void AutocompleteEditViewWin::SetInstantSuggestion(const string16& suggestion,
+                                                   bool animate_to_complete) {
+  parent_view_->SetInstantSuggestion(suggestion, animate_to_complete);
 }
 
 int AutocompleteEditViewWin::TextWidth() const {
@@ -1005,12 +1005,13 @@ void AutocompleteEditViewWin::PasteAndGo(const string16& text) {
 }
 
 bool AutocompleteEditViewWin::SkipDefaultKeyEventProcessing(
-    const views::KeyEvent& e) {
-  ui::KeyboardCode key = e.key_code();
+    const views::KeyEvent& event) {
+  ui::KeyboardCode key = event.key_code();
   // We don't process ALT + numpad digit as accelerators, they are used for
   // entering special characters.  We do translate alt-home.
-  if (e.IsAltDown() && (key != ui::VKEY_HOME) &&
-      views::NativeTextfieldWin::IsNumPadDigit(key, views::IsExtendedKey(e)))
+  if (event.IsAltDown() && (key != ui::VKEY_HOME) &&
+      views::NativeTextfieldWin::IsNumPadDigit(key,
+                                               views::IsExtendedKey(event)))
     return true;
 
   // Skip accelerators for key combinations omnibox wants to crack. This list
@@ -1031,15 +1032,16 @@ bool AutocompleteEditViewWin::SkipDefaultKeyEventProcessing(
 
     case ui::VKEY_UP:
     case ui::VKEY_DOWN:
-      return !e.IsAltDown();
+      return !event.IsAltDown();
 
     case ui::VKEY_DELETE:
     case ui::VKEY_INSERT:
-      return !e.IsAltDown() && e.IsShiftDown() && !e.IsControlDown();
+      return !event.IsAltDown() && event.IsShiftDown() &&
+          !event.IsControlDown();
 
     case ui::VKEY_X:
     case ui::VKEY_V:
-      return !e.IsAltDown() && e.IsControlDown();
+      return !event.IsAltDown() && event.IsControlDown();
 
     case ui::VKEY_BACK:
     case ui::VKEY_OEM_PLUS:
@@ -2074,7 +2076,7 @@ void AutocompleteEditViewWin::GetSelection(CHARRANGE& sel) const {
   ITextDocument* const text_object_model = GetTextObjectModel();
   if (!text_object_model)
     return;
-  ScopedComPtr<ITextSelection> selection;
+  base::win::ScopedComPtr<ITextSelection> selection;
   const HRESULT hr = text_object_model->GetSelection(selection.Receive());
   DCHECK_EQ(S_OK, hr);
   long flags;
@@ -2104,7 +2106,7 @@ void AutocompleteEditViewWin::SetSelection(LONG start, LONG end) {
   ITextDocument* const text_object_model = GetTextObjectModel();
   if (!text_object_model)
     return;
-  ScopedComPtr<ITextSelection> selection;
+  base::win::ScopedComPtr<ITextSelection> selection;
   const HRESULT hr = text_object_model->GetSelection(selection.Receive());
   DCHECK_EQ(S_OK, hr);
   selection->SetFlags(tomSelStartActive);
@@ -2415,7 +2417,7 @@ ITextDocument* AutocompleteEditViewWin::GetTextObjectModel() const {
   if (!text_object_model_) {
     // This is lazily initialized, instead of being initialized in the
     // constructor, in order to avoid hurting startup performance.
-    ScopedComPtr<IRichEditOle, NULL> ole_interface;
+    base::win::ScopedComPtr<IRichEditOle, NULL> ole_interface;
     ole_interface.Attach(GetOleInterface());
     if (ole_interface) {
       ole_interface.QueryInterface(

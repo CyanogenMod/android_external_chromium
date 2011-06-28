@@ -5,14 +5,14 @@
 #include <algorithm>
 
 #include "base/file_util.h"
+#include "base/memory/scoped_temp_dir.h"
 #include "base/path_service.h"
-#include "base/scoped_temp_dir.h"
 #include "base/string_number_conversions.h"
 #include "chrome/browser/policy/config_dir_policy_provider.h"
 #include "chrome/browser/policy/configuration_policy_pref_store.h"
 #include "chrome/browser/policy/mock_configuration_policy_store.h"
-#include "chrome/common/json_value_serializer.h"
 #include "content/browser/browser_thread.h"
+#include "content/common/json_value_serializer.h"
 #include "policy/policy_constants.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -337,7 +337,34 @@ INSTANTIATE_TEST_CASE_P(
             kPolicyIncognitoEnabled,
             key::kIncognitoEnabled),
         ValueTestParams::ForBooleanPolicy(
+            kPolicyDisablePluginFinder,
+            key::kDisablePluginFinder),
+        ValueTestParams::ForBooleanPolicy(
+            kPolicyClearSiteDataOnExit,
+            key::kClearSiteDataOnExit),
+        ValueTestParams::ForStringPolicy(
+            kPolicyDownloadDirectory,
+            key::kDownloadDirectory),
+        ValueTestParams::ForBooleanPolicy(
+            kPolicyDefaultBrowserSettingEnabled,
+            key::kDefaultBrowserSettingEnabled),
+        ValueTestParams::ForBooleanPolicy(
             kPolicyCloudPrintProxyEnabled,
-            key::kCloudPrintProxyEnabled)));
+            key::kCloudPrintProxyEnabled),
+        ValueTestParams::ForBooleanPolicy(
+            kPolicyTranslateEnabled,
+            key::kTranslateEnabled),
+        ValueTestParams::ForBooleanPolicy(
+            kPolicyAllowOutdatedPlugins,
+            key::kAllowOutdatedPlugins),
+        ValueTestParams::ForBooleanPolicy(
+            kPolicyBookmarkBarEnabled,
+            key::kBookmarkBarEnabled),
+        ValueTestParams::ForBooleanPolicy(
+            kPolicyEditBookmarksEnabled,
+            key::kEditBookmarksEnabled),
+        ValueTestParams::ForListPolicy(
+            kPolicyDisabledSchemes,
+            key::kDisabledSchemes)));
 
 }  // namespace policy

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include <unicode/uscript.h>
 #include <unicode/uset.h>
 #include <algorithm>
+#include <iterator>
 #include <map>
 
 #include "build/build_config.h"
@@ -19,7 +20,8 @@
 #if defined(OS_WIN)
 #include <windows.h>
 #include <winsock2.h>
-#include <wspiapi.h>  // Needed for Win2k compat.
+#include <iphlpapi.h>
+#pragma comment(lib, "iphlpapi.lib")
 #elif defined(OS_POSIX)
 #include <fcntl.h>
 #ifndef ANDROID
@@ -42,10 +44,10 @@
 #include "base/i18n/time_formatting.h"
 #include "base/json/string_escape.h"
 #include "base/logging.h"
+#include "base/memory/singleton.h"
 #include "base/message_loop.h"
 #include "base/metrics/histogram.h"
 #include "base/path_service.h"
-#include "base/singleton.h"
 #include "base/stl_util-inl.h"
 #include "base/string_number_conversions.h"
 #include "base/string_piece.h"
@@ -70,7 +72,6 @@
 #include "net/base/winsock_init.h"
 #endif
 #include "unicode/datefmt.h"
-
 
 using base::Time;
 
@@ -446,11 +447,12 @@ STR GetHeaderParamValueT(const STR& header, const STR& param_name,
 
   typename STR::const_iterator param_end;
   if (*param_begin == '"' && quote_rule == QuoteRule::REMOVE_OUTER_QUOTES) {
-    param_end = find(param_begin+1, header.end(), '"');
-    if (param_end == header.end())
-      return STR();  // poorly formatted param?
-
     ++param_begin;  // skip past the quote.
+    param_end = find(param_begin, header.end(), '"');
+    // If the closing quote is missing, we will treat the rest of the
+    // string as the parameter.  We can't set |param_end| to the
+    // location of the separator (';'), since the separator is
+    // technically quoted. See: http://crbug.com/58840
   } else {
     param_end = find(param_begin+1, header.end(), ';');
   }
@@ -737,6 +739,81 @@ bool IDNToUnicodeOneComponent(const char16* comp,
   return false;
 }
 
+struct SubtractFromOffset {
+  explicit SubtractFromOffset(size_t amount)
+    : amount(amount) {}
+  void operator()(size_t& offset) {
+    if (offset != std::wstring::npos) {
+      if (offset >= amount)
+        offset -= amount;
+      else
+        offset = std::wstring::npos;
+    }
+  }
+
+  size_t amount;
+};
+
+struct AddToOffset {
+  explicit AddToOffset(size_t amount)
+    : amount(amount) {}
+  void operator()(size_t& offset) {
+    if (offset != std::wstring::npos)
+      offset += amount;
+  }
+
+  size_t amount;
+};
+
+std::vector<size_t> OffsetsIntoSection(
+    std::vector<size_t>* offsets_for_adjustment,
+    size_t section_begin) {
+  std::vector<size_t> offsets_into_section;
+  if (offsets_for_adjustment) {
+    std::transform(offsets_for_adjustment->begin(),
+                   offsets_for_adjustment->end(),
+                   std::back_inserter(offsets_into_section),
+                   ClampComponentOffset(section_begin));
+    std::for_each(offsets_into_section.begin(), offsets_into_section.end(),
+                  SubtractFromOffset(section_begin));
+  }
+  return offsets_into_section;
+}
+
+void ApplySectionAdjustments(const std::vector<size_t>& offsets_into_section,
+                             std::vector<size_t>* offsets_for_adjustment,
+                             size_t old_section_len,
+                             size_t new_section_len,
+                             size_t section_begin) {
+  if (offsets_for_adjustment) {
+    DCHECK_EQ(offsets_for_adjustment->size(), offsets_into_section.size());
+    std::vector<size_t>::const_iterator host_offsets_iter =
+        offsets_into_section.begin();
+    for (std::vector<size_t>::iterator offsets_iter =
+            offsets_for_adjustment->begin();
+         offsets_iter != offsets_for_adjustment->end();
+         ++offsets_iter, ++host_offsets_iter) {
+      size_t offset = *offsets_iter;
+      if (offset == std::wstring::npos || offset < section_begin) {
+        // The offset is before the host section so leave it as is.
+        continue;
+      }
+      if (offset >= section_begin + old_section_len) {
+        // The offset is after the host section so adjust by host length delta.
+        offset += new_section_len - old_section_len;
+      } else if (*host_offsets_iter != std::wstring::npos) {
+        // The offset is within the host and valid so adjust by the host
+        // reformatting offsets results.
+        offset = section_begin + *host_offsets_iter;
+      } else {
+        // The offset is invalid.
+        offset = std::wstring::npos;
+      }
+      *offsets_iter = offset;
+    }
+  }
+}
+
 // If |component| is valid, its begin is incremented by |delta|.
 void AdjustComponent(int delta, url_parse::Component* component) {
   if (!component->is_valid())
@@ -763,27 +840,29 @@ std::wstring FormatUrlInternal(const GURL& url,
                                UnescapeRule::Type unescape_rules,
                                url_parse::Parsed* new_parsed,
                                size_t* prefix_end,
-                               size_t* offset_for_adjustment);
+                               std::vector<size_t>* offsets_for_adjustment);
 
 // Helper for FormatUrl()/FormatUrlInternal().
 std::wstring FormatViewSourceUrl(const GURL& url,
                                  const std::wstring& languages,
-                                 net::FormatUrlTypes format_types,
+                                 FormatUrlTypes format_types,
                                  UnescapeRule::Type unescape_rules,
                                  url_parse::Parsed* new_parsed,
                                  size_t* prefix_end,
-                                 size_t* offset_for_adjustment) {
+                                 std::vector<size_t>* offsets_for_adjustment) {
   DCHECK(new_parsed);
+  DCHECK(offsets_for_adjustment);
   const wchar_t* const kWideViewSource = L"view-source:";
   const size_t kViewSourceLengthPlus1 = 12;
+  std::vector<size_t> saved_offsets(*offsets_for_adjustment);
 
   GURL real_url(url.possibly_invalid_spec().substr(kViewSourceLengthPlus1));
-  size_t temp_offset = (*offset_for_adjustment == std::wstring::npos) ?
-      std::wstring::npos : (*offset_for_adjustment - kViewSourceLengthPlus1);
-  size_t* temp_offset_ptr = (*offset_for_adjustment < kViewSourceLengthPlus1) ?
-      NULL : &temp_offset;
+  // Clamp the offsets to the source area.
+  std::for_each(offsets_for_adjustment->begin(),
+                offsets_for_adjustment->end(),
+                SubtractFromOffset(kViewSourceLengthPlus1));
   std::wstring result = FormatUrlInternal(real_url, languages, format_types,
-      unescape_rules, new_parsed, prefix_end, temp_offset_ptr);
+      unescape_rules, new_parsed, prefix_end, offsets_for_adjustment);
   result.insert(0, kWideViewSource);
 
   // Adjust position values.
@@ -797,57 +876,61 @@ std::wstring FormatViewSourceUrl(const GURL& url,
   AdjustComponents(kViewSourceLengthPlus1, new_parsed);
   if (prefix_end)
     *prefix_end += kViewSourceLengthPlus1;
-  if (temp_offset_ptr) {
-    *offset_for_adjustment = (temp_offset == std::wstring::npos) ?
-        std::wstring::npos : (temp_offset + kViewSourceLengthPlus1);
+  std::for_each(offsets_for_adjustment->begin(),
+                offsets_for_adjustment->end(),
+                AddToOffset(kViewSourceLengthPlus1));
+  // Restore all offsets which were not affected by FormatUrlInternal.
+  DCHECK_EQ(saved_offsets.size(), offsets_for_adjustment->size());
+  for (size_t i = 0; i < saved_offsets.size(); ++i) {
+    if (saved_offsets[i] < kViewSourceLengthPlus1)
+      (*offsets_for_adjustment)[i] = saved_offsets[i];
   }
   return result;
 }
 
 // Appends the substring |in_component| inside of the URL |spec| to |output|,
 // and the resulting range will be filled into |out_component|. |unescape_rules|
-// defines how to clean the URL for human readability.  |offset_for_adjustment|
-// is an offset into |output| which will be adjusted based on how it maps to the
-// component being converted; if it is less than output->length(), it will be
-// untouched, and if it is greater than output->length() + in_component.len it
-// will be shortened by the difference in lengths between the input and output
-// components.  Otherwise it points into the component being converted, and is
-// adjusted to point to the same logical place in |output|.
-// |offset_for_adjustment| may not be NULL.
+// defines how to clean the URL for human readability.  |offsets_for_adjustment|
+// is an array of offsets into |output| each of which will be adjusted based on
+// how it maps to the component being converted; if it is less than
+// output->length(), it will be untouched, and if it is greater than
+// output->length() + in_component.len it will be adjusted by the difference in
+// lengths between the input and output components.  Otherwise it points into
+// the component being converted, and is adjusted to point to the same logical
+// place in |output|. |offsets_for_adjustment| may not be NULL.
 void AppendFormattedComponent(const std::string& spec,
                               const url_parse::Component& in_component,
                               UnescapeRule::Type unescape_rules,
                               std::wstring* output,
                               url_parse::Component* out_component,
-                              size_t* offset_for_adjustment) {
+                              std::vector<size_t>* offsets_for_adjustment) {
   DCHECK(output);
-  DCHECK(offset_for_adjustment);
+  DCHECK(offsets_for_adjustment);
   if (in_component.is_nonempty()) {
-    out_component->begin = static_cast<int>(output->length());
-    size_t offset_past_current_output =
-        ((*offset_for_adjustment == std::wstring::npos) ||
-         (*offset_for_adjustment < output->length())) ?
-            std::wstring::npos : (*offset_for_adjustment - output->length());
-    size_t* offset_into_component =
-        (offset_past_current_output >= static_cast<size_t>(in_component.len)) ?
-            NULL : &offset_past_current_output;
+    size_t component_begin = output->length();
+    out_component->begin = static_cast<int>(component_begin);
+
+    // Compose a list of offsets within the component area.
+    std::vector<size_t> offsets_into_component =
+        OffsetsIntoSection(offsets_for_adjustment, component_begin);
+
     if (unescape_rules == UnescapeRule::NONE) {
-      output->append(UTF8ToWideAndAdjustOffset(
+      output->append(UTF8ToWideAndAdjustOffsets(
           spec.substr(in_component.begin, in_component.len),
-          offset_into_component));
+          &offsets_into_component));
     } else {
-      output->append(UTF16ToWideHack(UnescapeAndDecodeUTF8URLComponent(
-          spec.substr(in_component.begin, in_component.len), unescape_rules,
-          offset_into_component)));
+      output->append(UTF16ToWideHack(
+          UnescapeAndDecodeUTF8URLComponentWithOffsets(
+              spec.substr(in_component.begin, in_component.len), unescape_rules,
+              &offsets_into_component)));
     }
-    out_component->len =
-        static_cast<int>(output->length()) - out_component->begin;
-    if (offset_into_component) {
-      *offset_for_adjustment = (*offset_into_component == std::wstring::npos) ?
-          std::wstring::npos : (out_component->begin + *offset_into_component);
-    } else if (offset_past_current_output != std::wstring::npos) {
-      *offset_for_adjustment += out_component->len - in_component.len;
-    }
+    size_t new_component_len = output->length() - component_begin;
+    out_component->len = static_cast<int>(new_component_len);
+
+    // Apply offset adjustments.
+    size_t old_component_len = static_cast<size_t>(in_component.len);
+    ApplySectionAdjustments(offsets_into_component, offsets_for_adjustment,
+        old_component_len, new_component_len, component_begin);
   } else {
     out_component->reset();
   }
@@ -861,15 +944,16 @@ std::wstring FormatUrlInternal(const GURL& url,
                                UnescapeRule::Type unescape_rules,
                                url_parse::Parsed* new_parsed,
                                size_t* prefix_end,
-                               size_t* offset_for_adjustment) {
+                               std::vector<size_t>* offsets_for_adjustment) {
   url_parse::Parsed parsed_temp;
   if (!new_parsed)
     new_parsed = &parsed_temp;
   else
     *new_parsed = url_parse::Parsed();
-  size_t offset_temp = std::wstring::npos;
-  if (!offset_for_adjustment)
-    offset_for_adjustment = &offset_temp;
+
+  std::vector<size_t> offsets_temp;
+  if (!offsets_for_adjustment)
+    offsets_for_adjustment = &offsets_temp;
 
   std::wstring url_string;
 
@@ -877,7 +961,9 @@ std::wstring FormatUrlInternal(const GURL& url,
   if (url.is_empty()) {
     if (prefix_end)
       *prefix_end = 0;
-    *offset_for_adjustment = std::wstring::npos;
+    std::for_each(offsets_for_adjustment->begin(),
+                  offsets_for_adjustment->end(),
+                  LimitOffset<std::wstring>(0));
     return url_string;
   }
 
@@ -889,15 +975,17 @@ std::wstring FormatUrlInternal(const GURL& url,
   if (url.SchemeIs(kViewSource) &&
       !StartsWithASCII(url.possibly_invalid_spec(), kViewSourceTwice, false)) {
     return FormatViewSourceUrl(url, languages, format_types,
-        unescape_rules, new_parsed, prefix_end, offset_for_adjustment);
+        unescape_rules, new_parsed, prefix_end, offsets_for_adjustment);
   }
 
   // We handle both valid and invalid URLs (this will give us the spec
   // regardless of validity).
   const std::string& spec = url.possibly_invalid_spec();
   const url_parse::Parsed& parsed = url.parsed_for_possibly_invalid_spec();
-  if (*offset_for_adjustment >= spec.length())
-    *offset_for_adjustment = std::wstring::npos;
+  size_t spec_length = spec.length();
+  std::for_each(offsets_for_adjustment->begin(),
+                offsets_for_adjustment->end(),
+                LimitOffset<std::wstring>(spec_length));
 
   // Copy everything before the username (the scheme and the separators.)
   // These are ASCII.
@@ -925,48 +1013,47 @@ std::wstring FormatUrlInternal(const GURL& url,
     // e.g. "http://google.com:search@evil.ru/"
     new_parsed->username.reset();
     new_parsed->password.reset();
-    if ((*offset_for_adjustment != std::wstring::npos) &&
+    // Update the offsets based on removed username and/or password.
+    if (!offsets_for_adjustment->empty() &&
         (parsed.username.is_nonempty() || parsed.password.is_nonempty())) {
+      AdjustOffset::Adjustments adjustments;
       if (parsed.username.is_nonempty() && parsed.password.is_nonempty()) {
         // The seeming off-by-one and off-by-two in these first two lines are to
         // account for the ':' after the username and '@' after the password.
-        if (*offset_for_adjustment >
-            static_cast<size_t>(parsed.password.end())) {
-          *offset_for_adjustment -=
-              (parsed.username.len + parsed.password.len + 2);
-        } else if (*offset_for_adjustment >
-                   static_cast<size_t>(parsed.username.begin)) {
-          *offset_for_adjustment = std::wstring::npos;
-        }
+        adjustments.push_back(AdjustOffset::Adjustment(
+            static_cast<size_t>(parsed.username.begin),
+            static_cast<size_t>(parsed.username.len + parsed.password.len +
+                2), 0));
       } else {
         const url_parse::Component* nonempty_component =
             parsed.username.is_nonempty() ? &parsed.username : &parsed.password;
-        // The seeming off-by-one in these first two lines is to account for the
-        // '@' after the username/password.
-        if (*offset_for_adjustment >
-            static_cast<size_t>(nonempty_component->end())) {
-          *offset_for_adjustment -= (nonempty_component->len + 1);
-        } else if (*offset_for_adjustment >
-                   static_cast<size_t>(nonempty_component->begin)) {
-          *offset_for_adjustment = std::wstring::npos;
-        }
+        // The seeming off-by-one in below is to account for the '@' after the
+        // username/password.
+        adjustments.push_back(AdjustOffset::Adjustment(
+            static_cast<size_t>(nonempty_component->begin),
+            static_cast<size_t>(nonempty_component->len + 1), 0));
       }
+
+      // Make offset adjustment.
+      std::for_each(offsets_for_adjustment->begin(),
+                    offsets_for_adjustment->end(),
+                    AdjustOffset(adjustments));
     }
   } else {
     AppendFormattedComponent(spec, parsed.username, unescape_rules, &url_string,
-                             &new_parsed->username, offset_for_adjustment);
+                             &new_parsed->username, offsets_for_adjustment);
     if (parsed.password.is_valid())
       url_string.push_back(':');
     AppendFormattedComponent(spec, parsed.password, unescape_rules, &url_string,
-                             &new_parsed->password, offset_for_adjustment);
+                             &new_parsed->password, offsets_for_adjustment);
     if (parsed.username.is_valid() || parsed.password.is_valid())
       url_string.push_back('@');
   }
   if (prefix_end)
     *prefix_end = static_cast<size_t>(url_string.length());
 
-  AppendFormattedHost(url, languages, &url_string, new_parsed,
-                      offset_for_adjustment);
+  AppendFormattedHostWithOffsets(url, languages, &url_string, new_parsed,
+                                 offsets_for_adjustment);
 
   // Port.
   if (parsed.port.is_nonempty()) {
@@ -984,41 +1071,35 @@ std::wstring FormatUrlInternal(const GURL& url,
   if (!(format_types & kFormatUrlOmitTrailingSlashOnBareHostname) ||
       !CanStripTrailingSlash(url)) {
     AppendFormattedComponent(spec, parsed.path, unescape_rules, &url_string,
-                             &new_parsed->path, offset_for_adjustment);
+                             &new_parsed->path, offsets_for_adjustment);
   }
   if (parsed.query.is_valid())
     url_string.push_back('?');
   AppendFormattedComponent(spec, parsed.query, unescape_rules, &url_string,
-                           &new_parsed->query, offset_for_adjustment);
+                           &new_parsed->query, offsets_for_adjustment);
 
   // Reference is stored in valid, unescaped UTF-8, so we can just convert.
   if (parsed.ref.is_valid()) {
     url_string.push_back('#');
-    new_parsed->ref.begin = url_string.length();
-    size_t offset_past_current_output =
-        ((*offset_for_adjustment == std::wstring::npos) ||
-         (*offset_for_adjustment < url_string.length())) ?
-            std::wstring::npos : (*offset_for_adjustment - url_string.length());
-    size_t* offset_into_ref =
-        (offset_past_current_output >= static_cast<size_t>(parsed.ref.len)) ?
-            NULL : &offset_past_current_output;
+    size_t ref_begin = url_string.length();
+    new_parsed->ref.begin = static_cast<int>(ref_begin);
+
+    // Compose a list of offsets within the section.
+    std::vector<size_t> offsets_into_ref =
+        OffsetsIntoSection(offsets_for_adjustment, ref_begin);
+
     if (parsed.ref.len > 0) {
-      url_string.append(UTF8ToWideAndAdjustOffset(spec.substr(parsed.ref.begin,
-                                                              parsed.ref.len),
-                                                  offset_into_ref));
+      url_string.append(UTF8ToWideAndAdjustOffsets(spec.substr(parsed.ref.begin,
+                                                               parsed.ref.len),
+                                                   &offsets_into_ref));
     }
-    new_parsed->ref.len = url_string.length() - new_parsed->ref.begin;
-    if (offset_into_ref) {
-      *offset_for_adjustment = (*offset_into_ref == std::wstring::npos) ?
-          std::wstring::npos : (new_parsed->ref.begin + *offset_into_ref);
-    } else if (offset_past_current_output != std::wstring::npos) {
-      // We clamped the offset near the beginning of this function to ensure it
-      // was within the input URL.  If we reach here, the input was something
-      // invalid and non-parseable such that the offset was past any component
-      // we could figure out.  In this case it won't be represented in the
-      // output string, so reset it.
-      *offset_for_adjustment = std::wstring::npos;
-    }
+    size_t old_ref_len = static_cast<size_t>(parsed.ref.len);
+    size_t new_ref_len = url_string.length() - new_parsed->ref.begin;
+    new_parsed->ref.len = static_cast<int>(new_ref_len);
+
+    // Apply offset adjustments.
+    ApplySectionAdjustments(offsets_into_ref, offsets_for_adjustment,
+        old_ref_len, new_ref_len, ref_begin);
   }
 
   // If we need to strip out http do it after the fact. This way we don't need
@@ -1026,12 +1107,11 @@ std::wstring FormatUrlInternal(const GURL& url,
   const size_t kHTTPSize = arraysize(kHTTP) - 1;
   if (omit_http && !url_string.compare(0, kHTTPSize, kHTTP)) {
     url_string = url_string.substr(kHTTPSize);
-    if (*offset_for_adjustment != std::wstring::npos) {
-      if (*offset_for_adjustment < kHTTPSize)
-        *offset_for_adjustment = std::wstring::npos;
-      else
-        *offset_for_adjustment -= kHTTPSize;
-    }
+    AdjustOffset::Adjustments adjustments;
+    adjustments.push_back(AdjustOffset::Adjustment(0, kHTTPSize, 0));
+    std::for_each(offsets_for_adjustment->begin(),
+                  offsets_for_adjustment->end(),
+                  AdjustOffset(adjustments));
     if (prefix_end)
       *prefix_end -= kHTTPSize;
 
@@ -1043,6 +1123,14 @@ std::wstring FormatUrlInternal(const GURL& url,
   }
 
   return url_string;
+}
+
+char* do_strdup(const char* src) {
+#if defined(OS_WIN)
+  return _strdup(src);
+#else
+  return strdup(src);
+#endif
 }
 
 }  // namespace
@@ -1189,21 +1277,20 @@ std::string GetHeaderParamValue(const std::string& field,
 //
 // We may want to skip this step in the case of file URLs to allow unicode
 // UNC hostnames regardless of encodings.
-std::wstring IDNToUnicode(const char* host,
-                          size_t host_len,
-                          const std::wstring& languages,
-                          size_t* offset_for_adjustment) {
+std::wstring IDNToUnicodeWithOffsets(
+    const char* host,
+    size_t host_len,
+    const std::wstring& languages,
+    std::vector<size_t>* offsets_for_adjustment) {
   // Convert the ASCII input to a wide string for ICU.
   string16 input16;
   input16.reserve(host_len);
   input16.insert(input16.end(), host, host + host_len);
 
-  string16 out16;
-  size_t output_offset = offset_for_adjustment ?
-      *offset_for_adjustment : std::wstring::npos;
-
   // Do each component of the host separately, since we enforce script matching
   // on a per-component basis.
+  AdjustOffset::Adjustments adjustments;
+  string16 out16;
   for (size_t component_start = 0, component_end;
        component_start < input16.length();
        component_start = component_end + 1) {
@@ -1212,22 +1299,18 @@ std::wstring IDNToUnicode(const char* host,
     if (component_end == string16::npos)
       component_end = input16.length();  // For getting the last component.
     size_t component_length = component_end - component_start;
-
-    size_t output_component_start = out16.length();
+    size_t new_component_start = out16.length();
     bool converted_idn = false;
     if (component_end > component_start) {
       // Add the substring that we just found.
       converted_idn = IDNToUnicodeOneComponent(input16.data() + component_start,
           component_length, languages, &out16);
     }
-    size_t output_component_length = out16.length() - output_component_start;
+    size_t new_component_length = out16.length() - new_component_start;
 
-    if ((output_offset != std::wstring::npos) &&
-        (*offset_for_adjustment > component_start)) {
-      if ((*offset_for_adjustment < component_end) && converted_idn)
-        output_offset = std::wstring::npos;
-      else
-        output_offset += output_component_length - component_length;
+    if (converted_idn && offsets_for_adjustment) {
+      adjustments.push_back(AdjustOffset::Adjustment(
+          component_start, component_length, new_component_length));
     }
 
     // Need to add the dot we just found (if we found one).
@@ -1235,10 +1318,28 @@ std::wstring IDNToUnicode(const char* host,
       out16.push_back('.');
   }
 
-  if (offset_for_adjustment)
-    *offset_for_adjustment = output_offset;
+  // Make offset adjustment.
+  if (offsets_for_adjustment && !adjustments.empty()) {
+    std::for_each(offsets_for_adjustment->begin(),
+                  offsets_for_adjustment->end(),
+                  AdjustOffset(adjustments));
+  }
 
-  return UTF16ToWideAndAdjustOffset(out16, offset_for_adjustment);
+  return UTF16ToWideAndAdjustOffsets(out16, offsets_for_adjustment);
+}
+
+std::wstring IDNToUnicode(const char* host,
+                          size_t host_len,
+                          const std::wstring& languages,
+                          size_t* offset_for_adjustment) {
+  std::vector<size_t> offsets;
+  if (offset_for_adjustment)
+    offsets.push_back(*offset_for_adjustment);
+  std::wstring result =
+      IDNToUnicodeWithOffsets(host, host_len, languages, &offsets);
+  if (offset_for_adjustment)
+    *offset_for_adjustment = offsets[0];
+  return result;
 }
 
 std::string CanonicalizeHost(const std::string& host,
@@ -1376,8 +1477,7 @@ std::string GetDirectoryListingEntry(const string16& name,
 
 string16 StripWWW(const string16& text) {
   const string16 www(ASCIIToUTF16("www."));
-  return (text.compare(0, www.length(), www) == 0) ?
-      text.substr(www.length()) : text;
+  return StartsWith(text, www, true) ? text.substr(www.length()) : text;
 }
 
 string16 GetSuggestedFilename(const GURL& url,
@@ -1649,7 +1749,47 @@ void GetIdentityFromURL(const GURL& url,
 }
 
 std::string GetHostOrSpecFromURL(const GURL& url) {
-  return url.has_host() ? net::TrimEndingDot(url.host()) : url.spec();
+  return url.has_host() ? TrimEndingDot(url.host()) : url.spec();
+}
+
+void AppendFormattedHostWithOffsets(
+    const GURL& url,
+    const std::wstring& languages,
+    std::wstring* output,
+    url_parse::Parsed* new_parsed,
+    std::vector<size_t>* offsets_for_adjustment) {
+  DCHECK(output);
+  const url_parse::Component& host =
+      url.parsed_for_possibly_invalid_spec().host;
+
+  if (host.is_nonempty()) {
+    // Handle possible IDN in the host name.
+    size_t host_begin = output->length();
+    if (new_parsed)
+      new_parsed->host.begin = static_cast<int>(host_begin);
+    size_t old_host_len = static_cast<size_t>(host.len);
+
+    // Compose a list of offsets within the host area.
+    std::vector<size_t> offsets_into_host =
+        OffsetsIntoSection(offsets_for_adjustment, host_begin);
+
+    const std::string& spec = url.possibly_invalid_spec();
+    DCHECK(host.begin >= 0 &&
+           ((spec.length() == 0 && host.begin == 0) ||
+            host.begin < static_cast<int>(spec.length())));
+    output->append(IDNToUnicodeWithOffsets(&spec[host.begin], old_host_len,
+                                            languages, &offsets_into_host));
+
+    size_t new_host_len = output->length() - host_begin;
+    if (new_parsed)
+      new_parsed->host.len = static_cast<int>(new_host_len);
+
+    // Apply offset adjustments.
+    ApplySectionAdjustments(offsets_into_host, offsets_for_adjustment,
+        old_host_len, new_host_len, host_begin);
+  } else if (new_parsed) {
+    new_parsed->host.reset();
+  }
 }
 
 void AppendFormattedHost(const GURL& url,
@@ -1657,46 +1797,28 @@ void AppendFormattedHost(const GURL& url,
                          std::wstring* output,
                          url_parse::Parsed* new_parsed,
                          size_t* offset_for_adjustment) {
-  DCHECK(output);
-  const url_parse::Component& host =
-      url.parsed_for_possibly_invalid_spec().host;
-
-  if (host.is_nonempty()) {
-    // Handle possible IDN in the host name.
-    int new_host_begin = static_cast<int>(output->length());
-    if (new_parsed)
-      new_parsed->host.begin = new_host_begin;
-    size_t offset_past_current_output =
-        (!offset_for_adjustment ||
-         (*offset_for_adjustment == std::wstring::npos) ||
-         (*offset_for_adjustment < output->length())) ?
-            std::wstring::npos : (*offset_for_adjustment - output->length());
-    size_t* offset_into_host =
-        (offset_past_current_output >= static_cast<size_t>(host.len)) ?
-            NULL : &offset_past_current_output;
-
-    const std::string& spec = url.possibly_invalid_spec();
-    DCHECK(host.begin >= 0 &&
-           ((spec.length() == 0 && host.begin == 0) ||
-            host.begin < static_cast<int>(spec.length())));
-    output->append(net::IDNToUnicode(&spec[host.begin],
-                   static_cast<size_t>(host.len), languages, offset_into_host));
-
-    int new_host_len = static_cast<int>(output->length()) - new_host_begin;
-    if (new_parsed)
-      new_parsed->host.len = new_host_len;
-    if (offset_into_host) {
-      *offset_for_adjustment = (*offset_into_host == std::wstring::npos) ?
-          std::wstring::npos : (new_host_begin + *offset_into_host);
-    } else if (offset_past_current_output != std::wstring::npos) {
-      *offset_for_adjustment += new_host_len - host.len;
-    }
-  } else if (new_parsed) {
-    new_parsed->host.reset();
-  }
+  std::vector<size_t> offsets;
+  if (offset_for_adjustment)
+    offsets.push_back(*offset_for_adjustment);
+  AppendFormattedHostWithOffsets(url, languages, output, new_parsed, &offsets);
+  if (offset_for_adjustment)
+    *offset_for_adjustment = offsets[0];
 }
 
 // TODO(viettrungluu): convert the wstring |FormatUrlInternal()|.
+string16 FormatUrlWithOffsets(const GURL& url,
+                              const std::string& languages,
+                              FormatUrlTypes format_types,
+                              UnescapeRule::Type unescape_rules,
+                              url_parse::Parsed* new_parsed,
+                              size_t* prefix_end,
+                              std::vector<size_t>* offsets_for_adjustment) {
+  return WideToUTF16Hack(
+      FormatUrlInternal(url, ASCIIToWide(languages), format_types,
+                        unescape_rules, new_parsed, prefix_end,
+                        offsets_for_adjustment));
+}
+
 string16 FormatUrl(const GURL& url,
                    const std::string& languages,
                    FormatUrlTypes format_types,
@@ -1704,10 +1826,15 @@ string16 FormatUrl(const GURL& url,
                    url_parse::Parsed* new_parsed,
                    size_t* prefix_end,
                    size_t* offset_for_adjustment) {
-  return WideToUTF16Hack(
+  std::vector<size_t> offsets;
+  if (offset_for_adjustment)
+    offsets.push_back(*offset_for_adjustment);
+  string16 result = WideToUTF16Hack(
       FormatUrlInternal(url, ASCIIToWide(languages), format_types,
-                        unescape_rules, new_parsed, prefix_end,
-                        offset_for_adjustment));
+                        unescape_rules, new_parsed, prefix_end, &offsets));
+  if (offset_for_adjustment)
+    *offset_for_adjustment = offsets[0];
+  return result;
 }
 
 bool CanStripTrailingSlash(const GURL& url) {
@@ -1853,42 +1980,55 @@ bool IPv6Supported() {
   }
   closesocket(test_socket);
 
-  // TODO(jar): Bug 40851: The remainder of probe is not working.
-  IPv6SupportResults(IPV6_CAN_CREATE_SOCKETS);  // Record status.
-  return true;  // Don't disable IPv6 yet.
-
   // Check to see if any interface has a IPv6 address.
-  // Note: The original IPv6 socket can't be used here, as WSAIoctl() will fail.
-  test_socket = socket(AF_INET, SOCK_STREAM, 0);
-  DCHECK(test_socket != INVALID_SOCKET);
-  INTERFACE_INFO interfaces[128];
-  DWORD bytes_written = 0;
-  int rv = WSAIoctl(test_socket, SIO_GET_INTERFACE_LIST, NULL, 0, interfaces,
-                    sizeof(interfaces), &bytes_written, NULL, NULL);
-  closesocket(test_socket);
-
-  if (0 != rv) {
-    if (WSAGetLastError() == WSAEFAULT)
-      IPv6SupportResults(IPV6_INTERFACE_ARRAY_TOO_SHORT);
-    else
-      IPv6SupportResults(IPV6_GETIFADDRS_FAILED);
+  // The GetAdaptersAddresses MSDN page recommends using a size of 15000 to
+  // avoid reallocation.
+  ULONG adapters_size = 15000;
+  scoped_ptr_malloc<IP_ADAPTER_ADDRESSES> adapters;
+  ULONG error;
+  int num_tries = 0;
+  do {
+    adapters.reset(
+        reinterpret_cast<PIP_ADAPTER_ADDRESSES>(malloc(adapters_size)));
+    // Return only unicast addresses.
+    error = GetAdaptersAddresses(AF_UNSPEC,
+                                 GAA_FLAG_SKIP_ANYCAST |
+                                 GAA_FLAG_SKIP_MULTICAST |
+                                 GAA_FLAG_SKIP_DNS_SERVER |
+                                 GAA_FLAG_SKIP_FRIENDLY_NAME,
+                                 NULL, adapters.get(), &adapters_size);
+    num_tries++;
+  } while (error == ERROR_BUFFER_OVERFLOW && num_tries <= 3);
+  if (error == ERROR_NO_DATA) {
+    IPv6SupportResults(IPV6_GLOBAL_ADDRESS_MISSING);
+    return false;
+  }
+  if (error != ERROR_SUCCESS) {
+    IPv6SupportResults(IPV6_GETIFADDRS_FAILED);
     return true;  // Don't yet block IPv6.
   }
-  size_t interface_count = bytes_written / sizeof(interfaces[0]);
-  for (size_t i = 0; i < interface_count; ++i) {
-    INTERFACE_INFO* interface = &interfaces[i];
-    if (!(IFF_UP & interface->iiFlags))
+
+  PIP_ADAPTER_ADDRESSES adapter;
+  for (adapter = adapters.get(); adapter; adapter = adapter->Next) {
+    if (adapter->OperStatus != IfOperStatusUp)
       continue;
-    if (IFF_LOOPBACK & interface->iiFlags)
+    if (adapter->IfType == IF_TYPE_SOFTWARE_LOOPBACK)
       continue;
-    sockaddr* addr = &interface->iiAddress.Address;
-    if (addr->sa_family != AF_INET6)
-      continue;
-    struct in6_addr* sin6_addr = &interface->iiAddress.AddressIn6.sin6_addr;
-    if (IN6_IS_ADDR_LOOPBACK(sin6_addr) || IN6_IS_ADDR_LINKLOCAL(sin6_addr))
-      continue;
-    IPv6SupportResults(IPV6_GLOBAL_ADDRESS_PRESENT);
-    return true;
+    PIP_ADAPTER_UNICAST_ADDRESS unicast_address;
+    for (unicast_address = adapter->FirstUnicastAddress;
+         unicast_address;
+         unicast_address = unicast_address->Next) {
+      if (unicast_address->Address.lpSockaddr->sa_family != AF_INET6)
+        continue;
+      // Safe cast since this is AF_INET6.
+      struct sockaddr_in6* addr_in6 = reinterpret_cast<struct sockaddr_in6*>(
+          unicast_address->Address.lpSockaddr);
+      struct in6_addr* sin6_addr = &addr_in6->sin6_addr;
+      if (IN6_IS_ADDR_LOOPBACK(sin6_addr) || IN6_IS_ADDR_LINKLOCAL(sin6_addr))
+        continue;
+      IPv6SupportResults(IPV6_GLOBAL_ADDRESS_PRESENT);
+      return true;
+    }
   }
 
   IPv6SupportResults(IPV6_GLOBAL_ADDRESS_MISSING);
@@ -1938,6 +2078,10 @@ bool HaveOnlyLoopbackAddresses() {
   }
   freeifaddrs(interface_addr);
   return result;
+#elif defined(OS_WIN)
+  // TODO(wtc): implement with the GetAdaptersAddresses function.
+  NOTIMPLEMENTED();
+  return false;
 #else
   NOTIMPLEMENTED();
   return false;
@@ -2057,6 +2201,51 @@ bool IPNumberMatchesPrefix(const IPAddressNumber& ip_number,
   return true;
 }
 
+struct addrinfo* CreateCopyOfAddrinfo(const struct addrinfo* info,
+                                      bool recursive) {
+  DCHECK(info);
+  struct addrinfo* copy = new addrinfo;
+
+  // Copy all the fields (some of these are pointers, we will fix that next).
+  memcpy(copy, info, sizeof(addrinfo));
+
+  // ai_canonname is a NULL-terminated string.
+  if (info->ai_canonname) {
+    copy->ai_canonname = do_strdup(info->ai_canonname);
+  }
+
+  // ai_addr is a buffer of length ai_addrlen.
+  if (info->ai_addr) {
+    copy->ai_addr = reinterpret_cast<sockaddr *>(new char[info->ai_addrlen]);
+    memcpy(copy->ai_addr, info->ai_addr, info->ai_addrlen);
+  }
+
+  // Recursive copy.
+  if (recursive && info->ai_next)
+    copy->ai_next = CreateCopyOfAddrinfo(info->ai_next, recursive);
+  else
+    copy->ai_next = NULL;
+
+  return copy;
+}
+
+void FreeCopyOfAddrinfo(struct addrinfo* info) {
+  DCHECK(info);
+  if (info->ai_canonname)
+    free(info->ai_canonname);  // Allocated by strdup.
+
+  if (info->ai_addr)
+    delete [] reinterpret_cast<char*>(info->ai_addr);
+
+  struct addrinfo* next = info->ai_next;
+
+  delete info;
+
+  // Recursive free.
+  if (next)
+    FreeCopyOfAddrinfo(next);
+}
+
 // Returns the port field of the sockaddr in |info|.
 uint16* GetPortFieldFromAddrinfo(struct addrinfo* info) {
   const struct addrinfo* const_info = info;
@@ -2102,6 +2291,59 @@ int GetPortFromSockaddr(const struct sockaddr* address, socklen_t address_len) {
   if (!port_field)
     return -1;
   return ntohs(*port_field);
+}
+
+bool IsLocalhost(const std::string& host) {
+  if (host == "localhost" ||
+      host == "localhost.localdomain" ||
+      host == "localhost6" ||
+      host == "localhost6.localdomain6")
+    return true;
+
+  IPAddressNumber ip_number;
+  if (ParseIPLiteralToNumber(host, &ip_number)) {
+    size_t size = ip_number.size();
+    switch (size) {
+      case kIPv4AddressSize: {
+        IPAddressNumber localhost_prefix;
+        localhost_prefix.push_back(127);
+        for (int i = 0; i < 3; ++i) {
+          localhost_prefix.push_back(0);
+        }
+        return IPNumberMatchesPrefix(ip_number, localhost_prefix, 8);
+      }
+
+      case kIPv6AddressSize: {
+        struct in6_addr sin6_addr;
+        memcpy(&sin6_addr, &ip_number[0], kIPv6AddressSize);
+        return !!IN6_IS_ADDR_LOOPBACK(&sin6_addr);
+      }
+
+      default:
+        NOTREACHED();
+    }
+  }
+
+  return false;
+}
+
+NetworkInterface::NetworkInterface() {
+}
+
+NetworkInterface::NetworkInterface(const std::string& name,
+                                   const IPAddressNumber& address)
+    : name(name), address(address) {
+}
+
+NetworkInterface::~NetworkInterface() {
+}
+
+ClampComponentOffset::ClampComponentOffset(size_t component_start)
+  : component_start(component_start) {}
+
+size_t ClampComponentOffset::operator()(size_t offset) {
+  return (offset >= component_start) ?
+      offset : std::wstring::npos;
 }
 
 }  // namespace net

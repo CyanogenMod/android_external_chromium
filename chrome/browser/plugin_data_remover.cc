@@ -7,11 +7,12 @@
 #include "base/command_line.h"
 #include "base/message_loop_proxy.h"
 #include "base/metrics/histogram.h"
+#include "base/synchronization/waitable_event.h"
 #include "base/version.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/plugin_messages.h"
 #include "content/browser/browser_thread.h"
 #include "content/browser/plugin_service.h"
+#include "content/common/plugin_messages.h"
 #include "webkit/plugins/npapi/plugin_group.h"
 #include "webkit/plugins/npapi/plugin_list.h"
 
@@ -20,18 +21,21 @@
 #endif
 
 namespace {
+
 const char* kFlashMimeType = "application/x-shockwave-flash";
 // The minimum Flash Player version that implements NPP_ClearSiteData.
 const char* kMinFlashVersion = "10.3";
 const int64 kRemovalTimeoutMs = 10000;
 const uint64 kClearAllData = 0;
+
 }  // namespace
 
 PluginDataRemover::PluginDataRemover()
     : mime_type_(kFlashMimeType),
       is_removing_(false),
       event_(new base::WaitableEvent(true, false)),
-      channel_(NULL) { }
+      channel_(NULL) {
+}
 
 PluginDataRemover::~PluginDataRemover() {
   DCHECK(!is_removing_);
@@ -39,14 +43,15 @@ PluginDataRemover::~PluginDataRemover() {
     BrowserThread::DeleteSoon(BrowserThread::IO, FROM_HERE, channel_);
 }
 
-base::WaitableEvent* PluginDataRemover::StartRemoving(
-    const base::Time& begin_time) {
+base::WaitableEvent* PluginDataRemover::StartRemoving(base::Time begin_time) {
   DCHECK(!is_removing_);
   remove_start_time_ = base::Time::Now();
   begin_time_ = begin_time;
 
   is_removing_ = true;
 
+  // Balanced in OnChannelOpened or OnError. Exactly one them will eventually be
+  // called, so we need to keep this object around until then.
   AddRef();
   PluginService::GetInstance()->OpenChannelToNpapiPlugin(
       0, 0, GURL(), mime_type_, this);
@@ -73,7 +78,7 @@ void PluginDataRemover::Wait() {
 }
 
 int PluginDataRemover::ID() {
-  // Generate an ID for the browser process.
+  // Generate a unique identifier for this PluginProcessHostClient.
   return ChildProcessInfo::GenerateChildProcessUniqueId();
 }
 
@@ -87,6 +92,7 @@ void PluginDataRemover::SetPluginInfo(
 
 void PluginDataRemover::OnChannelOpened(const IPC::ChannelHandle& handle) {
   ConnectToChannel(handle);
+  // Balancing the AddRef call in StartRemoving.
   Release();
 }
 
@@ -105,10 +111,9 @@ void PluginDataRemover::ConnectToChannel(const IPC::ChannelHandle& handle) {
     return;
   }
 
-  if (!channel_->Send(
-          new PluginMsg_ClearSiteData(std::string(),
-                                      kClearAllData,
-                                      begin_time_))) {
+  if (!channel_->Send(new PluginMsg_ClearSiteData(std::string(),
+                                                  kClearAllData,
+                                                  begin_time_))) {
     NOTREACHED() << "Couldn't send ClearSiteData message";
     SignalDone();
     return;
@@ -118,6 +123,7 @@ void PluginDataRemover::ConnectToChannel(const IPC::ChannelHandle& handle) {
 void PluginDataRemover::OnError() {
   LOG(DFATAL) << "Couldn't open plugin channel";
   SignalDone();
+  // Balancing the AddRef call in StartRemoving.
   Release();
 }
 

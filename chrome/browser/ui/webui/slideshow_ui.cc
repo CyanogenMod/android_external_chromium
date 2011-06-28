@@ -5,16 +5,16 @@
 #include "chrome/browser/ui/webui/slideshow_ui.h"
 
 #include "base/callback.h"
+#include "base/memory/singleton.h"
+#include "base/memory/weak_ptr.h"
 #include "base/message_loop.h"
 #include "base/path_service.h"
-#include "base/singleton.h"
 #include "base/string_piece.h"
 #include "base/string_util.h"
 #include "base/threading/thread.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
-#include "base/weak_ptr.h"
 #include "chrome/browser/history/history_types.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/profiles/profile.h"
@@ -44,7 +44,7 @@ class SlideshowUIHTMLSource : public ChromeURLDataManager::DataSource {
   // Called when the network layer has requested a resource underneath
   // the path we registered.
   virtual void StartDataRequest(const std::string& path,
-                                bool is_off_the_record,
+                                bool is_incognito,
                                 int request_id);
   virtual std::string GetMimeType(const std::string&) const {
     return "text/html";
@@ -109,7 +109,7 @@ SlideshowUIHTMLSource::SlideshowUIHTMLSource()
 }
 
 void SlideshowUIHTMLSource::StartDataRequest(const std::string& path,
-                                              bool is_off_the_record,
+                                              bool is_incognito,
                                               int request_id) {
   DictionaryValue localized_strings;
   // TODO(dhg): Add stirings to localized strings, also add more strings
@@ -151,7 +151,7 @@ WebUIMessageHandler* SlideshowHandler::Attach(WebUI* web_ui) {
   profile_ = web_ui->GetProfile();
   // Create our favicon data source.
   profile_->GetChromeURLDataManager()->AddDataSource(
-      new FavIconSource(profile_));
+      new FaviconSource(profile_));
   return WebUIMessageHandler::Attach(web_ui);
 }
 
@@ -167,7 +167,7 @@ void SlideshowHandler::RegisterMessages() {
 
 void SlideshowHandler::HandleRefreshDirectory(const ListValue* args) {
 #if defined(OS_CHROMEOS)
-  std::string path = WideToUTF8(ExtractStringValue(args));
+  std::string path = UTF16ToUTF8(ExtractStringValue(args));
   GetChildrenForPath(FilePath(path), true);
 #endif
 }
@@ -200,7 +200,7 @@ void SlideshowHandler::GetChildrenForPath(const FilePath& path,
 void SlideshowHandler::HandleGetChildren(const ListValue* args) {
 #if defined(OS_CHROMEOS)
   filelist_value_.reset(new ListValue());
-  std::string path = WideToUTF8(ExtractStringValue(args));
+  std::string path = UTF16ToUTF8(ExtractStringValue(args));
   GetChildrenForPath(FilePath(path), false);
 #endif
 }
@@ -263,7 +263,7 @@ void SlideshowHandler::OnListDone(int error) {
     info_value.SetString("functionCall", "getChildren");
   }
   info_value.SetString(kPropertyPath, currentpath_.value());
-  web_ui_->CallJavascriptFunction(L"browseFileResult",
+  web_ui_->CallJavascriptFunction("browseFileResult",
                                   info_value, *(filelist_value_.get()));
 }
 

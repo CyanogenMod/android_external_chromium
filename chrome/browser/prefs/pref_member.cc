@@ -1,14 +1,13 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/prefs/pref_member.h"
 
 #include "base/logging.h"
-#include "base/sys_string_conversions.h"
-#include "base/utf_string_conversions.h"
+#include "base/value_conversions.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/common/notification_type.h"
+#include "content/common/notification_type.h"
 
 namespace subtle {
 
@@ -19,8 +18,7 @@ PrefMemberBase::PrefMemberBase()
 }
 
 PrefMemberBase::~PrefMemberBase() {
-  if (prefs_ && !pref_name_.empty())
-    prefs_->RemovePrefObserver(pref_name_.c_str(), this);
+  Destroy();
 }
 
 
@@ -39,17 +37,10 @@ void PrefMemberBase::Init(const char* pref_name, PrefService* prefs,
 }
 
 void PrefMemberBase::Destroy() {
-  if (prefs_) {
+  if (prefs_ && !pref_name_.empty()) {
     prefs_->RemovePrefObserver(pref_name_.c_str(), this);
     prefs_ = NULL;
   }
-}
-
-bool PrefMemberBase::IsManaged() const {
-  VerifyValuePrefName();
-  const PrefService::Preference* pref =
-      prefs_->FindPreference(pref_name_.c_str());
-  return pref && pref->IsManaged();
 }
 
 void PrefMemberBase::MoveToThread(BrowserThread::ID thread_id) {
@@ -70,10 +61,6 @@ void PrefMemberBase::Observe(NotificationType type,
     observer_->Observe(type, source, details);
 }
 
-void PrefMemberBase::VerifyValuePrefName() const {
-  DCHECK(!pref_name_.empty());
-}
-
 void PrefMemberBase::UpdateValueFromPref() const {
   VerifyValuePrefName();
   const PrefService::Preference* pref =
@@ -81,7 +68,13 @@ void PrefMemberBase::UpdateValueFromPref() const {
   DCHECK(pref);
   if (!internal())
     CreateInternal();
-  internal()->UpdateValue(pref->GetValue()->DeepCopy());
+  internal()->UpdateValue(pref->GetValue()->DeepCopy(), pref->IsManaged());
+}
+
+void PrefMemberBase::VerifyPref() const {
+  VerifyValuePrefName();
+  if (!internal())
+    UpdateValueFromPref();
 }
 
 PrefMemberBase::Internal::Internal() : thread_id_(BrowserThread::UI) { }
@@ -94,17 +87,18 @@ bool PrefMemberBase::Internal::IsOnCorrectThread() const {
            !BrowserThread::IsMessageLoopValid(BrowserThread::UI)));
 }
 
-void PrefMemberBase::Internal::UpdateValue(Value* v) const {
+void PrefMemberBase::Internal::UpdateValue(Value* v, bool is_managed) const {
   scoped_ptr<Value> value(v);
   if (IsOnCorrectThread()) {
     bool rv = UpdateValueInternal(*value);
     DCHECK(rv);
+    is_managed_ = is_managed;
   } else {
     bool rv = BrowserThread::PostTask(
         thread_id_, FROM_HERE,
         NewRunnableMethod(this,
                           &PrefMemberBase::Internal::UpdateValue,
-                          value.release()));
+                          value.release(), is_managed));
     DCHECK(rv);
   }
 }
@@ -166,6 +160,30 @@ void PrefMember<FilePath>::UpdatePref(const FilePath& value) {
 template <>
 bool PrefMember<FilePath>::Internal::UpdateValueInternal(const Value& value)
     const {
-  return value.GetAsFilePath(&value_);
+  return base::GetValueAsFilePath(value, &value_);
+}
+
+template <>
+void PrefMember<ListValue*>::UpdatePref(ListValue*const& value) {
+  // prefs takes ownership of the value passed, so make a copy.
+  prefs()->SetList(pref_name().c_str(), value->DeepCopy());
+}
+
+template <>
+bool PrefMember<ListValue*>::Internal::UpdateValueInternal(const Value& value)
+    const {
+  // Verify the type before doing the DeepCopy to avoid leaking the copy.
+  if (value.GetType() != Value::TYPE_LIST)
+    return false;
+
+  // ListPrefMember keeps a copy of the ListValue and of its contents.
+  // GetAsList() assigns its |this| (the DeepCopy) to |value_|.
+  delete value_;
+  return value.DeepCopy()->GetAsList(&value_);
+}
+
+template <>
+PrefMember<ListValue*>::Internal::~Internal() {
+  delete value_;
 }
 

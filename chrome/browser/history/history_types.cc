@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -40,7 +40,6 @@ URLRow& URLRow::operator=(const URLRow& other) {
   typed_count_ = other.typed_count_;
   last_visit_ = other.last_visit_;
   hidden_ = other.hidden_;
-  favicon_id_ = other.favicon_id_;
   return *this;
 }
 
@@ -52,7 +51,6 @@ void URLRow::Swap(URLRow* other) {
   std::swap(typed_count_, other->typed_count_);
   std::swap(last_visit_, other->last_visit_);
   std::swap(hidden_, other->hidden_);
-  std::swap(favicon_id_, other->favicon_id_);
 }
 
 void URLRow::Initialize() {
@@ -61,7 +59,6 @@ void URLRow::Initialize() {
   typed_count_ = 0;
   last_visit_ = base::Time();
   hidden_ = false;
-  favicon_id_ = 0;
 }
 
 // VisitRow --------------------------------------------------------------------
@@ -94,18 +91,18 @@ VisitRow::~VisitRow() {
 
 // Favicons -------------------------------------------------------------------
 
-ImportedFavIconUsage::ImportedFavIconUsage() {
+ImportedFaviconUsage::ImportedFaviconUsage() {
 }
 
-ImportedFavIconUsage::~ImportedFavIconUsage() {
+ImportedFaviconUsage::~ImportedFaviconUsage() {
 }
 
 // StarredEntry ----------------------------------------------------------------
 
 StarredEntry::StarredEntry()
     : id(0),
-      parent_group_id(0),
-      group_id(0),
+      parent_folder_id(0),
+      folder_id(0),
       visual_order(0),
       type(URL),
       url_id(0) {
@@ -118,13 +115,13 @@ void StarredEntry::Swap(StarredEntry* other) {
   std::swap(id, other->id);
   title.swap(other->title);
   std::swap(date_added, other->date_added);
-  std::swap(parent_group_id, other->parent_group_id);
-  std::swap(group_id, other->group_id);
+  std::swap(parent_folder_id, other->parent_folder_id);
+  std::swap(folder_id, other->folder_id);
   std::swap(visual_order, other->visual_order);
   std::swap(type, other->type);
   url.Swap(&other->url);
   std::swap(url_id, other->url_id);
-  std::swap(date_group_modified, other->date_group_modified);
+  std::swap(date_folder_modified, other->date_folder_modified);
 }
 
 // URLResult -------------------------------------------------------------------
@@ -401,6 +398,29 @@ bool RowQualifiesAsSignificant(const URLRow& row,
   return (row.typed_count() > kLowQualityMatchTypedLimit) ||
          (row.visit_count() > kLowQualityMatchVisitLimit) ||
          (row.last_visit() >= real_threshold);
+}
+
+// IconMapping ----------------------------------------------------------------
+
+IconMapping::IconMapping()
+    : mapping_id(0),
+      icon_id(0),
+      icon_type(INVALID_ICON) {
+}
+
+IconMapping::~IconMapping() {}
+
+
+FaviconData::FaviconData()
+  : known_icon(false),
+    expired(false),
+    icon_type(history::INVALID_ICON) {
+}
+
+FaviconData::~FaviconData() {}
+
+bool FaviconData::is_valid() {
+  return known_icon && image_data.get() && image_data->size();
 }
 
 }  // namespace history

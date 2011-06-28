@@ -14,12 +14,12 @@
 #include "chrome/browser/autocomplete/autocomplete_match.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tabs/tab_strip_model_delegate.h"
-#include "chrome/browser/themes/browser_theme_provider.h"
+#include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/gtk/browser_window_gtk.h"
 #include "chrome/browser/ui/gtk/custom_button.h"
-#include "chrome/browser/ui/gtk/gtk_theme_provider.h"
+#include "chrome/browser/ui/gtk/gtk_theme_service.h"
 #include "chrome/browser/ui/gtk/gtk_util.h"
 #include "chrome/browser/ui/gtk/tabs/dragged_tab_controller_gtk.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
@@ -91,7 +91,7 @@ int CompareGdkRectangles(const void* p1, const void* p2) {
   return 1;
 }
 
-bool GdkRectMatchesTabFavIconBounds(const GdkRectangle& gdk_rect, TabGtk* tab) {
+bool GdkRectMatchesTabFaviconBounds(const GdkRectangle& gdk_rect, TabGtk* tab) {
   gfx::Rect favicon_bounds = tab->favicon_bounds();
   return gdk_rect.x == favicon_bounds.x() + tab->x() &&
       gdk_rect.y == favicon_bounds.y() + tab->y() &&
@@ -275,7 +275,7 @@ class InsertTabAnimation : public TabStripGtk::TabAnimation {
   // Overridden from TabStripGtk::TabAnimation:
   virtual double GetWidthForTab(int index) const {
     if (index == index_) {
-      bool is_selected = tabstrip_->model()->selected_index() == index;
+      bool is_selected = tabstrip_->model()->active_index() == index;
       double start_width, target_width;
       if (index < tabstrip_->GetMiniTabCount()) {
         start_width = TabGtk::GetMinimumSelectedSize().width();
@@ -697,10 +697,10 @@ TabStripGtk::TabStripGtk(TabStripModel* model, BrowserWindowGtk* window)
       tab_vertical_offset_(0),
       model_(model),
       window_(window),
-      theme_provider_(GtkThemeProvider::GetFrom(model->profile())),
+      theme_service_(GtkThemeService::GetFrom(model->profile())),
       resize_layout_factory_(this),
       added_as_message_loop_observer_(false) {
-  theme_provider_->InitThemesFor(this);
+  theme_service_->InitThemesFor(this);
   registrar_.Add(this, NotificationType::BROWSER_THEME_CHANGED,
                  NotificationService::AllSources());
 }
@@ -1096,7 +1096,7 @@ bool TabStripGtk::IsTabSelected(const TabGtk* tab) const {
   if (tab->closing())
     return false;
 
-  return GetIndexOfTab(tab) == model_->selected_index();
+  return GetIndexOfTab(tab) == model_->active_index();
 }
 
 bool TabStripGtk::IsTabDetached(const TabGtk* tab) const {
@@ -1121,7 +1121,7 @@ bool TabStripGtk::IsTabPinned(const TabGtk* tab) const {
 void TabStripGtk::SelectTab(TabGtk* tab) {
   int index = GetIndexOfTab(tab);
   if (model_->ContainsIndex(index))
-    model_->SelectTabContentsAt(index, true);
+    model_->ActivateTabAt(index, true);
 }
 
 void TabStripGtk::CloseTab(TabGtk* tab) {
@@ -1207,7 +1207,7 @@ bool TabStripGtk::HasAvailableDragActions() const {
 }
 
 ui::ThemeProvider* TabStripGtk::GetThemeProvider() {
-  return theme_provider_;
+  return theme_service_;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1235,10 +1235,10 @@ void TabStripGtk::Observe(NotificationType type,
                           const NotificationSource& source,
                           const NotificationDetails& details) {
   if (type == NotificationType::BROWSER_THEME_CHANGED) {
-    TabRendererGtk::SetSelectedTitleColor(theme_provider_->GetColor(
-        BrowserThemeProvider::COLOR_TAB_TEXT));
-    TabRendererGtk::SetUnselectedTitleColor(theme_provider_->GetColor(
-        BrowserThemeProvider::COLOR_BACKGROUND_TAB_TEXT));
+    TabRendererGtk::SetSelectedTitleColor(theme_service_->GetColor(
+        ThemeService::COLOR_TAB_TEXT));
+    TabRendererGtk::SetUnselectedTitleColor(theme_service_->GetColor(
+        ThemeService::COLOR_BACKGROUND_TAB_TEXT));
   }
 }
 
@@ -1874,8 +1874,8 @@ gboolean TabStripGtk::OnExpose(GtkWidget* widget, GdkEventExpose* event) {
   qsort(rects, num_rects, sizeof(GdkRectangle), CompareGdkRectangles);
   std::vector<int> tabs_to_repaint;
   if (!IsDragSessionActive() &&
-      CanPaintOnlyFavIcons(rects, num_rects, &tabs_to_repaint)) {
-    PaintOnlyFavIcons(event, tabs_to_repaint);
+      CanPaintOnlyFavicons(rects, num_rects, &tabs_to_repaint)) {
+    PaintOnlyFavicons(event, tabs_to_repaint);
     g_free(rects);
     return TRUE;
   }
@@ -2025,7 +2025,7 @@ void TabStripGtk::SetTabBounds(TabGtk* tab, const gfx::Rect& bounds) {
                  bds.x(), bds.y());
 }
 
-bool TabStripGtk::CanPaintOnlyFavIcons(const GdkRectangle* rects,
+bool TabStripGtk::CanPaintOnlyFavicons(const GdkRectangle* rects,
     int num_rects, std::vector<int>* tabs_to_paint) {
   // |rects| are sorted so we just need to scan from left to right and compare
   // it to the tab favicon positions from left to right.
@@ -2033,7 +2033,7 @@ bool TabStripGtk::CanPaintOnlyFavIcons(const GdkRectangle* rects,
   for (int r = 0; r < num_rects; ++r) {
     while (t < GetTabCount()) {
       TabGtk* tab = GetTabAt(t);
-      if (GdkRectMatchesTabFavIconBounds(rects[r], tab) &&
+      if (GdkRectMatchesTabFaviconBounds(rects[r], tab) &&
           tab->ShouldShowIcon()) {
         tabs_to_paint->push_back(t);
         ++t;
@@ -2045,10 +2045,10 @@ bool TabStripGtk::CanPaintOnlyFavIcons(const GdkRectangle* rects,
   return static_cast<int>(tabs_to_paint->size()) == num_rects;
 }
 
-void TabStripGtk::PaintOnlyFavIcons(GdkEventExpose* event,
+void TabStripGtk::PaintOnlyFavicons(GdkEventExpose* event,
                                     const std::vector<int>& tabs_to_paint) {
   for (size_t i = 0; i < tabs_to_paint.size(); ++i)
-    GetTabAt(tabs_to_paint[i])->PaintFavIconArea(event);
+    GetTabAt(tabs_to_paint[i])->PaintFaviconArea(event);
 }
 
 CustomDrawButton* TabStripGtk::MakeNewTabButton() {

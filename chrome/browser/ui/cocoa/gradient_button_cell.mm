@@ -1,13 +1,14 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/cocoa/gradient_button_cell.h"
 
 #include "base/logging.h"
-#import "base/scoped_nsobject.h"
-#import "chrome/browser/themes/browser_theme_provider.h"
+#import "base/memory/scoped_nsobject.h"
+#import "chrome/browser/themes/theme_service.h"
 #import "chrome/browser/ui/cocoa/image_utils.h"
+#import "chrome/browser/ui/cocoa/nsview_additions.h"
 #import "chrome/browser/ui/cocoa/themed_window.h"
 #include "grit/theme_resources.h"
 #import "third_party/GTM/AppKit/GTMNSColor+Luminance.h"
@@ -392,8 +393,8 @@ static const NSTimeInterval kAnimationContinuousCycleDuration = 0.4;
       } else {
         clickedGradient = themeProvider ? themeProvider->GetNSGradient(
             active ?
-              BrowserThemeProvider::GRADIENT_TOOLBAR_BUTTON_PRESSED :
-              BrowserThemeProvider::GRADIENT_TOOLBAR_BUTTON_PRESSED_INACTIVE) :
+                ThemeService::GRADIENT_TOOLBAR_BUTTON_PRESSED :
+                ThemeService::GRADIENT_TOOLBAR_BUTTON_PRESSED_INACTIVE) :
             nil;
       }
       [clickedGradient drawInBezierPath:innerPath angle:90.0];
@@ -438,8 +439,8 @@ static const NSTimeInterval kAnimationContinuousCycleDuration = 0.4;
                                        alpha:0.3 * outerStrokeAlphaMult_];
   } else {
     strokeColor = themeProvider ? themeProvider->GetNSColor(
-        active ? BrowserThemeProvider::COLOR_TOOLBAR_BUTTON_STROKE :
-                 BrowserThemeProvider::COLOR_TOOLBAR_BUTTON_STROKE_INACTIVE,
+        active ? ThemeService::COLOR_TOOLBAR_BUTTON_STROKE :
+                 ThemeService::COLOR_TOOLBAR_BUTTON_STROKE_INACTIVE,
         true) : [NSColor colorWithCalibratedWhite:0.0
                                             alpha:0.3 * outerStrokeAlphaMult_];
   }
@@ -456,10 +457,13 @@ static const NSTimeInterval kAnimationContinuousCycleDuration = 0.4;
                    innerFrame:(NSRect*)returnInnerFrame
                     innerPath:(NSBezierPath**)returnInnerPath
                      clipPath:(NSBezierPath**)returnClipPath {
+  const CGFloat lineWidth = [controlView cr_lineWidth];
+  const CGFloat halfLineWidth = lineWidth / 2.0;
+
   // Constants from Cole.  Will kConstant them once the feedback loop
   // is complete.
-  NSRect drawFrame = NSInsetRect(cellFrame, 1.5, 1.5);
-  NSRect innerFrame = NSInsetRect(cellFrame, 2, 1);
+  NSRect drawFrame = NSInsetRect(cellFrame, 1.5 * lineWidth, 1.5 * lineWidth);
+  NSRect innerFrame = NSInsetRect(cellFrame, 2 * lineWidth, lineWidth);
   const CGFloat radius = 3.5;
 
   ButtonType type = [[(NSControl*)controlView cell] tag];
@@ -490,13 +494,16 @@ static const NSTimeInterval kAnimationContinuousCycleDuration = 0.4;
     *returnInnerPath = [NSBezierPath bezierPathWithRoundedRect:drawFrame
                                                        xRadius:radius
                                                        yRadius:radius];
+    [*returnInnerPath setLineWidth:lineWidth];
   }
   if (returnClipPath) {
     DCHECK(*returnClipPath == nil);
-    NSRect clipPathRect = NSInsetRect(drawFrame, -0.5, -0.5);
-    *returnClipPath = [NSBezierPath bezierPathWithRoundedRect:clipPathRect
-                                                      xRadius:radius + 0.5
-                                                      yRadius:radius + 0.5];
+    NSRect clipPathRect =
+        NSInsetRect(drawFrame, -halfLineWidth, -halfLineWidth);
+    *returnClipPath = [NSBezierPath
+        bezierPathWithRoundedRect:clipPathRect
+                          xRadius:radius + halfLineWidth
+                          yRadius:radius + halfLineWidth];
   }
 }
 
@@ -548,11 +555,12 @@ static const NSTimeInterval kAnimationContinuousCycleDuration = 0.4;
   // If this is the left side of a segmented button, draw a slight shadow.
   ButtonType type = [[(NSControl*)controlView cell] tag];
   if (type == kLeftButtonWithShadowType) {
+    const CGFloat lineWidth = [controlView cr_lineWidth];
     NSRect borderRect, contentRect;
-    NSDivideRect(cellFrame, &borderRect, &contentRect, 1.0, NSMaxXEdge);
+    NSDivideRect(cellFrame, &borderRect, &contentRect, lineWidth, NSMaxXEdge);
     NSColor* stroke = themeProvider ? themeProvider->GetNSColor(
-        active ? BrowserThemeProvider::COLOR_TOOLBAR_BUTTON_STROKE :
-                 BrowserThemeProvider::COLOR_TOOLBAR_BUTTON_STROKE_INACTIVE,
+        active ? ThemeService::COLOR_TOOLBAR_BUTTON_STROKE :
+                 ThemeService::COLOR_TOOLBAR_BUTTON_STROKE_INACTIVE,
         true) : [NSColor blackColor];
 
     [[stroke colorWithAlphaComponent:0.2] set];
@@ -563,6 +571,8 @@ static const NSTimeInterval kAnimationContinuousCycleDuration = 0.4;
 }
 
 - (void)drawInteriorWithFrame:(NSRect)cellFrame inView:(NSView*)controlView {
+  const CGFloat lineWidth = [controlView cr_lineWidth];
+
   if (shouldTheme_) {
     BOOL isTemplate = [[self image] isTemplate];
 
@@ -571,19 +581,19 @@ static const NSTimeInterval kAnimationContinuousCycleDuration = 0.4;
     CGContextRef context =
         (CGContextRef)([[NSGraphicsContext currentContext] graphicsPort]);
 
-    BrowserThemeProvider* themeProvider = static_cast<BrowserThemeProvider*>(
+    ThemeService* themeProvider = static_cast<ThemeService*>(
         [[controlView window] themeProvider]);
     NSColor* color = themeProvider ?
-        themeProvider->GetNSColorTint(BrowserThemeProvider::TINT_BUTTONS,
+        themeProvider->GetNSColorTint(ThemeService::TINT_BUTTONS,
                                       true) :
         [NSColor blackColor];
 
     if (isTemplate && themeProvider && themeProvider->UsingDefaultTheme()) {
       scoped_nsobject<NSShadow> shadow([[NSShadow alloc] init]);
       [shadow.get() setShadowColor:themeProvider->GetNSColor(
-          BrowserThemeProvider::COLOR_TOOLBAR_BEZEL, true)];
-      [shadow.get() setShadowOffset:NSMakeSize(0.0, -1.0)];
-      [shadow setShadowBlurRadius:1.0];
+          ThemeService::COLOR_TOOLBAR_BEZEL, true)];
+      [shadow.get() setShadowOffset:NSMakeSize(0.0, -lineWidth)];
+      [shadow setShadowBlurRadius:lineWidth];
       [shadow set];
     }
 
@@ -606,7 +616,7 @@ static const NSTimeInterval kAnimationContinuousCycleDuration = 0.4;
   } else {
     // NSCell draws these off-center for some reason, probably because of the
     // positioning of the control in the xib.
-    [super drawInteriorWithFrame:NSOffsetRect(cellFrame, 0, 1)
+    [super drawInteriorWithFrame:NSOffsetRect(cellFrame, 0, lineWidth)
                           inView:controlView];
   }
 
@@ -715,7 +725,7 @@ static const NSTimeInterval kAnimationContinuousCycleDuration = 0.4;
     [self updateTrackingAreas];
 }
 
-- (void)updateTrackingAreas {
+- (BOOL)isMouseReallyInside {
   BOOL mouseInView = NO;
   NSView* controlView = [self controlView];
   NSWindow* window = [controlView window];
@@ -725,6 +735,12 @@ static const NSTimeInterval kAnimationContinuousCycleDuration = 0.4;
     mousePoint = [controlView convertPointFromBase:mousePoint];
     mouseInView = [controlView mouse:mousePoint inRect:bounds];
   }
+  return mouseInView;
+}
+
+- (void)updateTrackingAreas {
+  NSView* controlView = [self controlView];
+  BOOL mouseInView = [self isMouseReallyInside];
 
   if (trackingArea_.get())
     [controlView removeTrackingArea:trackingArea_];
@@ -735,12 +751,12 @@ static const NSTimeInterval kAnimationContinuousCycleDuration = 0.4;
     options |= NSTrackingAssumeInside;
 
   trackingArea_.reset([[NSTrackingArea alloc]
-                        initWithRect:bounds
+                        initWithRect:[controlView bounds]
                              options:options
                                owner:self
                             userInfo:nil]);
   if (isMouseInside_ != mouseInView) {
-    isMouseInside_ = mouseInView;
+    [self setMouseInside:mouseInView animate:NO];
     [controlView setNeedsDisplay:YES];
   }
 }

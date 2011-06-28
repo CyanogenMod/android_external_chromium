@@ -17,11 +17,11 @@
 #include "base/string_number_conversions.h"
 #include "base/utf_string_conversions.h"
 #include "base/win/windows_version.h"
-#include "chrome/browser/browser_list.h"
 #include "chrome/browser/google/google_util.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/views/window.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_version_info.h"
@@ -532,10 +532,8 @@ void AboutChromeView::ViewHierarchyChanged(bool is_add,
       // on-demand updates. Silent updates (in the background) should still
       // work as before - enabling UAC or installing the latest service pack
       // for Vista is another option.
-      int service_pack_major = 0, service_pack_minor = 0;
-      base::win::GetServicePackLevel(&service_pack_major, &service_pack_minor);
       if (!(base::win::GetVersion() == base::win::VERSION_VISTA &&
-            (service_pack_major == 0) &&
+            (base::win::OSInfo::GetInstance()->service_pack().major == 0) &&
             !base::win::UserAccountControlIsEnabled())) {
         UpdateStatus(UPGRADE_CHECK_STARTED, GOOGLE_UPDATE_NO_ERROR);
         // CheckForUpdate(false, ...) means don't upgrade yet.

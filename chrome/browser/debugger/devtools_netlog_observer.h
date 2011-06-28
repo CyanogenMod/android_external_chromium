@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #pragma once
 
 #include "base/hash_tables.h"
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
 #include "chrome/browser/net/chrome_net_log.h"
 #include "webkit/glue/resource_loader_bridge.h"
 
@@ -36,6 +36,24 @@ class DevToolsNetLogObserver: public ChromeNetLog::ThreadSafeObserver {
                           net::NetLog::EventPhase phase,
                           net::NetLog::EventParameters* params);
 
+  void OnAddURLRequestEntry(net::NetLog::EventType type,
+                            const base::TimeTicks& time,
+                            const net::NetLog::Source& source,
+                            net::NetLog::EventPhase phase,
+                            net::NetLog::EventParameters* params);
+
+  void OnAddHTTPStreamJobEntry(net::NetLog::EventType type,
+                               const base::TimeTicks& time,
+                               const net::NetLog::Source& source,
+                               net::NetLog::EventPhase phase,
+                               net::NetLog::EventParameters* params);
+
+  void OnAddSocketEntry(net::NetLog::EventType type,
+                        const base::TimeTicks& time,
+                        const net::NetLog::Source& source,
+                        net::NetLog::EventPhase phase,
+                        net::NetLog::EventParameters* params);
+
   static void Attach(IOThread* thread);
   static void Detach();
 
@@ -43,11 +61,9 @@ class DevToolsNetLogObserver: public ChromeNetLog::ThreadSafeObserver {
   // are active.
   static DevToolsNetLogObserver* GetInstance();
   static void PopulateResponseInfo(net::URLRequest*, ResourceResponse*);
+  static int GetAndResetEncodedDataLength(net::URLRequest* request);
 
  private:
-  typedef base::hash_map<uint32, scoped_refptr<ResourceInfo> >
-      RequestToInfoMap;
-
   static DevToolsNetLogObserver* instance_;
 
   explicit DevToolsNetLogObserver(ChromeNetLog* chrome_net_log);
@@ -56,7 +72,14 @@ class DevToolsNetLogObserver: public ChromeNetLog::ThreadSafeObserver {
   ResourceInfo* GetResourceInfo(uint32 id);
 
   ChromeNetLog* chrome_net_log_;
+  typedef base::hash_map<uint32, scoped_refptr<ResourceInfo> > RequestToInfoMap;
+  typedef base::hash_map<uint32, int> RequestToEncodedDataLengthMap;
+  typedef base::hash_map<uint32, uint32> HTTPStreamJobToSocketMap;
+  typedef base::hash_map<uint32, uint32> SocketToRequestMap;
   RequestToInfoMap request_to_info_;
+  RequestToEncodedDataLengthMap request_to_encoded_data_length_;
+  HTTPStreamJobToSocketMap http_stream_job_to_socket_;
+  SocketToRequestMap socket_to_request_;
 
   DISALLOW_COPY_AND_ASSIGN(DevToolsNetLogObserver);
 };

@@ -12,6 +12,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/options/options_window.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/net/gaia/google_service_auth_error.h"
@@ -38,8 +39,7 @@ void GetStatusLabelsForAuthError(const AuthError& auth_error,
     link_label->assign(l10n_util::GetStringUTF16(IDS_SYNC_RELOGIN_LINK_LABEL));
   if (auth_error.state() == AuthError::INVALID_GAIA_CREDENTIALS ||
       auth_error.state() == AuthError::ACCOUNT_DELETED ||
-      auth_error.state() == AuthError::ACCOUNT_DISABLED ||
-      auth_error.state() == AuthError::SERVICE_UNAVAILABLE) {
+      auth_error.state() == AuthError::ACCOUNT_DISABLED) {
     // If the user name is empty then the first login failed, otherwise the
     // credentials are out-of-date.
     if (service->GetAuthenticatedUsername().empty())
@@ -48,6 +48,10 @@ void GetStatusLabelsForAuthError(const AuthError& auth_error,
     else
       status_label->assign(
           l10n_util::GetStringUTF16(IDS_SYNC_LOGIN_INFO_OUT_OF_DATE));
+  } else if (auth_error.state() == AuthError::SERVICE_UNAVAILABLE) {
+    DCHECK(service->GetAuthenticatedUsername().empty());
+    status_label->assign(
+        l10n_util::GetStringUTF16(IDS_SYNC_SERVICE_UNAVAILABLE));
   } else if (auth_error.state() == AuthError::CONNECTION_FAILED) {
     // Note that there is little the user can do if the server is not
     // reachable. Since attempting to re-connect is done automatically by
@@ -71,9 +75,13 @@ string16 GetSyncedStateStatusLabel(ProfileSyncService* service) {
   if (user_name.empty())
     return label;
 
-  return l10n_util::GetStringFUTF16(IDS_SYNC_ACCOUNT_SYNCED_TO_USER_WITH_TIME,
-                                    user_name,
-                                    service->GetLastSyncedTimeString());
+  const CommandLine& browser_command_line = *CommandLine::ForCurrentProcess();
+  return l10n_util::GetStringFUTF16(
+      browser_command_line.HasSwitch(switches::kMultiProfiles) ?
+          IDS_PROFILES_SYNCED_TO_USER_WITH_TIME :
+          IDS_SYNC_ACCOUNT_SYNCED_TO_USER_WITH_TIME,
+      user_name,
+      service->GetLastSyncedTimeString());
 }
 
 // TODO(akalin): Write unit tests for these three functions below.
@@ -166,12 +174,6 @@ MessageType GetStatusInfo(ProfileSyncService* service,
       if (status_label) {
         status_label->assign(l10n_util::GetStringUTF16(IDS_SYNC_SETUP_ERROR));
       }
-    } else {
-      if (status_label) {
-        status_label->assign(
-            l10n_util::GetStringFUTF16(IDS_SYNC_NOT_SET_UP_INFO,
-                l10n_util::GetStringUTF16(IDS_PRODUCT_NAME)));
-      }
     }
   }
   return result_type;
@@ -216,20 +218,6 @@ MessageType GetStatusInfoForNewTabPage(ProfileSyncService* service,
 
 }  // namespace
 
-// Returns an HTML chunk for a login prompt related to encryption.
-string16 GetLoginMessageForEncryption() {
-  std::vector<std::string> subst;
-  const base::StringPiece html(
-      ResourceBundle::GetSharedInstance().GetRawDataResource(
-          IDR_SYNC_ENCRYPTION_LOGIN_HTML));
-  subst.push_back(l10n_util::GetStringUTF8(IDS_SYNC_PLEASE_SIGN_IN));
-  subst.push_back(
-      l10n_util::GetStringFUTF8(IDS_SYNC_LOGIN_FOR_ENCRYPTION,
-                                l10n_util::GetStringUTF16(IDS_PRODUCT_NAME)));
-
-  return UTF8ToUTF16(ReplaceStringPlaceholders(html, subst, NULL));
-}
-
 MessageType GetStatusLabels(ProfileSyncService* service,
                             string16* status_label,
                             string16* link_label) {
@@ -252,8 +240,11 @@ MessageType GetStatus(ProfileSyncService* service) {
 }
 
 bool ShouldShowSyncErrorButton(ProfileSyncService* service) {
-  return service && !service->IsManaged() && service->HasSyncSetupCompleted() &&
-      (GetStatus(service) == sync_ui_util::SYNC_ERROR);
+  return service &&
+         ((!service->IsManaged() &&
+           service->HasSyncSetupCompleted()) &&
+         (GetStatus(service) == sync_ui_util::SYNC_ERROR ||
+          service->observed_passphrase_required()));
 }
 
 string16 GetSyncMenuLabel(ProfileSyncService* service) {
@@ -277,20 +268,13 @@ void OpenSyncMyBookmarksDialog(Profile* profile,
     return;
   }
 
-  bool use_tabbed_options = !CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kDisableTabbedOptions);
-
   if (service->HasSyncSetupCompleted()) {
-    if (use_tabbed_options) {
-      bool create_window = browser == NULL;
-      if (create_window)
-        browser = Browser::Create(profile);
-      browser->ShowOptionsTab(chrome::kPersonalOptionsSubPage);
-      if (create_window)
-        browser->window()->Show();
-    } else {
-      ShowOptionsWindow(OPTIONS_PAGE_CONTENT, OPTIONS_GROUP_NONE, profile);
-    }
+    bool create_window = browser == NULL;
+    if (create_window)
+      browser = Browser::Create(profile);
+    browser->ShowOptionsTab(chrome::kPersonalOptionsSubPage);
+    if (create_window)
+      browser->window()->Show();
   } else {
     service->ShowLoginDialog(NULL);
     ProfileSyncService::SyncEvent(code);  // UMA stats

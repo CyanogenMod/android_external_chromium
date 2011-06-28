@@ -8,24 +8,26 @@
 
 #include "base/basictypes.h"
 #include "base/compiler_specific.h"
-#include "chrome/browser/importer/importer.h"
+#include "base/memory/ref_counted.h"
 #include "chrome/browser/importer/importer_data_types.h"
+#include "chrome/browser/importer/importer_progress_observer.h"
 #include "ui/base/gtk/gtk_signal.h"
 
-typedef struct _GtkWindow GtkWindow;
-typedef struct _GtkWidget Widget;
-
-class Profile;
+class ImporterHost;
 class ImporterObserver;
+class Profile;
 
-class ImportProgressDialogGtk : public ImporterHost::Observer {
+typedef struct _GtkWidget Widget;
+typedef struct _GtkWindow GtkWindow;
+
+class ImportProgressDialogGtk : public importer::ImporterProgressObserver {
  public:
-  // Displays the import progress dialog box and starts the import.
+  // Displays the import progress dialog box and starts the import process.
   static void StartImport(GtkWindow* parent,
                           uint16 items,
                           ImporterHost* importer_host,
                           ImporterObserver* importer_observer,
-                          const importer::ProfileInfo& browser_profile,
+                          const importer::SourceProfile& source_profile,
                           Profile* profile,
                           bool first_run);
 
@@ -34,7 +36,7 @@ class ImportProgressDialogGtk : public ImporterHost::Observer {
                           uint16 items,
                           ImporterHost* importer_host,
                           ImporterObserver* importer_observer,
-                          const string16& source_profile,
+                          const string16& importer_name,
                           bool bookmarks_import);
   virtual ~ImportProgressDialogGtk();
 
@@ -44,10 +46,10 @@ class ImportProgressDialogGtk : public ImporterHost::Observer {
 
   void CloseDialog();
 
-  // ImporterHost::Observer:
+  // importer::ImporterProgressObserver:
+  virtual void ImportStarted() OVERRIDE;
   virtual void ImportItemStarted(importer::ImportItem item) OVERRIDE;
   virtual void ImportItemEnded(importer::ImportItem item) OVERRIDE;
-  virtual void ImportStarted() OVERRIDE;
   virtual void ImportEnded() OVERRIDE;
 
   // Parent window.

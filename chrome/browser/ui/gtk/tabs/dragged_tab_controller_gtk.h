@@ -10,7 +10,7 @@
 
 #include <set>
 
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/timer.h"
 #include "chrome/browser/ui/tabs/dock_info.h"
 #include "content/browser/tab_contents/tab_contents_delegate.h"
@@ -88,7 +88,6 @@ class DraggedTabControllerGtk : public NotificationObserver,
   virtual void CloseContents(TabContents* source);
   virtual void MoveContents(TabContents* source, const gfx::Rect& pos);
   virtual bool IsPopup(const TabContents* source) const;
-  virtual void ToolbarSizeChanged(TabContents* source, bool is_animating);
   virtual void UpdateTargetURL(TabContents* source, const GURL& url);
 
   // Overridden from NotificationObserver:

@@ -80,7 +80,7 @@ void AddNodeToList(ListValue* list, const BookmarkNode& node) {
   std::string id_string = base::Int64ToString(node.id());
   dict->SetString(keys::kIdKey, id_string);
 
-  std::string parent_id_string = base::Int64ToString(node.GetParent()->id());
+  std::string parent_id_string = base::Int64ToString(node.parent()->id());
   dict->SetString(keys::kParentIdKey, parent_id_string);
 
   if (node.is_url())
@@ -89,7 +89,7 @@ void AddNodeToList(ListValue* list, const BookmarkNode& node) {
   dict->SetString(keys::kTitleKey, node.GetTitle());
 
   ListValue* children = new ListValue();
-  for (int i = 0; i < node.GetChildCount(); ++i)
+  for (int i = 0; i < node.child_count(); ++i)
     AddNodeToList(children, *node.GetChild(i));
   dict->Set(keys::kChildrenKey, children);
 
@@ -224,10 +224,14 @@ bool CopyBookmarkManagerFunction::RunImpl() {
 }
 
 bool CutBookmarkManagerFunction::RunImpl() {
+  if (!EditBookmarksEnabled())
+    return false;
   return CopyOrCut(true);
 }
 
 bool PasteBookmarkManagerFunction::RunImpl() {
+  if (!EditBookmarksEnabled())
+    return false;
   BookmarkModel* model = profile()->GetBookmarkModel();
   const BookmarkNode* parent_node = GetNodeFromArguments(model, args_.get());
   if (!parent_node) {
@@ -245,7 +249,7 @@ bool PasteBookmarkManagerFunction::RunImpl() {
   int highest_index = -1;  // -1 means insert at end of list.
   for (size_t node = 0; node < nodes.size(); ++node) {
     // + 1 so that we insert after the selection.
-    int this_node_index = parent_node->IndexOfChild(nodes[node]) + 1;
+    int this_node_index = parent_node->GetIndexOf(nodes[node]) + 1;
     if (this_node_index > highest_index)
       highest_index = this_node_index;
   }
@@ -255,6 +259,8 @@ bool PasteBookmarkManagerFunction::RunImpl() {
 }
 
 bool CanPasteBookmarkManagerFunction::RunImpl() {
+  if (!EditBookmarksEnabled())
+    return false;
   BookmarkModel* model = profile()->GetBookmarkModel();
   const BookmarkNode* parent_node = GetNodeFromArguments(model, args_.get());
   if (!parent_node) {
@@ -268,6 +274,8 @@ bool CanPasteBookmarkManagerFunction::RunImpl() {
 }
 
 bool SortChildrenBookmarkManagerFunction::RunImpl() {
+  if (!EditBookmarksEnabled())
+    return false;
   BookmarkModel* model = profile()->GetBookmarkModel();
   const BookmarkNode* parent_node = GetNodeFromArguments(model, args_.get());
   if (!parent_node) {
@@ -350,6 +358,8 @@ bool BookmarkManagerGetStringsFunction::RunImpl() {
 }
 
 bool StartDragBookmarkManagerFunction::RunImpl() {
+  if (!EditBookmarksEnabled())
+    return false;
   BookmarkModel* model = profile()->GetBookmarkModel();
   std::vector<const BookmarkNode*> nodes;
   EXTENSION_FUNCTION_VALIDATE(
@@ -370,6 +380,9 @@ bool StartDragBookmarkManagerFunction::RunImpl() {
 }
 
 bool DropBookmarkManagerFunction::RunImpl() {
+  if (!EditBookmarksEnabled())
+    return false;
+
   BookmarkModel* model = profile()->GetBookmarkModel();
 
   int64 id;
@@ -391,7 +404,7 @@ bool DropBookmarkManagerFunction::RunImpl() {
   if (args_->GetSize() == 2)
     EXTENSION_FUNCTION_VALIDATE(args_->GetInteger(1, &drop_index));
   else
-    drop_index = drop_parent->GetChildCount();
+    drop_index = drop_parent->child_count();
 
   if (dispatcher()->render_view_host()->delegate()->GetRenderViewType() ==
       ViewType::TAB_CONTENTS) {

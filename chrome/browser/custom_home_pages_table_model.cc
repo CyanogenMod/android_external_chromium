@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,10 @@
 
 #include "base/i18n/rtl.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/browser_list.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "content/browser/tab_contents/tab_contents.h"
@@ -24,7 +24,7 @@
 #include "ui/gfx/codec/png_codec.h"
 
 struct CustomHomePagesTableModel::Entry {
-  Entry() : title_handle(0), fav_icon_handle(0) {}
+  Entry() : title_handle(0), favicon_handle(0) {}
 
   // URL of the page.
   GURL url;
@@ -39,7 +39,7 @@ struct CustomHomePagesTableModel::Entry {
   HistoryService::Handle title_handle;
 
   // If non-zero, indicates we're loading the favicon for the page.
-  FaviconService::Handle fav_icon_handle;
+  FaviconService::Handle favicon_handle;
 };
 
 CustomHomePagesTableModel::CustomHomePagesTableModel(Profile* profile)
@@ -59,7 +59,7 @@ void CustomHomePagesTableModel::SetURLs(const std::vector<GURL>& urls) {
     entries_[i].url = urls[i];
     entries_[i].title.erase();
     entries_[i].icon.reset();
-    LoadTitleAndFavIcon(&(entries_[i]));
+    LoadTitleAndFavicon(&(entries_[i]));
   }
   // Complete change, so tell the view to just rebuild itself.
   if (observer_)
@@ -70,7 +70,7 @@ void CustomHomePagesTableModel::Add(int index, const GURL& url) {
   DCHECK(index >= 0 && index <= RowCount());
   entries_.insert(entries_.begin() + static_cast<size_t>(index), Entry());
   entries_[index].url = url;
-  LoadTitleAndFavIcon(&(entries_[index]));
+  LoadTitleAndFavicon(&(entries_[index]));
   if (observer_)
     observer_->OnItemsAdded(index, 1);
 }
@@ -86,11 +86,11 @@ void CustomHomePagesTableModel::Remove(int index) {
     if (history_service)
       history_service->CancelRequest(entry->title_handle);
   }
-  if (entry->fav_icon_handle) {
+  if (entry->favicon_handle) {
     FaviconService* favicon_service =
         profile_->GetFaviconService(Profile::EXPLICIT_ACCESS);
     if (favicon_service)
-      favicon_service->CancelRequest(entry->fav_icon_handle);
+      favicon_service->CancelRequest(entry->favicon_handle);
   }
   entries_.erase(entries_.begin() + static_cast<size_t>(index));
   if (observer_)
@@ -152,7 +152,7 @@ void CustomHomePagesTableModel::SetObserver(ui::TableModelObserver* observer) {
   observer_ = observer;
 }
 
-void CustomHomePagesTableModel::LoadTitleAndFavIcon(Entry* entry) {
+void CustomHomePagesTableModel::LoadTitleAndFavicon(Entry* entry) {
   HistoryService* history_service =
       profile_->GetHistoryService(Profile::EXPLICIT_ACCESS);
   if (history_service) {
@@ -163,9 +163,9 @@ void CustomHomePagesTableModel::LoadTitleAndFavIcon(Entry* entry) {
   FaviconService* favicon_service =
       profile_->GetFaviconService(Profile::EXPLICIT_ACCESS);
   if (favicon_service) {
-    entry->fav_icon_handle = favicon_service->GetFaviconForURL(entry->url,
-        &query_consumer_,
-        NewCallback(this, &CustomHomePagesTableModel::OnGotFavIcon));
+    entry->favicon_handle = favicon_service->GetFaviconForURL(entry->url,
+        history::FAVICON, &query_consumer_,
+        NewCallback(this, &CustomHomePagesTableModel::OnGotFavicon));
   }
 }
 
@@ -188,25 +188,22 @@ void CustomHomePagesTableModel::OnGotTitle(HistoryService::Handle handle,
   }
 }
 
-void CustomHomePagesTableModel::OnGotFavIcon(
+void CustomHomePagesTableModel::OnGotFavicon(
     FaviconService::Handle handle,
-    bool know_fav_icon,
-    scoped_refptr<RefCountedMemory> image_data,
-    bool is_expired,
-    GURL icon_url) {
+    history::FaviconData favicon) {
   int entry_index;
   Entry* entry =
-      GetEntryByLoadHandle(&Entry::fav_icon_handle, handle, &entry_index);
+      GetEntryByLoadHandle(&Entry::favicon_handle, handle, &entry_index);
   if (!entry) {
     // The URLs changed before we were called back.
     return;
   }
-  entry->fav_icon_handle = 0;
-  if (know_fav_icon && image_data.get() && image_data->size()) {
+  entry->favicon_handle = 0;
+  if (favicon.is_valid()) {
     int width, height;
     std::vector<unsigned char> decoded_data;
-    if (gfx::PNGCodec::Decode(image_data->front(),
-                              image_data->size(),
+    if (gfx::PNGCodec::Decode(favicon.image_data->front(),
+                              favicon.image_data->size(),
                               gfx::PNGCodec::FORMAT_BGRA, &decoded_data,
                               &width, &height)) {
       entry->icon.setConfig(SkBitmap::kARGB_8888_Config, width, height);

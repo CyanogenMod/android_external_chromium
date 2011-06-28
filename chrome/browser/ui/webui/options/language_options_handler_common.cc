@@ -13,10 +13,10 @@
 #include "base/command_line.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
-#include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/spellcheck_common.h"
@@ -144,19 +144,18 @@ void LanguageOptionsHandlerCommon::LanguageOptionsOpenCallback(
 
 void LanguageOptionsHandlerCommon::UiLanguageChangeCallback(
     const ListValue* args) {
-  const std::string language_code = WideToASCII(ExtractStringValue(args));
+  const std::string language_code = UTF16ToASCII(ExtractStringValue(args));
   CHECK(!language_code.empty());
   const std::string action = StringPrintf(
       "LanguageOptions_UiLanguageChange_%s", language_code.c_str());
   UserMetrics::RecordComputedAction(action);
   SetApplicationLocale(language_code);
-    web_ui_->CallJavascriptFunction(
-      L"options.LanguageOptions.uiLanguageSaved");
+    web_ui_->CallJavascriptFunction("options.LanguageOptions.uiLanguageSaved");
 }
 
 void LanguageOptionsHandlerCommon::SpellCheckLanguageChangeCallback(
     const ListValue* args) {
-  const std::string language_code = WideToASCII(ExtractStringValue(args));
+  const std::string language_code = UTF16ToASCII(ExtractStringValue(args));
   CHECK(!language_code.empty());
   const std::string action = StringPrintf(
       "LanguageOptions_SpellCheckLanguageChange_%s", language_code.c_str());

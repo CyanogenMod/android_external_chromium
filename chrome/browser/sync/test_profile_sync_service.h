@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -36,15 +36,11 @@ class SyncBackendHostForProfileSyncTest
   //     completed setting itself up and called us back.
   SyncBackendHostForProfileSyncTest(
       Profile* profile,
-      int num_expected_resumes,
-      int num_expected_pauses,
       bool set_initial_sync_ended_on_init,
       bool synchronous_init);
   virtual ~SyncBackendHostForProfileSyncTest();
 
-  MOCK_METHOD0(RequestPause, bool());
-  MOCK_METHOD0(RequestResume, bool());
-  MOCK_METHOD0(RequestNudge, void());
+  MOCK_METHOD1(RequestNudge, void(const tracked_objects::Location&));
 
   virtual void ConfigureDataTypes(
       const DataTypeController::TypeMap& data_type_controllers,
@@ -52,10 +48,11 @@ class SyncBackendHostForProfileSyncTest
       CancelableTask* ready_task);
 
   // Called when a nudge comes in.
-  void SimulateSyncCycleCompletedInitialSyncEnded();
+  void SimulateSyncCycleCompletedInitialSyncEnded(
+      const tracked_objects::Location&);
 
   virtual sync_api::HttpPostProviderFactory* MakeHttpBridgeFactory(
-      URLRequestContextGetter* getter);
+      net::URLRequestContextGetter* getter);
 
   virtual void InitCore(const Core::DoInitializeOptions& options);
 
@@ -70,6 +67,8 @@ class SyncBackendHostForProfileSyncTest
   // event is posted instead.
   virtual void ProcessMessage(const std::string& name, const JsArgList& args,
                               const JsEventHandler* sender);
+
+  virtual void StartConfiguration(Callback0::Type* callback);
 
   static void SetDefaultExpectationsForWorkerCreation(ProfileMock* profile);
 
@@ -101,9 +100,6 @@ class TestProfileSyncService : public ProfileSyncService {
                        const NotificationSource& source,
                        const NotificationDetails& details);
 
-  void set_num_expected_resumes(int times);
-  void set_num_expected_pauses(int num);
-
   // If this is called, configuring data types will require a syncer
   // nudge.
   void dont_set_initial_sync_ended_on_init();
@@ -133,8 +129,6 @@ class TestProfileSyncService : public ProfileSyncService {
   // step is performed synchronously.
   bool synchronous_sync_configuration_;
   bool set_expect_resume_expectations_;
-  int num_expected_resumes_;
-  int num_expected_pauses_;
 
   Task* initial_condition_setup_task_;
   bool set_initial_sync_ended_on_init_;

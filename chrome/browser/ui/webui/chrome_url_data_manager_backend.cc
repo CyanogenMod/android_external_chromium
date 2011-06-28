@@ -4,16 +4,19 @@
 
 #include "chrome/browser/ui/webui/chrome_url_data_manager_backend.h"
 
+#include "base/command_line.h"
+#include "base/compiler_specific.h"
 #include "base/file_util.h"
+#include "base/memory/ref_counted_memory.h"
 #include "base/message_loop.h"
 #include "base/path_service.h"
-#include "base/ref_counted_memory.h"
 #include "base/string_util.h"
 #include "chrome/browser/net/chrome_url_request_context.h"
 #include "chrome/browser/net/view_blob_internals_job_factory.h"
 #include "chrome/browser/net/view_http_cache_job_factory.h"
 #include "chrome/browser/ui/webui/shared_resources_data_source.h"
 #include "chrome/common/chrome_paths.h"
+#include "chrome/common/chrome_switches.h"
 #include "chrome/common/url_constants.h"
 #include "content/browser/appcache/view_appcache_internals_job_factory.h"
 #include "content/browser/browser_thread.h"
@@ -21,14 +24,45 @@
 #include "grit/platform_locale_settings.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
+#include "net/http/http_response_headers.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_file_job.h"
 #include "net/url_request/url_request_job.h"
 
-static ChromeURLDataManagerBackend* GetBackend(net::URLRequest* request) {
+namespace {
+
+ChromeURLDataManagerBackend* GetBackend(net::URLRequest* request) {
   return static_cast<ChromeURLRequestContext*>(request->context())->
       GetChromeURLDataManagerBackend();
 }
+
+// Parse a URL into the components used to resolve its request. |source_name|
+// is the hostname and |path| is the remaining portion of the URL.
+void URLToRequest(const GURL& url, std::string* source_name,
+                  std::string* path) {
+  DCHECK(url.SchemeIs(chrome::kChromeDevToolsScheme) ||
+         url.SchemeIs(chrome::kChromeUIScheme));
+
+  if (!url.is_valid()) {
+    NOTREACHED();
+    return;
+  }
+
+  // Our input looks like: chrome://source_name/extra_bits?foo .
+  // So the url's "host" is our source, and everything after the host is
+  // the path.
+  source_name->assign(url.host());
+
+  const std::string& spec = url.possibly_invalid_spec();
+  const url_parse::Parsed& parsed = url.parsed_for_possibly_invalid_spec();
+  // + 1 to skip the slash at the beginning of the path.
+  int offset = parsed.CountCharactersBefore(url_parse::Parsed::PATH, false) + 1;
+
+  if (offset < static_cast<int>(spec.size()))
+    path->assign(spec.substr(offset));
+}
+
+}  // namespace
 
 // URLRequestChromeJob is a net::URLRequestJob that manages running
 // chrome-internal resource requests asynchronously.
@@ -39,10 +73,13 @@ class URLRequestChromeJob : public net::URLRequestJob {
   explicit URLRequestChromeJob(net::URLRequest* request);
 
   // net::URLRequestJob implementation.
-  virtual void Start();
-  virtual void Kill();
-  virtual bool ReadRawData(net::IOBuffer* buf, int buf_size, int *bytes_read);
-  virtual bool GetMimeType(std::string* mime_type) const;
+  virtual void Start() OVERRIDE;
+  virtual void Kill() OVERRIDE;
+  virtual bool ReadRawData(net::IOBuffer* buf,
+                           int buf_size,
+                           int *bytes_read) OVERRIDE;
+  virtual bool GetMimeType(std::string* mime_type) const OVERRIDE;
+  virtual void GetResponseInfo(net::HttpResponseInfo* info) OVERRIDE;
 
   // Called by ChromeURLDataManager to notify us that the data blob is ready
   // for us.
@@ -78,6 +115,8 @@ class URLRequestChromeJob : public net::URLRequestJob {
   // The backend is owned by ChromeURLRequestContext and always outlives us.
   ChromeURLDataManagerBackend* backend_;
 
+  ScopedRunnableMethodFactory<URLRequestChromeJob> method_factory_;
+
   DISALLOW_COPY_AND_ASSIGN(URLRequestChromeJob);
 };
 
@@ -92,67 +131,16 @@ class URLRequestChromeFileJob : public net::URLRequestFileJob {
   DISALLOW_COPY_AND_ASSIGN(URLRequestChromeFileJob);
 };
 
-void ChromeURLDataManagerBackend::URLToRequest(const GURL& url,
-                                               std::string* source_name,
-                                               std::string* path) {
-  DCHECK(url.SchemeIs(chrome::kChromeDevToolsScheme) ||
-         url.SchemeIs(chrome::kChromeUIScheme));
-
-  if (!url.is_valid()) {
-    NOTREACHED();
-    return;
-  }
-
-  // Our input looks like: chrome://source_name/extra_bits?foo .
-  // So the url's "host" is our source, and everything after the host is
-  // the path.
-  source_name->assign(url.host());
-
-  const std::string& spec = url.possibly_invalid_spec();
-  const url_parse::Parsed& parsed = url.parsed_for_possibly_invalid_spec();
-  // + 1 to skip the slash at the beginning of the path.
-  int offset = parsed.CountCharactersBefore(url_parse::Parsed::PATH, false) + 1;
-
-  if (offset < static_cast<int>(spec.size()))
-    path->assign(spec.substr(offset));
-}
-
-bool ChromeURLDataManagerBackend::URLToFilePath(const GURL& url,
-                                                FilePath* file_path) {
-  // Parse the URL into a request for a source and path.
-  std::string source_name;
-  std::string relative_path;
-
-  // Remove Query and Ref from URL.
-  GURL stripped_url;
-  GURL::Replacements replacements;
-  replacements.ClearQuery();
-  replacements.ClearRef();
-  stripped_url = url.ReplaceComponents(replacements);
-
-  URLToRequest(stripped_url, &source_name, &relative_path);
-
-  FileSourceMap::const_iterator i(file_sources_.find(source_name));
-  if (i == file_sources_.end())
-    return false;
-
-  // Check that |relative_path| is not an absolute path (otherwise AppendASCII()
-  // will DCHECK). The awkward use of StringType is because on some systems
-  // FilePath expects a std::string, but on others a std::wstring.
-  FilePath p(FilePath::StringType(relative_path.begin(), relative_path.end()));
-  if (p.IsAbsolute())
-    return false;
-
-  *file_path = i->second.AppendASCII(relative_path);
-
-  return true;
-}
+class DevToolsJobFactory {
+ public:
+  static bool ShouldLoadFromDisk();
+  static bool IsSupportedURL(const GURL& url, FilePath* path);
+  static net::URLRequestJob* CreateJobForRequest(net::URLRequest* request,
+                                          const FilePath& path);
+};
 
 ChromeURLDataManagerBackend::ChromeURLDataManagerBackend()
     : next_request_id_(0) {
-  FilePath inspector_dir;
-  if (PathService::Get(chrome::DIR_INSPECTOR, &inspector_dir))
-    AddFileSource(chrome::kChromeUIDevToolsHost, inspector_dir);
   AddDataSource(new SharedResourcesDataSource());
 }
 
@@ -185,12 +173,6 @@ void ChromeURLDataManagerBackend::AddDataSource(
   }
   data_sources_[source->source_name()] = source;
   source->backend_ = this;
-}
-
-void ChromeURLDataManagerBackend::AddFileSource(const std::string& source_name,
-                                                const FilePath& file_path) {
-  DCHECK(file_sources_.count(source_name) == 0);
-  file_sources_[source_name] = file_path;
 }
 
 bool ChromeURLDataManagerBackend::HasPendingJob(
@@ -235,7 +217,7 @@ bool ChromeURLDataManagerBackend::StartRequest(const GURL& url,
     // The DataSource is agnostic to which thread StartDataRequest is called
     // on for this path.  Call directly into it from this thread, the IO
     // thread.
-    source->StartDataRequest(path, context->is_off_the_record(), request_id);
+    source->StartDataRequest(path, context->is_incognito(), request_id);
   } else {
     // The DataSource wants StartDataRequest to be called on a specific thread,
     // usually the UI thread, for this path.
@@ -243,7 +225,7 @@ bool ChromeURLDataManagerBackend::StartRequest(const GURL& url,
         FROM_HERE,
         NewRunnableMethod(source,
                           &ChromeURLDataManager::DataSource::StartDataRequest,
-                          path, context->is_off_the_record(), request_id));
+                          path, context->is_incognito(), request_id));
   }
   return true;
 }
@@ -278,11 +260,12 @@ void ChromeURLDataManagerBackend::DataAvailable(RequestID request_id,
 net::URLRequestJob* ChromeURLDataManagerBackend::Factory(
     net::URLRequest* request,
     const std::string& scheme) {
-  // Try first with a file handler
-  FilePath path;
-  ChromeURLDataManagerBackend* backend = GetBackend(request);
-  if (backend->URLToFilePath(request->url(), &path))
-    return new URLRequestChromeFileJob(request, path);
+  if (DevToolsJobFactory::ShouldLoadFromDisk()) {
+    // Try loading chrome-devtools:// files from disk.
+    FilePath path;
+    if (DevToolsJobFactory::IsSupportedURL(request->url(), &path))
+      return DevToolsJobFactory::CreateJobForRequest(request, path);
+  }
 
   // Next check for chrome://view-http-cache/*, which uses its own job type.
   if (ViewHttpCacheJobFactory::IsSupportedURL(request->url()))
@@ -304,7 +287,8 @@ URLRequestChromeJob::URLRequestChromeJob(net::URLRequest* request)
     : net::URLRequestJob(request),
       data_offset_(0),
       pending_buf_size_(0),
-      backend_(GetBackend(request)) {
+      backend_(GetBackend(request)),
+      ALLOW_THIS_IN_INITIALIZER_LIST(method_factory_(this)) {
 }
 
 URLRequestChromeJob::~URLRequestChromeJob() {
@@ -314,8 +298,8 @@ URLRequestChromeJob::~URLRequestChromeJob() {
 void URLRequestChromeJob::Start() {
   // Start reading asynchronously so that all error reporting and data
   // callbacks happen as they would for network requests.
-  MessageLoop::current()->PostTask(FROM_HERE, NewRunnableMethod(
-      this, &URLRequestChromeJob::StartAsync));
+  MessageLoop::current()->PostTask(FROM_HERE, method_factory_.NewRunnableMethod(
+      &URLRequestChromeJob::StartAsync));
 }
 
 void URLRequestChromeJob::Kill() {
@@ -325,6 +309,14 @@ void URLRequestChromeJob::Kill() {
 bool URLRequestChromeJob::GetMimeType(std::string* mime_type) const {
   *mime_type = mime_type_;
   return !mime_type_.empty();
+}
+
+void URLRequestChromeJob::GetResponseInfo(net::HttpResponseInfo* info) {
+  DCHECK(!info->headers);
+  // Set the headers so that requests serviced by ChromeURLDataManager return a
+  // status code of 200. Without this they return a 0, which makes the status
+  // indistiguishable from other error types. Instant relies on getting a 200.
+  info->headers = new net::HttpResponseHeaders("HTTP/1.1 200 OK");
 }
 
 void URLRequestChromeJob::DataAvailable(RefCountedMemory* bytes) {
@@ -394,3 +386,54 @@ URLRequestChromeFileJob::URLRequestChromeFileJob(net::URLRequest* request,
 }
 
 URLRequestChromeFileJob::~URLRequestChromeFileJob() {}
+
+bool DevToolsJobFactory::ShouldLoadFromDisk() {
+#if defined(DEBUG_DEVTOOLS)
+  return true;
+#else
+  return CommandLine::ForCurrentProcess()->HasSwitch(switches::kDebugDevTools);
+#endif
+}
+
+bool DevToolsJobFactory::IsSupportedURL(const GURL& url, FilePath* path) {
+  if (!url.SchemeIs(chrome::kChromeDevToolsScheme))
+    return false;
+
+  if (!url.is_valid()) {
+    NOTREACHED();
+    return false;
+  }
+
+  // Remove Query and Ref from URL.
+  GURL stripped_url;
+  GURL::Replacements replacements;
+  replacements.ClearQuery();
+  replacements.ClearRef();
+  stripped_url = url.ReplaceComponents(replacements);
+
+  std::string source_name;
+  std::string relative_path;
+  URLToRequest(stripped_url, &source_name, &relative_path);
+
+  if (source_name != chrome::kChromeUIDevToolsHost)
+    return false;
+
+  // Check that |relative_path| is not an absolute path (otherwise
+  // AppendASCII() will DCHECK).  The awkward use of StringType is because on
+  // some systems FilePath expects a std::string, but on others a std::wstring.
+  FilePath p(FilePath::StringType(relative_path.begin(), relative_path.end()));
+  if (p.IsAbsolute())
+    return false;
+
+  FilePath inspector_dir;
+  if (!PathService::Get(chrome::DIR_INSPECTOR, &inspector_dir))
+    return false;
+
+  *path = inspector_dir.AppendASCII(relative_path);
+  return true;
+}
+
+net::URLRequestJob* DevToolsJobFactory::CreateJobForRequest(
+    net::URLRequest* request, const FilePath& path) {
+  return new URLRequestChromeFileJob(request, path);
+}

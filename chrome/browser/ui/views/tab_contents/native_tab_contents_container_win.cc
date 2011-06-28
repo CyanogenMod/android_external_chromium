@@ -6,11 +6,11 @@
 
 #include "chrome/browser/ui/view_ids.h"
 #include "chrome/browser/ui/views/tab_contents/tab_contents_container.h"
-#include "chrome/browser/ui/views/tab_contents/tab_contents_view_win.h"
+#include "chrome/browser/ui/views/tab_contents/tab_contents_view_views.h"
 #include "content/browser/renderer_host/render_widget_host_view.h"
 #include "content/browser/tab_contents/interstitial_page.h"
 #include "content/browser/tab_contents/tab_contents.h"
-
+#include "ui/base/accessibility/accessible_view_state.h"
 #include "views/focus/focus_manager.h"
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -38,9 +38,13 @@ void NativeTabContentsContainerWin::AttachContents(TabContents* contents) {
 }
 
 void NativeTabContentsContainerWin::DetachContents(TabContents* contents) {
-  // TODO(brettw) should this move to NativeViewHost::Detach which is called
-  // below?
-  // It needs cleanup regardless.
+  // Detach the TabContents.  Do this before we unparent the
+  // TabContentsViewViews so that the window hierarchy is intact for any
+  // cleanup during Detach().
+  Detach();
+
+  // TODO(brettw) should this move to NativeViewHost::Detach?  It
+  // needs cleanup regardless.
   HWND container_hwnd = contents->GetNativeView();
   if (container_hwnd) {
     // Hide the contents before adjusting its parent to avoid a full desktop
@@ -48,11 +52,8 @@ void NativeTabContentsContainerWin::DetachContents(TabContents* contents) {
     ShowWindow(container_hwnd, SW_HIDE);
 
     // Reset the parent to NULL to ensure hidden tabs don't receive messages.
-    static_cast<TabContentsViewWin*>(contents->view())->Unparent();
+    static_cast<TabContentsViewViews*>(contents->view())->Unparent();
   }
-
-  // Now detach the TabContents.
-  Detach();
 }
 
 void NativeTabContentsContainerWin::SetFastResize(bool fast_resize) {
@@ -129,8 +130,9 @@ void NativeTabContentsContainerWin::AboutToRequestFocusFromTabTraversal(
   container_->tab_contents()->FocusThroughTabTraversal(reverse);
 }
 
-AccessibilityTypes::Role NativeTabContentsContainerWin::GetAccessibleRole() {
-  return AccessibilityTypes::ROLE_GROUPING;
+void NativeTabContentsContainerWin::GetAccessibleState(
+    ui::AccessibleViewState* state) {
+  state->role = ui::AccessibilityTypes::ROLE_GROUPING;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

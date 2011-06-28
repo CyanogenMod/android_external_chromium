@@ -1,11 +1,11 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import <Cocoa/Cocoa.h>
 
-#include "base/scoped_ptr.h"
-#include "base/scoped_nsobject.h"
+#include "base/memory/scoped_nsobject.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/utf_string_conversions.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_model_observer_for_cocoa.h"
 #import "chrome/browser/ui/cocoa/browser_test_helper.h"
@@ -61,7 +61,7 @@ TEST_F(BookmarkModelObserverForCocoaTest, TestCallback) {
   model->Move(node, model->other_node(), 0);
   EXPECT_EQ(3, pingCount.get()->pings);
 
-  model->Remove(node->GetParent(), 0);
+  model->Remove(node->parent(), 0);
   EXPECT_EQ(4, pingCount.get()->pings);
 }
 

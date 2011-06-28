@@ -142,12 +142,6 @@ const char kPasswordManagerEnabled[] = "profile.password_manager_enabled";
 const char kPasswordManagerAllowShowPasswords[] =
     "profile.password_manager_allow_show_passwords";
 
-// OBSOLETE.  Boolean that is true if the form AutoFill is on (will record
-// values entered in text inputs in forms and shows them in a popup when user
-// type in a text input with the same name later on).  This has been superseded
-// by kAutoFillEnabled.
-const char kFormAutofillEnabled[] = "profile.form_autofill_enabled";
-
 // Boolean that is true when SafeBrowsing is enabled.
 const char kSafeBrowsingEnabled[] = "safebrowsing.enabled";
 
@@ -160,6 +154,10 @@ const char kIncognitoEnabled[] = "incognito.enabled";
 
 // Boolean that is true when Suggest support is enabled.
 const char kSearchSuggestEnabled[] = "search.suggest_enabled";
+
+// Boolean that indicates whether the browser should put up a confirmation
+// window when the user is attempting to quit. Mac only.
+const char kConfirmToQuitEnabled[] = "browser.confirm_to_quit";
 
 // OBSOLETE.  Enum that specifies whether to enforce a third-party cookie
 // blocking policy.  This has been superseded by kDefaultContentSettings +
@@ -188,7 +186,7 @@ const char kDefaultSearchProviderSuggestURL[] =
 const char kDefaultSearchProviderInstantURL[] =
     "default_search_provider.instant_url";
 
-// The Fav Icon URL (as understood by TemplateURLRef) of the default search
+// The Favicon URL (as understood by TemplateURLRef) of the default search
 // provider.
 const char kDefaultSearchProviderIconURL[] =
     "default_search_provider.icon_url";
@@ -226,9 +224,6 @@ const char kPromptForDownload[] = "download.prompt_for_download";
 // A boolean pref set to true if we're using Link Doctor error pages.
 const char kAlternateErrorPagesEnabled[] = "alternate_error_pages.enabled";
 
-// A boolean pref set to true if DNS pre-fetching is being done in browser.
-const char kDnsPrefetchingEnabled[] = "dns_prefetching.enabled";
-
 // OBSOLETE: new pref now stored with user prefs instead of profile, as
 // kDnsPrefetchingStartupList.
 const char kDnsStartupPrefetchList[] = "StartupDNSPrefetchList";
@@ -251,8 +246,8 @@ const char kDnsPrefetchingHostReferralList[] =
 // Disables the SPDY protocol.
 const char kDisableSpdy[] = "spdy.disabled";
 
-// Is the cookie prompt expanded?
-const char kCookiePromptExpanded[] = "cookieprompt.expanded";
+// Disables the listed protocol schemes.
+const char kDisabledSchemes[] = "protocol.disabled_schemes";
 
 // Boolean pref indicating whether the instant confirm dialog has been shown.
 const char kInstantConfirmDialogShown[] = "instant.confirm_dialog_shown";
@@ -280,13 +275,12 @@ const char kInstantPromo[] = "instant.promo";
 const char kMultipleProfilePrefMigration[] =
     "local_state.multiple_profile_prefs_version";
 
-#if defined(USE_NSS) || defined(USE_OPENSSL)
-// Prefs for SSLConfigServicePref.  Currently, these are only present on
-// and used by NSS/OpenSSL using OSes.
-const char kCertRevocationCheckingEnabled[] = "ssl.rev_checking.enabled";
-const char kSSL3Enabled[] = "ssl.ssl3.enabled";
-const char kTLS1Enabled[] = "ssl.tls1.enabled";
-#endif
+// A boolean pref set to true if prediction of network actions is allowed.
+// Actions include DNS prefetching, TCP and SSL preconnection, and prerendering
+// of web pages.
+// NOTE: The "dns_prefetching.enabled" value is used so that historical user
+// preferences are not lost.
+const char kNetworkPredictionEnabled[] = "dns_prefetching.enabled";
 
 #if defined(OS_CHROMEOS)
 // An integer pref to initially mute volume if 1.
@@ -300,6 +294,9 @@ const char kTapToClickEnabled[] = "settings.touchpad.enable_tap_to_click";
 
 // A integer pref for the touchpad sensitivity.
 const char kTouchpadSensitivity[] = "settings.touchpad.sensitivity2";
+
+// A boolean pref set to true if time should be displayed in 24-hour clock.
+const char kUse24HourClock[] = "settings.clock.use_24hour_clock";
 
 // A string pref set to the current input method.
 const char kLanguageCurrentInputMethod[] =
@@ -477,6 +474,18 @@ const char kEnableScreenLock[] = "settings.enable_screen_lock";
 const char kShowPlanNotifications[] =
     "settings.internet.mobile.show_plan_notifications";
 
+// A boolean pref of whether to show 3G promo notification.
+const char kShow3gPromoNotification[] =
+    "settings.internet.mobile.show_3g_promo_notification";
+
+// An integer pref which shows number of times carrier deal promo
+// notification has been shown to user.
+const char kCarrierDealPromoShown[] =
+    "settings.internet.mobile.carrier_deal_promo_shown";
+
+// Map of timestamps of the last used file browser tasks.
+const char kLastUsedFileBrowserHandlers[] =
+    "filebrowser.handler.lastused";
 #endif  // defined(OS_CHROMEOS)
 
 // The disabled messages in IPC logging.
@@ -485,11 +494,6 @@ const char kIpcDisabledMessages[] = "ipc_log_disabled_messages";
 // A boolean pref set to true if a Home button to open the Home pages should be
 // visible on the toolbar.
 const char kShowHomeButton[] = "browser.show_home_button";
-
-// A boolean pref set to true if the Page and Options menu buttons should be
-// visible on the toolbar. This is only used for Mac where the default is to
-// have these menu in the main menubar, not as buttons on the toolbar.
-const char kShowPageOptionsButtons[] = "browser.show_page_options_buttons";
 
 // A string value which saves short list of recently user selected encodings
 // separated with comma punctuation mark.
@@ -503,9 +507,6 @@ const char kDeleteCookies[] = "browser.clear_data.cookies";
 const char kDeletePasswords[] = "browser.clear_data.passwords";
 const char kDeleteFormData[] = "browser.clear_data.form_data";
 const char kDeleteTimePeriod[] = "browser.clear_data.time_period";
-
-// Whether there is a Flash version installed that supports clearing LSO data.
-const char kClearPluginLSODataEnabled[] = "browser.clear_lso_data_enabled";
 
 // Boolean pref to define the default values for using spellchecker.
 const char kEnableSpellCheck[] = "browser.enable_spellchecking";
@@ -574,6 +575,9 @@ const char kPluginsShowSetReaderDefaultInfobar[] =
 
 // Whether about:plugins is shown in the details mode or not.
 const char kPluginsShowDetails[] = "plugins.show_details";
+
+// Boolean that indicates whether outdated plugins are allowed or not.
+const char kPluginsAllowOutdated[] = "plugins.allow_outdated";
 
 // Boolean that indicates whether we should check if we are the default browser
 // on start-up.
@@ -646,25 +650,28 @@ const char kDefaultZoomLevel[] = "profile.default_zoom_level";
 // be displayed at the default zoom level.
 const char kPerHostZoomLevels[] = "profile.per_host_zoom_levels";
 
-// Boolean that is true if AutoFill is enabled and allowed to save profile data.
-const char kAutoFillEnabled[] = "autofill.enabled";
+// Boolean that is true if Autofill is enabled and allowed to save profile data.
+const char kAutofillEnabled[] = "autofill.enabled";
 
-// Boolean that is true when auxiliary AutoFill profiles are enabled.
+// Boolean that is true when auxiliary Autofill profiles are enabled.
 // Currently applies to Address Book "me" card on Mac.  False on Win and Linux.
-const char kAutoFillAuxiliaryProfilesEnabled[] =
+const char kAutofillAuxiliaryProfilesEnabled[] =
     "autofill.auxiliary_profiles_enabled";
 
-// Position and size of the AutoFill dialog.
-const char kAutoFillDialogPlacement[] = "autofill.dialog_placement";
+// Position and size of the Autofill dialog.
+const char kAutofillDialogPlacement[] = "autofill.dialog_placement";
 
 // Double that indicates positive (for matched forms) upload rate.
-const char kAutoFillPositiveUploadRate[] = "autofill.positive_upload_rate";
+const char kAutofillPositiveUploadRate[] = "autofill.positive_upload_rate";
 
 // Double that indicates negative (for not matched forms) upload rate.
-const char kAutoFillNegativeUploadRate[] = "autofill.negative_upload_rate";
+const char kAutofillNegativeUploadRate[] = "autofill.negative_upload_rate";
 
 // Boolean option set to true on the first run. Non-persistent.
-const char kAutoFillPersonalDataManagerFirstRun[] = "autofill.pdm.first_run";
+const char kAutofillPersonalDataManagerFirstRun[] = "autofill.pdm.first_run";
+
+// Modifying bookmarks is completely disabled when this is set to false.
+const char kEditBookmarksEnabled[] = "bookmarks.editing_enabled";
 
 // Boolean that is true when the tabstrip is to be laid out vertically down the
 // side of the browser window.
@@ -673,16 +680,18 @@ const char kUseVerticalTabs[] = "tabs.use_vertical_tabs";
 // Boolean that is true when the translate feature is enabled.
 const char kEnableTranslate[] = "translate.enabled";
 
+// Boolean that is true when the bookmark bar for the new tab page is enabled.
+const char kEnableBookmarkBar[] = "bookmark_bar.enabled";
+
 const char kPinnedTabs[] = "pinned_tabs";
 
-// Integer that specifies the policy refresh rate for user policy in
-// milliseconds. Not all values are meaningful, so it is clamped to a sane
-// range by the cloud policy subsystem.
-const char kPolicyUserPolicyRefreshRate[] = "policy.user_policy_refresh_rate";
+// Boolean that is true when HTTP throttling is enabled.
+const char kHttpThrottlingEnabled[] = "http_throttling.enabled";
 
-// Same as |kPolicyUserPolicyRefreshRate|, but for device policy.
-const char kPolicyDevicePolicyRefreshRate[] =
-    "policy.device_policy_refresh_rate";
+// Integer that specifies the policy refresh rate for policy in milliseconds.
+// Not all values are meaningful, so it is clamped to a sane range by the cloud
+// policy subsystem.
+const char kPolicyRefreshRate[] = "policy.refresh_rate";
 
 // Integer containing the default Geolocation content setting.
 const char kGeolocationDefaultContentSetting[] =
@@ -694,8 +703,19 @@ const char kGeolocationContentSettings[] = "geolocation.content_settings";
 // Preference to disable 3D APIs (WebGL, Pepper 3D).
 const char kDisable3DAPIs[] = "disable_3d_apis";
 
+// Whether to enable hyperlink auditing ("<a ping>").
+const char kEnableHyperlinkAuditing[] = "enable_a_ping";
+
+// Whether to enable sending referrers.
+const char kEnableReferrers[] = "enable_referrers";
+
 // *************** LOCAL STATE ***************
 // These are attached to the machine/installation
+
+// Prefs for SSLConfigServicePref.
+const char kCertRevocationCheckingEnabled[] = "ssl.rev_checking.enabled";
+const char kSSL3Enabled[] = "ssl.ssl3.enabled";
+const char kTLS1Enabled[] = "ssl.tls1.enabled";
 
 // The metrics client GUID and session ID.
 const char kMetricsClientID[] = "user_experience_metrics.client_id";
@@ -888,6 +908,9 @@ const char kSaveFileType[] = "savefile.type";
 // or opening a file.
 const char kSelectFileLastDirectory[] = "selectfile.last_directory";
 
+// Boolean that specifies if file selection dialogs are shown.
+const char kAllowFileSelectionDialogs[] = "select_file_dialogs.allowed";
+
 // Extensions which should be opened upon completion.
 const char kDownloadExtensionsToOpen[] = "download.extensions_to_open";
 
@@ -1073,6 +1096,12 @@ const char kNTPPrefVersion[] = "ntp.pref_version";
 const char kNTPCustomLogoStart[] = "ntp.alt_logo_start";
 const char kNTPCustomLogoEnd[] = "ntp.alt_logo_end";
 
+// The promo resource service version number.
+const char kNTPPromoVersion[] = "ntp.promo_version";
+
+// The last locale the promo was fetched for.
+const char kNTPPromoLocale[] = "ntp.promo_locale";
+
 // Whether promo should be shown to Dev builds, Beta and Dev, or all builds.
 const char kNTPPromoBuild[] = "ntp.promo_build";
 
@@ -1094,6 +1123,24 @@ const char kNTPPromoLine[] = "ntp.promo_line";
 // from the promo server.
 const char kNTPPromoStart[] = "ntp.promo_start";
 const char kNTPPromoEnd[] = "ntp.promo_end";
+
+// The id of the last web store promo actually displayed on the NTP.
+const char kNTPWebStorePromoLastId[] = "ntp.webstore_last_promo_id";
+
+// The id of the current web store promo.
+const char kNTPWebStorePromoId[] = "ntp.webstorepromo.id";
+
+// The header line for the NTP web store promo.
+const char kNTPWebStorePromoHeader[] = "ntp.webstorepromo.header";
+
+// The button text for the NTP web store promo.
+const char kNTPWebStorePromoButton[] = "ntp.webstorepromo.button";
+
+// The button link for the NTP web store promo.
+const char kNTPWebStorePromoLink[] = "ntp.webstorepromo.link";
+
+// The "hide this" link text for the NTP web store promo.
+const char kNTPWebStorePromoExpire[] = "ntp.webstorepromo.expire";
 
 // The most up-to-date GPU blacklist downloaded from the web, which replaces
 // the one that's installed with chrome.
@@ -1141,10 +1188,6 @@ const char kSyncManaged[] = "sync.managed";
 // Boolean to prevent sync from automatically starting up.  This is
 // used when sync is disabled by the user via the privacy dashboard.
 const char kSyncSuppressStart[] = "sync.suppress_start";
-
-// Boolean to reperesent if sync credentials have been migrated from the
-// user settings DB to the token service.
-const char kSyncCredentialsMigrated[] = "sync.credentials_migrated";
 
 // Boolean to represent whether the legacy autofill profile data has been
 // migrated to the new model.
@@ -1217,6 +1260,9 @@ const char kSignedSettingsTempStorage[] = "signed_settings_temp_storage";
 const char kHardwareKeyboardLayout[] = "intl.hardware_keyboard";
 #endif
 
+// Whether there is a Flash version installed that supports clearing LSO data.
+const char kClearPluginLSODataEnabled[] = "browser.clear_lso_data_enabled";
+
 // *************** SERVICE PREFS ***************
 // These are attached to the service process.
 
@@ -1234,6 +1280,9 @@ const char kCloudPrintEmail[] = "cloud_print.email";
 // Settings specific to underlying print system.
 const char kCloudPrintPrintSystemSettings[] =
     "cloud_print.print_system_settings";
+// A boolean indicating whether we should poll for print jobs when don't have
+// an XMPP connection (false by default).
+const char kCloudPrintEnableJobPoll[] = "cloud_print.enable_job_poll";
 
 // Used by the service process to determine if the remoting host is enabled.
 const char kRemotingHostEnabled[] = "remoting.host_enabled";
@@ -1286,4 +1335,9 @@ const char kKnownBackgroundPages[] = "background_pages.known";
 
 // Dictionary that maps URL schemes (protocols) to URL handlers.
 const char kRegisteredProtocolHandlers[] = "registered_protocol_handlers";
+
+// Set to true if the user created a login item so we should not modify it when
+// uninstalling background apps.
+const char kUserCreatedLoginItem[] = "background_mode.user_created_login_item";
+
 }  // namespace prefs

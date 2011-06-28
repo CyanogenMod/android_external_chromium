@@ -21,17 +21,17 @@
 #include "chrome/browser/ui/gtk/constrained_window_gtk.h"
 #include "chrome/browser/ui/gtk/gtk_expanded_container.h"
 #include "chrome/browser/ui/gtk/gtk_floating_container.h"
-#include "chrome/browser/ui/gtk/gtk_theme_provider.h"
 #include "chrome/browser/ui/gtk/gtk_util.h"
 #include "chrome/browser/ui/gtk/sad_tab_gtk.h"
 #include "chrome/browser/ui/gtk/tab_contents_drag_source.h"
-#include "chrome/common/notification_source.h"
-#include "chrome/common/notification_type.h"
+#include "content/browser/renderer_host/render_process_host.h"
 #include "content/browser/renderer_host/render_view_host.h"
 #include "content/browser/renderer_host/render_view_host_factory.h"
 #include "content/browser/tab_contents/interstitial_page.h"
 #include "content/browser/tab_contents/tab_contents.h"
 #include "content/browser/tab_contents/tab_contents_delegate.h"
+#include "content/common/notification_source.h"
+#include "content/common/notification_type.h"
 #include "ui/gfx/point.h"
 #include "ui/gfx/rect.h"
 #include "ui/gfx/size.h"
@@ -60,7 +60,7 @@ gboolean OnMouseMove(GtkWidget* widget, GdkEventMotion* event,
   return FALSE;
 }
 
-// See tab_contents_view_win.cc for discussion of mouse scroll zooming.
+// See tab_contents_view_views.cc for discussion of mouse scroll zooming.
 gboolean OnMouseScroll(GtkWidget* widget, GdkEventScroll* event,
                        TabContents* tab_contents) {
   if ((event->state & gtk_accelerator_get_default_mod_mask()) ==
@@ -156,8 +156,6 @@ RenderWidgetHostView* TabContentsViewGtk::CreateViewForWidget(
                    G_CALLBACK(OnMouseScroll), tab_contents());
   gtk_widget_add_events(content_view, GDK_LEAVE_NOTIFY_MASK |
                         GDK_POINTER_MOTION_MASK);
-  g_signal_connect(content_view, "button-press-event",
-                   G_CALLBACK(OnMouseDownThunk), this);
   InsertIntoContentArea(content_view);
 
   // Renderer target DnD.
@@ -303,8 +301,31 @@ void TabContentsViewGtk::Observe(NotificationType type,
 }
 
 void TabContentsViewGtk::ShowContextMenu(const ContextMenuParams& params) {
-  context_menu_.reset(new RenderViewContextMenuGtk(tab_contents(), params,
-                                                   last_mouse_down_.time));
+  // Find out the RenderWidgetHostView that corresponds to the render widget on
+  // which this context menu is showed, so that we can retrieve the last mouse
+  // down event on the render widget and use it as the timestamp of the
+  // activation event to show the context menu.
+  RenderWidgetHostView* view = NULL;
+  if (params.custom_context.render_widget_id !=
+      webkit_glue::CustomContextMenuContext::kCurrentRenderWidget) {
+    IPC::Channel::Listener* listener =
+        tab_contents()->render_view_host()->process()->GetListenerByID(
+            params.custom_context.render_widget_id);
+    if (!listener) {
+      NOTREACHED();
+      return;
+    }
+    view = static_cast<RenderWidgetHost*>(listener)->view();
+  } else {
+    view = tab_contents()->GetRenderWidgetHostView();
+  }
+  RenderWidgetHostViewGtk* view_gtk =
+      static_cast<RenderWidgetHostViewGtk*>(view);
+  if (!view_gtk || !view_gtk->last_mouse_down())
+    return;
+
+  context_menu_.reset(new RenderViewContextMenuGtk(
+      tab_contents(), params, view_gtk->last_mouse_down()->time));
   context_menu_->Init();
 
   gfx::Rect bounds;
@@ -332,8 +353,14 @@ void TabContentsViewGtk::StartDragging(const WebDropData& drop_data,
                                        const SkBitmap& image,
                                        const gfx::Point& image_offset) {
   DCHECK(GetContentNativeView());
-  drag_source_->StartDragging(drop_data, ops, &last_mouse_down_, image,
-                              image_offset);
+
+  RenderWidgetHostViewGtk* view_gtk = static_cast<RenderWidgetHostViewGtk*>(
+      tab_contents()->GetRenderWidgetHostView());
+  if (!view_gtk || !view_gtk->last_mouse_down())
+    return;
+
+  drag_source_->StartDragging(drop_data, ops, view_gtk->last_mouse_down(),
+                              image, image_offset);
 }
 
 // -----------------------------------------------------------------------------
@@ -372,12 +399,6 @@ gboolean TabContentsViewGtk::OnFocus(GtkWidget* widget,
   bool reverse = focus == GTK_DIR_TAB_BACKWARD;
   tab_contents()->FocusThroughTabTraversal(reverse);
   return TRUE;
-}
-
-gboolean TabContentsViewGtk::OnMouseDown(GtkWidget* widget,
-                                         GdkEventButton* event) {
-  last_mouse_down_ = *event;
-  return FALSE;
 }
 
 void TabContentsViewGtk::OnChildSizeRequest(GtkWidget* widget,

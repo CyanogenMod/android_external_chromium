@@ -4,24 +4,41 @@
 
 #include "chrome/browser/autofill/autofill_cc_infobar_delegate.h"
 
-#include "base/metrics/histogram.h"
-#include "chrome/browser/autofill/autofill_manager.h"
-#include "chrome/browser/browser_list.h"
+#include "base/logging.h"
+#include "chrome/browser/autofill/credit_card.h"
+#include "chrome/browser/autofill/personal_data_manager.h"
+#include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 
-AutoFillCCInfoBarDelegate::AutoFillCCInfoBarDelegate(TabContents* tab_contents,
-                                                     AutofillManager* host)
+AutofillCCInfoBarDelegate::AutofillCCInfoBarDelegate(
+    TabContents* tab_contents,
+    const CreditCard* credit_card,
+    PersonalDataManager* personal_data,
+    const AutofillMetrics* metric_logger)
     : ConfirmInfoBarDelegate(tab_contents),
-      host_(host) {
+      credit_card_(credit_card),
+      personal_data_(personal_data),
+      metric_logger_(metric_logger),
+      had_user_interaction_(false) {
+  metric_logger_->Log(AutofillMetrics::CREDIT_CARD_INFOBAR_SHOWN);
 }
 
-AutoFillCCInfoBarDelegate::~AutoFillCCInfoBarDelegate() {
+AutofillCCInfoBarDelegate::~AutofillCCInfoBarDelegate() {
 }
 
-bool AutoFillCCInfoBarDelegate::ShouldExpire(
+void AutofillCCInfoBarDelegate::LogUserAction(
+    AutofillMetrics::CreditCardInfoBarMetric user_action) {
+  DCHECK(!had_user_interaction_);
+
+  metric_logger_->Log(user_action);
+  had_user_interaction_ = true;
+}
+
+bool AutofillCCInfoBarDelegate::ShouldExpire(
     const NavigationController::LoadCommittedDetails& details) const {
   // The user has submitted a form, causing the page to navigate elsewhere. We
   // don't want the infobar to be expired at this point, because the user won't
@@ -29,53 +46,53 @@ bool AutoFillCCInfoBarDelegate::ShouldExpire(
   return false;
 }
 
-void AutoFillCCInfoBarDelegate::InfoBarClosed() {
-  if (host_) {
-    host_->OnInfoBarClosed(false);
-    host_ = NULL;
-  }
+void AutofillCCInfoBarDelegate::InfoBarClosed() {
+  if (!had_user_interaction_)
+    LogUserAction(AutofillMetrics::CREDIT_CARD_INFOBAR_IGNORED);
+
   delete this;
 }
 
-SkBitmap* AutoFillCCInfoBarDelegate::GetIcon() const {
+void AutofillCCInfoBarDelegate::InfoBarDismissed() {
+  LogUserAction(AutofillMetrics::CREDIT_CARD_INFOBAR_DENIED);
+}
+
+SkBitmap* AutofillCCInfoBarDelegate::GetIcon() const {
   return ResourceBundle::GetSharedInstance().GetBitmapNamed(
       IDR_INFOBAR_AUTOFILL);
 }
 
-InfoBarDelegate::Type AutoFillCCInfoBarDelegate::GetInfoBarType() const {
+InfoBarDelegate::Type AutofillCCInfoBarDelegate::GetInfoBarType() const {
   return PAGE_ACTION_TYPE;
 }
 
-string16 AutoFillCCInfoBarDelegate::GetMessageText() const {
+string16 AutofillCCInfoBarDelegate::GetMessageText() const {
   return l10n_util::GetStringUTF16(IDS_AUTOFILL_CC_INFOBAR_TEXT);
 }
 
-string16 AutoFillCCInfoBarDelegate::GetButtonLabel(InfoBarButton button) const {
+string16 AutofillCCInfoBarDelegate::GetButtonLabel(InfoBarButton button) const {
   return l10n_util::GetStringUTF16((button == BUTTON_OK) ?
       IDS_AUTOFILL_CC_INFOBAR_ACCEPT : IDS_AUTOFILL_CC_INFOBAR_DENY);
 }
 
-bool AutoFillCCInfoBarDelegate::Accept() {
-  UMA_HISTOGRAM_COUNTS("AutoFill.CCInfoBarAccepted", 1);
-  if (host_) {
-    host_->OnInfoBarClosed(true);
-    host_ = NULL;
-  }
+bool AutofillCCInfoBarDelegate::Accept() {
+  personal_data_->SaveImportedCreditCard(*credit_card_);
+  LogUserAction(AutofillMetrics::CREDIT_CARD_INFOBAR_ACCEPTED);
   return true;
 }
 
-bool AutoFillCCInfoBarDelegate::Cancel() {
-  UMA_HISTOGRAM_COUNTS("AutoFill.CCInfoBarDenied", 1);
+bool AutofillCCInfoBarDelegate::Cancel() {
+  LogUserAction(AutofillMetrics::CREDIT_CARD_INFOBAR_DENIED);
   return true;
 }
 
-string16 AutoFillCCInfoBarDelegate::GetLinkText() {
-  return l10n_util::GetStringUTF16(IDS_AUTOFILL_CC_LEARN_MORE);
+string16 AutofillCCInfoBarDelegate::GetLinkText() {
+  return l10n_util::GetStringUTF16(IDS_LEARN_MORE);
 }
 
-bool AutoFillCCInfoBarDelegate::LinkClicked(WindowOpenDisposition disposition) {
+bool AutofillCCInfoBarDelegate::LinkClicked(WindowOpenDisposition disposition) {
   Browser* browser = BrowserList::GetLastActive();
   DCHECK(browser);
-  browser->OpenAutoFillHelpTabAndActivate();
+  browser->OpenAutofillHelpTabAndActivate();
   return false;
 }

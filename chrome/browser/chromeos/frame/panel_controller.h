@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,12 +16,16 @@ class BrowserView;
 class SkBitmap;
 typedef unsigned long XID;
 
+namespace base {
+class Time;
+}
+
 namespace views {
 class ImageButton;
 class ImageView;
 class Label;
 class MouseEvent;
-class WidgetGtk;
+class Widget;
 }
 
 namespace chromeos {
@@ -50,6 +54,9 @@ class PanelController {
 
     // Close the panel. Called when a close button is pressed.
     virtual void ClosePanel() = 0;
+
+    // Activate the panel. Called when maximized.
+    virtual void ActivatePanel() = 0;
   };
 
   PanelController(Delegate* delegate_window,
@@ -62,16 +69,20 @@ class PanelController {
             WmIpcPanelUserResizeType resize_type);
 
   bool TitleMousePressed(const views::MouseEvent& event);
-  void TitleMouseReleased(const views::MouseEvent& event, bool canceled);
+  void TitleMouseReleased(const views::MouseEvent& event);
+  void TitleMouseCaptureLost();
   bool TitleMouseDragged(const views::MouseEvent& event);
   bool PanelClientEvent(GdkEventClient* event);
   void OnFocusIn();
   void OnFocusOut();
 
   void UpdateTitleBar();
+  void SetUrgent(bool urgent);
   void Close();
 
   void SetState(State state);
+
+  bool urgent() { return urgent_; }
 
  private:
   class TitleContentView : public views::View,
@@ -79,10 +90,14 @@ class PanelController {
    public:
     explicit TitleContentView(PanelController* panelController);
     virtual ~TitleContentView();
-    virtual void Layout();
-    virtual bool OnMousePressed(const views::MouseEvent& event);
-    virtual void OnMouseReleased(const views::MouseEvent& event, bool canceled);
-    virtual bool OnMouseDragged(const views::MouseEvent& event);
+
+    // Overridden from View:
+    virtual void Layout() OVERRIDE;
+    virtual bool OnMousePressed(const views::MouseEvent& event) OVERRIDE;
+    virtual void OnMouseReleased(const views::MouseEvent& event) OVERRIDE;
+    virtual void OnMouseCaptureLost() OVERRIDE;
+    virtual bool OnMouseDragged(const views::MouseEvent& event) OVERRIDE;
+
     void OnFocusIn();
     void OnFocusOut();
     void OnClose();
@@ -93,7 +108,7 @@ class PanelController {
 
     // ButtonListener methods.
     virtual void ButtonPressed(views::Button* sender,
-                               const views::Event& event);
+                               const views::Event& event) OVERRIDE;
    private:
     views::ImageView* title_icon_;
     views::Label* title_label_;
@@ -120,7 +135,7 @@ class PanelController {
   XID panel_xid_;
 
   // Views object representing title.
-  views::WidgetGtk* title_window_;
+  views::Widget* title_window_;
   // Gtk object representing title.
   GtkWidget* title_;
   // X id representing title.
@@ -150,6 +165,15 @@ class PanelController {
 
   // GTK client event handler id.
   int client_event_handler_id_;
+
+  // Focused state.
+  bool focused_;
+
+  // Urgent (highlight) state.
+  bool urgent_;
+
+  // Timestamp to prevent setting urgent immediately after clearing it.
+  base::TimeTicks urgent_cleared_time_;
 
   DISALLOW_COPY_AND_ASSIGN(PanelController);
 };

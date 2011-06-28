@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include "chrome/browser/speech/speech_input_bubble.h"
 
-#import "base/scoped_nsobject.h"
+#import "base/memory/scoped_nsobject.h"
 #import "chrome/browser/ui/cocoa/speech_input_window_controller.h"
 #include "content/browser/tab_contents/tab_contents.h"
 #include "content/browser/tab_contents/tab_contents_view.h"
@@ -26,7 +26,7 @@ class SpeechInputBubbleImpl : public SpeechInputBubbleBase {
   virtual void Show();
   virtual void Hide();
   virtual void UpdateLayout();
-  virtual void SetImage(const SkBitmap& image);
+  virtual void UpdateImage();
 
  private:
   scoped_nsobject<SpeechInputWindowController> window_;
@@ -47,9 +47,9 @@ SpeechInputBubbleImpl::~SpeechInputBubbleImpl() {
     [window_.get() close];
 }
 
-void SpeechInputBubbleImpl::SetImage(const SkBitmap& image) {
+void SpeechInputBubbleImpl::UpdateImage() {
   if (window_.get())
-    [window_.get() setImage:gfx::SkBitmapToNSImage(image)];
+    [window_.get() setImage:gfx::SkBitmapToNSImage(icon_image())];
 }
 
 void SpeechInputBubbleImpl::Show() {
@@ -77,6 +77,7 @@ void SpeechInputBubbleImpl::Show() {
                 anchoredAt:anchor]);
 
   UpdateLayout();
+  [window_.get() show];
 }
 
 void SpeechInputBubbleImpl::Hide() {
@@ -92,7 +93,8 @@ void SpeechInputBubbleImpl::UpdateLayout() {
     return;
 
   [window_.get() updateLayout:display_mode()
-                  messageText:message_text()];
+                  messageText:message_text()
+                    iconImage:gfx::SkBitmapToNSImage(icon_image())];
 }
 
 }  // namespace

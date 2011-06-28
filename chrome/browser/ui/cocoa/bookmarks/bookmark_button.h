@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -53,7 +53,8 @@ class ThemeProvider;
 // This is called after the drag has finished, for any reason.
 // We particularly need this so we can hide bookmark folder menus and stop
 // doing that hover thing.
-- (void)bookmarkDragDidEnd:(BookmarkButton*)button;
+- (void)bookmarkDragDidEnd:(BookmarkButton*)button
+                 operation:(NSDragOperation)operation;
 
 @end
 
@@ -78,6 +79,7 @@ class ThemeProvider;
 - (BookmarkModel*)bookmarkModel;
 
 // Perform drag enter/exit operations, such as hover-open and hover-close.
+- (BOOL)draggingAllowed:(id<NSDraggingInfo>)info;
 - (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)info;
 - (void)draggingExited:(id<NSDraggingInfo>)info;
 
@@ -122,6 +124,12 @@ class ThemeProvider;
 // http://crbug.com/35968
 - (CGFloat)indicatorPosForDragToPoint:(NSPoint)point;
 
+// Used to tell the controller that room should be made for a drop.
+- (void)setDropInsertionPos:(CGFloat)where;
+
+// Used to tell the controller to stop making room for a drop.
+- (void)clearDropInsertionPos;
+
 // Return the theme provider associated with this browser window.
 - (ui::ThemeProvider*)themeProvider;
 
@@ -147,7 +155,7 @@ class ThemeProvider;
 // cut/paste/delete and drag/drop. Such changes may involve coordinating
 // the bookmark button contents of two controllers (such as when a bookmark is
 // dragged from one folder to another).  The bookmark bar controller
-// coordinates in response to notifications propogated by the bookmark model
+// coordinates in response to notifications propagated by the bookmark model
 // through BookmarkBarBridge calls. The following three functions are
 // implemented by the controllers and are dispatched by the bookmark bar
 // controller in response to notifications coming in from the BookmarkBarBridge.
@@ -211,6 +219,10 @@ class ThemeProvider;
 
 // Return YES if this is a folder button (the node has subnodes).
 - (BOOL)isFolder;
+
+- (void)mouseDragged:(NSEvent*)theEvent;
+
+- (BOOL)acceptsTrackInFrom:(id)sender;
 
 // At this time we represent an empty folder (e.g. the string
 // '(empty)') as a disabled button with no associated node.

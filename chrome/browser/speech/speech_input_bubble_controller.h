@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,10 @@
 #include <map>
 
 #include "base/basictypes.h"
-#include "base/ref_counted.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/speech/speech_input_bubble.h"
-#include "chrome/common/notification_observer.h"
+#include "content/common/notification_observer.h"
 
 namespace gfx {
 class Rect;
@@ -55,6 +55,10 @@ class SpeechInputBubbleController
                     int render_view_id,
                     const gfx::Rect& element_rect);
 
+  // Indicates to the user that audio hardware is warming up. This also makes
+  // the bubble visible if not already visible.
+  void SetBubbleWarmUpMode(int caller_id);
+
   // Indicates to the user that audio recording is in progress. This also makes
   // the bubble visible if not already visible.
   void SetBubbleRecordingMode(int caller_id);
@@ -84,6 +88,7 @@ class SpeechInputBubbleController
  private:
   // The various calls received by this object and handled in the UI thread.
   enum RequestType {
+    REQUEST_SET_WARM_UP_MODE,
     REQUEST_SET_RECORDING_MODE,
     REQUEST_SET_RECOGNIZING_MODE,
     REQUEST_SET_MESSAGE,
@@ -116,7 +121,7 @@ class SpeechInputBubbleController
   // Only accessed in the IO thread.
   Delegate* delegate_;
 
-  //*** The following are accessed only in the UI thread.
+  // *** The following are accessed only in the UI thread.
 
   // The caller id for currently visible bubble (since only one bubble is
   // visible at any time).

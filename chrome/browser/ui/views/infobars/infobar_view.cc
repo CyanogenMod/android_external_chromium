@@ -6,13 +6,13 @@
 
 #include "base/message_loop.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/tab_contents/confirm_infobar_delegate.h"
+#include "chrome/browser/tab_contents/infobar_delegate.h"
 #include "chrome/browser/ui/views/infobars/infobar_background.h"
 #include "chrome/browser/ui/views/infobars/infobar_button_border.h"
-#include "chrome/browser/ui/views/infobars/infobar_container.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "third_party/skia/include/effects/SkGradientShader.h"
+#include "ui/base/accessibility/accessible_view_state.h"
 #include "ui/base/animation/slide_animation.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -25,6 +25,7 @@
 #include "views/controls/link.h"
 #include "views/focus/external_focus_tracker.h"
 #include "views/widget/widget.h"
+#include "views/window/non_client_view.h"
 
 #if defined(OS_WIN)
 #include <shellapi.h>
@@ -36,112 +37,27 @@
 #endif
 
 // static
-const int InfoBarView::kDefaultTargetHeight = 36;
+const int InfoBar::kSeparatorLineHeight =
+    views::NonClientFrameView::kClientEdgeThickness;
+const int InfoBar::kDefaultArrowTargetHeight = 9;
+const int InfoBar::kMaximumArrowTargetHeight = 24;
+const int InfoBar::kDefaultArrowTargetHalfWidth = kDefaultArrowTargetHeight;
+const int InfoBar::kMaximumArrowTargetHalfWidth = 14;
+const int InfoBar::kDefaultBarTargetHeight = 36;
+
 const int InfoBarView::kButtonButtonSpacing = 10;
 const int InfoBarView::kEndOfLabelSpacing = 16;
 const int InfoBarView::kHorizontalPadding = 6;
 
 InfoBarView::InfoBarView(InfoBarDelegate* delegate)
     : InfoBar(delegate),
-      container_(NULL),
-      delegate_(delegate),
       icon_(NULL),
       close_button_(NULL),
-      ALLOW_THIS_IN_INITIALIZER_LIST(animation_(new ui::SlideAnimation(this))),
       ALLOW_THIS_IN_INITIALIZER_LIST(delete_factory_(this)),
-      target_height_(kDefaultTargetHeight) {
+      fill_path_(new SkPath),
+      stroke_path_(new SkPath) {
   set_parent_owned(false);  // InfoBar deletes itself at the appropriate time.
-
-  InfoBarDelegate::Type infobar_type = delegate->GetInfoBarType();
-  set_background(new InfoBarBackground(infobar_type));
-  SetAccessibleName(l10n_util::GetStringUTF16(
-      (infobar_type == InfoBarDelegate::WARNING_TYPE) ?
-      IDS_ACCNAME_INFOBAR_WARNING : IDS_ACCNAME_INFOBAR_PAGE_ACTION));
-
-  animation_->SetTweenType(ui::Tween::LINEAR);
-}
-
-void InfoBarView::Show(bool animate) {
-  if (animate) {
-    animation_->Show();
-  } else {
-    animation_->Reset(1.0);
-    if (container_)
-      container_->OnInfoBarAnimated(true);
-  }
-}
-
-void InfoBarView::Hide(bool animate) {
-  if (animate) {
-    bool restore_focus = true;
-  #if defined(OS_WIN)
-    // Do not restore focus (and active state with it) on Windows if some other
-    // top-level window became active.
-    if (GetWidget() &&
-        !ui::DoesWindowBelongToActiveWindow(GetWidget()->GetNativeView()))
-      restore_focus = false;
-  #endif  // defined(OS_WIN)
-    DestroyFocusTracker(restore_focus);
-    animation_->Hide();
-  } else {
-    animation_->Reset(0.0);
-    Close();
-  }
-}
-
-void InfoBarView::PaintArrow(gfx::Canvas* canvas,
-                             View* outer_view,
-                             int arrow_center_x) {
-  gfx::Point infobar_top(0, y());
-  ConvertPointToView(parent(), outer_view, &infobar_top);
-  int infobar_top_y = infobar_top.y();
-  SkPoint gradient_points[2] = {
-      {SkIntToScalar(0), SkIntToScalar(infobar_top_y)},
-      {SkIntToScalar(0), SkIntToScalar(infobar_top_y + target_height_)}
-  };
-  InfoBarDelegate::Type infobar_type = delegate_->GetInfoBarType();
-  SkColor gradient_colors[2] = {
-      InfoBarBackground::GetTopColor(infobar_type),
-      InfoBarBackground::GetBottomColor(infobar_type),
-  };
-  SkShader* gradient_shader = SkGradientShader::CreateLinear(gradient_points,
-      gradient_colors, NULL, 2, SkShader::kMirror_TileMode);
-  SkPaint paint;
-  paint.setStrokeWidth(1);
-  paint.setStyle(SkPaint::kFill_Style);
-  paint.setShader(gradient_shader);
-  gradient_shader->unref();
-
-  // The size of the arrow (its height; also half its width).  The
-  // arrow area is |arrow_size| ^ 2.  By taking the square root of the
-  // animation value, we cause a linear animation of the area, which
-  // matches the perception of the animation of the InfoBar.
-  const int kArrowSize = 10;
-  int arrow_size = static_cast<int>(kArrowSize *
-                                    sqrt(animation_->GetCurrentValue()));
-  SkPath fill_path;
-  fill_path.moveTo(SkPoint::Make(SkIntToScalar(arrow_center_x - arrow_size),
-                                 SkIntToScalar(infobar_top_y)));
-  fill_path.rLineTo(SkIntToScalar(arrow_size), SkIntToScalar(-arrow_size));
-  fill_path.rLineTo(SkIntToScalar(arrow_size), SkIntToScalar(arrow_size));
-  SkPath border_path(fill_path);
-  fill_path.close();
-  gfx::CanvasSkia* canvas_skia = canvas->AsCanvasSkia();
-  canvas_skia->drawPath(fill_path, paint);
-
-  // Fill and stroke have different opinions about how to treat paths.  Because
-  // in Skia integral coordinates represent pixel boundaries, offsetting the
-  // path makes it go exactly through pixel centers; this results in lines that
-  // are exactly where we expect, instead of having odd "off by one" issues.
-  // Were we to do this for |fill_path|, however, which tries to fill "inside"
-  // the path (using some questionable math), we'd get a fill at a very
-  // different place than we'd want.
-  border_path.offset(SK_ScalarHalf, SK_ScalarHalf);
-  paint.setShader(NULL);
-  paint.setColor(SkColorSetA(ResourceBundle::toolbar_separator_color,
-                             SkColorGetA(gradient_colors[0])));
-  paint.setStyle(SkPaint::kStroke_Style);
-  canvas_skia->drawPath(border_path, paint);
+  set_background(new InfoBarBackground(delegate->GetInfoBarType()));
 }
 
 InfoBarView::~InfoBarView() {
@@ -229,18 +145,61 @@ views::TextButton* InfoBarView::CreateTextButton(
 }
 
 void InfoBarView::Layout() {
+  // Calculate the fill and stroke paths.  We do this here, rather than in
+  // PlatformSpecificRecalculateHeight(), because this is also reached when our
+  // width is changed, which affects both paths.
+  stroke_path_->rewind();
+  fill_path_->rewind();
+  const InfoBarContainer::Delegate* delegate = container_delegate();
+  if (delegate) {
+    static_cast<InfoBarBackground*>(background())->set_separator_color(
+        delegate->GetInfoBarSeparatorColor());
+    int arrow_x;
+    SkScalar arrow_fill_height =
+        SkIntToScalar(std::max(arrow_height() - kSeparatorLineHeight, 0));
+    SkScalar arrow_fill_half_width = SkIntToScalar(arrow_half_width());
+    SkScalar separator_height = SkIntToScalar(kSeparatorLineHeight);
+    if (delegate->DrawInfoBarArrows(&arrow_x) && arrow_fill_height) {
+      // Skia pixel centers are at the half-values, so the arrow is horizontally
+      // centered at |arrow_x| + 0.5.  Vertically, the stroke path is the center
+      // of the separator, while the fill path is a closed path that extends up
+      // through the entire height of the separator and down to the bottom of
+      // the arrow where it joins the bar.
+      stroke_path_->moveTo(
+          SkIntToScalar(arrow_x) + SK_ScalarHalf - arrow_fill_half_width,
+          SkIntToScalar(arrow_height()) - (separator_height * SK_ScalarHalf));
+      stroke_path_->rLineTo(arrow_fill_half_width, -arrow_fill_height);
+      stroke_path_->rLineTo(arrow_fill_half_width, arrow_fill_height);
+
+      *fill_path_ = *stroke_path_;
+      // Move the top of the fill path up to the top of the separator and then
+      // extend it down all the way through.
+      fill_path_->offset(0, -separator_height * SK_ScalarHalf);
+      // This 0.01 hack prevents the fill from filling more pixels on the right
+      // edge of the arrow than on the left.
+      const SkScalar epsilon = 0.01f;
+      fill_path_->rLineTo(-epsilon, 0);
+      fill_path_->rLineTo(0, separator_height);
+      fill_path_->rLineTo(epsilon - (arrow_fill_half_width * 2), 0);
+      fill_path_->close();
+    }
+  }
+  if (bar_height()) {
+    fill_path_->addRect(0.0, SkIntToScalar(arrow_height()),
+        SkIntToScalar(width()), SkIntToScalar(height() - kSeparatorLineHeight));
+  }
+
   int start_x = kHorizontalPadding;
   if (icon_ != NULL) {
     gfx::Size icon_size = icon_->GetPreferredSize();
     icon_->SetBounds(start_x, OffsetY(icon_size), icon_size.width(),
                      icon_size.height());
-    start_x += icon_->bounds().right();
   }
 
   gfx::Size button_size = close_button_->GetPreferredSize();
   close_button_->SetBounds(std::max(start_x + ContentMinimumWidth(),
-      width() - kHorizontalPadding - button_size.width()),
-      OffsetY(button_size), button_size.width(), button_size.height());
+      width() - kHorizontalPadding - button_size.width()), OffsetY(button_size),
+      button_size.width(), button_size.height());
 }
 
 void InfoBarView::ViewHierarchyChanged(bool is_add, View* parent, View* child) {
@@ -260,10 +219,13 @@ void InfoBarView::ViewHierarchyChanged(bool is_add, View* parent, View* child) {
 #endif
       if (GetFocusManager())
         GetFocusManager()->AddFocusChangeListener(this);
-      NotifyAccessibilityEvent(AccessibilityTypes::EVENT_ALERT);
+      if (GetWidget()) {
+        GetWidget()->NotifyAccessibilityEvent(
+            this, ui::AccessibilityTypes::EVENT_ALERT, true);
+      }
 
       if (close_button_ == NULL) {
-        SkBitmap* image = delegate_->GetIcon();
+        SkBitmap* image = delegate()->GetIcon();
         if (image) {
           icon_ = new views::ImageView;
           icon_->SetImage(image);
@@ -285,10 +247,7 @@ void InfoBarView::ViewHierarchyChanged(bool is_add, View* parent, View* child) {
       }
     } else {
       DestroyFocusTracker(false);
-      // NULL our container_ pointer so that if Animation::Stop results in
-      // AnimationEnded being called, we do not try and delete ourselves twice.
-      container_ = NULL;
-      animation_->Stop();
+      animation()->Stop();
       // Finally, clean ourselves up when we're removed from the view hierarchy
       // since no-one refers to us now.
       MessageLoop::current()->PostTask(FROM_HERE,
@@ -307,27 +266,33 @@ void InfoBarView::ViewHierarchyChanged(bool is_add, View* parent, View* child) {
   }
 }
 
+void InfoBarView::PaintChildren(gfx::Canvas* canvas) {
+  canvas->Save();
+
+  // TODO(scr): This really should be the |fill_path_|, but the clipPath seems
+  // broken on non-Windows platforms (crbug.com/75154). For now, just clip to
+  // the bar bounds.
+  //
+  // gfx::CanvasSkia* canvas_skia = canvas->AsCanvasSkia();
+  // canvas_skia->clipPath(*fill_path_);
+  DCHECK_EQ(total_height(), height())
+      << "Infobar piecewise heights do not match overall height";
+  canvas->ClipRectInt(0, arrow_height(), width(), bar_height());
+  views::View::PaintChildren(canvas);
+  canvas->Restore();
+}
+
 void InfoBarView::ButtonPressed(views::Button* sender,
                                 const views::Event& event) {
   if (sender == close_button_) {
-    if (delegate_)
-      delegate_->InfoBarDismissed();
+    if (delegate())
+      delegate()->InfoBarDismissed();
     RemoveInfoBar();
   }
 }
 
-void InfoBarView::AnimationProgressed(const ui::Animation* animation) {
-  if (container_)
-    container_->OnInfoBarAnimated(false);
-}
-
 int InfoBarView::ContentMinimumWidth() const {
   return 0;
-}
-
-void InfoBarView::RemoveInfoBar() const {
-  if (container_)
-    container_->RemoveDelegate(delegate());
 }
 
 int InfoBarView::StartX() const {
@@ -343,34 +308,53 @@ int InfoBarView::EndX() const {
   return close_button_->x() - kCloseButtonSpacing;
 }
 
-int InfoBarView::CenterY(const gfx::Size prefsize) const {
-  return std::max((target_height_ - prefsize.height()) / 2, 0);
+const InfoBarContainer::Delegate* InfoBarView::container_delegate() const {
+  const InfoBarContainer* infobar_container = container();
+  return infobar_container ? infobar_container->delegate() : NULL;
 }
 
-int InfoBarView::OffsetY(const gfx::Size prefsize) const {
-  return CenterY(prefsize) - (target_height_ - height());
+void InfoBarView::PlatformSpecificHide(bool animate) {
+  if (!animate)
+    return;
+
+  bool restore_focus = true;
+#if defined(OS_WIN)
+  // Do not restore focus (and active state with it) on Windows if some other
+  // top-level window became active.
+  if (GetWidget() &&
+      !ui::DoesWindowBelongToActiveWindow(GetWidget()->GetNativeView()))
+    restore_focus = false;
+#endif  // defined(OS_WIN)
+  DestroyFocusTracker(restore_focus);
 }
 
-AccessibilityTypes::Role InfoBarView::GetAccessibleRole() {
-  return AccessibilityTypes::ROLE_ALERT;
+void InfoBarView::PlatformSpecificOnHeightsRecalculated() {
+  // Ensure that notifying our container of our size change will result in a
+  // re-layout.
+  InvalidateLayout();
+}
+
+void InfoBarView::GetAccessibleState(ui::AccessibleViewState* state) {
+  if (delegate()) {
+    state->name = l10n_util::GetStringUTF16(
+        (delegate()->GetInfoBarType() == InfoBarDelegate::WARNING_TYPE) ?
+        IDS_ACCNAME_INFOBAR_WARNING : IDS_ACCNAME_INFOBAR_PAGE_ACTION);
+  }
+  state->role = ui::AccessibilityTypes::ROLE_ALERT;
 }
 
 gfx::Size InfoBarView::GetPreferredSize() {
-  return gfx::Size(0,
-      static_cast<int>(target_height_ * animation_->GetCurrentValue()));
+  return gfx::Size(0, total_height());
 }
 
 void InfoBarView::FocusWillChange(View* focused_before, View* focused_now) {
   // This will trigger some screen readers to read the entire contents of this
   // infobar.
   if (focused_before && focused_now && !this->Contains(focused_before) &&
-      this->Contains(focused_now))
-    NotifyAccessibilityEvent(AccessibilityTypes::EVENT_ALERT);
-}
-
-void InfoBarView::AnimationEnded(const ui::Animation* animation) {
-  if (container_ && !animation_->IsShowing())
-    Close();
+      this->Contains(focused_now) && GetWidget()) {
+    GetWidget()->NotifyAccessibilityEvent(
+        this, ui::AccessibilityTypes::EVENT_ALERT, true);
+  }
 }
 
 void InfoBarView::DestroyFocusTracker(bool restore_focus) {
@@ -379,23 +363,6 @@ void InfoBarView::DestroyFocusTracker(bool restore_focus) {
       focus_tracker_->FocusLastFocusedExternalView();
     focus_tracker_->SetFocusManager(NULL);
     focus_tracker_.reset();
-  }
-}
-
-void InfoBarView::Close() {
-  DCHECK(container_);
-  // WARNING: RemoveInfoBar() will eventually call back to
-  // ViewHierarchyChanged(), which nulls |container_|!
-  InfoBarContainer* container = container_;
-  container->RemoveInfoBar(this);
-  container->OnInfoBarAnimated(true);
-
-  // Note that we only tell the delegate we're closed here, and not when we're
-  // simply destroyed (by virtue of a tab switch or being moved from window to
-  // window), since this action can cause the delegate to destroy itself.
-  if (delegate_) {
-    delegate_->InfoBarClosed();
-    delegate_ = NULL;
   }
 }
 

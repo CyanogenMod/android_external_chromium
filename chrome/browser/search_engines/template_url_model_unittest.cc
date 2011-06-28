@@ -3,10 +3,10 @@
 // found in the LICENSE file.
 
 #include "base/callback.h"
-#include "base/scoped_vector.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_vector.h"
 #include "base/string_split.h"
 #include "base/string_util.h"
-#include "base/ref_counted.h"
 #include "base/threading/thread.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/history/history.h"
@@ -18,12 +18,12 @@
 #include "chrome/browser/search_engines/template_url_model_test_util.h"
 #include "chrome/browser/search_engines/template_url_prepopulate_data.h"
 #include "chrome/browser/webdata/web_database.h"
-#include "chrome/common/notification_details.h"
-#include "chrome/common/notification_source.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/testing_pref_service.h"
 #include "chrome/test/testing_profile.h"
 #include "content/browser/browser_thread.h"
+#include "content/common/notification_details.h"
+#include "content/common/notification_source.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using base::Time;
@@ -98,7 +98,7 @@ static TemplateURL* CreatePreloadedTemplateURL() {
   t_url->set_short_name(ASCIIToUTF16("unittest"));
   t_url->set_safe_for_autoreplace(true);
   GURL favicon_url("http://favicon.url");
-  t_url->SetFavIconURL(favicon_url);
+  t_url->SetFaviconURL(favicon_url);
   t_url->set_date_created(Time::FromTimeT(100));
   t_url->set_prepopulate_id(999999);
   return t_url;
@@ -120,7 +120,7 @@ class TemplateURLModelTest : public testing::Test {
                                   bool autogenerate_keyword,
                                   const std::string& url,
                                   const std::string& suggest_url,
-                                  const std::string& fav_icon_url,
+                                  const std::string& favicon_url,
                                   const std::string& encodings,
                                   const std::string& short_name,
                                   bool safe_for_autoreplace,
@@ -128,7 +128,7 @@ class TemplateURLModelTest : public testing::Test {
     TemplateURL* template_url = new TemplateURL();
     template_url->SetURL(url, 0, 0);
     template_url->SetSuggestionsURL(suggest_url, 0, 0);
-    template_url->SetFavIconURL(GURL(fav_icon_url));
+    template_url->SetFaviconURL(GURL(favicon_url));
     template_url->set_keyword(UTF8ToUTF16(keyword));
     template_url->set_autogenerate_keyword(autogenerate_keyword);
     template_url->set_short_name(UTF8ToUTF16(short_name));
@@ -160,7 +160,7 @@ class TemplateURLModelTest : public testing::Test {
     ASSERT_EQ(expected.short_name(), actual.short_name());
     ASSERT_EQ(JoinString(expected.input_encodings(), ';'),
               JoinString(actual.input_encodings(), ';'));
-    ASSERT_TRUE(expected.GetFavIconURL() == actual.GetFavIconURL());
+    ASSERT_TRUE(expected.GetFaviconURL() == actual.GetFaviconURL());
     ASSERT_EQ(expected.id(), actual.id());
     ASSERT_EQ(expected.safe_for_autoreplace(), actual.safe_for_autoreplace());
     ASSERT_EQ(expected.show_in_default_list(), actual.show_in_default_list());
@@ -179,7 +179,7 @@ class TemplateURLModelTest : public testing::Test {
     EXPECT_EQ(expected->short_name(), actual->short_name());
     EXPECT_EQ(JoinString(expected->input_encodings(), ';'),
               JoinString(actual->input_encodings(), ';'));
-    EXPECT_TRUE(expected->GetFavIconURL() == actual->GetFavIconURL());
+    EXPECT_TRUE(expected->GetFaviconURL() == actual->GetFaviconURL());
     EXPECT_EQ(expected->safe_for_autoreplace(), actual->safe_for_autoreplace());
     EXPECT_EQ(expected->show_in_default_list(), actual->show_in_default_list());
   }
@@ -392,7 +392,7 @@ TEST_F(TemplateURLModelTest, AddUpdateRemove) {
   t_url->set_keyword(ASCIIToUTF16("keyword"));
   t_url->set_short_name(ASCIIToUTF16("google"));
   GURL favicon_url("http://favicon.url");
-  t_url->SetFavIconURL(favicon_url);
+  t_url->SetFaviconURL(favicon_url);
   t_url->set_date_created(Time::FromTimeT(100));
   t_url->set_safe_for_autoreplace(true);
   model()->Add(t_url);
@@ -558,7 +558,7 @@ TEST_F(TemplateURLModelTest, Reset) {
   t_url->set_keyword(ASCIIToUTF16("keyword"));
   t_url->set_short_name(ASCIIToUTF16("google"));
   GURL favicon_url("http://favicon.url");
-  t_url->SetFavIconURL(favicon_url);
+  t_url->SetFaviconURL(favicon_url);
   t_url->set_date_created(Time::FromTimeT(100));
   model()->Add(t_url);
 
@@ -1132,7 +1132,7 @@ TEST_F(TemplateURLModelTest, TestManagedDefaultSearch) {
   // Verify that the default manager we are getting is the managed one.
   scoped_ptr<TemplateURL> expected_managed_default1(new TemplateURL());
   expected_managed_default1->SetURL(kSearchURL, 0, 0);
-  expected_managed_default1->SetFavIconURL(GURL(kIconURL));
+  expected_managed_default1->SetFaviconURL(GURL(kIconURL));
   expected_managed_default1->set_short_name(ASCIIToUTF16("test1"));
   std::vector<std::string> encodings_vector;
   base::SplitString(kEncodings, ';', &encodings_vector);

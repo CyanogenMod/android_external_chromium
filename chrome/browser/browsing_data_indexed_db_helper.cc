@@ -5,8 +5,8 @@
 #include "chrome/browser/browsing_data_indexed_db_helper.h"
 
 #include "base/file_util.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/message_loop.h"
-#include "base/scoped_ptr.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/profiles/profile.h"
@@ -206,6 +206,17 @@ CannedBrowsingDataIndexedDBHelper::CannedBrowsingDataIndexedDBHelper(
       completion_callback_(NULL),
       is_fetching_(false) {
   DCHECK(profile);
+}
+
+CannedBrowsingDataIndexedDBHelper* CannedBrowsingDataIndexedDBHelper::Clone() {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  CannedBrowsingDataIndexedDBHelper* clone =
+      new CannedBrowsingDataIndexedDBHelper(profile_);
+
+  base::AutoLock auto_lock(lock_);
+  clone->pending_indexed_db_info_ = pending_indexed_db_info_;
+  clone->indexed_db_info_ = indexed_db_info_;
+  return clone;
 }
 
 void CannedBrowsingDataIndexedDBHelper::AddIndexedDB(

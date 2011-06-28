@@ -40,7 +40,7 @@ AutofillField::AutofillField(const webkit_glue::FormField& field,
 
 AutofillField::~AutofillField() {}
 
-void AutofillField::set_heuristic_type(const AutofillFieldType& type) {
+void AutofillField::set_heuristic_type(AutofillFieldType type) {
   if (type >= 0 && type < MAX_VALID_FIELD_TYPE) {
     heuristic_type_ = type;
   } else {
@@ -59,12 +59,12 @@ AutofillFieldType AutofillField::type() const {
 }
 
 bool AutofillField::IsEmpty() const {
-  return value().empty();
+  return value.empty();
 }
 
 std::string AutofillField::FieldSignature() const {
-  std::string field_name = UTF16ToUTF8(name());
-  std::string type = UTF16ToUTF8(form_control_type());
+  std::string field_name = UTF16ToUTF8(name);
+  std::string type = UTF16ToUTF8(form_control_type);
   std::string field_string = field_name + "&" + type;
   return Hash32Bit(field_string);
 }

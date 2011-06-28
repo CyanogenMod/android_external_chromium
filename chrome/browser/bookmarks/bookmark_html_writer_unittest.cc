@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
 #include "base/i18n/time_formatting.h"
+#include "base/memory/scoped_temp_dir.h"
 #include "chrome/browser/bookmarks/bookmark_html_writer.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/importer/firefox2_importer.h"
@@ -43,14 +44,9 @@ void MakeTestSkBitmap(int w, int h, SkBitmap* bmp) {
 class BookmarkHTMLWriterTest : public TestingBrowserProcessTest {
  protected:
   virtual void SetUp() {
-    ASSERT_TRUE(PathService::Get(base::DIR_TEMP, &path_));
-    path_ = path_.AppendASCII("bookmarks.html");
-    file_util::Delete(path_, true);
-  }
-
-  virtual void TearDown() {
-    if (!path_.empty())
-      file_util::Delete(path_, true);
+    TestingBrowserProcessTest::SetUp();
+    ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
+    path_ = temp_dir_.path().AppendASCII("bookmarks.html");
   }
 
   // Converts a BookmarkEntry to a string suitable for assertion testing.
@@ -69,11 +65,11 @@ class BookmarkHTMLWriterTest : public TestingBrowserProcessTest {
     for (size_t i = 0; i < entry.path.size(); ++i) {
       if (i != 0)
         result.append(ASCIIToUTF16("/"));
-      result.append(WideToUTF16Hack(entry.path[i]));
+      result.append(entry.path[i]);
     }
 
     result.append(ASCIIToUTF16(" title="));
-    result.append(WideToUTF16Hack(entry.title));
+    result.append(entry.title);
 
     result.append(ASCIIToUTF16(" time="));
     result.append(base::TimeFormatFriendlyDateAndTime(entry.creation_time));
@@ -93,16 +89,16 @@ class BookmarkHTMLWriterTest : public TestingBrowserProcessTest {
     entry.url = url;
     // The first path element should always be 'x', as that is what we passed
     // to the importer.
-    entry.path.push_back(L"x");
+    entry.path.push_back(ASCIIToUTF16("x"));
     if (!f1.empty()) {
-      entry.path.push_back(UTF16ToWideHack(f1));
+      entry.path.push_back(f1);
       if (!f2.empty()) {
-        entry.path.push_back(UTF16ToWideHack(f2));
+        entry.path.push_back(f2);
         if (!f3.empty())
-          entry.path.push_back(UTF16ToWideHack(f3));
+          entry.path.push_back(f3);
       }
     }
-    entry.title = UTF16ToWideHack(title);
+    entry.title = title;
     entry.creation_time = creation_time;
     return BookmarkEntryToString(entry);
   }
@@ -120,6 +116,7 @@ class BookmarkHTMLWriterTest : public TestingBrowserProcessTest {
               BookmarkEntryToString(entry));
   }
 
+  ScopedTempDir temp_dir_;
   FilePath path_;
 };
 
@@ -191,24 +188,23 @@ TEST_F(BookmarkHTMLWriterTest, Test) {
   base::Time t2(t1 + base::TimeDelta::FromHours(1));
   base::Time t3(t1 + base::TimeDelta::FromHours(1));
   base::Time t4(t1 + base::TimeDelta::FromHours(1));
-  const BookmarkNode* f1 = model->AddGroup(
+  const BookmarkNode* f1 = model->AddFolder(
       model->GetBookmarkBarNode(), 0, f1_title);
   model->AddURLWithCreationTime(f1, 0, url1_title, url1, t1);
   profile.GetHistoryService(Profile::EXPLICIT_ACCESS)->AddPage(url1,
       history::SOURCE_BROWSED);
   profile.GetFaviconService(Profile::EXPLICIT_ACCESS)->SetFavicon(url1,
-                                                                  url1_favicon,
-                                                                  icon_data);
+      url1_favicon, icon_data, history::FAVICON);
   message_loop.RunAllPending();
-  const BookmarkNode* f2 = model->AddGroup(f1, 1, f2_title);
+  const BookmarkNode* f2 = model->AddFolder(f1, 1, f2_title);
   model->AddURLWithCreationTime(f2, 0, url2_title, url2, t2);
   model->AddURLWithCreationTime(model->GetBookmarkBarNode(),
                                 1, url3_title, url3, t3);
 
   model->AddURLWithCreationTime(model->other_node(), 0, url1_title, url1, t1);
   model->AddURLWithCreationTime(model->other_node(), 1, url2_title, url2, t2);
-  const BookmarkNode* f3 = model->AddGroup(model->other_node(), 2, f3_title);
-  const BookmarkNode* f4 = model->AddGroup(f3, 0, f4_title);
+  const BookmarkNode* f3 = model->AddFolder(model->other_node(), 2, f3_title);
+  const BookmarkNode* f4 = model->AddFolder(f3, 0, f4_title);
   model->AddURLWithCreationTime(f4, 0, url1_title, url1, t1);
   model->AddURLWithCreationTime(model->GetBookmarkBarNode(), 2, url4_title,
                                 url4, t4);
@@ -221,16 +217,20 @@ TEST_F(BookmarkHTMLWriterTest, Test) {
   // Clear favicon so that it would be read from file.
   std::vector<unsigned char> empty_data;
   profile.GetFaviconService(Profile::EXPLICIT_ACCESS)->SetFavicon(url1,
-                                                                  url1_favicon,
-                                                                  empty_data);
+      url1_favicon, empty_data, history::FAVICON);
   message_loop.RunAllPending();
 
   // Read the bookmarks back in.
   std::vector<ProfileWriter::BookmarkEntry> parsed_bookmarks;
-  std::vector<history::ImportedFavIconUsage> favicons;
-  Firefox2Importer::ImportBookmarksFile(path_, std::set<GURL>(),
-                                        false, L"x", NULL, &parsed_bookmarks,
-                                        NULL, &favicons);
+  std::vector<history::ImportedFaviconUsage> favicons;
+  Firefox2Importer::ImportBookmarksFile(path_,
+                                        std::set<GURL>(),
+                                        false,
+                                        ASCIIToUTF16("x"),
+                                        NULL,
+                                        &parsed_bookmarks,
+                                        NULL,
+                                        &favicons);
 
   // Check loaded favicon (url1 is represents by 3 separate bookmarks).
   EXPECT_EQ(3U, favicons.size());

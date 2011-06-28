@@ -7,8 +7,8 @@
 #import <AddressBook/AddressBook.h>
 
 #include "base/logging.h"
-#include "base/scoped_ptr.h"
-#include "base/scoped_vector.h"
+#include "base/memory/scoped_ptr.h"
+#include "base/memory/scoped_vector.h"
 #include "base/sys_string_conversions.h"
 #include "chrome/browser/autofill/autofill_profile.h"
 #include "chrome/browser/autofill/phone_number.h"
@@ -30,7 +30,7 @@ class AuxiliaryProfilesImpl {
   // Constructor takes a reference to the |profiles| that will be filled in
   // by the subsequent call to |GetAddressBookMeCard()|.  |profiles| may not
   // be NULL.
-  explicit AuxiliaryProfilesImpl(ScopedVector<AutoFillProfile>* profiles)
+  explicit AuxiliaryProfilesImpl(ScopedVector<AutofillProfile>* profiles)
       : profiles_(*profiles) {
   }
   virtual ~AuxiliaryProfilesImpl() {}
@@ -41,25 +41,25 @@ class AuxiliaryProfilesImpl {
  private:
   void GetAddressBookNames(ABPerson* me,
                            NSString* addressLabelRaw,
-                           AutoFillProfile* profile);
-  void GetAddressBookAddresses(NSDictionary* address, AutoFillProfile* profile);
+                           AutofillProfile* profile);
+  void GetAddressBookAddresses(NSDictionary* address, AutofillProfile* profile);
   void GetAddressBookEmail(ABPerson* me,
                            NSString* addressLabelRaw,
-                           AutoFillProfile* profile);
+                           AutofillProfile* profile);
   void GetAddressBookPhoneNumbers(ABPerson* me,
                                   NSString* addressLabelRaw,
-                                  AutoFillProfile* profile);
+                                  AutofillProfile* profile);
 
  private:
   // A reference to the profiles this class populates.
-  ScopedVector<AutoFillProfile>& profiles_;
+  ScopedVector<AutofillProfile>& profiles_;
 
   DISALLOW_COPY_AND_ASSIGN(AuxiliaryProfilesImpl);
 };
 
 // This method uses the |ABAddressBook| system service to fetch the "me" card
 // from the active user's address book.  It looks for the user address
-// information and translates it to the internal list of |AutoFillProfile| data
+// information and translates it to the internal list of |AutofillProfile| data
 // structures.
 void AuxiliaryProfilesImpl::GetAddressBookMeCard() {
   profiles_.reset();
@@ -79,7 +79,7 @@ void AuxiliaryProfilesImpl::GetAddressBookMeCard() {
       const size_t kGUIDLength = 36U;
       std::string guid = base::SysNSStringToUTF8(
           [me valueForProperty:kABUIDProperty]).substr(0, kGUIDLength);
-      scoped_ptr<AutoFillProfile> profile(new AutoFillProfile(guid));
+      scoped_ptr<AutofillProfile> profile(new AutofillProfile(guid));
       DCHECK(guid::IsValidGUID(profile->guid()));
 
       // Fill in name and company information.
@@ -105,22 +105,17 @@ void AuxiliaryProfilesImpl::GetAddressBookMeCard() {
 void AuxiliaryProfilesImpl::GetAddressBookNames(
     ABPerson* me,
     NSString* addressLabelRaw,
-    AutoFillProfile* profile) {
+    AutofillProfile* profile) {
   NSString* firstName = [me valueForProperty:kABFirstNameProperty];
   NSString* middleName = [me valueForProperty:kABMiddleNameProperty];
   NSString* lastName = [me valueForProperty:kABLastNameProperty];
   NSString* companyName = [me valueForProperty:kABOrganizationProperty];
 
-  profile->SetInfo(AutofillType(NAME_FIRST),
-                   base::SysNSStringToUTF16(firstName));
-  profile->SetInfo(AutofillType(NAME_MIDDLE),
-                   base::SysNSStringToUTF16(middleName));
-  profile->SetInfo(AutofillType(NAME_LAST),
-                   base::SysNSStringToUTF16(lastName));
-  if ([addressLabelRaw isEqualToString:kABAddressWorkLabel]) {
-    profile->SetInfo(AutofillType(COMPANY_NAME),
-                     base::SysNSStringToUTF16(companyName));
-  }
+  profile->SetInfo(NAME_FIRST, base::SysNSStringToUTF16(firstName));
+  profile->SetInfo(NAME_MIDDLE, base::SysNSStringToUTF16(middleName));
+  profile->SetInfo(NAME_LAST, base::SysNSStringToUTF16(lastName));
+  if ([addressLabelRaw isEqualToString:kABAddressWorkLabel])
+    profile->SetInfo(COMPANY_NAME, base::SysNSStringToUTF16(companyName));
 }
 
 // Addresss information from the Address Book may span multiple lines.
@@ -130,7 +125,7 @@ void AuxiliaryProfilesImpl::GetAddressBookNames(
 // line 1: "c/o John Doe", line 2: "1122 Other Avenue, Apt #7".
 void AuxiliaryProfilesImpl::GetAddressBookAddresses(
     NSDictionary* address,
-    AutoFillProfile* profile) {
+    AutofillProfile* profile) {
   if (NSString* addressField = [address objectForKey:kABAddressStreetKey]) {
     // If there are newlines in the address, split into two lines.
     if ([addressField rangeOfCharacterFromSet:
@@ -146,32 +141,24 @@ void AuxiliaryProfilesImpl::GetAddressBookAddresses(
       NSString* addressField2 =
           [[chunks subarrayWithRange:NSMakeRange(1, [chunks count] - 1)]
               componentsJoinedByString:separator];
-      profile->SetInfo(AutofillType(ADDRESS_HOME_LINE1),
+      profile->SetInfo(ADDRESS_HOME_LINE1,
                        base::SysNSStringToUTF16(addressField1));
-      profile->SetInfo(AutofillType(ADDRESS_HOME_LINE2),
+      profile->SetInfo(ADDRESS_HOME_LINE2,
                        base::SysNSStringToUTF16(addressField2));
     } else {
-      profile->SetInfo(AutofillType(ADDRESS_HOME_LINE1),
+      profile->SetInfo(ADDRESS_HOME_LINE1,
                        base::SysNSStringToUTF16(addressField));
     }
   }
 
-  if (NSString* city = [address objectForKey:kABAddressCityKey]) {
-    profile->SetInfo(AutofillType(ADDRESS_HOME_CITY),
-                     base::SysNSStringToUTF16(city));
-  }
-  if (NSString* state = [address objectForKey:kABAddressStateKey]) {
-    profile->SetInfo(AutofillType(ADDRESS_HOME_STATE),
-                     base::SysNSStringToUTF16(state));
-  }
-  if (NSString* zip = [address objectForKey:kABAddressZIPKey]) {
-    profile->SetInfo(AutofillType(ADDRESS_HOME_ZIP),
-                     base::SysNSStringToUTF16(zip));
-  }
-  if (NSString* country = [address objectForKey:kABAddressCountryKey]) {
-    profile->SetInfo(AutofillType(ADDRESS_HOME_COUNTRY),
-                     base::SysNSStringToUTF16(country));
-  }
+  if (NSString* city = [address objectForKey:kABAddressCityKey])
+    profile->SetInfo(ADDRESS_HOME_CITY, base::SysNSStringToUTF16(city));
+  if (NSString* state = [address objectForKey:kABAddressStateKey])
+    profile->SetInfo(ADDRESS_HOME_STATE, base::SysNSStringToUTF16(state));
+  if (NSString* zip = [address objectForKey:kABAddressZIPKey])
+    profile->SetInfo(ADDRESS_HOME_ZIP, base::SysNSStringToUTF16(zip));
+  if (NSString* country = [address objectForKey:kABAddressCountryKey])
+    profile->SetInfo(ADDRESS_HOME_COUNTRY, base::SysNSStringToUTF16(country));
 }
 
 // Fills in email address matching current address label.  Note that there may
@@ -180,7 +167,7 @@ void AuxiliaryProfilesImpl::GetAddressBookAddresses(
 void AuxiliaryProfilesImpl::GetAddressBookEmail(
     ABPerson* me,
     NSString* addressLabelRaw,
-    AutoFillProfile* profile) {
+    AutofillProfile* profile) {
   ABMultiValue* emailAddresses = [me valueForProperty:kABEmailProperty];
   NSString* emailAddress = nil;
   for (NSUInteger j = 0, emailCount = [emailAddresses count];
@@ -191,8 +178,7 @@ void AuxiliaryProfilesImpl::GetAddressBookEmail(
       break;
     }
   }
-  profile->SetInfo(AutofillType(EMAIL_ADDRESS),
-                   base::SysNSStringToUTF16(emailAddress));
+  profile->SetInfo(EMAIL_ADDRESS, base::SysNSStringToUTF16(emailAddress));
 }
 
 // Fills in telephone numbers.  Each of these are special cases.
@@ -202,7 +188,7 @@ void AuxiliaryProfilesImpl::GetAddressBookEmail(
 void AuxiliaryProfilesImpl::GetAddressBookPhoneNumbers(
     ABPerson* me,
     NSString* addressLabelRaw,
-    AutoFillProfile* profile) {
+    AutofillProfile* profile) {
   string16 number;
   string16 city_code;
   string16 country_code;
@@ -218,36 +204,36 @@ void AuxiliaryProfilesImpl::GetAddressBookPhoneNumbers(
           [phoneNumbers valueAtIndex:reverseK]);
       PhoneNumber::ParsePhoneNumber(
           homePhone, &number, &city_code, &country_code);
-      profile->SetInfo(AutofillType(PHONE_HOME_NUMBER), number);
-      profile->SetInfo(AutofillType(PHONE_HOME_CITY_CODE), city_code);
-      profile->SetInfo(AutofillType(PHONE_HOME_COUNTRY_CODE), country_code);
+      profile->SetInfo(PHONE_HOME_NUMBER, number);
+      profile->SetInfo(PHONE_HOME_CITY_CODE, city_code);
+      profile->SetInfo(PHONE_HOME_COUNTRY_CODE, country_code);
     } else if ([addressLabelRaw isEqualToString:kABAddressHomeLabel] &&
                [phoneLabelRaw isEqualToString:kABPhoneHomeFAXLabel]) {
       string16 homeFax = base::SysNSStringToUTF16(
           [phoneNumbers valueAtIndex:reverseK]);
       PhoneNumber::ParsePhoneNumber(homeFax,
           &number, &city_code, &country_code);
-      profile->SetInfo(AutofillType(PHONE_FAX_NUMBER), number);
-      profile->SetInfo(AutofillType(PHONE_FAX_CITY_CODE), city_code);
-      profile->SetInfo(AutofillType(PHONE_FAX_COUNTRY_CODE), country_code);
+      profile->SetInfo(PHONE_FAX_NUMBER, number);
+      profile->SetInfo(PHONE_FAX_CITY_CODE, city_code);
+      profile->SetInfo(PHONE_FAX_COUNTRY_CODE, country_code);
     } else if ([addressLabelRaw isEqualToString:kABAddressWorkLabel] &&
                [phoneLabelRaw isEqualToString:kABPhoneWorkLabel]) {
       string16 workPhone = base::SysNSStringToUTF16(
           [phoneNumbers valueAtIndex:reverseK]);
       PhoneNumber::ParsePhoneNumber(workPhone,
           &number, &city_code, &country_code);
-      profile->SetInfo(AutofillType(PHONE_HOME_NUMBER), number);
-      profile->SetInfo(AutofillType(PHONE_HOME_CITY_CODE), city_code);
-      profile->SetInfo(AutofillType(PHONE_HOME_COUNTRY_CODE), country_code);
+      profile->SetInfo(PHONE_HOME_NUMBER, number);
+      profile->SetInfo(PHONE_HOME_CITY_CODE, city_code);
+      profile->SetInfo(PHONE_HOME_COUNTRY_CODE, country_code);
     } else if ([addressLabelRaw isEqualToString:kABAddressWorkLabel] &&
                [phoneLabelRaw isEqualToString:kABPhoneWorkFAXLabel]) {
       string16 workFax = base::SysNSStringToUTF16(
           [phoneNumbers valueAtIndex:reverseK]);
       PhoneNumber::ParsePhoneNumber(workFax,
           &number, &city_code, &country_code);
-      profile->SetInfo(AutofillType(PHONE_FAX_NUMBER), number);
-      profile->SetInfo(AutofillType(PHONE_FAX_CITY_CODE), city_code);
-      profile->SetInfo(AutofillType(PHONE_FAX_COUNTRY_CODE), country_code);
+      profile->SetInfo(PHONE_FAX_NUMBER, number);
+      profile->SetInfo(PHONE_FAX_CITY_CODE, city_code);
+      profile->SetInfo(PHONE_FAX_COUNTRY_CODE, country_code);
     }
   }
 }

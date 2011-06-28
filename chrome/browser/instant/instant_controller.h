@@ -10,15 +10,16 @@
 #include <string>
 
 #include "base/basictypes.h"
-#include "base/scoped_ptr.h"
-#include "base/scoped_vector.h"
+#include "base/memory/scoped_ptr.h"
+#include "base/memory/scoped_vector.h"
 #include "base/string16.h"
 #include "base/task.h"
 #include "base/timer.h"
 #include "chrome/browser/instant/instant_commit_type.h"
 #include "chrome/browser/instant/instant_loader_delegate.h"
 #include "chrome/browser/search_engines/template_url_id.h"
-#include "chrome/common/page_transition_types.h"
+#include "chrome/common/instant_types.h"
+#include "content/common/page_transition_types.h"
 #include "googleurl/src/gurl.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/gfx/rect.h"
@@ -172,9 +173,10 @@ class InstantController : public InstantLoaderDelegate {
   GURL GetCurrentURL();
 
   // InstantLoaderDelegate
-  virtual void ShowInstantLoader(InstantLoader* loader) OVERRIDE;
+  virtual void InstantStatusChanged(InstantLoader* loader) OVERRIDE;
   virtual void SetSuggestedTextFor(InstantLoader* loader,
-                                   const string16& text) OVERRIDE;
+                                   const string16& text,
+                                   InstantCompleteBehavior behavior) OVERRIDE;
   virtual gfx::Rect GetInstantBounds() OVERRIDE;
   virtual bool ShouldCommitInstantOnMouseUp() OVERRIDE;
   virtual void CommitInstantLoader(InstantLoader* loader) OVERRIDE;
@@ -203,6 +205,14 @@ class InstantController : public InstantLoaderDelegate {
 
   // Invoked from the timer to process the last scheduled url.
   void ProcessScheduledUpdate();
+
+  // Does the work of processing a change in the status (ready or
+  // http_status_ok) of a loader.
+  void ProcessInstantStatusChanged(InstantLoader* loader);
+
+  // Callback when the |show_timer_| fires. Invokes
+  // |ProcessInstantStatusChanged| with the appropriate arguments.
+  void ShowTimerFired();
 
   // Updates InstantLoaderManager and its current InstantLoader. This is invoked
   // internally from Update.
@@ -272,6 +282,9 @@ class InstantController : public InstantLoaderDelegate {
 
   // Timer used to delay calls to |UpdateLoader|.
   base::OneShotTimer<InstantController> update_timer_;
+
+  // Timer used to delay showing loaders whose status isn't ok.
+  base::OneShotTimer<InstantController> show_timer_;
 
   // Used by ScheduleForDestroy; see it for details.
   ScopedRunnableMethodFactory<InstantController> destroy_factory_;

@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,8 @@
 #include <string>
 #include <map>
 
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
+#include "net/base/cert_database.h"
 
 namespace net {
 
@@ -22,7 +23,7 @@ class X509Certificate;
 //
 // TODO(wtc): This class is based on FtpAuthCache.  We can extract the common
 // code to a template class.
-class SSLClientAuthCache {
+class SSLClientAuthCache : public CertDatabase::Observer {
  public:
   SSLClientAuthCache();
   ~SSLClientAuthCache();
@@ -44,8 +45,8 @@ class SSLClientAuthCache {
   // Remove the client certificate for |server| from the cache, if one exists.
   void Remove(const std::string& server);
 
-  // Removes all cache entries.
-  void Clear();
+  // CertDatabase::Observer methods:
+  virtual void OnUserCertAdded(const X509Certificate* cert);
 
  private:
   typedef std::string AuthCacheKey;

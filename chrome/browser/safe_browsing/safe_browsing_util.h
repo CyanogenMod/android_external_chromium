@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -21,7 +21,7 @@ class GURL;
 class SBEntry;
 
 // A truncated hash's type.
-typedef int SBPrefix;
+typedef int32 SBPrefix;
 
 // Container for holding a chunk URL and the MAC of the contents of the URL.
 struct ChunkUrl {
@@ -36,8 +36,12 @@ union SBFullHash {
   SBPrefix prefix;
 };
 
-inline bool operator==(const SBFullHash& rhash, const SBFullHash& lhash) {
-  return memcmp(rhash.full_hash, lhash.full_hash, sizeof(SBFullHash)) == 0;
+inline bool operator==(const SBFullHash& lhash, const SBFullHash& rhash) {
+  return memcmp(lhash.full_hash, rhash.full_hash, sizeof(SBFullHash)) == 0;
+}
+
+inline bool operator<(const SBFullHash& lhash, const SBFullHash& rhash) {
+  return memcmp(lhash.full_hash, rhash.full_hash, sizeof(SBFullHash)) < 0;
 }
 
 // Container for information about a specific host in an add/sub chunk.
@@ -260,6 +264,8 @@ extern const char kPhishingList[];
 // Binary Download list names.
 extern const char kBinUrlList[];
 extern const char kBinHashList[];
+// SafeBrowsing client-side detection whitelist list name.
+extern const char kCsdWhiteList[];
 
 enum ListType {
   INVALID = -1,
@@ -267,6 +273,7 @@ enum ListType {
   PHISH = 1,
   BINURL = 2,
   BINHASH = 3,
+  CSDWHITELIST = 4,
 };
 
 // Maps a list name to ListType.
@@ -313,7 +320,7 @@ GURL GeneratePhishingReportUrl(const std::string& report_page,
                                const std::string& url_to_report);
 
 void StringToSBFullHash(const std::string& hash_in, SBFullHash* hash_out);
-
+std::string SBFullHashToString(const SBFullHash& hash_out);
 }  // namespace safe_browsing_util
 
 #endif  // CHROME_BROWSER_SAFE_BROWSING_SAFE_BROWSING_UTIL_H_

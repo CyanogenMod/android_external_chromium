@@ -1,24 +1,23 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/memory/scoped_temp_dir.h"
 #include "base/path_service.h"
-#include "base/scoped_temp_dir.h"
 #include "chrome/app/chrome_command_ids.h"
-#include "chrome/browser/browser_window.h"
-#include "chrome/browser/download/download_history.h"
-#include "chrome/browser/download/download_manager.h"
 #include "chrome/browser/net/url_request_mock_http_job.h"
-#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/download/download_tab_helper.h"
+#include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/common/chrome_paths.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/in_process_browser_test.h"
 #include "chrome/test/ui_test_utils.h"
 #include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/notification_service.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace {
@@ -48,37 +47,6 @@ class SavePageBrowserTest : public InProcessBrowserTest {
     return *Details<GURL>(observer.details()).ptr();
   }
 
-  void QueryDownloadHistory(TabContents* current_tab) {
-    DownloadManager* download_manager =
-      current_tab->profile()->GetDownloadManager();
-
-    // Query the history system.
-    download_manager->download_history()->Load(
-      NewCallback(this,
-        &SavePageBrowserTest::OnQueryDownloadEntriesComplete));
-
-    // Run message loop until a quit message is sent from
-    // OnQueryDownloadEntriesComplete().
-    ui_test_utils::RunMessageLoop();
-  }
-
-  void OnQueryDownloadEntriesComplete(
-    std::vector<DownloadCreateInfo>* entries) {
-
-    // Make a copy of the URLs returned by the history system.
-    history_urls_.clear();
-    for (size_t i = 0; i < entries->size(); ++i) {
-      history_urls_.push_back(entries->at(i).url);
-    }
-
-    // Indicate thet we have received the history and
-    // can continue.
-    MessageLoopForUI::current()->Quit();
-  }
-
-  // URLs found in the history.
-  std::vector<GURL> history_urls_;
-
   // Path to directory containing test data.
   FilePath test_dir_;
 
@@ -92,22 +60,18 @@ IN_PROC_BROWSER_TEST_F(SavePageBrowserTest, SaveHTMLOnly) {
       FilePath(kTestDir).Append(file_name));
   ui_test_utils::NavigateToURL(browser(), url);
 
-  TabContents* current_tab = browser()->GetSelectedTabContents();
+  TabContentsWrapper* current_tab = browser()->GetSelectedTabContentsWrapper();
   ASSERT_TRUE(current_tab);
 
   FilePath full_file_name = save_dir_.path().Append(file_name);
   FilePath dir = save_dir_.path().AppendASCII("a_files");
-  ASSERT_TRUE(current_tab->SavePage(full_file_name, dir,
-                                    SavePackage::SAVE_AS_ONLY_HTML));
+  ASSERT_TRUE(current_tab->download_tab_helper()->SavePage(
+      full_file_name, dir, SavePackage::SAVE_AS_ONLY_HTML));
 
   EXPECT_EQ(url, WaitForSavePackageToFinish());
 
   if (browser()->SupportsWindowFeature(Browser::FEATURE_DOWNLOADSHELF))
     EXPECT_TRUE(browser()->window()->IsDownloadShelfVisible());
-
-  QueryDownloadHistory(current_tab);
-  EXPECT_TRUE(std::find(history_urls_.begin(), history_urls_.end(),
-                        url) != history_urls_.end());
 
   EXPECT_TRUE(file_util::PathExists(full_file_name));
   EXPECT_FALSE(file_util::PathExists(dir));
@@ -124,23 +88,19 @@ IN_PROC_BROWSER_TEST_F(SavePageBrowserTest, SaveViewSourceHTMLOnly) {
       FilePath(kTestDir).Append(file_name));
   ui_test_utils::NavigateToURL(browser(), view_source_url);
 
-  TabContents* current_tab = browser()->GetSelectedTabContents();
+  TabContentsWrapper* current_tab = browser()->GetSelectedTabContentsWrapper();
   ASSERT_TRUE(current_tab);
 
   FilePath full_file_name = save_dir_.path().Append(file_name);
   FilePath dir = save_dir_.path().AppendASCII("a_files");
 
-  ASSERT_TRUE(current_tab->SavePage(full_file_name, dir,
-                                    SavePackage::SAVE_AS_ONLY_HTML));
+  ASSERT_TRUE(current_tab->download_tab_helper()->SavePage(
+      full_file_name, dir, SavePackage::SAVE_AS_ONLY_HTML));
 
   EXPECT_EQ(actual_page_url, WaitForSavePackageToFinish());
 
   if (browser()->SupportsWindowFeature(Browser::FEATURE_DOWNLOADSHELF))
     EXPECT_TRUE(browser()->window()->IsDownloadShelfVisible());
-
-  QueryDownloadHistory(current_tab);
-  EXPECT_TRUE(std::find(history_urls_.begin(), history_urls_.end(),
-                        actual_page_url) != history_urls_.end());
 
   EXPECT_TRUE(file_util::PathExists(full_file_name));
   EXPECT_FALSE(file_util::PathExists(dir));
@@ -155,22 +115,18 @@ IN_PROC_BROWSER_TEST_F(SavePageBrowserTest, SaveCompleteHTML) {
       FilePath(kTestDir).Append(file_name));
   ui_test_utils::NavigateToURL(browser(), url);
 
-  TabContents* current_tab = browser()->GetSelectedTabContents();
+  TabContentsWrapper* current_tab = browser()->GetSelectedTabContentsWrapper();
   ASSERT_TRUE(current_tab);
 
   FilePath full_file_name = save_dir_.path().Append(file_name);
   FilePath dir = save_dir_.path().AppendASCII("b_files");
-  ASSERT_TRUE(current_tab->SavePage(full_file_name, dir,
-                                    SavePackage::SAVE_AS_COMPLETE_HTML));
+  ASSERT_TRUE(current_tab->download_tab_helper()->SavePage(
+      full_file_name, dir, SavePackage::SAVE_AS_COMPLETE_HTML));
 
   EXPECT_EQ(url, WaitForSavePackageToFinish());
 
   if (browser()->SupportsWindowFeature(Browser::FEATURE_DOWNLOADSHELF))
     EXPECT_TRUE(browser()->window()->IsDownloadShelfVisible());
-
-  QueryDownloadHistory(current_tab);
-  EXPECT_TRUE(std::find(history_urls_.begin(), history_urls_.end(),
-                        url) != history_urls_.end());
 
   EXPECT_TRUE(file_util::PathExists(full_file_name));
   EXPECT_TRUE(file_util::PathExists(dir));
@@ -203,20 +159,16 @@ IN_PROC_BROWSER_TEST_F(SavePageBrowserTest, FileNameFromPageTitle) {
   FilePath dir = save_dir_.path().AppendASCII(
       "Test page for saving page feature_files");
 
-  TabContents* current_tab = browser()->GetSelectedTabContents();
+  TabContentsWrapper* current_tab = browser()->GetSelectedTabContentsWrapper();
   ASSERT_TRUE(current_tab);
 
-  ASSERT_TRUE(current_tab->SavePage(full_file_name, dir,
-                                    SavePackage::SAVE_AS_COMPLETE_HTML));
+  ASSERT_TRUE(current_tab->download_tab_helper()->SavePage(
+      full_file_name, dir, SavePackage::SAVE_AS_COMPLETE_HTML));
 
   EXPECT_EQ(url, WaitForSavePackageToFinish());
 
   if (browser()->SupportsWindowFeature(Browser::FEATURE_DOWNLOADSHELF))
     EXPECT_TRUE(browser()->window()->IsDownloadShelfVisible());
-
-  QueryDownloadHistory(current_tab);
-  EXPECT_TRUE(std::find(history_urls_.begin(), history_urls_.end(),
-                        url) != history_urls_.end());
 
   EXPECT_TRUE(file_util::PathExists(full_file_name));
   EXPECT_TRUE(file_util::PathExists(dir));

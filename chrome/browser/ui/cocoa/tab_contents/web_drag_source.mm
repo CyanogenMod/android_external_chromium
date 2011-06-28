@@ -1,8 +1,10 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "chrome/browser/ui/cocoa/tab_contents/web_drag_source.h"
+
+#include <sys/param.h>
 
 #include "app/mac/nsimage_cache.h"
 #include "base/file_path.h"
@@ -10,7 +12,9 @@
 #include "base/sys_string_conversions.h"
 #include "base/task.h"
 #include "base/threading/thread.h"
+#include "base/threading/thread_restrictions.h"
 #include "base/utf_string_conversions.h"
+#import "chrome/app/breakpad_mac.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/download/download_manager.h"
 #include "chrome/browser/download/download_util.h"
@@ -36,26 +40,40 @@ namespace {
 // |NSURLPboardType|.
 NSString* const kNSURLTitlePboardType = @"public.url-name";
 
+// Converts a string16 into a FilePath. Use this method instead of
+// -[NSString fileSystemRepresentation] to prevent exceptions from being thrown.
+// See http://crbug.com/78782 for more info.
+FilePath FilePathFromFilename(const string16& filename) {
+  NSString* str = SysUTF16ToNSString(filename);
+  char buf[MAXPATHLEN];
+  if (![str getFileSystemRepresentation:buf maxLength:sizeof(buf)])
+    return FilePath();
+  return FilePath(buf);
+}
+
 // Returns a filename appropriate for the drop data
 // TODO(viettrungluu): Refactor to make it common across platforms,
 // and move it somewhere sensible.
 FilePath GetFileNameFromDragData(const WebDropData& drop_data) {
+  // Set a breakpad key for the scope of this function to help debug
+  // http://crbug.com/78782
+  static NSString* const kUrlKey = @"drop_data_url";
+  NSString* value = SysUTF8ToNSString(drop_data.url.spec());
+  ScopedCrashKey key(kUrlKey, value);
+
   // Images without ALT text will only have a file extension so we need to
   // synthesize one from the provided extension and URL.
-  FilePath file_name([SysUTF16ToNSString(drop_data.file_description_filename)
-          fileSystemRepresentation]);
+  FilePath file_name(FilePathFromFilename(drop_data.file_description_filename));
   file_name = file_name.BaseName().RemoveExtension();
 
   if (file_name.empty()) {
     // Retrieve the name from the URL.
     string16 suggested_filename =
         net::GetSuggestedFilename(drop_data.url, "", "", string16());
-    file_name = FilePath(
-        [SysUTF16ToNSString(suggested_filename) fileSystemRepresentation]);
+    file_name = FilePathFromFilename(suggested_filename);
   }
 
-  file_name = file_name.ReplaceExtension([SysUTF16ToNSString(
-          drop_data.file_extension) fileSystemRepresentation]);
+  file_name = file_name.ReplaceExtension(UTF16ToUTF8(drop_data.file_extension));
 
   return file_name;
 }
@@ -269,6 +287,12 @@ void PromiseWriterTask::Run() {
     NSRect screenFrame = [[[contentsView_ window] screen] frame];
     screenPoint.y = screenFrame.size.height - screenPoint.y;
 
+    // If AppKit returns a copy and move operation, mask off the move bit
+    // because WebCore does not understand what it means to do both, which
+    // results in an assertion failure/renderer crash.
+    if (operation == (NSDragOperationMove | NSDragOperationCopy))
+      operation &= ~NSDragOperationMove;
+
     rvh->DragSourceEndedAt(localPoint.x, localPoint.y,
                            screenPoint.x, screenPoint.y,
                            static_cast<WebKit::WebDragOperation>(operation));
@@ -307,6 +331,11 @@ void PromiseWriterTask::Run() {
       GetFileNameFromDragData(*dropData_) : downloadFileName_;
   FilePath filePath(SysNSStringToUTF8(path));
   filePath = filePath.Append(fileName);
+
+  // CreateFileStreamForDrop() will call file_util::PathExists(),
+  // which is blocking.  Since this operation is already blocking the
+  // UI thread on OSX, it should be reasonable to let it happen.
+  base::ThreadRestrictions::ScopedAllowIO allowIO;
   FileStream* fileStream =
       drag_download_util::CreateFileStreamForDrop(&filePath);
   if (!fileStream)

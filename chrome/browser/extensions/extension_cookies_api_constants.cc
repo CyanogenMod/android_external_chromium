@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,8 @@
 
 namespace extension_cookies_api_constants {
 
+// Keys
+const char kCauseKey[] = "cause";
 const char kCookieKey[] = "cookie";
 const char kDomainKey[] = "domain";
 const char kExpirationDateKey[] = "expirationDate";
@@ -22,8 +24,17 @@ const char kTabIdsKey[] = "tabIds";
 const char kUrlKey[] = "url";
 const char kValueKey[] = "value";
 
+// Cause Constants
+extern const char kEvictedChangeCause[] = "evicted";
+extern const char kExpiredChangeCause[] = "expired";
+extern const char kExpiredOverwriteChangeCause[] = "expired_overwrite";
+extern const char kExplicitChangeCause[] = "explicit";
+extern const char kOverwriteChangeCause[] = "overwrite";
+
+// Events
 const char kOnChanged[] = "cookies.onChanged";
 
+// Errors
 const char kCookieSetFailedError[] =
     "Failed to parse or set cookie named \"*\".";
 const char kInvalidStoreIdError[] = "Invalid cookie store id: \"*\".";

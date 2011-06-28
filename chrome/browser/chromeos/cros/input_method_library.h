@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -42,6 +42,11 @@ class InputMethodLibrary {
         InputMethodLibrary* obj,
         const InputMethodDescriptor& previous_input_method,
         const InputMethodDescriptor& current_input_method) = 0;
+
+    // Called when the list of properties is changed.
+    virtual void PropertyListChanged(
+        InputMethodLibrary* obj,
+        const ImePropertyList& current_ime_properties) = 0;
 
     // Called by AddObserver() when the first observer is added.
     virtual void FirstObserverIsAdded(InputMethodLibrary* obj) = 0;
@@ -101,7 +106,9 @@ class InputMethodLibrary {
       const std::string& input_method_id) = 0;
 
   // Sets the IME state to enabled, and launches input method daemon if needed.
-  virtual void StartInputMethodDaemon() = 0;
+  // Returns true if the daemon is started. Otherwise, e.g. the daemon is
+  // already started, returns false.
+  virtual bool StartInputMethodDaemon() = 0;
 
   // Disables the IME, and kills the daemon process if they are running.
   virtual void StopInputMethodDaemon() = 0;
@@ -115,8 +122,8 @@ class InputMethodLibrary {
   virtual void SetEnableAutoImeShutdown(bool enable) = 0;
 
 
-  virtual const InputMethodDescriptor& previous_input_method() const = 0;
-  virtual const InputMethodDescriptor& current_input_method() const = 0;
+  virtual InputMethodDescriptor previous_input_method() const = 0;
+  virtual InputMethodDescriptor current_input_method() const = 0;
 
   virtual const ImePropertyList& current_ime_properties() const = 0;
 

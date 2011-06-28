@@ -9,8 +9,8 @@
 #include "base/callback.h"
 #include "base/command_line.h"
 #include "base/md5.h"
-#include "base/scoped_vector.h"
-#include "base/singleton.h"
+#include "base/memory/scoped_vector.h"
+#include "base/memory/singleton.h"
 #include "base/string16.h"
 #include "base/string_number_conversions.h"
 #include "base/threading/thread.h"
@@ -20,15 +20,17 @@
 #include "chrome/browser/history/top_sites.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/prefs/scoped_user_pref_update.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/chrome_url_data_manager.h"
 #include "chrome/browser/ui/webui/favicon_source.h"
 #include "chrome/browser/ui/webui/new_tab_ui.h"
 #include "chrome/browser/ui/webui/thumbnail_source.h"
-#include "chrome/common/notification_source.h"
-#include "chrome/common/notification_type.h"
 #include "chrome/common/pref_names.h"
+#include "chrome/common/url_constants.h"
 #include "content/browser/browser_thread.h"
+#include "content/common/notification_source.h"
+#include "content/common/notification_type.h"
 #include "googleurl/src/gurl.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
@@ -55,9 +57,7 @@ struct MostVisitedHandler::MostVisitedPage {
 };
 
 MostVisitedHandler::MostVisitedHandler()
-    : url_blacklist_(NULL),
-      pinned_urls_(NULL),
-      got_first_most_visited_request_(false) {
+    : got_first_most_visited_request_(false) {
 }
 
 MostVisitedHandler::~MostVisitedHandler() {
@@ -65,16 +65,11 @@ MostVisitedHandler::~MostVisitedHandler() {
 
 WebUIMessageHandler* MostVisitedHandler::Attach(WebUI* web_ui) {
   Profile* profile = web_ui->GetProfile();
-  url_blacklist_ = profile->GetPrefs()->GetMutableDictionary(
-      prefs::kNTPMostVisitedURLsBlacklist);
-  pinned_urls_ = profile->GetPrefs()->GetMutableDictionary(
-      prefs::kNTPMostVisitedPinnedURLs);
   // Set up our sources for thumbnail and favicon data.
   ThumbnailSource* thumbnail_src = new ThumbnailSource(profile);
   profile->GetChromeURLDataManager()->AddDataSource(thumbnail_src);
 
-  FavIconSource* favicon_src = new FavIconSource(profile);
-  profile->GetChromeURLDataManager()->AddDataSource(favicon_src);
+  profile->GetChromeURLDataManager()->AddDataSource(new FaviconSource(profile));
 
   // Get notifications when history is cleared.
   registrar_.Add(this, NotificationType::HISTORY_URLS_DELETED,
@@ -121,13 +116,16 @@ void MostVisitedHandler::HandleGetMostVisited(const ListValue* args) {
 
 void MostVisitedHandler::SendPagesValue() {
   if (pages_value_.get()) {
-    bool has_blacklisted_urls = !url_blacklist_->empty();
-    history::TopSites* ts = web_ui_->GetProfile()->GetTopSites();
+    Profile* profile = web_ui_->GetProfile();
+    const DictionaryValue* url_blacklist =
+        profile->GetPrefs()->GetDictionary(prefs::kNTPMostVisitedURLsBlacklist);
+    bool has_blacklisted_urls = !url_blacklist->empty();
+    history::TopSites* ts = profile->GetTopSites();
     if (ts)
       has_blacklisted_urls = ts->HasBlacklistedItems();
     FundamentalValue first_run(IsFirstRun());
     FundamentalValue has_blacklisted_urls_value(has_blacklisted_urls);
-    web_ui_->CallJavascriptFunction(L"mostVisitedPages",
+    web_ui_->CallJavascriptFunction("mostVisitedPages",
                                     *(pages_value_.get()),
                                     first_run,
                                     has_blacklisted_urls_value);
@@ -146,7 +144,7 @@ void MostVisitedHandler::StartQueryForMostVisited() {
 }
 
 void MostVisitedHandler::HandleBlacklistURL(const ListValue* args) {
-  std::string url = WideToUTF8(ExtractStringValue(args));
+  std::string url = UTF16ToUTF8(ExtractStringValue(args));
   BlacklistURL(GURL(url));
 }
 
@@ -219,7 +217,7 @@ void MostVisitedHandler::AddPinnedURL(const MostVisitedPage& page, int index) {
 }
 
 void MostVisitedHandler::HandleRemovePinnedURL(const ListValue* args) {
-  std::string url = WideToUTF8(ExtractStringValue(args));
+  std::string url = UTF16ToUTF8(ExtractStringValue(args));
   RemovePinnedURL(GURL(url));
 }
 
@@ -235,18 +233,22 @@ bool MostVisitedHandler::GetPinnedURLAtIndex(int index,
   // having a map from the index to the item but the number of items is limited
   // to the number of items the most visited section is showing on the NTP so
   // this will be fast enough for now.
-  for (DictionaryValue::key_iterator it = pinned_urls_->begin_keys();
-      it != pinned_urls_->end_keys(); ++it) {
+  PrefService* prefs = web_ui_->GetProfile()->GetPrefs();
+  const DictionaryValue* pinned_urls =
+      prefs->GetDictionary(prefs::kNTPMostVisitedPinnedURLs);
+  for (DictionaryValue::key_iterator it = pinned_urls->begin_keys();
+      it != pinned_urls->end_keys(); ++it) {
     Value* value;
-    if (pinned_urls_->GetWithoutPathExpansion(*it, &value)) {
+    if (pinned_urls->GetWithoutPathExpansion(*it, &value)) {
       if (!value->IsType(DictionaryValue::TYPE_DICTIONARY)) {
         // Moved on to TopSites and now going back.
-        pinned_urls_->Clear();
+        DictionaryPrefUpdate update(prefs, prefs::kNTPMostVisitedPinnedURLs);
+        update.Get()->Clear();
         return false;
       }
 
       int dict_index;
-      DictionaryValue* dict = static_cast<DictionaryValue*>(value);
+      const DictionaryValue* dict = static_cast<DictionaryValue*>(value);
       if (dict->GetInteger("index", &dict_index) && dict_index == index) {
         // The favicon and thumbnail URLs may be empty.
         std::string tmp_string;

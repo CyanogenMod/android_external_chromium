@@ -14,20 +14,17 @@
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/bookmarks/bookmark_node_data.h"
-#if defined(OS_MACOSX)
-#include "chrome/browser/bookmarks/bookmark_pasteboard_helper_mac.h"
-#endif
-#include "chrome/browser/browser_list.h"
-#include "chrome/browser/browser_window.h"
 #include "chrome/browser/history/query_parser.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/common/notification_service.h"
+#include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "chrome/common/pref_names.h"
 #include "content/browser/tab_contents/page_navigator.h"
 #include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/notification_service.h"
 #include "grit/app_strings.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
@@ -36,13 +33,19 @@
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/models/tree_node_iterator.h"
 
+#if defined(OS_MACOSX)
+#include "chrome/browser/bookmarks/bookmark_pasteboard_helper_mac.h"
+#endif
+
 #if defined(TOOLKIT_VIEWS)
 #include "ui/base/dragdrop/os_exchange_data.h"
 #include "views/drag_utils.h"
 #include "views/events/event.h"
 #include "views/widget/native_widget.h"
 #include "views/widget/widget.h"
-#elif defined(TOOLKIT_GTK)
+#endif
+
+#if defined(TOOLKIT_GTK)
 #include "chrome/browser/ui/gtk/custom_drag.h"
 #endif
 
@@ -69,7 +72,7 @@ class NewBrowserPageNavigator : public PageNavigator {
   virtual void OpenURL(const GURL& url,
                        const GURL& referrer,
                        WindowOpenDisposition disposition,
-                       PageTransition::Type transition) {
+                       PageTransition::Type transition) OVERRIDE {
     if (!browser_) {
       Profile* profile = (disposition == OFF_THE_RECORD) ?
           profile_->GetOffTheRecordProfile() : profile_;
@@ -94,33 +97,31 @@ void CloneBookmarkNodeImpl(BookmarkModel* model,
   if (element.is_url) {
     model->AddURL(parent, index_to_add_at, element.title, element.url);
   } else {
-    const BookmarkNode* new_folder = model->AddGroup(parent,
-                                                     index_to_add_at,
-                                                     element.title);
+    const BookmarkNode* new_folder = model->AddFolder(parent,
+                                                      index_to_add_at,
+                                                      element.title);
     for (int i = 0; i < static_cast<int>(element.children.size()); ++i)
       CloneBookmarkNodeImpl(model, element.children[i], new_folder, i);
   }
 }
 
-// Returns the number of descendants of node that are of type url.
-int DescendantURLCount(const BookmarkNode* node) {
+// Returns the number of children of |node| that are of type url.
+int ChildURLCount(const BookmarkNode* node) {
   int result = 0;
-  for (int i = 0; i < node->GetChildCount(); ++i) {
+  for (int i = 0; i < node->child_count(); ++i) {
     const BookmarkNode* child = node->GetChild(i);
     if (child->is_url())
       result++;
-    else
-      result += DescendantURLCount(child);
   }
   return result;
 }
 
-// Implementation of OpenAll. Opens all nodes of type URL and recurses for
-// groups. |navigator| is the PageNavigator used to open URLs. After the first
-// url is opened |opened_url| is set to true and |navigator| is set to the
-// PageNavigator of the last active tab. This is done to handle a window
-// disposition of new window, in which case we want subsequent tabs to open in
-// that window.
+// Implementation of OpenAll. Opens all nodes of type URL and any children of
+// |node| that are of type URL. |navigator| is the PageNavigator used to open
+// URLs. After the first url is opened |opened_url| is set to true and
+// |navigator| is set to the PageNavigator of the last active tab. This is done
+// to handle a window disposition of new window, in which case we want
+// subsequent tabs to open in that window.
 void OpenAllImpl(const BookmarkNode* node,
                  WindowOpenDisposition initial_disposition,
                  PageNavigator** navigator,
@@ -146,32 +147,33 @@ void OpenAllImpl(const BookmarkNode* node,
       }  // else, new_browser == NULL, which happens during testing.
     }
   } else {
-    // Group, recurse through children.
-    for (int i = 0; i < node->GetChildCount(); ++i) {
-      OpenAllImpl(node->GetChild(i), initial_disposition, navigator,
-                  opened_url);
+    // For folders only open direct children.
+    for (int i = 0; i < node->child_count(); ++i) {
+      const BookmarkNode* child_node = node->GetChild(i);
+      if (child_node->is_url())
+        OpenAllImpl(child_node, initial_disposition, navigator, opened_url);
     }
   }
 }
 
 bool ShouldOpenAll(gfx::NativeWindow parent,
                    const std::vector<const BookmarkNode*>& nodes) {
-  int descendant_count = 0;
+  int child_count = 0;
   for (size_t i = 0; i < nodes.size(); ++i)
-    descendant_count += DescendantURLCount(nodes[i]);
-  if (descendant_count < bookmark_utils::num_urls_before_prompting)
+    child_count += ChildURLCount(nodes[i]);
+  if (child_count < bookmark_utils::num_urls_before_prompting)
     return true;
 
   string16 message = l10n_util::GetStringFUTF16(
       IDS_BOOKMARK_BAR_SHOULD_OPEN_ALL,
-      base::IntToString16(descendant_count));
+      base::IntToString16(child_count));
   string16 title = l10n_util::GetStringUTF16(IDS_PRODUCT_NAME);
   return platform_util::SimpleYesNoBox(parent, title, message);
 }
 
 // Comparison function that compares based on date modified of the two nodes.
 bool MoreRecentlyModified(const BookmarkNode* n1, const BookmarkNode* n2) {
-  return n1->date_group_modified() > n2->date_group_modified();
+  return n1->date_folder_modified() > n2->date_folder_modified();
 }
 
 // Returns true if |text| contains each string in |words|. This is used when
@@ -219,12 +221,14 @@ int PreferredDropOperation(int source_operations, int operations) {
   return ui::DragDropTypes::DRAG_NONE;
 }
 
-int BookmarkDragOperation(const BookmarkNode* node) {
+int BookmarkDragOperation(Profile* profile, const BookmarkNode* node) {
+  int move = ui::DragDropTypes::DRAG_MOVE;
+  if (!profile->GetPrefs()->GetBoolean(prefs::kEditBookmarksEnabled))
+    move = 0;
   if (node->is_url()) {
-    return ui::DragDropTypes::DRAG_COPY | ui::DragDropTypes::DRAG_MOVE |
-           ui::DragDropTypes::DRAG_LINK;
+    return ui::DragDropTypes::DRAG_COPY | ui::DragDropTypes::DRAG_LINK | move;
   }
-  return ui::DragDropTypes::DRAG_COPY | ui::DragDropTypes::DRAG_MOVE;
+  return ui::DragDropTypes::DRAG_COPY | move;
 }
 
 #if defined(TOOLKIT_VIEWS)
@@ -262,13 +266,13 @@ int PerformBookmarkDrop(Profile* profile,
       // Drag from same profile. Move nodes.
       for (size_t i = 0; i < dragged_nodes.size(); ++i) {
         model->Move(dragged_nodes[i], parent_node, index);
-        index = parent_node->IndexOfChild(dragged_nodes[i]) + 1;
+        index = parent_node->GetIndexOf(dragged_nodes[i]) + 1;
       }
       return ui::DragDropTypes::DRAG_MOVE;
     }
     return ui::DragDropTypes::DRAG_NONE;
   }
-  // Dropping a group from different profile. Always accept.
+  // Dropping a folder from different profile. Always accept.
   bookmark_utils::CloneBookmarkNode(model, data.elements, parent_node, index);
   return ui::DragDropTypes::DRAG_COPY;
 }
@@ -291,8 +295,8 @@ bool IsValidDropLocation(Profile* profile,
       // Don't allow the drop if the user is attempting to drop on one of the
       // nodes being dragged.
       const BookmarkNode* node = nodes[i];
-      int node_index = (drop_parent == node->GetParent()) ?
-          drop_parent->IndexOfChild(nodes[i]) : -1;
+      int node_index = (drop_parent == node->parent()) ?
+          drop_parent->GetIndexOf(nodes[i]) : -1;
       if (node_index != -1 && (index == node_index || index == node_index + 1))
         return false;
 
@@ -403,8 +407,9 @@ void CopyToClipboard(BookmarkModel* model,
 
   if (remove_nodes) {
     for (size_t i = 0; i < nodes.size(); ++i) {
-      model->Remove(nodes[i]->GetParent(),
-                    nodes[i]->GetParent()->IndexOfChild(nodes[i]));
+      int index = nodes[i]->parent()->GetIndexOf(nodes[i]);
+      if (index > -1)
+        model->Remove(nodes[i]->parent(), index);
     }
   }
 }
@@ -420,7 +425,7 @@ void PasteFromClipboard(BookmarkModel* model,
     return;
 
   if (index == -1)
-    index = parent->GetChildCount();
+    index = parent->child_count();
   bookmark_utils::CloneBookmarkNode(
       model, bookmark_data.elements, parent, index);
 }
@@ -439,14 +444,14 @@ string16 GetNameForURL(const GURL& url) {
   }
 }
 
-std::vector<const BookmarkNode*> GetMostRecentlyModifiedGroups(
+std::vector<const BookmarkNode*> GetMostRecentlyModifiedFolders(
     BookmarkModel* model,
     size_t max_count) {
   std::vector<const BookmarkNode*> nodes;
   ui::TreeNodeIterator<const BookmarkNode> iterator(model->root_node());
   while (iterator.has_next()) {
     const BookmarkNode* parent = iterator.Next();
-    if (parent->is_folder() && parent->date_group_modified() > base::Time()) {
+    if (parent->is_folder() && parent->date_folder_modified() > base::Time()) {
       if (max_count == 0) {
         nodes.push_back(parent);
       } else {
@@ -546,14 +551,14 @@ static const BookmarkNode* CreateNewNode(BookmarkModel* model,
     const string16& new_title, const GURL& new_url) {
   const BookmarkNode* node;
   if (details.type == BookmarkEditor::EditDetails::NEW_URL) {
-    node = model->AddURL(parent, parent->GetChildCount(), new_title, new_url);
+    node = model->AddURL(parent, parent->child_count(), new_title, new_url);
   } else if (details.type == BookmarkEditor::EditDetails::NEW_FOLDER) {
-    node = model->AddGroup(parent, parent->GetChildCount(), new_title);
+    node = model->AddFolder(parent, parent->child_count(), new_title);
     for (size_t i = 0; i < details.urls.size(); ++i) {
-      model->AddURL(node, node->GetChildCount(), details.urls[i].second,
+      model->AddURL(node, node->child_count(), details.urls[i].second,
                     details.urls[i].first);
     }
-    model->SetDateGroupModified(parent, Time::Now());
+    model->SetDateFolderModified(parent, Time::Now());
   } else {
     NOTREACHED();
     return NULL;
@@ -562,7 +567,7 @@ static const BookmarkNode* CreateNewNode(BookmarkModel* model,
   return node;
 }
 
-const BookmarkNode* ApplyEditsWithNoGroupChange(BookmarkModel* model,
+const BookmarkNode* ApplyEditsWithNoFolderChange(BookmarkModel* model,
     const BookmarkNode* parent, const BookmarkEditor::EditDetails& details,
     const string16& new_title, const GURL& new_url) {
   if (details.type == BookmarkEditor::EditDetails::NEW_URL ||
@@ -580,7 +585,7 @@ const BookmarkNode* ApplyEditsWithNoGroupChange(BookmarkModel* model,
   return node;
 }
 
-const BookmarkNode* ApplyEditsWithPossibleGroupChange(BookmarkModel* model,
+const BookmarkNode* ApplyEditsWithPossibleFolderChange(BookmarkModel* model,
     const BookmarkNode* new_parent, const BookmarkEditor::EditDetails& details,
     const string16& new_title, const GURL& new_url) {
   if (details.type == BookmarkEditor::EditDetails::NEW_URL ||
@@ -591,8 +596,8 @@ const BookmarkNode* ApplyEditsWithPossibleGroupChange(BookmarkModel* model,
   const BookmarkNode* node = details.existing_node;
   DCHECK(node);
 
-  if (new_parent != node->GetParent())
-    model->Move(node, new_parent, new_parent->GetChildCount());
+  if (new_parent != node->parent())
+    model->Move(node, new_parent, new_parent->child_count());
   if (node->is_url())
     model->SetURL(node, new_url);
   model->SetTitle(node, new_title);
@@ -619,6 +624,7 @@ void ToggleWhenVisible(Profile* profile) {
 
 void RegisterUserPrefs(PrefService* prefs) {
   prefs->RegisterBooleanPref(prefs::kShowBookmarkBar, false);
+  prefs->RegisterBooleanPref(prefs::kEditBookmarksEnabled, true);
 }
 
 void GetURLAndTitleToBookmark(TabContents* tab_contents,
@@ -649,14 +655,14 @@ const BookmarkNode* GetParentForNewNodes(
 
   if (index) {
     if (selection.size() == 1 && selection[0]->is_url()) {
-      *index = real_parent->IndexOfChild(selection[0]) + 1;
+      *index = real_parent->GetIndexOf(selection[0]) + 1;
       if (*index == 0) {
         // Node doesn't exist in parent, add to end.
         NOTREACHED();
-        *index = real_parent->GetChildCount();
+        *index = real_parent->child_count();
       }
     } else {
-      *index = real_parent->GetChildCount();
+      *index = real_parent->child_count();
     }
   }
 
@@ -669,7 +675,7 @@ bool NodeHasURLs(const BookmarkNode* node) {
   if (node->is_url())
     return true;
 
-  for (int i = 0; i < node->GetChildCount(); ++i) {
+  for (int i = 0; i < node->child_count(); ++i) {
     if (NodeHasURLs(node->GetChild(i)))
       return true;
   }

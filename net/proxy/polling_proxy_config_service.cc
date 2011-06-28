@@ -1,12 +1,12 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "net/proxy/polling_proxy_config_service.h"
 
+#include "base/memory/scoped_ptr.h"
 #include "base/message_loop_proxy.h"
 #include "base/observer_list.h"
-#include "base/scoped_ptr.h"
 #include "base/synchronization/lock.h"
 #include "base/threading/worker_pool.h"
 #include "net/proxy/proxy_config.h"
@@ -121,7 +121,9 @@ class PollingProxyConfigService::Core
       // If the configuration has changed, notify the observers.
       has_config_ = true;
       last_config_ = config;
-      FOR_EACH_OBSERVER(Observer, observers_, OnProxyConfigChanged(config));
+      FOR_EACH_OBSERVER(Observer, observers_,
+                        OnProxyConfigChanged(config,
+                                             ProxyConfigService::CONFIG_VALID));
     }
 
     if (poll_task_queued_)
@@ -162,8 +164,9 @@ void PollingProxyConfigService::RemoveObserver(Observer* observer) {
   core_->RemoveObserver(observer);
 }
 
-bool PollingProxyConfigService::GetLatestProxyConfig(ProxyConfig* config) {
-  return core_->GetLatestProxyConfig(config);
+ProxyConfigService::ConfigAvailability
+    PollingProxyConfigService::GetLatestProxyConfig(ProxyConfig* config) {
+  return core_->GetLatestProxyConfig(config) ? CONFIG_VALID : CONFIG_PENDING;
 }
 
 void PollingProxyConfigService::OnLazyPoll() {

@@ -1,17 +1,13 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include <algorithm>
-
 #include "base/file_path.h"
 
-#if defined(OS_WIN)
-#include <windows.h>
-#elif defined(OS_MACOSX)
-#include <CoreFoundation/CoreFoundation.h>
-#endif
+#include <string.h>
+#include <algorithm>
 
+#include "base/basictypes.h"
 #include "base/logging.h"
 #include "base/pickle.h"
 
@@ -25,6 +21,12 @@
 #if defined(OS_MACOSX)
 #include "base/mac/scoped_cftyperef.h"
 #include "base/third_party/icu/icu_utf.h"
+#endif
+
+#if defined(OS_WIN)
+#include <windows.h>
+#elif defined(OS_MACOSX)
+#include <CoreFoundation/CoreFoundation.h>
 #endif
 
 #if defined(FILE_PATH_USES_WIN_SEPARATORS)
@@ -63,8 +65,8 @@ StringType::size_type FindDriveLetter(const StringType& path) {
 }
 
 #if defined(FILE_PATH_USES_DRIVE_LETTERS)
-bool EqualDriveLetterCaseInsensitive(const StringType a,
-                                     const StringType b) {
+bool EqualDriveLetterCaseInsensitive(const StringType& a,
+                                     const StringType& b) {
   size_t a_letter_pos = FindDriveLetter(a);
   size_t b_letter_pos = FindDriveLetter(b);
 
@@ -532,9 +534,6 @@ std::string FilePath::MaybeAsASCII() const {
 FilePath FilePath::FromWStringHack(const std::wstring& wstring) {
   return FilePath(base::SysWideToNativeMB(wstring));
 }
-std::wstring FilePath::ToWStringHack() const {
-  return base::SysNativeMBToWide(path_);
-}
 #elif defined(OS_WIN)
 string16 FilePath::LossyDisplayName() const {
   return path_;
@@ -549,9 +548,6 @@ std::string FilePath::MaybeAsASCII() const {
 // static
 FilePath FilePath::FromWStringHack(const std::wstring& wstring) {
   return FilePath(wstring);
-}
-std::wstring FilePath::ToWStringHack() const {
-  return path_;
 }
 #endif
 

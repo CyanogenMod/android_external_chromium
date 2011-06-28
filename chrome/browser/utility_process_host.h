@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@
 #include <vector>
 
 #include "base/basictypes.h"
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
 #include "base/task.h"
 #include "chrome/common/extensions/update_manifest.h"
 #include "content/browser/browser_child_process_host.h"
@@ -18,6 +18,7 @@
 
 class DictionaryValue;
 class IndexedDBKey;
+class ListValue;
 class SerializedScriptValue;
 class SkBitmap;
 
@@ -95,6 +96,13 @@ class UtilityProcessHost : public BrowserChildProcessHost {
     virtual void OnInjectIDBKeyFinished(
         const SerializedScriptValue& new_value) {}
 
+    // Called when we're finished parsing a JSON string. Note that if parsing
+    // was successful, the result Value is contained in the first element of
+    // |wrapper| (we do this to get around a trickiness with passing a Value
+    // by const reference via our IPC system).
+    virtual void OnJSONParseSucceeded(const ListValue& wrapper) {}
+    virtual void OnJSONParseFailed(const std::string& error_message) {}
+
    protected:
     friend class base::RefCountedThreadSafe<Client>;
 
@@ -108,8 +116,7 @@ class UtilityProcessHost : public BrowserChildProcessHost {
     DISALLOW_COPY_AND_ASSIGN(Client);
   };
 
-  UtilityProcessHost(ResourceDispatcherHost* rdh, Client* client,
-                     BrowserThread::ID client_thread_id);
+  UtilityProcessHost(Client* client, BrowserThread::ID client_thread_id);
   virtual ~UtilityProcessHost();
 
   // Start a process to unpack the extension at the given path.  The process
@@ -129,8 +136,11 @@ class UtilityProcessHost : public BrowserChildProcessHost {
   // Start parsing an extensions auto-update manifest xml file.
   bool StartUpdateManifestParse(const std::string& xml);
 
-  // Start image decoding.
+  // Start image decoding. The image can be any format WebCore understands.
+  // Results are reported to either OnDecodeImageSuceeded() or
+  // OnDecodeImageFailed().
   bool StartImageDecoding(const std::vector<unsigned char>& encoded_data);
+  bool StartImageDecodingBase64(const std::string& base64_encoded_data);
 
   // Starts extracting |key_path| from |serialized_values|, and replies with the
   // corresponding IndexedDBKeys via OnIDBKeysFromValuesAndKeyPathSucceeded.
@@ -143,6 +153,10 @@ class UtilityProcessHost : public BrowserChildProcessHost {
   bool StartInjectIDBKey(const IndexedDBKey& key,
                          const SerializedScriptValue& value,
                          const string16& key_path);
+
+  // Starts parsing a JSON string into a Value object. The result is reported
+  // to the client via OnJSONParseSucceeded or OnJSONParseFailed.
+  bool StartJSONParsing(const std::string& json);
 
   // Starts utility process in batch mode. Caller must call EndBatchMode()
   // to finish the utility process.

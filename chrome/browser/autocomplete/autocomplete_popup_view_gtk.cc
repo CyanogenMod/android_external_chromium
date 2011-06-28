@@ -23,10 +23,11 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
-#include "chrome/browser/ui/gtk/gtk_theme_provider.h"
+#include "chrome/browser/ui/gtk/gtk_theme_service.h"
 #include "chrome/browser/ui/gtk/gtk_util.h"
-#include "chrome/common/notification_service.h"
+#include "content/common/notification_service.h"
 #include "grit/theme_resources.h"
+#include "ui/base/gtk/gtk_windowing.h"
 #include "ui/gfx/color_utils.h"
 #include "ui/gfx/font.h"
 #include "ui/gfx/gtk_util.h"
@@ -188,6 +189,12 @@ void AutocompletePopupViewGtk::SetupLayoutForMatch(
   // elided pure LTR text.
   bool marked_with_lre = false;
   string16 localized_text = text;
+  // Pango is really easy to overflow and send into a computational death
+  // spiral that can corrupt the screen. Assume that we'll never have more than
+  // 2000 characters, which should be a safe assumption until we all get robot
+  // eyes. http://crbug.com/66576
+  if (localized_text.size() > 2000)
+    localized_text = localized_text.substr(0, 2000);
   bool is_rtl = base::i18n::IsRTL();
   if (is_rtl && !base::i18n::StringContainsStrongRTLChars(localized_text)) {
     localized_text.insert(0, 1, base::i18n::kLeftToRightEmbeddingMark);
@@ -270,7 +277,7 @@ AutocompletePopupViewGtk::AutocompletePopupViewGtk(
       location_bar_(location_bar),
       window_(gtk_window_new(GTK_WINDOW_POPUP)),
       layout_(NULL),
-      theme_provider_(GtkThemeProvider::GetFrom(profile)),
+      theme_service_(GtkThemeService::GetFrom(profile)),
       font_(font.DeriveFont(kEditFontAdjust)),
       ignore_mouse_drag_(false),
       opened_(false) {
@@ -307,7 +314,7 @@ AutocompletePopupViewGtk::AutocompletePopupViewGtk(
   registrar_.Add(this,
                  NotificationType::BROWSER_THEME_CHANGED,
                  NotificationService::AllSources());
-  theme_provider_->InitThemesFor(this);
+  theme_service_->InitThemesFor(this);
 
   // TODO(erg): There appears to be a bug somewhere in something which shows
   // itself when we're in NX. Previously, we called
@@ -387,10 +394,10 @@ void AutocompletePopupViewGtk::Observe(NotificationType type,
                                        const NotificationDetails& details) {
   DCHECK(type == NotificationType::BROWSER_THEME_CHANGED);
 
-  if (theme_provider_->UseGtkTheme()) {
+  if (theme_service_->UseGtkTheme()) {
     gtk_util::UndoForceFontSize(window_);
 
-    border_color_ = theme_provider_->GetBorderColor();
+    border_color_ = theme_service_->GetBorderColor();
 
     gtk_util::GetTextColors(
         &background_color_, &selected_background_color_,
@@ -455,7 +462,7 @@ void AutocompletePopupViewGtk::StackWindow() {
   DCHECK(GTK_IS_WIDGET(edit_view));
   GtkWidget* toplevel = gtk_widget_get_toplevel(edit_view);
   DCHECK(GTK_WIDGET_TOPLEVEL(toplevel));
-  gtk_util::StackPopupWindow(window_, toplevel);
+  ui::StackPopupWindow(window_, toplevel);
 }
 
 size_t AutocompletePopupViewGtk::LineFromY(int y) {
@@ -477,8 +484,9 @@ void AutocompletePopupViewGtk::AcceptLine(size_t line,
 }
 
 GdkPixbuf* AutocompletePopupViewGtk::IconForMatch(
-    const AutocompleteMatch& match, bool selected) {
-  const SkBitmap* bitmap = model_->GetSpecialIconForMatch(match);
+    const AutocompleteMatch& match,
+    bool selected) {
+  const SkBitmap* bitmap = model_->GetIconIfExtensionMatch(match);
   if (bitmap) {
     if (!ContainsKey(pixbufs_, bitmap))
       pixbufs_[bitmap] = gfx::GdkPixbufFromSkBitmap(bitmap);
@@ -489,16 +497,29 @@ GdkPixbuf* AutocompletePopupViewGtk::IconForMatch(
       IDR_OMNIBOX_STAR : AutocompleteMatch::TypeToIcon(match.type);
   if (selected) {
     switch (icon) {
-      case IDR_OMNIBOX_HTTP:    icon = IDR_OMNIBOX_HTTP_DARK; break;
-      case IDR_OMNIBOX_HISTORY: icon = IDR_OMNIBOX_HISTORY_DARK; break;
-      case IDR_OMNIBOX_SEARCH:  icon = IDR_OMNIBOX_SEARCH_DARK; break;
-      case IDR_OMNIBOX_STAR:    icon = IDR_OMNIBOX_STAR_DARK; break;
-      default:                  NOTREACHED(); break;
+      case IDR_OMNIBOX_EXTENSION_APP:
+        icon = IDR_OMNIBOX_EXTENSION_APP_DARK;
+        break;
+      case IDR_OMNIBOX_HTTP:
+        icon = IDR_OMNIBOX_HTTP_DARK;
+        break;
+      case IDR_OMNIBOX_HISTORY:
+        icon = IDR_OMNIBOX_HISTORY_DARK;
+        break;
+      case IDR_OMNIBOX_SEARCH:
+        icon = IDR_OMNIBOX_SEARCH_DARK;
+        break;
+      case IDR_OMNIBOX_STAR:
+        icon = IDR_OMNIBOX_STAR_DARK;
+        break;
+      default:
+        NOTREACHED();
+        break;
     }
   }
 
   // TODO(estade): Do we want to flip these for RTL?  (Windows doesn't).
-  return theme_provider_->GetPixbufNamed(icon);
+  return theme_service_->GetPixbufNamed(icon);
 }
 
 gboolean AutocompletePopupViewGtk::HandleMotion(GtkWidget* widget,

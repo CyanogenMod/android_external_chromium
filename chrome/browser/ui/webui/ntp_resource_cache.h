@@ -7,10 +7,10 @@
 #pragma once
 
 #include "base/basictypes.h"
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
 #include "chrome/browser/prefs/pref_change_registrar.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
 
 class Profile;
 class RefCountedBytes;
@@ -22,8 +22,8 @@ class NTPResourceCache : public NotificationObserver {
   explicit NTPResourceCache(Profile* profile);
   virtual ~NTPResourceCache();
 
-  RefCountedBytes* GetNewTabHTML(bool is_off_the_record);
-  RefCountedBytes* GetNewTabCSS(bool is_off_the_record);
+  RefCountedBytes* GetNewTabHTML(bool is_incognito);
+  RefCountedBytes* GetNewTabCSS(bool is_incognito);
 
   // NotificationObserver interface.
   virtual void Observe(NotificationType type,

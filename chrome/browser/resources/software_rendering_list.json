@@ -14,7 +14,8 @@
 // Each entry contains the following fields:
 // 1. "id" is an integer.  0 is reserved.  This field is mandatory.
 // 2. "os" contains "type" and an optional "version". "type" could be "macosx",
-//    "linux", "win", or "any".  "any" is the same as not specifying "os".
+//    "linux", "win", "chromeos", or "any".  "any" is the same as not specifying
+//    "os".
 //    "version" is a VERSION structure (defined below).
 // 3. "vendor_id" is a string.  0 is reserved.
 // 4. "device_id" is an array of strings.  0 is reserved.
@@ -31,6 +32,9 @@
 // 11. "description" has the description of the entry.
 // 12. "webkit_bugs" is an array of associated webkit bug numbers.
 // 13. "cr_bugs" is an array of associated webkit bug numbers.
+// 14. "browser_version" is a VERSION structure (defined below).  If this
+//     condition is not satisfied, the entry will be ignored.  If it is not
+//     present, then the entry applies to all versions of the browser.
 //
 // VERSION includes "op" "number", and "number2".  "op" can be any of the
 // following values: "=", "<", "<=", ">", ">=", "any", "between".  "number2" is
@@ -43,7 +47,7 @@
 {
   "name": "software rendering list",
   // Please update the version number whenever you change this file.
-  "version": "1.6",
+  "version": "1.10",
   "entries": [
     {
       "id": 1,
@@ -54,26 +58,6 @@
       },
       "vendor_id": "0x1002",
       "device_id": ["0x7249"],
-      "blacklist": [
-        "webgl"
-      ]
-    },
-    {
-      "id": 2,
-      "description": "Intel GPUs with Mesa driver earlier than 7.9 do not support WebGL.",
-      "cr_bugs": [66718,67345,67939],
-      "os": {
-        "type": "linux"
-      },
-      "vendor_id": "0x8086",
-      "driver_vendor": {
-        "op": "=",
-        "value": "mesa"
-      },
-      "driver_version": {
-        "op": "<",
-        "number": "7.9"
-      },
       "blacklist": [
         "webgl"
       ]
@@ -107,42 +91,14 @@
     },
     {
       "id": 5,
-      "description": "ATI cards in Linux do not support WebGL.",
-      "cr_bugs": [71381],
+      "description": "ATI cards in Linux are crash-prone.",
+      "cr_bugs": [71381, 76428, 73910],
       "os": {
         "type": "linux"
       },
       "vendor_id": "0x1002",
       "blacklist": [
-        "webgl"
-      ]
-    },
-    {
-      "id": 6,
-      "description": "ATI Radeon HD2600 on Mac do not support WebGL or accelerated compositing.",
-      "cr_bugs": [68859],
-      "os": {
-        "type": "macosx"
-      },
-      "vendor_id": "0x1002",
-      "device_id": ["0x9583"],
-      "blacklist": [
-        "webgl",
-        "accelerated_compositing"
-      ]
-    },
-    {
-      "id": 7,
-      "description": "ATI Radeon HD2400 on Mac do not support WebGL or accelerated compositing.",
-      "cr_bugs": [68859],
-      "os": {
-        "type": "macosx"
-      },
-      "vendor_id": "0x1002",
-      "device_id": ["0x94c8"],
-      "blacklist": [
-        "webgl",
-        "accelerated_compositing"
+        "all"
       ]
     },
     {
@@ -159,7 +115,7 @@
         "accelerated_compositing"
       ]
     },
-    { // NVIDIA GeForce 7300 GT on Mac, BUG=73794
+    {
       "id": 10,
       "description": "NVIDIA GeForce 7300 GT on Mac does not support WebGL.",
       "cr_bugs": [73794],
@@ -170,20 +126,6 @@
       "device_id": ["0x0393"],
       "blacklist": [
         "webgl"
-      ]
-    },
-    {
-      "id": 11,
-      "description": "ATI Radeon HD2600 XT on Mac does not support WebGL or accelerated compositing.",
-      "cr_bugs": [68859],
-      "os": {
-        "type": "macosx"
-      },
-      "vendor_id": "0x1002",
-      "device_id": ["0x9588"],
-      "blacklist": [
-        "webgl",
-        "accelerated_compositing"
       ]
     },
     {
@@ -203,7 +145,7 @@
     },
     {
       "id": 13,
-      "description": "ATI drivers older thn 10.6 on Windows XP are assumed to be buggy.",
+      "description": "ATI drivers older than 10.6 on Windows XP are assumed to be buggy.",
       "cr_bugs": [74212],
       "os": {
         "type": "win",
@@ -223,7 +165,7 @@
     },
     {
       "id": 14,
-      "description": "NVIDIA drivers older thn 257.21 on Windows XP are assumed to be buggy.",
+      "description": "NVIDIA drivers older than 257.21 on Windows XP are assumed to be buggy.",
       "cr_bugs": [74212],
       "os": {
         "type": "win",
@@ -243,7 +185,7 @@
     },
     {
       "id": 15,
-      "description": "Intel drivers older thn 14.42.7.5294 on Windows XP are assumed to be buggy.",
+      "description": "Intel drivers older than 14.42.7.5294 on Windows XP are assumed to be buggy.",
       "cr_bugs": [74212],
       "os": {
         "type": "win",
@@ -263,7 +205,7 @@
     },
     {
       "id": 16,
-      "description": "Multiampling is buggy in ATI Mac drivers.",
+      "description": "Multisampling is buggy in ATI Mac drivers.",
       "cr_bugs": [67752],
       "os": {
         "type": "macosx"
@@ -271,6 +213,18 @@
       "vendor_id": "0x1002",
       "blacklist": [
         "multisampling"
+      ]
+    },
+    {
+      "id": 17,
+      "description": "Intel mesa drivers are crash-prone.",
+      "cr_bugs": [76703],
+      "os": {
+        "type": "linux"
+      },
+      "vendor_id": "0x8086",
+      "blacklist": [
+        "all"
       ]
     }
   ]

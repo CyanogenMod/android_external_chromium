@@ -1,15 +1,16 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/basictypes.h"
+#include "base/memory/scoped_temp_dir.h"
 #include "base/stl_util-inl.h"
 #include "base/string_util.h"
-#include "base/scoped_temp_dir.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
 #include "base/synchronization/waitable_event.h"
 #include "chrome/browser/password_manager/password_store_change.h"
+#include "chrome/browser/password_manager/password_store_consumer.h"
 #include "chrome/browser/password_manager/password_store_default.h"
 #include "chrome/browser/password_manager/password_form_data.h"
 #include "chrome/browser/prefs/pref_service.h"
@@ -38,7 +39,8 @@ namespace {
 class MockPasswordStoreConsumer : public PasswordStoreConsumer {
  public:
   MOCK_METHOD2(OnPasswordStoreRequestDone,
-               void(int, const std::vector<webkit_glue::PasswordForm*>&));
+               void(CancelableRequestProvider::Handle,
+                    const std::vector<webkit_glue::PasswordForm*>&));
 };
 
 class MockWebDataServiceConsumer : public WebDataServiceConsumer {

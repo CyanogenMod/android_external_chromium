@@ -8,12 +8,14 @@
 
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
-#include "chrome/browser/chromeos/cros/keyboard_library.h"
 #include "chrome/browser/chromeos/input_method/input_method_util.h"
 #include "chrome/browser/chromeos/status/status_area_host.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "ui/base/resource/resource_bundle.h"
+#include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_window.h"
+#include "views/window/window.h"
 
 namespace {
 
@@ -25,12 +27,6 @@ PrefService* GetPrefService(chromeos::StatusAreaHost* host) {
   }
   return NULL;
 }
-
-#if defined(CROS_FONTS_USING_BCI)
-const int kFontSizeDelta = 0;
-#else
-const int kFontSizeDelta = 1;
-#endif
 
 // A class which implements interfaces of chromeos::InputMethodMenu. This class
 // is just for avoiding multiple inheritance.
@@ -69,18 +65,8 @@ namespace chromeos {
 // InputMethodMenuButton
 
 InputMethodMenuButton::InputMethodMenuButton(StatusAreaHost* host)
-    : StatusAreaButton(this),
-      menu_(new MenuImpl(this, GetPrefService(host), host->GetScreenMode())),
-      host_(host) {
-  set_border(NULL);
-  set_use_menu_button_paint(true);
-  SetFont(ResourceBundle::GetSharedInstance().GetFont(
-      ResourceBundle::BaseFont).DeriveFont(kFontSizeDelta));
-  SetEnabledColor(0xB3FFFFFF);  // White with 70% Alpha
-  SetDisabledColor(0x00FFFFFF);  // White with 00% Alpha (invisible)
-  SetShowMultipleIconStates(false);
-  set_alignment(TextButton::ALIGN_CENTER);
-
+    : StatusAreaButton(host, this),
+      menu_(new MenuImpl(this, GetPrefService(host), host->GetScreenMode())) {
   UpdateUIFromCurrentInputMethod();
 }
 
@@ -110,6 +96,21 @@ void InputMethodMenuButton::RunMenu(views::View* unused_source,
   menu_->RunMenu(unused_source, pt);
 }
 
+bool InputMethodMenuButton::WindowIsActive() {
+  Browser* active_browser = BrowserList::GetLastActive();
+  if (!active_browser) {
+    // Can't get an active browser. Just return true, which is safer.
+    return true;
+  }
+  BrowserWindow* active_window = active_browser->window();
+  const views::Window* current_window = GetWindow();
+  if (!active_window || !current_window) {
+    // Can't get an active or current window. Just return true as well.
+    return true;
+  }
+  return active_window->GetNativeHandle() == current_window->GetNativeWindow();
+}
+
 void InputMethodMenuButton::UpdateUI(const std::string& input_method_id,
                                      const std::wstring& name,
                                      const std::wstring& tooltip,
@@ -130,7 +131,19 @@ void InputMethodMenuButton::UpdateUI(const std::string& input_method_id,
     SetTooltipText(tooltip);
   }
   SetText(name);
-  SchedulePaint();
+
+  if (WindowIsActive()) {
+    // We don't call these functions if the |current_window| is not active since
+    // the calls are relatively expensive (crosbug.com/9206). Please note that
+    // PrepareMenu() is necessary for fixing crosbug.com/7522 when the window
+    // is active.
+    menu_->PrepareMenu();
+    SchedulePaint();
+  }
+
+  // TODO(yusukes): For a window which isn't on top, probably it's better to
+  // update the texts when the window gets activated because SetTooltipText()
+  // and SetText() are also expensive.
 }
 
 void InputMethodMenuButton::OpenConfigUI() {

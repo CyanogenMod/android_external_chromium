@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,11 @@
 
 #include "base/string_util.h"
 #include "base/string_number_conversions.h"
+#include "base/stringprintf.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/common/chrome_constants.h"
-#include "chrome/common/gpu_info.h"
 #include "chrome/installer/util/google_update_settings.h"
+#include "content/common/gpu/gpu_info.h"
 #include "googleurl/src/gurl.h"
 
 namespace child_process_logging {
@@ -137,11 +138,11 @@ void SetGpuInfo(const GPUInfo& gpu_info) {
       return;
   }
   (set_gpu_info)(
-      base::UintToString16(gpu_info.vendor_id()).c_str(),
-      base::UintToString16(gpu_info.device_id()).c_str(),
-      UTF8ToUTF16(gpu_info.driver_version()).c_str(),
-      base::UintToString16(gpu_info.pixel_shader_version()).c_str(),
-      base::UintToString16(gpu_info.vertex_shader_version()).c_str());
+      base::StringPrintf(L"0x%04x", gpu_info.vendor_id).c_str(),
+      base::StringPrintf(L"0x%04x", gpu_info.device_id).c_str(),
+      UTF8ToUTF16(gpu_info.driver_version).c_str(),
+      UTF8ToUTF16(gpu_info.pixel_shader_version).c_str(),
+      UTF8ToUTF16(gpu_info.vertex_shader_version).c_str());
 }
 
 void SetNumberOfViews(int number_of_views) {

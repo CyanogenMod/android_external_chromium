@@ -11,10 +11,11 @@
 #include <set>
 #include <string>
 
-#include "base/ref_counted.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/threading/non_thread_safe.h"
 #include "base/values.h"
+#include "chrome/common/json_pref_store.h"
 
 class DefaultPrefStore;
 class FilePath;
@@ -29,9 +30,11 @@ class Profile;
 
 namespace subtle {
 class PrefMemberBase;
+class ScopedUserPrefUpdateBase;
 };
 
-class PrefService : public base::NonThreadSafe {
+class PrefService : public base::NonThreadSafe,
+                    public JsonPrefStore::Delegate {
  public:
   // A helper class to store all the information associated with a preference.
   class Preference {
@@ -110,6 +113,15 @@ class PrefService : public base::NonThreadSafe {
     DISALLOW_COPY_AND_ASSIGN(Preference);
   };
 
+  class Delegate {
+   public:
+    virtual void OnPrefsLoaded(PrefService* prefs, bool success) = 0;
+  };
+
+  // JsonPrefStore::Delegate implementaion.
+  virtual void OnPrefsRead(PersistentPrefStore::PrefReadError error,
+                           bool no_dir);
+
   // Factory method that creates a new instance of a PrefService with the
   // applicable PrefStores. The |pref_filename| points to the user preference
   // file. The |profile| is the one to which these preferences apply; it may be
@@ -120,6 +132,12 @@ class PrefService : public base::NonThreadSafe {
   static PrefService* CreatePrefService(const FilePath& pref_filename,
                                         PrefStore* extension_pref_store,
                                         Profile* profile);
+
+  // Same as above, but with async initialization.
+  static PrefService* CreatePrefServiceAsync(const FilePath& pref_filename,
+                                             PrefStore* extension_pref_store,
+                                             Profile* profile,
+                                             Delegate* delegate);
 
   // Creates an incognito copy of the pref service that shares most pref stores
   // but uses a fresh non-persistent overlay for the user pref store and an
@@ -147,6 +165,9 @@ class PrefService : public base::NonThreadSafe {
 
   // Serializes the data and schedules save using ImportantFileWriter.
   void ScheduleSavePersistentPrefs();
+
+  // Lands pending writes to disk.
+  void CommitPendingWrite();
 
   // Make the PrefService aware of a pref.
   void RegisterBooleanPref(const char* path, bool default_value);
@@ -189,15 +210,19 @@ class PrefService : public base::NonThreadSafe {
   void ClearPref(const char* path);
 
   // If the path is valid (i.e., registered), update the pref value in the user
-  // prefs. Seting a null value on a preference of List or Dictionary type is
-  // equivalent to removing the user value for that preference, allowing the
-  // default value to take effect unless another value takes precedence.
+  // prefs.
+  // To set the value of dictionary or list values in the pref tree use
+  // Set(), but to modify the value of a dictionary or list use either
+  // ListPrefUpdate or DictionaryPrefUpdate from scoped_user_pref_update.h.
   void Set(const char* path, const Value& value);
   void SetBoolean(const char* path, bool value);
   void SetInteger(const char* path, int value);
   void SetDouble(const char* path, double value);
   void SetString(const char* path, const std::string& value);
   void SetFilePath(const char* path, const FilePath& value);
+  // SetList() takes ownership of |value|. Pass a copy of the ListValue to
+  // keep ownership of the original list, if necessary.
+  void SetList(const char* path, ListValue* value);
 
   // Int64 helper methods that actually store the given value as a string.
   // Note that if obtaining the named value via GetDictionary or GetList, the
@@ -205,20 +230,6 @@ class PrefService : public base::NonThreadSafe {
   void SetInt64(const char* path, int64 value);
   int64 GetInt64(const char* path) const;
   void RegisterInt64Pref(const char* path, int64 default_value);
-
-  // Used to set the value of dictionary or list values in the pref tree.  This
-  // will create a dictionary or list if one does not exist in the pref tree.
-  // This method returns NULL only if you're requesting an unregistered pref or
-  // a non-dict/non-list pref.
-  // WARNING: Changes to the dictionary or list will not automatically notify
-  // pref observers.
-  // Use a ScopedUserPrefUpdate to update observers on changes.
-  // These should really be GetUserMutable... since we will only ever get
-  // a mutable from the user preferences store.
-  DictionaryValue* GetMutableDictionary(const char* path);
-  ListValue* GetMutableList(const char* path);
-  // TODO(battre) remove this function (hack).
-  void ReportValueChanged(const std::string& key);
 
   // Returns true if a value has been set for the specified path.
   // NOTE: this is NOT the same as FindPreference. In particular
@@ -247,7 +258,8 @@ class PrefService : public base::NonThreadSafe {
               PersistentPrefStore* user_prefs,
               PrefStore* recommended_platform_prefs,
               PrefStore* recommended_cloud_prefs,
-              DefaultPrefStore* default_store);
+              DefaultPrefStore* default_store,
+              Delegate* delegate);
 
   // The PrefNotifier handles registering and notifying preference observers.
   // It is created and owned by this PrefService. Subclasses may access it for
@@ -274,17 +286,17 @@ class PrefService : public base::NonThreadSafe {
   friend class PrefChangeRegistrar;
   friend class subtle::PrefMemberBase;
 
-  // Give access to pref_notifier();
-  friend class ScopedUserPrefUpdate;
+  // Give access to ReportUserPrefChanged() and GetMutableUserPref().
+  friend class subtle::ScopedUserPrefUpdateBase;
 
   // Construct an incognito version of the pref service. Use
   // CreateIncognitoPrefService() instead of calling this constructor directly.
   PrefService(const PrefService& original,
               PrefStore* incognito_extension_prefs);
 
-  // Returns a PrefNotifier. If you desire access to this, you will probably
-  // want to use a ScopedUserPrefUpdate.
-  PrefNotifier* pref_notifier() const;
+  // Sends notification of a changed preference. This needs to be called by
+  // a ScopedUserPrefUpdate if a DictionaryValue or ListValue is changed.
+  void ReportUserPrefChanged(const std::string& key);
 
   // If the pref at the given path changes, we call the observer's Observe
   // method with PREF_CHANGED. Note that observers should not call these methods
@@ -307,6 +319,15 @@ class PrefService : public base::NonThreadSafe {
   // This should only be called from the constructor.
   void InitFromStorage();
 
+  // Used to set the value of dictionary or list values in the user pref store.
+  // This will create a dictionary or list if one does not exist in the user
+  // pref store. This method returns NULL only if you're requesting an
+  // unregistered pref or a non-dict/non-list pref.
+  // |type| may only be Values::TYPE_DICTIONARY or Values::TYPE_LIST and
+  // |path| must point to a registered preference of type |type|.
+  // Ownership of the returned value remains at the user pref store.
+  Value* GetMutableUserPref(const char* path, Value::ValueType type);
+
   // The PrefValueStore provides prioritized preference values. It is created
   // and owned by this PrefService. Subclasses may access it for unit testing.
   scoped_ptr<PrefValueStore> pref_value_store_;
@@ -319,6 +340,10 @@ class PrefService : public base::NonThreadSafe {
   // is authoritative with respect to what the types and default values
   // of registered preferences are.
   mutable PreferenceSet prefs_;
+
+  // Holds delegator to be called after initialization, if async version
+  // is used.
+  Delegate* delegate_;
 
   DISALLOW_COPY_AND_ASSIGN(PrefService);
 };

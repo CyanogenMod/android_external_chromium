@@ -10,10 +10,12 @@
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/background_contents_service.h"
+#include "chrome/browser/background_contents_service_factory.h"
 #include "chrome/browser/character_encoding.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/gpu_data_manager.h"
 #include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/prefs/scoped_user_pref_update.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tab_contents/background_contents.h"
 #include "chrome/browser/user_style_sheet_watcher.h"
@@ -27,6 +29,7 @@
 #include "content/browser/site_instance.h"
 #include "content/browser/tab_contents/tab_contents.h"
 #include "content/browser/tab_contents/tab_contents_view.h"
+#include "content/browser/webui/web_ui.h"
 
 RenderViewHostDelegateViewHelper::RenderViewHostDelegateViewHelper() {}
 
@@ -56,9 +59,15 @@ RenderViewHostDelegateViewHelper::MaybeCreateBackgroundContents(
   if (!extension)
     return NULL;
 
+  // If the extension manifest specifies a background page, then don't allow one
+  // to be created here.
+  if (extension->background_url().is_valid())
+    return NULL;
+
   // Only allow a single background contents per app.
-  if (!profile->GetBackgroundContentsService() ||
-      profile->GetBackgroundContentsService()->GetAppBackgroundContents(
+  BackgroundContentsService* service =
+      BackgroundContentsServiceFactory::GetForProfile(profile);
+  if (!service || service->GetAppBackgroundContents(
           ASCIIToUTF16(extension->id())))
     return NULL;
 
@@ -70,15 +79,15 @@ RenderViewHostDelegateViewHelper::MaybeCreateBackgroundContents(
     return NULL;
 
   // Passed all the checks, so this should be created as a BackgroundContents.
-  return profile->GetBackgroundContentsService()->CreateBackgroundContents(
-      site, route_id, profile, frame_name, ASCIIToUTF16(extension->id()));
+  return service->CreateBackgroundContents(site, route_id, profile, frame_name,
+                                           ASCIIToUTF16(extension->id()));
 }
 
 TabContents* RenderViewHostDelegateViewHelper::CreateNewWindow(
     int route_id,
     Profile* profile,
     SiteInstance* site,
-    WebUITypeID webui_type,
+    WebUI::TypeID webui_type,
     RenderViewHostDelegate* opener,
     WindowContainerType window_container_type,
     const string16& frame_name) {
@@ -293,9 +302,14 @@ WebPreferences RenderViewHostDelegateHelper::GetWebkitPrefs(
     web_prefs.accelerated_compositing_enabled =
         gpu_enabled() &&
         !command_line.HasSwitch(switches::kDisableAcceleratedCompositing);
+    web_prefs.force_compositing_mode =
+        command_line.HasSwitch(switches::kForceCompositingMode);
     web_prefs.accelerated_2d_canvas_enabled =
         gpu_enabled() &&
         command_line.HasSwitch(switches::kEnableAccelerated2dCanvas);
+    web_prefs.accelerated_drawing_enabled =
+        gpu_enabled() &&
+        command_line.HasSwitch(switches::kEnableAcceleratedDrawing);
     web_prefs.accelerated_layers_enabled =
         !command_line.HasSwitch(switches::kDisableAcceleratedLayers);
     web_prefs.composite_to_texture_enabled =
@@ -306,8 +320,6 @@ WebPreferences RenderViewHostDelegateHelper::GetWebkitPrefs(
         !command_line.HasSwitch(switches::kDisableAcceleratedVideo);
     web_prefs.memory_info_enabled =
         command_line.HasSwitch(switches::kEnableMemoryInfo);
-    web_prefs.hyperlink_auditing_enabled =
-        !command_line.HasSwitch(switches::kNoPings);
     web_prefs.interactive_form_validation_enabled =
         !command_line.HasSwitch(switches::kDisableInteractiveFormValidation);
     web_prefs.fullscreen_enabled =
@@ -326,14 +338,12 @@ WebPreferences RenderViewHostDelegateHelper::GetWebkitPrefs(
   {  // Certain GPU features might have been blacklisted.
     GpuDataManager* gpu_data_manager = GpuDataManager::GetInstance();
     DCHECK(gpu_data_manager);
-    if (!gpu_data_manager->GpuFeatureAllowed(
-            GpuFeatureFlags::kGpuFeatureAcceleratedCompositing))
+    uint32 blacklist_flags = gpu_data_manager->GetGpuFeatureFlags().flags();
+    if (blacklist_flags & GpuFeatureFlags::kGpuFeatureAcceleratedCompositing)
       web_prefs.accelerated_compositing_enabled = false;
-    if (!gpu_data_manager->GpuFeatureAllowed(
-            GpuFeatureFlags::kGpuFeatureWebgl))
+    if (blacklist_flags & GpuFeatureFlags::kGpuFeatureWebgl)
       web_prefs.experimental_webgl_enabled = false;
-    if (!gpu_data_manager->GpuFeatureAllowed(
-            GpuFeatureFlags::kGpuFeatureMultisampling))
+    if (blacklist_flags & GpuFeatureFlags::kGpuFeatureMultisampling)
       web_prefs.gl_multisampling_enabled = false;
   }
 
@@ -341,6 +351,8 @@ WebPreferences RenderViewHostDelegateHelper::GetWebkitPrefs(
       prefs->GetBoolean(prefs::kWebKitUsesUniversalDetector);
   web_prefs.text_areas_are_resizable =
       prefs->GetBoolean(prefs::kWebKitTextAreasAreResizable);
+  web_prefs.hyperlink_auditing_enabled =
+      prefs->GetBoolean(prefs::kEnableHyperlinkAuditing);
 
   // Make sure we will set the default_encoding with canonical encoding name.
   web_prefs.default_encoding =
@@ -362,16 +374,13 @@ WebPreferences RenderViewHostDelegateHelper::GetWebkitPrefs(
 
 void RenderViewHostDelegateHelper::UpdateInspectorSetting(
     Profile* profile, const std::string& key, const std::string& value) {
-  DictionaryValue* inspector_settings =
-      profile->GetPrefs()->GetMutableDictionary(
-          prefs::kWebKitInspectorSettings);
+  DictionaryPrefUpdate update(profile->GetPrefs(),
+                              prefs::kWebKitInspectorSettings);
+  DictionaryValue* inspector_settings = update.Get();
   inspector_settings->SetWithoutPathExpansion(key,
                                               Value::CreateStringValue(value));
 }
 
 void RenderViewHostDelegateHelper::ClearInspectorSettings(Profile* profile) {
-  DictionaryValue* inspector_settings =
-      profile->GetPrefs()->GetMutableDictionary(
-          prefs::kWebKitInspectorSettings);
-  inspector_settings->Clear();
+  profile->GetPrefs()->ClearPref(prefs::kWebKitInspectorSettings);
 }

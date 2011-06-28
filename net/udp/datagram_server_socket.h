@@ -6,14 +6,12 @@
 #define NET_UDP_DATAGRAM_SERVER_SOCKET_H_
 #pragma once
 
-#include <sys/socket.h>
-
 #include "net/base/completion_callback.h"
 #include "net/udp/datagram_socket.h"
 
 namespace net {
 
-class AddressList;
+class IPEndPoint;
 class IOBuffer;
 
 // A UDP Socket.
@@ -23,7 +21,7 @@ class DatagramServerSocket : public DatagramSocket {
 
   // Initialize this socket as a server socket listening at |address|.
   // Returns a network error code.
-  virtual int Listen(const AddressList& address) = 0;
+  virtual int Listen(const IPEndPoint& address) = 0;
 
   // Read from a socket and receive sender address information.
   // |buf| is the buffer to read data into.
@@ -40,8 +38,7 @@ class DatagramServerSocket : public DatagramSocket {
   // and |address_length| alive until the callback is called.
   virtual int RecvFrom(IOBuffer* buf,
                        int buf_len,
-                       struct sockaddr* address,
-                       socklen_t* address_length,
+                       IPEndPoint* address,
                        CompletionCallback* callback) = 0;
 
   // Send to a socket with a particular destination.
@@ -55,8 +52,7 @@ class DatagramServerSocket : public DatagramSocket {
   // alive until the callback is called.
   virtual int SendTo(IOBuffer* buf,
                      int buf_len,
-                     const struct sockaddr* address,
-                     socklen_t address_length,
+                     const IPEndPoint& address,
                      CompletionCallback* callback) = 0;
 };
 

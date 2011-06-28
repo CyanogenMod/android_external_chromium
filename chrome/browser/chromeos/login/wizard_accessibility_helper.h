@@ -6,8 +6,8 @@
 #define CHROME_BROWSER_CHROMEOS_LOGIN_WIZARD_ACCESSIBILITY_HELPER_H_
 #pragma once
 
-#include "base/scoped_ptr.h"
-#include "base/singleton.h"
+#include "base/memory/scoped_ptr.h"
+#include "base/memory/singleton.h"
 #include "chrome/browser/chromeos/login/wizard_accessibility_handler.h"
 #include "content/common/notification_registrar.h"
 #include "ui/base/keycodes/keyboard_codes.h"
@@ -42,6 +42,9 @@ class WizardAccessibilityHelper {
 
   // Toggles accessibility support.
   void ToggleAccessibility();
+
+  // Initialize accessibility
+  void Init();
 
  private:
   friend struct DefaultSingletonTraits<WizardAccessibilityHelper>;

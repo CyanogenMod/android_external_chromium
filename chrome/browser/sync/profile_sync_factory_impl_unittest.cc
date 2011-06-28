@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,8 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "base/command_line.h"
 #include "base/file_path.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/message_loop.h"
-#include "base/scoped_ptr.h"
 #include "chrome/browser/sync/engine/syncapi.h"
 #include "chrome/browser/sync/glue/data_type_controller.h"
 #include "chrome/browser/sync/profile_sync_service.h"
@@ -42,11 +42,7 @@ class ProfileSyncFactoryImplTest : public testing::Test {
     datatypes.push_back(syncable::EXTENSIONS);
     datatypes.push_back(syncable::APPS);
     datatypes.push_back(syncable::AUTOFILL_PROFILE);
-// TODO(mdm): re-enable this test on Linux/BSD/etc. once we make password sync
-// compatible with GNOME Keyring.
-#if !defined(OS_POSIX) || defined(OS_MACOSX) || defined(OS_CHROMEOS)
     datatypes.push_back(syncable::PASSWORDS);
-#endif
     return datatypes;
   }
 
@@ -137,11 +133,7 @@ TEST_F(ProfileSyncFactoryImplTest, CreatePSSDisableAutofillProfile) {
                          syncable::AUTOFILL_PROFILE);
 }
 
-// TODO(mdm): re-enable this test on Linux/BSD/etc. once we make password sync
-// compatible with GNOME Keyring.
-#if !defined(OS_POSIX) || defined(OS_MACOSX) || defined(OS_CHROMEOS)
 TEST_F(ProfileSyncFactoryImplTest, CreatePSSDisablePasswords) {
   TestSwitchDisablesType(switches::kDisableSyncPasswords,
                          syncable::PASSWORDS);
 }
-#endif

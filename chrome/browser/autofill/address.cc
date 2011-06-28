@@ -4,7 +4,10 @@
 
 #include "chrome/browser/autofill/address.h"
 
+#include <stddef.h>
+
 #include "base/basictypes.h"
+#include "base/logging.h"
 #include "base/string_util.h"
 #include "chrome/browser/autofill/autofill_country.h"
 #include "chrome/browser/autofill/autofill_type.h"
@@ -14,7 +17,7 @@ namespace {
 
 const char16 kAddressSplitChars[] = {'-', ',', '#', '.', ' ', 0};
 
-const AutofillType::FieldTypeSubGroup kAutoFillAddressTypes[] = {
+const AutofillType::FieldTypeSubGroup kAutofillAddressTypes[] = {
   AutofillType::ADDRESS_LINE1,
   AutofillType::ADDRESS_LINE2,
   AutofillType::ADDRESS_CITY,
@@ -23,16 +26,31 @@ const AutofillType::FieldTypeSubGroup kAutoFillAddressTypes[] = {
   AutofillType::ADDRESS_COUNTRY,
 };
 
-const int kAutoFillAddressLength = arraysize(kAutoFillAddressTypes);
+const int kAutofillAddressLength = arraysize(kAutofillAddressTypes);
 
 }  // namespace
 
 Address::Address() {}
 
+Address::Address(const Address& address) : FormGroup() {
+  *this = address;
+}
+
 Address::~Address() {}
 
-FormGroup* Address::Clone() const {
-  return new Address(*this);
+Address& Address::operator=(const Address& address) {
+  if (this == &address)
+    return *this;
+
+  line1_tokens_ = address.line1_tokens_;
+  line2_tokens_= address.line2_tokens_;
+  line1_ = address.line1_;
+  line2_ = address.line2_;
+  city_ = address.city_;
+  state_ = address.state_;
+  country_code_ = address.country_code_;
+  zip_code_ = address.zip_code_;
+  return *this;
 }
 
 void Address::GetPossibleFieldTypes(const string16& text,
@@ -85,48 +103,30 @@ void Address::GetAvailableFieldTypes(FieldTypeSet* available_types) const {
     available_types->insert(ADDRESS_HOME_COUNTRY);
 }
 
-void Address::FindInfoMatches(const AutofillType& type,
-                              const string16& info,
-                              std::vector<string16>* matched_text) const {
-  DCHECK(matched_text);
-
-  string16 match;
-  if (type.field_type() == UNKNOWN_TYPE) {
-    for (int i = 0; i < kAutoFillAddressLength; ++i) {
-      if (FindInfoMatchesHelper(kAutoFillAddressTypes[i], info, &match))
-        matched_text->push_back(match);
-    }
-  } else {
-    if (FindInfoMatchesHelper(type.subgroup(), info, &match))
-      matched_text->push_back(match);
-  }
-}
-
-string16 Address::GetFieldText(const AutofillType& type) const {
-  AutofillFieldType field_type = type.field_type();
-  if (field_type == ADDRESS_HOME_LINE1)
+string16 Address::GetInfo(AutofillFieldType type) const {
+  if (type == ADDRESS_HOME_LINE1)
     return line1_;
 
-  if (field_type == ADDRESS_HOME_LINE2)
+  if (type == ADDRESS_HOME_LINE2)
     return line2_;
 
-  if (field_type == ADDRESS_HOME_CITY)
+  if (type == ADDRESS_HOME_CITY)
     return city_;
 
-  if (field_type == ADDRESS_HOME_STATE)
+  if (type == ADDRESS_HOME_STATE)
     return state_;
 
-  if (field_type ==  ADDRESS_HOME_ZIP)
+  if (type ==  ADDRESS_HOME_ZIP)
     return zip_code_;
 
-  if (field_type == ADDRESS_HOME_COUNTRY)
+  if (type == ADDRESS_HOME_COUNTRY)
     return Country();
 
   return string16();
 }
 
-void Address::SetInfo(const AutofillType& type, const string16& value) {
-  FieldTypeSubGroup subgroup = type.subgroup();
+void Address::SetInfo(AutofillFieldType type, const string16& value) {
+  FieldTypeSubGroup subgroup = AutofillType(type).subgroup();
   if (subgroup == AutofillType::ADDRESS_LINE1)
     set_line1(value);
   else if (subgroup == AutofillType::ADDRESS_LINE2)
@@ -152,18 +152,6 @@ void Address::Clear() {
   state_.clear();
   country_code_.clear();
   zip_code_.clear();
-}
-
-Address::Address(const Address& address)
-    : FormGroup(),
-      line1_tokens_(address.line1_tokens_),
-      line2_tokens_(address.line2_tokens_),
-      line1_(address.line1_),
-      line2_(address.line2_),
-      city_(address.city_),
-      state_(address.state_),
-      country_code_(address.country_code_),
-      zip_code_(address.zip_code_) {
 }
 
 string16 Address::Country() const {
@@ -221,35 +209,6 @@ bool Address::IsCountry(const string16& text) const {
 
 bool Address::IsZipCode(const string16& text) const {
   return zip_code_ == text;
-}
-
-bool Address::FindInfoMatchesHelper(const FieldTypeSubGroup& subgroup,
-                                    const string16& info,
-                                    string16* match) const {
-  DCHECK(match);
-
-  match->clear();
-  if (subgroup == AutofillType::ADDRESS_LINE1 &&
-      StartsWith(line1_, info, false)) {
-    *match = line1_;
-  } else if (subgroup == AutofillType::ADDRESS_LINE2 &&
-             StartsWith(line2_, info, false)) {
-    *match = line2_;
-  } else if (subgroup == AutofillType::ADDRESS_CITY &&
-             StartsWith(city_, info, false)) {
-    *match = city_;
-  } else if (subgroup == AutofillType::ADDRESS_STATE &&
-             StartsWith(state_, info, false)) {
-    *match = state_;
-  } else if (subgroup == AutofillType::ADDRESS_COUNTRY &&
-             StartsWith(Country(), info, false)) {
-    *match = Country();
-  } else if (subgroup == AutofillType::ADDRESS_ZIP &&
-             StartsWith(zip_code_, info, true)) {
-    *match = zip_code_;
-  }
-
-  return !match->empty();
 }
 
 bool Address::IsLineMatch(const string16& text,

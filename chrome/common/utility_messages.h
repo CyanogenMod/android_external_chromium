@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,12 +11,11 @@
 #include "base/file_path.h"
 #include "base/platform_file.h"
 #include "base/values.h"
-#include "chrome/common/common_param_traits.h"
 #include "chrome/common/extensions/update_manifest.h"
-#include "chrome/common/indexed_db_key.h"
-#include "chrome/common/indexed_db_param_traits.h"
-#include "chrome/common/serialized_script_value.h"
 #include "content/common/common_param_traits.h"
+#include "content/common/indexed_db_key.h"
+#include "content/common/indexed_db_param_traits.h"
+#include "content/common/serialized_script_value.h"
 #include "ipc/ipc_message_macros.h"
 #include "ipc/ipc_message_utils.h"
 #include "printing/backend/print_backend.h"
@@ -26,12 +25,18 @@
 
 #define IPC_MESSAGE_START UtilityMsgStart
 
-class FilePath;
-class IndexedDBKey;
-class SerializedScriptValue;
-class SkBitmap;
+IPC_STRUCT_TRAITS_BEGIN(printing::PageRange)
+  IPC_STRUCT_TRAITS_MEMBER(from)
+  IPC_STRUCT_TRAITS_MEMBER(to)
+IPC_STRUCT_TRAITS_END()
 
-// Traits for UpdateManifest::Result.
+IPC_STRUCT_TRAITS_BEGIN(printing::PrinterCapsAndDefaults)
+  IPC_STRUCT_TRAITS_MEMBER(printer_capabilities)
+  IPC_STRUCT_TRAITS_MEMBER(caps_mime_type)
+  IPC_STRUCT_TRAITS_MEMBER(printer_defaults)
+  IPC_STRUCT_TRAITS_MEMBER(defaults_mime_type)
+IPC_STRUCT_TRAITS_END()
+
 IPC_STRUCT_TRAITS_BEGIN(UpdateManifest::Result)
   IPC_STRUCT_TRAITS_MEMBER(extension_id)
   IPC_STRUCT_TRAITS_MEMBER(version)
@@ -40,7 +45,6 @@ IPC_STRUCT_TRAITS_BEGIN(UpdateManifest::Result)
   IPC_STRUCT_TRAITS_MEMBER(crx_url)
 IPC_STRUCT_TRAITS_END()
 
-// Traits for UpdateManifest::Results
 IPC_STRUCT_TRAITS_BEGIN(UpdateManifest::Results)
   IPC_STRUCT_TRAITS_MEMBER(list)
   IPC_STRUCT_TRAITS_MEMBER(daystart_elapsed_seconds)
@@ -67,6 +71,11 @@ IPC_MESSAGE_CONTROL1(UtilityMsg_ParseUpdateManifest,
 IPC_MESSAGE_CONTROL1(UtilityMsg_DecodeImage,
                      std::vector<unsigned char>)  // encoded image contents
 
+// Tell the utility process to decode the given image data, which is base64
+// encoded.
+IPC_MESSAGE_CONTROL1(UtilityMsg_DecodeImageBase64,
+                     std::string)  // base64 encoded image contents
+
 // Tell the utility process to render the given PDF into a metafile.
 IPC_MESSAGE_CONTROL5(UtilityMsg_RenderPDFPagesToMetafile,
                      base::PlatformFile,       // PDF file
@@ -85,7 +94,11 @@ IPC_MESSAGE_CONTROL3(UtilityMsg_IDBKeysFromValuesAndKeyPath,
 IPC_MESSAGE_CONTROL3(UtilityMsg_InjectIDBKey,
                      IndexedDBKey /* key */,
                      SerializedScriptValue /* value */,
-                     string16 /* key path*/);
+                     string16 /* key path*/)
+
+// Tell the utility process to parse a JSON string into a Value object.
+IPC_MESSAGE_CONTROL1(UtilityMsg_ParseJSON,
+                     std::string /* JSON to parse */)
 
 // Tells the utility process that it's running in batch mode.
 IPC_MESSAGE_CONTROL0(UtilityMsg_BatchMode_Started)
@@ -174,6 +187,19 @@ IPC_MESSAGE_CONTROL1(UtilityHostMsg_IDBKeysFromValuesAndKeyPath_Failed,
 IPC_MESSAGE_CONTROL1(UtilityHostMsg_InjectIDBKey_Finished,
                      SerializedScriptValue /* new value */)
 
+// Reply when the utility process successfully parsed a JSON string.
+//
+// WARNING: The result can be of any Value subclass type, but we can't easily
+// pass indeterminate value types by const object reference with our IPC macros,
+// so we put the result Value into a ListValue. Handlers should examine the
+// first (and only) element of the ListValue for the actual result.
+IPC_MESSAGE_CONTROL1(UtilityHostMsg_ParseJSON_Succeeded,
+                     ListValue)
+
+// Reply when the utility process failed in parsing a JSON string.
+IPC_MESSAGE_CONTROL1(UtilityHostMsg_ParseJSON_Failed,
+                     std::string /* error message, if any*/)
+
 // Reply when the utility process has succeeded in obtaining the printer
 // capabilities and defaults.
 IPC_MESSAGE_CONTROL2(UtilityHostMsg_GetPrinterCapsAndDefaults_Succeeded,
@@ -184,4 +210,3 @@ IPC_MESSAGE_CONTROL2(UtilityHostMsg_GetPrinterCapsAndDefaults_Succeeded,
 // capabilities and defaults.
 IPC_MESSAGE_CONTROL1(UtilityHostMsg_GetPrinterCapsAndDefaults_Failed,
                      std::string /* printer name */)
-

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,7 @@
 #include "chrome/browser/download/download_item_model.h"
 #include "chrome/browser/download/download_shelf.h"
 #include "chrome/browser/download/download_util.h"
-#import "chrome/browser/themes/browser_theme_provider.h"
+#import "chrome/browser/themes/theme_service.h"
 #import "chrome/browser/ui/cocoa/download/download_item_button.h"
 #import "chrome/browser/ui/cocoa/download/download_item_cell.h"
 #include "chrome/browser/ui/cocoa/download/download_item_mac.h"
@@ -231,7 +231,7 @@ class DownloadShelfContextMenuMac : public DownloadShelfContextMenu {
   }
 
   // Set correct popup menu. Also, set draggable download on completion.
-  if (downloadModel->download()->state() == DownloadItem::COMPLETE) {
+  if (downloadModel->download()->IsComplete()) {
     [progressView_ setMenu:completeDownloadMenu_];
     [progressView_ setDownload:downloadModel->download()->full_path()];
   } else {
@@ -324,7 +324,7 @@ class DownloadShelfContextMenuMac : public DownloadShelfContextMenu {
 // Called after the current theme has changed.
 - (void)themeDidChangeNotification:(NSNotification*)aNotification {
   ui::ThemeProvider* themeProvider =
-      static_cast<ui::ThemeProvider*>([[aNotification object] pointerValue]);
+      static_cast<ThemeService*>([[aNotification object] pointerValue]);
   [self updateTheme:themeProvider];
 }
 
@@ -332,7 +332,7 @@ class DownloadShelfContextMenuMac : public DownloadShelfContextMenu {
 // this is shown for the first time.
 - (void)updateTheme:(ui::ThemeProvider*)themeProvider {
   NSColor* color =
-      themeProvider->GetNSColor(BrowserThemeProvider::COLOR_TAB_TEXT, true);
+      themeProvider->GetNSColor(ThemeService::COLOR_TAB_TEXT, true);
   [dangerousDownloadLabel_ setTextColor:color];
 }
 
@@ -348,10 +348,10 @@ class DownloadShelfContextMenuMac : public DownloadShelfContextMenu {
 - (IBAction)discardDownload:(id)sender {
   UMA_HISTOGRAM_LONG_TIMES("clickjacking.discard_download",
                            base::Time::Now() - creationTime_);
-  if (bridge_->download_model()->download()->state() ==
-      DownloadItem::IN_PROGRESS)
-    bridge_->download_model()->download()->Cancel(true);
-  bridge_->download_model()->download()->Remove(true);
+  DownloadItem* download = bridge_->download_model()->download();
+  if (download->IsPartialDownload())
+    download->Cancel(true);
+  download->Delete(DownloadItem::DELETE_DUE_TO_USER_DISCARD);
   // WARNING: we are deleted at this point.  Don't access 'this'.
 }
 

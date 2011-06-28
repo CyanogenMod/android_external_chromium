@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,8 @@
 
 #include "base/file_path.h"
 #include "base/file_util.h"
-#include "base/ref_counted.h"
-#include "base/scoped_temp_dir.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_temp_dir.h"
 #include "content/browser/browser_thread.h"
 #include "googleurl/src/gurl.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -38,6 +38,12 @@ const char kNoRulesPolicy[] = "# This is a policy with no rules\n"
                               "plugin test.so\n";
 
 const char kEmptyPolicy[] = "# This is an empty policy\n";
+
+const char kGlobalPolicy[] = "# This is a test with global deny/allow\n"
+                             "plugin test.so\n"
+                             "deny\n"
+                             "plugin test1.so\n"
+                             "allow\n";
 
 const char kCommentTestPolicy[] = "# This is a policy with inline comments.\n"
                                   "plugin test.so# like this\n"
@@ -138,6 +144,13 @@ TEST_F(PluginSelectionPolicyTest, InitFromFile) {
 
   {
     FilePath path;
+    ASSERT_TRUE(CreatePolicy("global", kGlobalPolicy, &path));
+    scoped_refptr<PluginSelectionPolicy> policy = new PluginSelectionPolicy;
+    EXPECT_TRUE(policy->InitFromFile(path));
+  }
+
+  {
+    FilePath path;
     ASSERT_TRUE(CreatePolicy("comment", kCommentTestPolicy, &path));
     scoped_refptr<PluginSelectionPolicy> policy = new PluginSelectionPolicy;
     EXPECT_TRUE(policy->InitFromFile(path));
@@ -145,7 +158,7 @@ TEST_F(PluginSelectionPolicyTest, InitFromFile) {
 
   {
     FilePath path;
-    ASSERT_TRUE(CreatePolicy("comment", kMultiPluginTestPolicy, &path));
+    ASSERT_TRUE(CreatePolicy("multi_plugin", kMultiPluginTestPolicy, &path));
     scoped_refptr<PluginSelectionPolicy> policy = new PluginSelectionPolicy;
     EXPECT_TRUE(policy->InitFromFile(path));
   }

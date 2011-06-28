@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 #include <string>
 
 #include "base/basictypes.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/string16.h"
 
 class AutocompleteController;
@@ -42,6 +42,10 @@ class AutocompleteClassifier {
 
  private:
   scoped_ptr<AutocompleteController> controller_;
+
+  // Are we currently in Classify? Used to verify Classify isn't invoked
+  // recursively, since this can corrupt state and cause crashes.
+  bool inside_classify_;
 
   DISALLOW_IMPLICIT_CONSTRUCTORS(AutocompleteClassifier);
 };

@@ -41,10 +41,16 @@ cr.define('options', function() {
   /**
    * Returns the item's height, like offsetHeight but such that it works better
    * when the page is zoomed. See the similar calculation in @{code cr.ui.List}.
+   * This version also accounts for the animation done in this file.
    * @param {Element} item The item to get the height of.
    * @return {number} The height of the item, calculated with zooming in mind.
    */
   function getItemHeight(item) {
+    var height = item.style.height;
+    // Use the fixed animation target height if set, in case the element is
+    // currently being animated and we'd get an intermediate height below.
+    if (height && height.substr(-2) == 'px')
+      return parseInt(height.substr(0, height.length - 2));
     return item.getBoundingClientRect().height;
   }
 
@@ -105,8 +111,10 @@ cr.define('options', function() {
       content.appendChild(this.dataChild);
       content.appendChild(this.itemsChild);
       this.itemsChild.appendChild(this.infoChild);
-      if (this.origin && this.origin.data)
+      if (this.origin && this.origin.data) {
         this.siteChild.textContent = this.origin.data.title;
+        this.siteChild.setAttribute('title', this.origin.data.title);
+      }
       this.itemList_ = [];
     },
 
@@ -119,8 +127,11 @@ cr.define('options', function() {
         return;
       this.expanded_ = expanded;
       if (expanded) {
+        var oldExpanded = this.list.expandedItem;
         this.list.expandedItem = this;
         this.updateItems_();
+        if (oldExpanded)
+          oldExpanded.expanded = false;
         this.classList.add('show-items');
       } else {
         if (this.list.expandedItem == this) {
@@ -177,7 +188,7 @@ cr.define('options', function() {
       this.classList.remove('measure-items');
       this.itemsChild.style.height = itemsHeight + 'px';
       this.style.height = fixedHeight + 'px';
-      if (this.selected)
+      if (this.expanded)
         this.list.leadItemHeight = fixedHeight;
     },
 
@@ -214,7 +225,7 @@ cr.define('options', function() {
         else
           text = list[i];
       this.dataChild.textContent = text;
-      if (this.selected)
+      if (this.expanded)
         this.updateItems_();
     },
 
@@ -268,14 +279,26 @@ cr.define('options', function() {
      * @param {number} itemIndex The index to set as the selected index.
      */
     set selectedIndex(itemIndex) {
-      if (itemIndex < 0 || itemIndex >= this.itemList_.length)
-        return;
+      // Get the list index up front before we change anything.
       var index = this.list.getIndexOfListItem(this);
+      // Unselect any previously selected item.
       if (this.selectedIndex_ >= 0) {
         var item = this.itemList_[this.selectedIndex_];
         if (item && item.div)
           item.div.removeAttribute('selected');
       }
+      // Special case: decrementing -1 wraps around to the end of the list.
+      if (itemIndex == -2)
+        itemIndex = this.itemList_.length - 1;
+      // Check if we're going out of bounds and hide the item details.
+      if (itemIndex < 0 || itemIndex >= this.itemList_.length) {
+        this.selectedIndex_ = -1;
+        this.disableAnimation_();
+        this.infoChild.classList.add('hidden');
+        this.enableAnimation_();
+        return;
+      }
+      // Set the new selected item and show the item details for it.
       this.selectedIndex_ = itemIndex;
       this.itemList_[itemIndex].div.setAttribute('selected', '');
       this.disableAnimation_();
@@ -427,7 +450,12 @@ cr.define('options', function() {
         div.setAttribute('role', 'button');
         div.textContent = text;
         var index = item.appendItem(this, div);
-        div.onclick = function() { item.selectedIndex = index; };
+        div.onclick = function() {
+          if (item.selectedIndex == index)
+            item.selectedIndex = -1;
+          else
+            item.selectedIndex = index;
+        };
       }
     },
 
@@ -610,10 +638,19 @@ cr.define('options', function() {
       ce.changes.forEach(function(change) {
           var listItem = this.getListItemByIndex(change.index);
           if (listItem) {
-            if (!change.selected)
-              listItem.expanded = false;
-            else if (listItem.lead)
+            if (!change.selected) {
+              // We set a timeout here, rather than setting the item unexpanded
+              // immediately, so that if another item gets set expanded right
+              // away, it will be expanded before this item is unexpanded. It
+              // will notice that, and unexpand this item in sync with its own
+              // expansion. Later, this callback will end up having no effect.
+              window.setTimeout(function() {
+                if (!listItem.selected || !listItem.lead)
+                  listItem.expanded = false;
+              }, 0);
+            } else if (listItem.lead) {
               listItem.expanded = true;
+            }
           }
         }, this);
     },
@@ -626,8 +663,13 @@ cr.define('options', function() {
     cookieLeadChange_: function(pe) {
       if (pe.oldValue != -1) {
         var listItem = this.getListItemByIndex(pe.oldValue);
-        if (listItem)
-          listItem.expanded = false;
+        if (listItem) {
+          // See cookieSelectionChange_ above for why we use a timeout here.
+          window.setTimeout(function() {
+            if (!listItem.lead || !listItem.selected)
+              listItem.expanded = false;
+          }, 0);
+        }
       }
       if (pe.newValue != -1) {
         var listItem = this.getListItemByIndex(pe.newValue);

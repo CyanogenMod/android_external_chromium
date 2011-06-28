@@ -1,12 +1,12 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <string>
 
 #include "base/file_util.h"
-#include "base/path_service.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
+#include "base/memory/scoped_temp_dir.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/history/text_database.h"
@@ -87,20 +87,12 @@ bool ResultsHaveURL(const std::vector<TextDatabase::Match>& results,
 
 class TextDatabaseTest : public PlatformTest {
  public:
-  TextDatabaseTest() : db_(NULL) {
-  }
+  TextDatabaseTest() {}
 
  protected:
   void SetUp() {
     PlatformTest::SetUp();
-    PathService::Get(base::DIR_TEMP, &temp_path_);
-  }
-
-  void TearDown() {
-    for (size_t i = 0; i < opened_files_.size(); i++)
-      file_util::Delete(opened_files_[i], false);
-    file_util::Delete(file_name_, false);
-    PlatformTest::TearDown();
+    ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
   }
 
   // Create databases with this function, which will ensure that the files are
@@ -113,7 +105,7 @@ class TextDatabaseTest : public PlatformTest {
   TextDatabase* CreateDB(TextDatabase::DBIdent id,
                          bool allow_create,
                          bool delete_file) {
-    TextDatabase* db = new TextDatabase(temp_path_, id, allow_create);
+    TextDatabase* db = new TextDatabase(temp_dir_.path(), id, allow_create);
 
     if (delete_file)
       file_util::Delete(db->file_name(), false);
@@ -122,18 +114,14 @@ class TextDatabaseTest : public PlatformTest {
       delete db;
       return NULL;
     }
-    opened_files_.push_back(db->file_name());
     return db;
   }
 
   // Directory containing the databases.
-  FilePath temp_path_;
+  ScopedTempDir temp_dir_;
 
   // Name of the main database file.
   FilePath file_name_;
-  sqlite3* db_;
-
-  std::vector<FilePath> opened_files_;
 };
 
 TEST_F(TextDatabaseTest, AttachDetach) {
@@ -185,7 +173,7 @@ TEST_F(TextDatabaseTest, AddRemove) {
   EXPECT_EQ(2, RowCount(db.get()));
 
   // Close and reopen.
-  db.reset(new TextDatabase(temp_path_, kIdee1, false));
+  db.reset(new TextDatabase(temp_dir_.path(), kIdee1, false));
   EXPECT_TRUE(db->Init());
 
   // Verify that the deleted ID is gone and try to delete another one.

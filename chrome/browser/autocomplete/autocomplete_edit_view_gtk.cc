@@ -24,8 +24,8 @@
 #include "chrome/browser/ui/gtk/gtk_util.h"
 #include "chrome/browser/ui/gtk/view_id_util.h"
 #include "chrome/browser/ui/toolbar/toolbar_model.h"
-#include "chrome/common/notification_service.h"
 #include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/notification_service.h"
 #include "googleurl/src/gurl.h"
 #include "grit/generated_resources.h"
 #include "net/base/escape.h"
@@ -47,7 +47,7 @@
 #include "views/events/event.h"
 #else
 #include "chrome/browser/autocomplete/autocomplete_popup_view_gtk.h"
-#include "chrome/browser/ui/gtk/gtk_theme_provider.h"
+#include "chrome/browser/ui/gtk/gtk_theme_service.h"
 #include "chrome/browser/ui/gtk/location_bar_view_gtk.h"
 #endif
 
@@ -186,7 +186,7 @@ AutocompleteEditViewGtk::AutocompleteEditViewGtk(
 #if defined(TOOLKIT_VIEWS)
       location_bar_view_(location_bar),
 #else
-      theme_provider_(GtkThemeProvider::GetFrom(profile)),
+      theme_service_(GtkThemeService::GetFrom(profile)),
 #endif
       enter_was_pressed_(false),
       tab_was_pressed_(false),
@@ -411,7 +411,7 @@ void AutocompleteEditViewGtk::Init() {
   registrar_.Add(this,
                  NotificationType::BROWSER_THEME_CHANGED,
                  NotificationService::AllSources());
-  theme_provider_->InitThemesFor(this);
+  theme_service_->InitThemesFor(this);
 #else
   // Manually invoke SetBaseColor() because TOOLKIT_VIEWS doesn't observe
   // themes.
@@ -699,17 +699,18 @@ bool AutocompleteEditViewGtk::OnAfterPossibleChange() {
     return false;
   }
 
-  CharRange new_sel = GetSelection();
-  int length = GetTextLength();
-  bool selection_differs =
+  const CharRange new_sel = GetSelection();
+  const int length = GetTextLength();
+  const bool selection_differs =
       ((new_sel.cp_min != new_sel.cp_max) ||
        (sel_before_change_.cp_min != sel_before_change_.cp_max)) &&
       ((new_sel.cp_min != sel_before_change_.cp_min) ||
        (new_sel.cp_max != sel_before_change_.cp_max));
-  bool at_end_of_edit = (new_sel.cp_min == length && new_sel.cp_max == length);
+  const bool at_end_of_edit =
+      (new_sel.cp_min == length && new_sel.cp_max == length);
 
   // See if the text or selection have changed since OnBeforePossibleChange().
-  string16 new_text(GetText());
+  const string16 new_text(GetText());
   text_changed_ = (new_text != text_before_change_);
 #if GTK_CHECK_VERSION(2, 20, 0)
   text_changed_ =
@@ -724,17 +725,17 @@ bool AutocompleteEditViewGtk::OnAfterPossibleChange() {
   // (or typing) the prefix of that selection.  (We detect these by making
   // sure the caret, which should be after any insertion, hasn't moved
   // forward of the old selection start.)
-  bool just_deleted_text =
+  const bool just_deleted_text =
       (text_before_change_.length() > new_text.length()) &&
       (new_sel.cp_min <= std::min(sel_before_change_.cp_min,
                                  sel_before_change_.cp_max));
 
   delete_at_end_pressed_ = false;
 
-  bool allow_keyword_ui_change = at_end_of_edit && !IsImeComposing();
-  bool something_changed = model_->OnAfterPossibleChange(new_text,
+  const bool something_changed = model_->OnAfterPossibleChange(
+      new_text, new_sel.selection_min(), new_sel.selection_max(),
       selection_differs, text_changed_, just_deleted_text,
-      allow_keyword_ui_change);
+      !IsImeComposing());
 
   // If only selection was changed, we don't need to call |controller_|'s
   // OnChanged() method, which is called in TextChanged().
@@ -761,7 +762,8 @@ CommandUpdater* AutocompleteEditViewGtk::GetCommandUpdater() {
   return command_updater_;
 }
 
-void AutocompleteEditViewGtk::SetInstantSuggestion(const string16& suggestion) {
+void AutocompleteEditViewGtk::SetInstantSuggestion(const string16& suggestion,
+                                                   bool animate_to_complete) {
   std::string suggestion_utf8 = UTF16ToUTF8(suggestion);
 
   gtk_label_set_text(GTK_LABEL(instant_view_), suggestion_utf8.c_str());
@@ -772,7 +774,7 @@ void AutocompleteEditViewGtk::SetInstantSuggestion(const string16& suggestion) {
     gtk_widget_hide(instant_view_);
     return;
   }
-  if (InstantController::IsEnabled(model_->profile())
+  if (animate_to_complete
 #if GTK_CHECK_VERSION(2, 20, 0)
       && preedit_.empty()
 #endif
@@ -942,7 +944,7 @@ void AutocompleteEditViewGtk::SetBaseColor() {
 #if defined(TOOLKIT_VIEWS)
   bool use_gtk = false;
 #else
-  bool use_gtk = theme_provider_->UseGtkTheme();
+  bool use_gtk = theme_service_->UseGtkTheme();
 #endif
   if (use_gtk) {
     gtk_widget_modify_cursor(text_view_, NULL, NULL);
@@ -985,19 +987,19 @@ void AutocompleteEditViewGtk::SetBaseColor() {
     // Override the selected colors so we don't leak colors from the current
     // gtk theme into the chrome-theme.
     c = gfx::SkColorToGdkColor(
-        theme_provider_->get_active_selection_bg_color());
+        theme_service_->get_active_selection_bg_color());
     gtk_widget_modify_base(text_view_, GTK_STATE_SELECTED, &c);
 
     c = gfx::SkColorToGdkColor(
-        theme_provider_->get_active_selection_fg_color());
+        theme_service_->get_active_selection_fg_color());
     gtk_widget_modify_text(text_view_, GTK_STATE_SELECTED, &c);
 
     c = gfx::SkColorToGdkColor(
-        theme_provider_->get_inactive_selection_bg_color());
+        theme_service_->get_inactive_selection_bg_color());
     gtk_widget_modify_base(text_view_, GTK_STATE_ACTIVE, &c);
 
     c = gfx::SkColorToGdkColor(
-        theme_provider_->get_inactive_selection_fg_color());
+        theme_service_->get_inactive_selection_fg_color());
     gtk_widget_modify_text(text_view_, GTK_STATE_ACTIVE, &c);
 #endif
 
@@ -1020,7 +1022,7 @@ void AutocompleteEditViewGtk::UpdateInstantViewColors() {
 #if defined(TOOLKIT_VIEWS)
   bool use_gtk = false;
 #else
-  bool use_gtk = theme_provider_->UseGtkTheme();
+  bool use_gtk = theme_service_->UseGtkTheme();
 #endif
 
   if (use_gtk) {
@@ -1047,9 +1049,9 @@ void AutocompleteEditViewGtk::UpdateInstantViewColors() {
 #else
     normal_bg = LocationBarViewGtk::kBackgroundColor;
     selection_text =
-        theme_provider_->get_active_selection_fg_color();
+        theme_service_->get_active_selection_fg_color();
     selection_bg =
-        theme_provider_->get_active_selection_bg_color();
+        theme_service_->get_active_selection_bg_color();
 #endif
   }
 
@@ -1222,8 +1224,8 @@ gboolean AutocompleteEditViewGtk::HandleKeyPress(GtkWidget* widget,
   }
 
 #if defined(TOOLKIT_VIEWS)
-  location_bar_view_->NotifyAccessibilityEvent(
-      AccessibilityTypes::EVENT_TEXT_CHANGED);
+  location_bar_view_->GetWidget()->NotifyAccessibilityEvent(
+      location_bar_view_, ui::AccessibilityTypes::EVENT_TEXT_CHANGED, true);
 #endif
 
   return result;
@@ -1547,6 +1549,16 @@ void AutocompleteEditViewGtk::HandleMarkSet(GtkTextBuffer* buffer,
 void AutocompleteEditViewGtk::HandleMarkSetAfter(GtkTextBuffer* buffer,
                                                  GtkTextIter* location,
                                                  GtkTextMark* mark) {
+  if (!text_buffer_ || buffer != text_buffer_)
+    return;
+
+  // We should only update primary selection when the user changes the selection
+  // range.
+  if (mark != gtk_text_buffer_get_insert(text_buffer_) &&
+      mark != gtk_text_buffer_get_selection_bound(text_buffer_)) {
+    return;
+  }
+
   UpdatePrimarySelectionIfValidURL();
 }
 
@@ -1776,7 +1788,7 @@ gfx::Font AutocompleteEditViewGtk::GetFont() {
 #if defined(TOOLKIT_VIEWS)
   bool use_gtk = false;
 #else
-  bool use_gtk = theme_provider_->UseGtkTheme();
+  bool use_gtk = theme_service_->UseGtkTheme();
 #endif
 
   if (use_gtk) {

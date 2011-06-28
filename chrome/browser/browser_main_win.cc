@@ -5,32 +5,37 @@
 #include "chrome/browser/browser_main.h"
 #include "chrome/browser/browser_main_win.h"
 
-#include <windows.h>
 #include <shellapi.h>
+#include <windows.h>
 
 #include <algorithm>
 
 #include "base/command_line.h"
 #include "base/environment.h"
 #include "base/i18n/rtl.h"
-#include "base/nss_util.h"
+#include "base/memory/scoped_native_library.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/path_service.h"
-#include "base/scoped_native_library.h"
-#include "base/scoped_ptr.h"
+#include "base/time.h"
 #include "base/utf_string_conversions.h"
 #include "base/win/windows_version.h"
-#include "chrome/browser/browser_list.h"
+#include "base/win/wrapped_window_proc.h"
+#include "crypto/nss_util.h"
+#include "chrome/browser/browser_util_win.h"
 #include "chrome/browser/first_run/first_run.h"
 #include "chrome/browser/metrics/metrics_service.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/views/uninstall_view.h"
+#include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/env_vars.h"
-#include "chrome/common/main_function_params.h"
-#include "chrome/common/result_codes.h"
 #include "chrome/installer/util/browser_distribution.h"
+#include "chrome/installer/util/google_update_settings.h"
 #include "chrome/installer/util/helper.h"
 #include "chrome/installer/util/install_util.h"
 #include "chrome/installer/util/shell_util.h"
+#include "content/common/main_function_params.h"
+#include "content/common/result_codes.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "net/base/winsock_init.h"
@@ -42,9 +47,53 @@
 #include "views/window/window.h"
 
 namespace {
+
 typedef HRESULT (STDAPICALLTYPE* RegisterApplicationRestartProc)(
     const wchar_t* command_line,
     DWORD flags);
+
+void InitializeWindowProcExceptions() {
+  // Get the breakpad pointer from chrome.exe
+  base::win::WinProcExceptionFilter exception_filter =
+      reinterpret_cast<base::win::WinProcExceptionFilter>(
+          ::GetProcAddress(::GetModuleHandle(
+                               chrome::kBrowserProcessExecutableName),
+                           "CrashForException"));
+  exception_filter = base::win::SetWinProcExceptionFilter(exception_filter);
+  DCHECK(!exception_filter);
+}
+
+// BrowserUsageUpdater --------------------------------------------------------
+// This class' job is to update the registry 'dr' value every 24 hours
+// that way google update can accurately track browser usage without
+// undercounting users that do not close chrome for long periods of time.
+class BrowserUsageUpdater : public Task {
+ public:
+  virtual ~BrowserUsageUpdater() {}
+
+  virtual void Run() OVERRIDE {
+    if (UpdateUsageRegKey())
+      Track();
+  }
+
+  static void Track() {
+    BrowserThread::PostDelayedTask(
+        BrowserThread::FILE,
+        FROM_HERE, new BrowserUsageUpdater,
+        base::TimeDelta::FromHours(24).InMillisecondsRoundedUp());
+  }
+
+ private:
+  bool UpdateUsageRegKey() {
+    FilePath module_dir;
+    if (!PathService::Get(base::DIR_MODULE, &module_dir))
+      return false;
+    bool system_level =
+        !InstallUtil::IsPerUserInstall(module_dir.value().c_str());
+    return GoogleUpdateSettings::UpdateDidRunState(true, system_level);
+  }
+};
+
 }  // namespace
 
 void DidEndMainMessageLoop() {
@@ -66,6 +115,21 @@ void WarnAboutMinimumSystemRequirements() {
     const string16 caption = l10n_util::GetStringUTF16(IDS_PRODUCT_NAME);
     ui::MessageBox(NULL, text, caption, MB_OK | MB_ICONWARNING | MB_TOPMOST);
   }
+}
+
+void RecordBrowserStartupTime() {
+  // Calculate the time that has elapsed from our own process creation.
+  FILETIME creation_time = {};
+  FILETIME ignore = {};
+  ::GetProcessTimes(::GetCurrentProcess(), &creation_time, &ignore, &ignore,
+      &ignore);
+
+  base::TimeDelta elapsed_from_startup =
+      base::Time::Now() - base::Time::FromFileTime(creation_time);
+
+  // Record the time to present in a histogram.
+  UMA_HISTOGRAM_MEDIUM_TIMES("Startup.BrowserMessageLoopStartTime",
+                             elapsed_from_startup);
 }
 
 int AskForUninstallConfirmation() {
@@ -94,7 +158,7 @@ int DoUninstallTasks(bool chrome_still_running) {
     return ResultCodes::UNINSTALL_CHROME_ALIVE;
   }
   int ret = AskForUninstallConfirmation();
-  if (Upgrade::IsBrowserAlreadyRunning()) {
+  if (browser_util::IsBrowserAlreadyRunning()) {
     ShowCloseBrowserFirstMessageBox();
     return ResultCodes::UNINSTALL_CHROME_ALIVE;
   }
@@ -264,7 +328,17 @@ class BrowserMainPartsWin : public BrowserMainParts {
     if (!parameters().ui_task) {
       // Override the configured locale with the user's preferred UI language.
       l10n_util::OverrideLocaleWithUILanguageList();
+
+      // Make sure that we know how to handle exceptions from the message loop.
+      InitializeWindowProcExceptions();
     }
+  }
+
+  virtual void PostMainMessageLoopStart() OVERRIDE {
+    MessageLoop::current()->PostDelayedTask(
+        FROM_HERE,
+        NewRunnableFunction(&BrowserUsageUpdater::Track),
+        base::TimeDelta::FromSeconds(30).InMillisecondsRoundedUp());
   }
 
  private:
@@ -276,7 +350,7 @@ class BrowserMainPartsWin : public BrowserMainParts {
       net::ClientSocketFactory::UseSystemSSL();
     } else {
       // We want to be sure to init NSPR on the main thread.
-      base::EnsureNSPRInit();
+      crypto::EnsureNSPRInit();
     }
   }
 };

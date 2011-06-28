@@ -8,16 +8,17 @@
 
 #include "chrome/browser/sync/glue/data_type_manager.h"
 #include "chrome/browser/sync/profile_sync_test_util.h"
-#include "chrome/common/notification_details.h"
-#include "chrome/common/notification_service.h"
-#include "chrome/common/notification_type.h"
+#include "content/common/notification_details.h"
+#include "content/common/notification_service.h"
+#include "content/common/notification_type.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
 ACTION_P3(NotifyFromDataTypeManagerWithResult, dtm, type, result) {
   NotificationService::current()->Notify(
       type,
       Source<browser_sync::DataTypeManager>(dtm),
-      Details<browser_sync::DataTypeManager::ConfigureResult>(result));
+      Details<browser_sync::DataTypeManager::ConfigureResultWithErrorLocation>(
+          result));
 }
 
 ACTION_P2(NotifyFromDataTypeManager, dtm, type) {
@@ -39,7 +40,7 @@ class DataTypeManagerMock : public DataTypeManager {
   MOCK_METHOD0(state, State());
 
  private:
-  DataTypeManager::ConfigureResult result_;
+  browser_sync::DataTypeManager::ConfigureResultWithErrorLocation result_;
 };
 
 }  // namespace browser_sync

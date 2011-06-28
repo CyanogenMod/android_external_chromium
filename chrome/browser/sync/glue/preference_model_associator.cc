@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,18 +6,18 @@
 
 #include "base/json/json_reader.h"
 #include "base/logging.h"
-#include "base/values.h"
 #include "base/utf_string_conversions.h"
+#include "base/values.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/engine/syncapi.h"
 #include "chrome/browser/sync/glue/synchronized_preferences.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/protocol/preference_specifics.pb.h"
-#include "chrome/common/json_value_serializer.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
 #include "content/browser/browser_thread.h"
+#include "content/common/json_value_serializer.h"
+#include "content/common/notification_service.h"
 
 namespace browser_sync {
 
@@ -134,6 +134,7 @@ bool PreferenceModelAssociator::AssociateModels() {
        it != synced_preferences_.end(); ++it) {
     const PrefService::Preference* pref =
         pref_service->FindPreference((*it).c_str());
+    DCHECK(pref);
     InitPrefNodeAndAssociate(&trans, root, pref);
   }
   return true;
@@ -271,8 +272,7 @@ Value* PreferenceModelAssociator::MergeListValues(const Value& from_value,
   for (ListValue::const_iterator i = from_list_value.begin();
        i != from_list_value.end(); ++i) {
     Value* value = (*i)->DeepCopy();
-    if (!result->AppendIfNotPresent(value))
-      delete value;
+    result->AppendIfNotPresent(value);
   }
   return result;
 }
@@ -324,6 +324,15 @@ void PreferenceModelAssociator::AfterUpdateOperations(
         Source<PreferenceModelAssociator>(this),
         NotificationService::NoDetails());
   }
+}
+
+bool PreferenceModelAssociator::CryptoReadyIfNecessary() {
+  // We only access the cryptographer while holding a transaction.
+  sync_api::ReadTransaction trans(sync_service_->GetUserShare());
+  syncable::ModelTypeSet encrypted_types;
+  sync_service_->GetEncryptedDataTypes(&encrypted_types);
+  return encrypted_types.count(syncable::PREFERENCES) == 0 ||
+         sync_service_->IsCryptographerReady(&trans);
 }
 
 }  // namespace browser_sync

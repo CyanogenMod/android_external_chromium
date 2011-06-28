@@ -6,20 +6,23 @@
 
 #import <Cocoa/Cocoa.h>
 
+#include "app/mac/nsimage_cache.h"
 #include "base/mac/mac_util.h"
 #include "base/process_util.h"
 #include "base/sys_string_conversions.h"
-#include "chrome/browser/browser_list.h"
+#include "chrome/browser/favicon_helper.h"
 #include "chrome/browser/ui/browser_dialogs.h"
+#include "chrome/browser/ui/browser_list.h"
 #import "chrome/browser/ui/cocoa/multi_key_equivalent_button.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/common/logging_chrome.h"
-#include "chrome/common/result_codes.h"
 #include "content/browser/renderer_host/render_process_host.h"
 #include "content/browser/renderer_host/render_view_host.h"
 #include "content/browser/tab_contents/tab_contents.h"
-#include "grit/chromium_strings.h"
+#import "chrome/browser/ui/cocoa/tab_contents/favicon_util.h"
+#include "content/common/result_codes.h"
 #include "grit/app_resources.h"
+#include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "skia/ext/skia_utils_mac.h"
@@ -138,21 +141,13 @@ HungRendererController* g_instance = NULL;
   scoped_nsobject<NSMutableArray> titles([[NSMutableArray alloc] init]);
   scoped_nsobject<NSMutableArray> favicons([[NSMutableArray alloc] init]);
   for (TabContentsIterator it; !it.done(); ++it) {
-    if (it->GetRenderProcessHost() == hungContents_->GetRenderProcessHost()) {
-      string16 title = (*it)->GetTitle();
+    if (it->tab_contents()->GetRenderProcessHost() ==
+        hungContents_->GetRenderProcessHost()) {
+      string16 title = (*it)->tab_contents()->GetTitle();
       if (title.empty())
         title = TabContentsWrapper::GetDefaultTitle();
       [titles addObject:base::SysUTF16ToNSString(title)];
-
-      // TabContents can return a null SkBitmap if it has no favicon.  If this
-      // happens, use the default favicon.
-      const SkBitmap& bitmap = it->GetFavIcon();
-      if (!bitmap.isNull()) {
-        [favicons addObject:gfx::SkBitmapToNSImage(bitmap)];
-      } else {
-        ResourceBundle& rb = ResourceBundle::GetSharedInstance();
-        [favicons addObject:rb.GetNativeImageNamed(IDR_DEFAULT_FAVICON)];
-      }
+      [favicons addObject:mac::FaviconForTabContents(it->tab_contents())];
     }
   }
   hungTitles_.reset([titles copy]);

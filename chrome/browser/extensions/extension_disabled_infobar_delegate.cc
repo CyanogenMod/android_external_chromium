@@ -7,16 +7,16 @@
 #include <string>
 
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/browser_list.h"
 #include "chrome/browser/extensions/extension_install_ui.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/tab_contents/confirm_infobar_delegate.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/common/extensions/extension_file_util.h"
 #include "chrome/common/extensions/extension_resource.h"
-#include "chrome/common/notification_details.h"
-#include "chrome/common/notification_registrar.h"
-#include "chrome/common/notification_source.h"
 #include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/notification_details.h"
+#include "content/common/notification_registrar.h"
+#include "content/common/notification_source.h"
 #include "grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 
@@ -54,7 +54,7 @@ ExtensionDisabledDialogDelegate::ExtensionDisabledDialogDelegate(
   AddRef();  // Balanced in Proceed or Abort.
 
   install_ui_.reset(new ExtensionInstallUI(profile));
-  install_ui_->ConfirmInstall(this, extension_);
+  install_ui_->ConfirmReEnable(this, extension_);
 }
 
 ExtensionDisabledDialogDelegate::~ExtensionDisabledDialogDelegate() {
@@ -66,6 +66,9 @@ void ExtensionDisabledDialogDelegate::InstallUIProceed() {
 }
 
 void ExtensionDisabledDialogDelegate::InstallUIAbort() {
+  ExtensionService::RecordPermissionMessagesHistogram(
+      extension_, "Extensions.Permissions_ReEnableCancel");
+
   // Do nothing. The extension will remain disabled.
   Release();
 }

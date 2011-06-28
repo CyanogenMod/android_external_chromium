@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,7 +23,7 @@
 #import <Cocoa/Cocoa.h>
 
 #include "base/basictypes.h"
-#include "base/scoped_nsobject.h"
+#include "base/memory/scoped_nsobject.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/bookmarks/bookmark_model_observer.h"
 
@@ -66,7 +66,7 @@ class BookmarkModelObserverForCocoa : public BookmarkModelObserver {
                                  const BookmarkNode* parent,
                                  int index) {
   }
-  virtual void BookmarkNodeFavIconLoaded(BookmarkModel* model,
+  virtual void BookmarkNodeFaviconLoaded(BookmarkModel* model,
                                          const BookmarkNode* node) {
   }
   virtual void BookmarkNodeChildrenReordered(BookmarkModel* model,

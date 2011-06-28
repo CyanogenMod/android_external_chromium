@@ -18,8 +18,8 @@
 #include "chrome/browser/ui/views/browser_bubble.h"
 #include "chrome/browser/ui/views/extensions/browser_action_overflow_menu_controller.h"
 #include "chrome/browser/ui/views/extensions/extension_popup.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
 #include "ui/base/animation/animation_delegate.h"
 #include "ui/base/animation/tween.h"
 #include "views/controls/button/menu_button.h"
@@ -28,7 +28,6 @@
 #include "views/view.h"
 
 class Browser;
-class BrowserActionsContainer;
 class BrowserActionOverflowMenuController;
 class BrowserActionsContainer;
 class Extension;
@@ -75,41 +74,47 @@ class BrowserActionButton : public views::MenuButton,
   // Returns the default icon, if any.
   const SkBitmap& default_icon() const { return default_icon_; }
 
-  // Overridden from views::View:
-  virtual void ViewHierarchyChanged(bool is_add, View* parent, View* child);
+  // Does this button's action have a popup?
+  virtual bool IsPopup();
+  virtual GURL GetPopupUrl();
 
   // Overridden from views::ButtonListener:
-  virtual void ButtonPressed(views::Button* sender, const views::Event& event);
+  virtual void ButtonPressed(views::Button* sender,
+                             const views::Event& event) OVERRIDE;
 
   // Overridden from ImageLoadingTracker.
-  virtual void OnImageLoaded(
-      SkBitmap* image, ExtensionResource resource, int index);
+  virtual void OnImageLoaded(SkBitmap* image,
+                             const ExtensionResource& resource,
+                             int index) OVERRIDE;
 
   // Overridden from NotificationObserver:
   virtual void Observe(NotificationType type,
                        const NotificationSource& source,
-                       const NotificationDetails& details);
+                       const NotificationDetails& details) OVERRIDE;
 
   // MenuButton behavior overrides.  These methods all default to TextButton
   // behavior unless this button is a popup.  In that case, it uses MenuButton
   // behavior.  MenuButton has the notion of a child popup being shown where the
   // button will stay in the pushed state until the "menu" (a popup in this
   // case) is dismissed.
-  virtual bool Activate();
-  virtual bool OnMousePressed(const views::MouseEvent& e);
-  virtual void OnMouseReleased(const views::MouseEvent& e, bool canceled);
-  virtual bool OnKeyReleased(const views::KeyEvent& e);
-  virtual void OnMouseExited(const views::MouseEvent& event);
-  virtual void ShowContextMenu(const gfx::Point& p, bool is_mouse_gesture);
-
-  // Does this button's action have a popup?
-  virtual bool IsPopup();
-  virtual GURL GetPopupUrl();
+  virtual bool Activate() OVERRIDE;
+  virtual bool OnMousePressed(const views::MouseEvent& event) OVERRIDE;
+  virtual void OnMouseReleased(const views::MouseEvent& event) OVERRIDE;
+  virtual void OnMouseExited(const views::MouseEvent& event) OVERRIDE;
+  virtual bool OnKeyReleased(const views::KeyEvent& event) OVERRIDE;
+  virtual void ShowContextMenu(const gfx::Point& p,
+                               bool is_mouse_gesture) OVERRIDE;
 
   // Notifications when to set button state to pushed/not pushed (for when the
   // popup/context menu is hidden or shown by the container).
   void SetButtonPushed();
   void SetButtonNotPushed();
+
+ protected:
+  // Overridden from views::View:
+  virtual void ViewHierarchyChanged(bool is_add,
+                                    View* parent,
+                                    View* child) OVERRIDE;
 
  private:
   virtual ~BrowserActionButton();
@@ -163,15 +168,15 @@ class BrowserActionView : public views::View {
   // returned object.
   gfx::Canvas* GetIconWithBadge();
 
-  // Accessibility accessors, overridden from View.
-  virtual AccessibilityTypes::Role GetAccessibleRole();
+  // Overridden from views::View:
+  virtual void Layout() OVERRIDE;
+  virtual void GetAccessibleState(ui::AccessibleViewState* state) OVERRIDE;
+
+ protected:
+  // Overridden from views::View to paint the badge on top of children.
+  virtual void PaintChildren(gfx::Canvas* canvas) OVERRIDE;
 
  private:
-  virtual void Layout();
-
-  // Override PaintChildren so that we can paint the badge on top of children.
-  virtual void PaintChildren(gfx::Canvas* canvas);
-
   // The container for this view.
   BrowserActionsContainer* panel_;
 
@@ -317,25 +322,20 @@ class BrowserActionsContainer
                                bool inspect_with_devtools);
 
   // Overridden from views::View:
-  virtual gfx::Size GetPreferredSize();
-  virtual void Layout();
-  virtual void OnPaint(gfx::Canvas* canvas);
-  virtual void ViewHierarchyChanged(bool is_add,
-                                    views::View* parent,
-                                    views::View* child);
-  virtual bool GetDropFormats(
-      int* formats, std::set<ui::OSExchangeData::CustomFormat>* custom_formats);
-  virtual bool AreDropTypesRequired();
-  virtual bool CanDrop(const ui::OSExchangeData& data);
-  virtual void OnDragEntered(const views::DropTargetEvent& event);
-  virtual int OnDragUpdated(const views::DropTargetEvent& event);
-  virtual void OnDragExited();
-  virtual int OnPerformDrop(const views::DropTargetEvent& event);
-  virtual void OnThemeChanged();
-  virtual AccessibilityTypes::Role GetAccessibleRole();
+  virtual gfx::Size GetPreferredSize() OVERRIDE;
+  virtual void Layout() OVERRIDE;
+  virtual bool GetDropFormats(int* formats,
+      std::set<ui::OSExchangeData::CustomFormat>* custom_formats) OVERRIDE;
+  virtual bool AreDropTypesRequired() OVERRIDE;
+  virtual bool CanDrop(const ui::OSExchangeData& data) OVERRIDE;
+  virtual void OnDragEntered(const views::DropTargetEvent& event) OVERRIDE;
+  virtual int OnDragUpdated(const views::DropTargetEvent& event) OVERRIDE;
+  virtual void OnDragExited() OVERRIDE;
+  virtual int OnPerformDrop(const views::DropTargetEvent& event) OVERRIDE;
+  virtual void GetAccessibleState(ui::AccessibleViewState* state) OVERRIDE;
 
   // Overridden from views::ViewMenuDelegate:
-  virtual void RunMenu(View* source, const gfx::Point& pt);
+  virtual void RunMenu(View* source, const gfx::Point& pt) OVERRIDE;
 
   // Overridden from views::DragController:
   virtual void WriteDragDataForView(View* sender,
@@ -348,21 +348,21 @@ class BrowserActionsContainer
                                    const gfx::Point& p) OVERRIDE;
 
   // Overridden from ResizeArea::ResizeAreaDelegate:
-  virtual void OnResize(int resize_amount, bool done_resizing);
+  virtual void OnResize(int resize_amount, bool done_resizing) OVERRIDE;
 
   // Overridden from ui::AnimationDelegate:
-  virtual void AnimationProgressed(const ui::Animation* animation);
-  virtual void AnimationEnded(const ui::Animation* animation);
+  virtual void AnimationProgressed(const ui::Animation* animation) OVERRIDE;
+  virtual void AnimationEnded(const ui::Animation* animation) OVERRIDE;
 
   // Overridden from BrowserActionOverflowMenuController::Observer:
   virtual void NotifyMenuDeleted(
-      BrowserActionOverflowMenuController* controller);
+      BrowserActionOverflowMenuController* controller) OVERRIDE;
 
   // Overridden from ExtensionContextMenuModel::PopupDelegate
-  virtual void InspectPopup(ExtensionAction* action);
+  virtual void InspectPopup(ExtensionAction* action) OVERRIDE;
 
   // Overriden from ExtensionPopup::Delegate
-  virtual void ExtensionPopupIsClosing(ExtensionPopup* popup);
+  virtual void ExtensionPopupIsClosing(ExtensionPopup* popup) OVERRIDE;
 
   // Moves a browser action with |id| to |new_index|.
   void MoveBrowserAction(const std::string& extension_id, size_t new_index);
@@ -385,6 +385,14 @@ class BrowserActionsContainer
   // so that the bar resizes instantly, instead of having to poll it while it
   // animates to open/closed status.
   static bool disable_animations_during_testing_;
+
+ protected:
+  // Overridden from views::View:
+  virtual void ViewHierarchyChanged(bool is_add,
+                                    views::View* parent,
+                                    views::View* child) OVERRIDE;
+  virtual void OnPaint(gfx::Canvas* canvas) OVERRIDE;
+  virtual void OnThemeChanged() OVERRIDE;
 
  private:
   friend class BrowserActionView;  // So it can access IconHeight().
@@ -443,7 +451,7 @@ class BrowserActionsContainer
 
   // Animate to the target size (unless testing, in which case we go straight to
   // the target size).  This also saves the target number of visible icons in
-  // the pref if we're not off the record.
+  // the pref if we're not incognito.
   void SaveDesiredSizeAndAnimate(ui::Tween::Type type,
                                  size_t num_visible_icons);
 

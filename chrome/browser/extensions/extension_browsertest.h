@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,10 +10,13 @@
 
 #include "base/command_line.h"
 #include "base/file_path.h"
-#include "chrome/common/notification_details.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_type.h"
+#include "base/memory/scoped_temp_dir.h"
 #include "chrome/test/in_process_browser_test.h"
+#include "content/common/notification_details.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_type.h"
+
+class Extension;
 
 // Base class for extension browser tests. Provides utilities for loading,
 // unloading, and installing extensions.
@@ -23,10 +26,20 @@ class ExtensionBrowserTest
   ExtensionBrowserTest();
 
   virtual void SetUpCommandLine(CommandLine* command_line);
-  bool LoadExtension(const FilePath& path);
+  const Extension* LoadExtension(const FilePath& path);
 
   // Same as above, but enables the extension in incognito mode first.
-  bool LoadExtensionIncognito(const FilePath& path);
+  const Extension* LoadExtensionIncognito(const FilePath& path);
+
+  // By default, unpacked extensions have file access: this loads them with
+  // that permission removed.
+  const Extension* LoadExtensionNoFileAccess(const FilePath& path);
+
+  // Same as above, but enables the extension in incognito mode first.
+  const Extension* LoadExtensionIncognitoNoFileAccess(const FilePath& path);
+
+  // Loads extension and imitates that it is a component extension.
+  bool LoadExtensionAsComponent(const FilePath& path);
 
   // Pack the extension in |dir_path| into a crx file and return its path.
   // Return an empty FilePath if there were errors.
@@ -112,6 +125,9 @@ class ExtensionBrowserTest
   int extension_installs_observed_;
 
  private:
+  // Temporary directory for testing.
+  ScopedTempDir temp_dir_;
+
   // Specifies the type of UI (if any) to show during installation and what
   // user action to simulate.
   enum InstallUIType {
@@ -128,7 +144,9 @@ class ExtensionBrowserTest
                                 InstallUIType ui_type,
                                 int expected_change,
                                 Profile* profile);
-  bool LoadExtensionImpl(const FilePath& path, bool incognito_enabled);
+  const Extension* LoadExtensionImpl(const FilePath& path,
+                                     bool incognito_enabled,
+                                     bool fileaccess_enabled);
 
   bool WaitForExtensionHostsToLoad();
 

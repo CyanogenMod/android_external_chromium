@@ -8,20 +8,30 @@
 #include <string>
 #include <vector>
 
+#include "base/memory/scoped_vector.h"
 #include "chrome/browser/password_manager/password_store.h"
+#include "chrome/browser/password_manager/password_store_consumer.h"
+#include "chrome/browser/prefs/pref_member.h"
 #include "chrome/browser/ui/webui/options/options_ui.h"
 
-class PasswordManagerHandler : public OptionsPageUIHandler {
+class PasswordManagerHandler : public OptionsPageUIHandler,
+                               public PasswordStore::Observer {
  public:
   PasswordManagerHandler();
   virtual ~PasswordManagerHandler();
 
   // OptionsPageUIHandler implementation.
   virtual void GetLocalizedValues(DictionaryValue* localized_strings);
-
   virtual void Initialize();
-
   virtual void RegisterMessages();
+
+  // PasswordStore::Observer implementation.
+  virtual void OnLoginsChanged();
+
+  // NotificationObserver implementation.
+  virtual void Observe(NotificationType type,
+                       const NotificationSource& source,
+                       const NotificationDetails& details);
 
  private:
   // The password store associated with the currently active profile.
@@ -64,11 +74,12 @@ class PasswordManagerHandler : public OptionsPageUIHandler {
 
     // Send the password store's reply back to the handler.
     virtual void OnPasswordStoreRequestDone(
-        int handle, const std::vector<webkit_glue::PasswordForm*>& result) = 0;
+        CancelableRequestProvider::Handle handle,
+        const std::vector<webkit_glue::PasswordForm*>& result) = 0;
 
    protected:
     PasswordManagerHandler* page_;
-    int pending_login_query_;
+    CancelableRequestProvider::Handle pending_login_query_;
   };
 
   // A short class to mediate requests to the password store for passwordlist.
@@ -81,7 +92,8 @@ class PasswordManagerHandler : public OptionsPageUIHandler {
 
     // Send the password store's reply back to the handler.
     virtual void OnPasswordStoreRequestDone(
-        int handle, const std::vector<webkit_glue::PasswordForm*>& result);
+        CancelableRequestProvider::Handle handle,
+        const std::vector<webkit_glue::PasswordForm*>& result);
   };
 
   // A short class to mediate requests to the password store for exceptions.
@@ -94,18 +106,22 @@ class PasswordManagerHandler : public OptionsPageUIHandler {
 
     // Send the password store's reply back to the handler.
     virtual void OnPasswordStoreRequestDone(
-        int handle, const std::vector<webkit_glue::PasswordForm*>& result);
+        CancelableRequestProvider::Handle handle,
+        const std::vector<webkit_glue::PasswordForm*>& result);
   };
 
   // Password store consumer for populating the password list and exceptions.
   PasswordListPopulater populater_;
   PasswordExceptionListPopulater exception_populater_;
 
-  std::vector<webkit_glue::PasswordForm*> password_list_;
-  std::vector<webkit_glue::PasswordForm*> password_exception_list_;
+  ScopedVector<webkit_glue::PasswordForm> password_list_;
+  ScopedVector<webkit_glue::PasswordForm> password_exception_list_;
 
   // User's pref
   std::string languages_;
+
+  // Whether to show stored passwords or not.
+  BooleanPrefMember show_passwords_;
 
   DISALLOW_COPY_AND_ASSIGN(PasswordManagerHandler);
 };

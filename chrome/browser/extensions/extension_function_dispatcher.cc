@@ -6,13 +6,11 @@
 
 #include <map>
 
+#include "base/memory/ref_counted.h"
+#include "base/memory/singleton.h"
 #include "base/process_util.h"
-#include "base/ref_counted.h"
-#include "base/singleton.h"
 #include "base/values.h"
 #include "build/build_config.h"
-#include "chrome/browser/browser_list.h"
-#include "chrome/browser/browser_window.h"
 #include "chrome/browser/extensions/execute_code_in_tab_function.h"
 #include "chrome/browser/extensions/extension_accessibility_api.h"
 #include "chrome/browser/extensions/extension_bookmark_manager_api.h"
@@ -21,6 +19,7 @@
 #include "chrome/browser/extensions/extension_clipboard_api.h"
 #include "chrome/browser/extensions/extension_context_menu_api.h"
 #include "chrome/browser/extensions/extension_cookies_api.h"
+#include "chrome/browser/extensions/extension_debugger_api.h"
 #include "chrome/browser/extensions/extension_function.h"
 #include "chrome/browser/extensions/extension_history_api.h"
 #include "chrome/browser/extensions/extension_i18n_api.h"
@@ -49,19 +48,25 @@
 #include "chrome/browser/external_protocol_handler.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/webui/chrome_url_data_manager.h"
 #include "chrome/browser/ui/webui/favicon_source.h"
-#include "chrome/common/notification_service.h"
-#include "chrome/common/render_messages.h"
-#include "chrome/common/render_messages_params.h"
-#include "chrome/common/result_codes.h"
+#include "chrome/common/extensions/extension_messages.h"
 #include "chrome/common/url_constants.h"
 #include "content/browser/renderer_host/render_process_host.h"
 #include "content/browser/renderer_host/render_view_host.h"
+#include "content/common/notification_service.h"
+#include "content/common/result_codes.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 
 #if defined(TOOLKIT_VIEWS)
 #include "chrome/browser/extensions/extension_input_api.h"
+#endif
+
+#if defined(OS_CHROMEOS)
+#include "chrome/browser/extensions/extension_file_browser_private_api.h"
+#include "chrome/browser/extensions/extension_info_private_api_chromeos.h"
 #endif
 
 // FactoryRegistry -------------------------------------------------------------
@@ -258,10 +263,6 @@ void FactoryRegistry::ResetFunctions() {
   RegisterFunction<OmniboxSendSuggestionsFunction>();
   RegisterFunction<OmniboxSetDefaultSuggestionFunction>();
 
-  // Proxies.
-  RegisterFunction<SetProxySettingsFunction>();
-  RegisterFunction<GetProxySettingsFunction>();
-
   // Sidebar.
   RegisterFunction<CollapseSidebarFunction>();
   RegisterFunction<ExpandSidebarFunction>();
@@ -287,6 +288,8 @@ void FactoryRegistry::ResetFunctions() {
 
   // Extension module.
   RegisterFunction<SetUpdateUrlDataFunction>();
+  RegisterFunction<IsAllowedIncognitoAccessFunction>();
+  RegisterFunction<IsAllowedFileSchemeAccessFunction>();
 
   // WebstorePrivate.
   RegisterFunction<GetBrowserLoginFunction>();
@@ -294,15 +297,38 @@ void FactoryRegistry::ResetFunctions() {
   RegisterFunction<SetStoreLoginFunction>();
   RegisterFunction<PromptBrowserLoginFunction>();
   RegisterFunction<BeginInstallFunction>();
+  RegisterFunction<BeginInstallWithManifestFunction>();
   RegisterFunction<CompleteInstallFunction>();
 
   // WebRequest.
   RegisterFunction<WebRequestAddEventListener>();
+  RegisterFunction<WebRequestEventHandled>();
 
   // Preferences.
   RegisterFunction<GetPreferenceFunction>();
   RegisterFunction<SetPreferenceFunction>();
   RegisterFunction<ClearPreferenceFunction>();
+
+  // ChromeOS-specific part of the API.
+#if defined(OS_CHROMEOS)
+  // Device Customization.
+  RegisterFunction<GetChromeosInfoFunction>();
+
+  // FileBrowserPrivate functions.
+  RegisterFunction<CancelFileDialogFunction>();
+  RegisterFunction<ExecuteTasksFileBrowserFunction>();
+  RegisterFunction<FileDialogStringsFunction>();
+  RegisterFunction<GetFileTasksFileBrowserFunction>();
+  RegisterFunction<RequestLocalFileSystemFunction>();
+  RegisterFunction<SelectFileFunction>();
+  RegisterFunction<SelectFilesFunction>();
+  RegisterFunction<ViewFilesFunction>();
+#endif
+
+  // Debugger
+  RegisterFunction<AttachDebuggerFunction>();
+  RegisterFunction<DetachDebuggerFunction>();
+  RegisterFunction<SendRequestDebuggerFunction>();
 }
 
 void FactoryRegistry::GetAllNames(std::vector<std::string>* names) {
@@ -393,19 +419,19 @@ ExtensionFunctionDispatcher::ExtensionFunctionDispatcher(
                                 render_view_host->process()->id());
 
   // If the extension has permission to load chrome://favicon/ resources we need
-  // to make sure that the FavIconSource is registered with the
+  // to make sure that the FaviconSource is registered with the
   // ChromeURLDataManager.
-  if (extension->HasHostPermission(GURL(chrome::kChromeUIFavIconURL))) {
-    FavIconSource* favicon_source = new FavIconSource(profile_);
+  if (extension->HasHostPermission(GURL(chrome::kChromeUIFaviconURL))) {
+    FaviconSource* favicon_source = new FaviconSource(profile_);
     profile_->GetChromeURLDataManager()->AddDataSource(favicon_source);
   }
 
   // Update the extension permissions. Doing this each time we create an EFD
   // ensures that new processes are informed of permissions for newly installed
   // extensions.
-  render_view_host->Send(new ViewMsg_Extension_SetAPIPermissions(
+  render_view_host->Send(new ExtensionMsg_SetAPIPermissions(
       extension->id(), extension->api_permissions()));
-  render_view_host->Send(new ViewMsg_Extension_SetHostPermissions(
+  render_view_host->Send(new ExtensionMsg_SetHostPermissions(
       extension->url(), extension->host_permissions()));
 
   NotificationService::current()->Notify(
@@ -450,7 +476,7 @@ Browser* ExtensionFunctionDispatcher::GetCurrentBrowser(
 }
 
 void ExtensionFunctionDispatcher::HandleRequest(
-    const ViewHostMsg_DomMessage_Params& params) {
+    const ExtensionHostMsg_DomMessage_Params& params) {
   scoped_refptr<ExtensionFunction> function(
       FactoryRegistry::GetInstance()->NewFunction(params.name));
   function->set_dispatcher_peer(peer_);
@@ -469,7 +495,9 @@ void ExtensionFunctionDispatcher::HandleRequest(
 
   if (!service->ExtensionBindingsAllowed(function->source_url()) ||
       !extension->HasApiPermission(function->name())) {
-    render_view_host_->BlockExtensionRequest(function->request_id());
+    render_view_host_->Send(new ExtensionMsg_Response(
+        render_view_host_->routing_id(), function->request_id(), false,
+        std::string(), "Access to extension API denied."));
     return;
   }
 
@@ -481,15 +509,17 @@ void ExtensionFunctionDispatcher::HandleRequest(
 
     function->Run();
   } else {
-    render_view_host_->SendExtensionResponse(function->request_id(), false,
-        std::string(), QuotaLimitHeuristic::kGenericOverQuotaError);
+    render_view_host_->Send(new ExtensionMsg_Response(
+        render_view_host_->routing_id(), function->request_id(), false,
+        std::string(), QuotaLimitHeuristic::kGenericOverQuotaError));
   }
 }
 
 void ExtensionFunctionDispatcher::SendResponse(ExtensionFunction* function,
                                                bool success) {
-  render_view_host_->SendExtensionResponse(function->request_id(), success,
-      function->GetResult(), function->GetError());
+  render_view_host_->Send(new ExtensionMsg_Response(
+      render_view_host_->routing_id(), function->request_id(), success,
+      function->GetResult(), function->GetError()));
 }
 
 void ExtensionFunctionDispatcher::HandleBadMessage(ExtensionFunction* api) {

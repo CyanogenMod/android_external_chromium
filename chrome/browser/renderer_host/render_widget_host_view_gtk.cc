@@ -8,6 +8,7 @@
 // errors happen because of a "#define Status int" in Xlib.h, which interacts
 // badly with net::URLRequestStatus::Status.
 #include "chrome/common/render_messages.h"
+#include "content/common/view_messages.h"
 
 #include <cairo/cairo.h>
 #include <gdk/gdk.h>
@@ -29,11 +30,11 @@
 #include "chrome/browser/renderer_host/gtk_key_bindings_handler.h"
 #include "chrome/browser/ui/gtk/gtk_util.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/native_web_keyboard_event.h"
 #include "content/browser/renderer_host/backing_store_x.h"
 #include "content/browser/renderer_host/render_view_host.h"
 #include "content/browser/renderer_host/render_view_host_delegate.h"
 #include "content/browser/renderer_host/render_widget_host.h"
+#include "content/common/native_web_keyboard_event.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/gtk/WebInputEventFactory.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/x/x11_util.h"
@@ -161,6 +162,8 @@ class RenderWidgetHostViewGtkWidget {
   static gboolean OnExposeEvent(GtkWidget* widget,
                                 GdkEventExpose* expose,
                                 RenderWidgetHostViewGtk* host_view) {
+    if (host_view->is_hidden_)
+      return FALSE;
     const gfx::Rect damage_rect(expose->area);
     host_view->Paint(damage_rect);
     return FALSE;
@@ -273,6 +276,10 @@ class RenderWidgetHostViewGtkWidget {
       host_view->GetRenderWidgetHost()->ForwardWheelEvent(web_event);
     }
 #endif
+
+    if (event->type != GDK_BUTTON_RELEASE)
+      host_view->set_last_mouse_down(event);
+
     if (!(event->button == 1 || event->button == 2 || event->button == 3))
       return FALSE;  // We do not forward any other buttons to the renderer.
     if (event->type == GDK_2BUTTON_PRESS || event->type == GDK_3BUTTON_PRESS)
@@ -506,11 +513,13 @@ RenderWidgetHostViewGtk::RenderWidgetHostViewGtk(RenderWidgetHost* widget_host)
       destroy_handler_id_(0),
       dragged_at_horizontal_edge_(0),
       dragged_at_vertical_edge_(0),
-      accelerated_surface_acquired_(false) {
+      compositing_surface_(gfx::kNullPluginWindow),
+      last_mouse_down_(NULL) {
   host_->set_view(this);
 }
 
 RenderWidgetHostViewGtk::~RenderWidgetHostViewGtk() {
+  set_last_mouse_down(NULL);
   view_.Destroy();
 }
 
@@ -619,7 +628,6 @@ void RenderWidgetHostViewGtk::WasHidden() {
 }
 
 void RenderWidgetHostViewGtk::SetSize(const gfx::Size& size) {
-  // This is called when webkit has sent us a Move message.
   int width = std::min(size.width(), kMaxWindowWidth);
   int height = std::min(size.height(), kMaxWindowHeight);
   if (IsPopup()) {
@@ -633,12 +641,23 @@ void RenderWidgetHostViewGtk::SetSize(const gfx::Size& size) {
     gtk_widget_set_size_request(view_.get(), width, height);
 #endif
   }
+
   // Update the size of the RWH.
   if (requested_size_.width() != width ||
       requested_size_.height() != height) {
     requested_size_ = gfx::Size(width, height);
     host_->WasResized();
   }
+}
+
+void RenderWidgetHostViewGtk::SetBounds(const gfx::Rect& rect) {
+  // This is called when webkit has sent us a Move message.
+  if (IsPopup()) {
+    gtk_window_move(GTK_WINDOW(gtk_widget_get_toplevel(view_.get())),
+                    rect.x(), rect.y());
+  }
+
+  SetSize(rect.size());
 }
 
 gfx::NativeView RenderWidgetHostViewGtk::GetNativeView() {
@@ -751,11 +770,9 @@ void RenderWidgetHostViewGtk::RenderViewGone(base::TerminationStatus status,
 }
 
 void RenderWidgetHostViewGtk::Destroy() {
-  if (accelerated_surface_acquired_) {
+  if (compositing_surface_ != gfx::kNullPluginWindow) {
     GtkNativeViewManager* manager = GtkNativeViewManager::GetInstance();
-    gfx::NativeViewId view_id = gfx::IdFromNativeView(GetNativeView());
-    gfx::PluginWindowHandle surface = manager->GetXIDForId(&surface, view_id);
-    manager->ReleasePermanentXID(surface);
+    manager->ReleasePermanentXID(compositing_surface_);
   }
 
   if (do_x_grab_) {
@@ -1109,24 +1126,16 @@ void RenderWidgetHostViewGtk::AcceleratedCompositingActivated(bool activated) {
   gtk_preserve_window_delegate_resize(widget, activated);
 }
 
-gfx::PluginWindowHandle RenderWidgetHostViewGtk::AcquireCompositingSurface() {
-  GtkNativeViewManager* manager = GtkNativeViewManager::GetInstance();
-  gfx::PluginWindowHandle surface = gfx::kNullPluginWindow;
-  gfx::NativeViewId view_id = gfx::IdFromNativeView(GetNativeView());
+gfx::PluginWindowHandle RenderWidgetHostViewGtk::GetCompositingSurface() {
+  if (compositing_surface_ == gfx::kNullPluginWindow) {
+    GtkNativeViewManager* manager = GtkNativeViewManager::GetInstance();
+    gfx::NativeViewId view_id = gfx::IdFromNativeView(GetNativeView());
 
-  if (!manager->GetPermanentXIDForId(&surface, view_id)) {
-    DLOG(ERROR) << "Can't find XID for view id " << view_id;
-  } else {
-    accelerated_surface_acquired_ = true;
+    if (!manager->GetPermanentXIDForId(&compositing_surface_, view_id)) {
+      DLOG(ERROR) << "Can't find XID for view id " << view_id;
+    }
   }
-  return surface;
-}
-
-void RenderWidgetHostViewGtk::ReleaseCompositingSurface(
-    gfx::PluginWindowHandle surface) {
-  GtkNativeViewManager* manager = GtkNativeViewManager::GetInstance();
-  manager->ReleasePermanentXID(surface);
-  accelerated_surface_acquired_ = false;
+  return compositing_surface_;
 }
 
 void RenderWidgetHostViewGtk::ForwardKeyboardEvent(
@@ -1159,6 +1168,19 @@ void RenderWidgetHostViewGtk::AnimationProgressed(
 void RenderWidgetHostViewGtk::AnimationCanceled(
     const ui::Animation* animation) {
   gtk_widget_queue_draw(view_.get());
+}
+
+void RenderWidgetHostViewGtk::set_last_mouse_down(GdkEventButton* event) {
+  GdkEventButton* temp = NULL;
+  if (event) {
+    temp = reinterpret_cast<GdkEventButton*>(
+        gdk_event_copy(reinterpret_cast<GdkEvent*>(event)));
+  }
+
+  if (last_mouse_down_)
+    gdk_event_free(reinterpret_cast<GdkEvent*>(last_mouse_down_));
+
+  last_mouse_down_ = temp;
 }
 
 // static

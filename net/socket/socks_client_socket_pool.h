@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,8 @@
 
 #include "base/basictypes.h"
 #include "base/compiler_specific.h"
-#include "base/ref_counted.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/time.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/host_resolver.h"
@@ -22,36 +22,44 @@
 namespace net {
 
 class ConnectJobFactory;
-class TCPClientSocketPool;
-class TCPSocketParams;
+class TransportClientSocketPool;
+class TransportSocketParams;
 
 class SOCKSSocketParams : public base::RefCounted<SOCKSSocketParams> {
  public:
-  SOCKSSocketParams(const scoped_refptr<TCPSocketParams>& proxy_server,
+  SOCKSSocketParams(const scoped_refptr<TransportSocketParams>& proxy_server,
                     bool socks_v5, const HostPortPair& host_port_pair,
                     RequestPriority priority, const GURL& referrer);
 
-  const scoped_refptr<TCPSocketParams>& tcp_params() const {
-    return tcp_params_;
+  const scoped_refptr<TransportSocketParams>& transport_params() const {
+    return transport_params_;
   }
   const HostResolver::RequestInfo& destination() const { return destination_; }
   bool is_socks_v5() const { return socks_v5_; }
+<<<<<<< HEAD
 #ifdef ANDROID
   bool ignore_limits() const { return ignore_limits_; }
 #endif
+=======
+  bool ignore_limits() const { return ignore_limits_; }
+>>>>>>> chromium.org at r12.0.742.93
 
  private:
   friend class base::RefCounted<SOCKSSocketParams>;
   ~SOCKSSocketParams();
 
-  // The tcp connection must point toward the proxy server.
-  const scoped_refptr<TCPSocketParams> tcp_params_;
+  // The transport (likely TCP) connection must point toward the proxy server.
+  const scoped_refptr<TransportSocketParams> transport_params_;
   // This is the HTTP destination.
   HostResolver::RequestInfo destination_;
   const bool socks_v5_;
+<<<<<<< HEAD
 #ifdef ANDROID
   bool ignore_limits_;
 #endif
+=======
+  bool ignore_limits_;
+>>>>>>> chromium.org at r12.0.742.93
 
   DISALLOW_COPY_AND_ASSIGN(SOCKSSocketParams);
 };
@@ -63,7 +71,7 @@ class SOCKSConnectJob : public ConnectJob {
   SOCKSConnectJob(const std::string& group_name,
                   const scoped_refptr<SOCKSSocketParams>& params,
                   const base::TimeDelta& timeout_duration,
-                  TCPClientSocketPool* tcp_pool,
+                  TransportClientSocketPool* transport_pool,
                   HostResolver* host_resolver,
                   Delegate* delegate,
                   NetLog* net_log);
@@ -74,8 +82,8 @@ class SOCKSConnectJob : public ConnectJob {
 
  private:
   enum State {
-    STATE_TCP_CONNECT,
-    STATE_TCP_CONNECT_COMPLETE,
+    STATE_TRANSPORT_CONNECT,
+    STATE_TRANSPORT_CONNECT_COMPLETE,
     STATE_SOCKS_CONNECT,
     STATE_SOCKS_CONNECT_COMPLETE,
     STATE_NONE,
@@ -86,23 +94,23 @@ class SOCKSConnectJob : public ConnectJob {
   // Runs the state transition loop.
   int DoLoop(int result);
 
-  int DoTCPConnect();
-  int DoTCPConnectComplete(int result);
+  int DoTransportConnect();
+  int DoTransportConnectComplete(int result);
   int DoSOCKSConnect();
   int DoSOCKSConnectComplete(int result);
 
-  // Begins the tcp connection and the SOCKS handshake.  Returns OK on success
-  // and ERR_IO_PENDING if it cannot immediately service the request.
+  // Begins the transport connection and the SOCKS handshake.  Returns OK on
+  // success and ERR_IO_PENDING if it cannot immediately service the request.
   // Otherwise, it returns a net error code.
   virtual int ConnectInternal();
 
   scoped_refptr<SOCKSSocketParams> socks_params_;
-  TCPClientSocketPool* const tcp_pool_;
+  TransportClientSocketPool* const transport_pool_;
   HostResolver* const resolver_;
 
   State next_state_;
   CompletionCallbackImpl<SOCKSConnectJob> callback_;
-  scoped_ptr<ClientSocketHandle> tcp_socket_handle_;
+  scoped_ptr<ClientSocketHandle> transport_socket_handle_;
   scoped_ptr<ClientSocket> socket_;
 
   DISALLOW_COPY_AND_ASSIGN(SOCKSConnectJob);
@@ -115,7 +123,7 @@ class SOCKSClientSocketPool : public ClientSocketPool {
       int max_sockets_per_group,
       ClientSocketPoolHistograms* histograms,
       HostResolver* host_resolver,
-      TCPClientSocketPool* tcp_pool,
+      TransportClientSocketPool* transport_pool,
       NetLog* net_log);
 
   virtual ~SOCKSClientSocketPool();
@@ -164,10 +172,10 @@ class SOCKSClientSocketPool : public ClientSocketPool {
 
   class SOCKSConnectJobFactory : public PoolBase::ConnectJobFactory {
    public:
-    SOCKSConnectJobFactory(TCPClientSocketPool* tcp_pool,
+    SOCKSConnectJobFactory(TransportClientSocketPool* transport_pool,
                            HostResolver* host_resolver,
                            NetLog* net_log)
-        : tcp_pool_(tcp_pool),
+        : transport_pool_(transport_pool),
           host_resolver_(host_resolver),
           net_log_(net_log) {}
 
@@ -182,14 +190,14 @@ class SOCKSClientSocketPool : public ClientSocketPool {
     virtual base::TimeDelta ConnectionTimeout() const;
 
    private:
-    TCPClientSocketPool* const tcp_pool_;
+    TransportClientSocketPool* const transport_pool_;
     HostResolver* const host_resolver_;
     NetLog* net_log_;
 
     DISALLOW_COPY_AND_ASSIGN(SOCKSConnectJobFactory);
   };
 
-  TCPClientSocketPool* const tcp_pool_;
+  TransportClientSocketPool* const transport_pool_;
   PoolBase base_;
 
   DISALLOW_COPY_AND_ASSIGN(SOCKSClientSocketPool);

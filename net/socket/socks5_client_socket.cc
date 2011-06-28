@@ -490,4 +490,8 @@ int SOCKS5ClientSocket::GetPeerAddress(AddressList* address) const {
   return transport_->socket()->GetPeerAddress(address);
 }
 
+int SOCKS5ClientSocket::GetLocalAddress(IPEndPoint* address) const {
+  return transport_->socket()->GetLocalAddress(address);
+}
+
 }  // namespace net

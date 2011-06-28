@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,13 +7,14 @@
 #include "base/message_loop.h"
 #include "base/metrics/histogram.h"
 #include "base/string_util.h"
-#include "base/values.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
 #include "net/disk_cache/backend_impl.h"
 #include "net/disk_cache/bitmap.h"
 #include "net/disk_cache/cache_util.h"
+#include "net/disk_cache/hash.h"
 #include "net/disk_cache/histogram_macros.h"
+#include "net/disk_cache/net_log_parameters.h"
 #include "net/disk_cache/sparse_control.h"
 
 using base::Time;
@@ -24,82 +25,6 @@ namespace {
 
 // Index for the file used to store the key, if any (files_[kKeyFileIndex]).
 const int kKeyFileIndex = 3;
-
-// NetLog parameters for the creation of an EntryImpl.  Contains an entry's name
-// and whether it was created or opened.
-class EntryCreationParameters : public net::NetLog::EventParameters {
- public:
-  EntryCreationParameters(const std::string& key, bool created)
-      : key_(key), created_(created) {
-  }
-
-  Value* ToValue() const {
-    DictionaryValue* dict = new DictionaryValue();
-    dict->SetString("key", key_);
-    dict->SetBoolean("created", created_);
-    return dict;
-  }
-
- private:
-  const std::string key_;
-  const bool created_;
-
-  DISALLOW_COPY_AND_ASSIGN(EntryCreationParameters);
-};
-
-// NetLog parameters for non-sparse reading and writing to an EntryImpl.
-class ReadWriteDataParams : public net::NetLog::EventParameters {
- public:
-  // For reads, |truncate| must be false.
-  ReadWriteDataParams(int index, int offset, int buf_len, bool truncate)
-      : index_(index), offset_(offset), buf_len_(buf_len), truncate_(truncate) {
-  }
-
-  Value* ToValue() const {
-    DictionaryValue* dict = new DictionaryValue();
-    dict->SetInteger("index", index_);
-    dict->SetInteger("offset", offset_);
-    dict->SetInteger("buf_len", buf_len_);
-    if (truncate_)
-      dict->SetBoolean("truncate", truncate_);
-    return dict;
-  }
-
- private:
-  const int index_;
-  const int offset_;
-  const int buf_len_;
-  const bool truncate_;
-
-  DISALLOW_COPY_AND_ASSIGN(ReadWriteDataParams);
-};
-
-// NetLog parameters logged when non-sparse reads and writes complete.
-class FileIOCompleteParameters : public net::NetLog::EventParameters {
- public:
-  // |bytes_copied| is either the number of bytes copied or a network error
-  // code.  |bytes_copied| must not be ERR_IO_PENDING, as it's not a valid
-  // result for an operation.
-  explicit FileIOCompleteParameters(int bytes_copied)
-      : bytes_copied_(bytes_copied) {
-  }
-
-  Value* ToValue() const {
-    DCHECK_NE(bytes_copied_, net::ERR_IO_PENDING);
-    DictionaryValue* dict = new DictionaryValue();
-    if (bytes_copied_ < 0) {
-      dict->SetInteger("net_error", bytes_copied_);
-    } else {
-      dict->SetInteger("bytes_copied", bytes_copied_);
-    }
-    return dict;
-  }
-
- private:
-  const int bytes_copied_;
-
-  DISALLOW_COPY_AND_ASSIGN(FileIOCompleteParameters);
-};
 
 // This class implements FileIOCallback to buffer the callback from a file IO
 // operation from the actual net class.
@@ -125,7 +50,7 @@ class SyncCallback: public disk_cache::FileIOCallback {
   net::CompletionCallback* callback_;
   scoped_refptr<net::IOBuffer> buf_;
   TimeTicks start_;
-  net::NetLog::EventType end_event_type_;
+  const net::NetLog::EventType end_event_type_;
 
   DISALLOW_COPY_AND_ASSIGN(SyncCallback);
 };
@@ -136,7 +61,8 @@ void SyncCallback::OnFileIOComplete(int bytes_copied) {
     if (entry_->net_log().IsLoggingAllEvents()) {
       entry_->net_log().EndEvent(
           end_event_type_,
-          make_scoped_refptr(new FileIOCompleteParameters(bytes_copied)));
+          make_scoped_refptr(
+              new disk_cache::ReadWriteCompleteParameters(bytes_copied)));
     }
     entry_->ReportIOTime(disk_cache::EntryImpl::kAsyncIO, start_);
     callback_->Run(bytes_copied);
@@ -386,17 +312,17 @@ int EntryImpl::ReadDataImpl(int index, int offset, net::IOBuffer* buf,
                             int buf_len, CompletionCallback* callback) {
   if (net_log_.IsLoggingAllEvents()) {
     net_log_.BeginEvent(
-        net::NetLog::TYPE_DISK_CACHE_READ_DATA,
+        net::NetLog::TYPE_ENTRY_READ_DATA,
         make_scoped_refptr(
-            new ReadWriteDataParams(index, offset, buf_len, false)));
+            new ReadWriteDataParameters(index, offset, buf_len, false)));
   }
 
   int result = InternalReadData(index, offset, buf, buf_len, callback);
 
   if (result != net::ERR_IO_PENDING && net_log_.IsLoggingAllEvents()) {
     net_log_.EndEvent(
-        net::NetLog::TYPE_DISK_CACHE_READ_DATA,
-        make_scoped_refptr(new FileIOCompleteParameters(result)));
+        net::NetLog::TYPE_ENTRY_READ_DATA,
+        make_scoped_refptr(new ReadWriteCompleteParameters(result)));
   }
   return result;
 }
@@ -406,9 +332,9 @@ int EntryImpl::WriteDataImpl(int index, int offset, net::IOBuffer* buf,
                              bool truncate) {
   if (net_log_.IsLoggingAllEvents()) {
     net_log_.BeginEvent(
-        net::NetLog::TYPE_DISK_CACHE_WRITE_DATA,
+        net::NetLog::TYPE_ENTRY_WRITE_DATA,
         make_scoped_refptr(
-            new ReadWriteDataParams(index, offset, buf_len, truncate)));
+            new ReadWriteDataParameters(index, offset, buf_len, truncate)));
   }
 
   int result = InternalWriteData(index, offset, buf, buf_len, callback,
@@ -416,8 +342,8 @@ int EntryImpl::WriteDataImpl(int index, int offset, net::IOBuffer* buf,
 
   if (result != net::ERR_IO_PENDING && net_log_.IsLoggingAllEvents()) {
     net_log_.EndEvent(
-        net::NetLog::TYPE_DISK_CACHE_WRITE_DATA,
-        make_scoped_refptr(new FileIOCompleteParameters(result)));
+        net::NetLog::TYPE_ENTRY_WRITE_DATA,
+        make_scoped_refptr(new ReadWriteCompleteParameters(result)));
   }
   return result;
 }
@@ -531,7 +457,7 @@ bool EntryImpl::IsSameEntry(const std::string& key, uint32 hash) {
 }
 
 void EntryImpl::InternalDoom() {
-  net_log_.AddEvent(net::NetLog::TYPE_DISK_CACHE_DOOM, NULL);
+  net_log_.AddEvent(net::NetLog::TYPE_ENTRY_DOOM, NULL);
   DCHECK(node_.HasData());
   if (!node_.Data()->dirty) {
     node_.Data()->dirty = backend_->GetCurrentEntryId();
@@ -634,18 +560,55 @@ void EntryImpl::SetPointerForInvalidEntry(int32 new_id) {
 }
 
 bool EntryImpl::SanityCheck() {
-  if (!entry_.Data()->rankings_node || !entry_.Data()->key_len)
+  EntryStore* stored = entry_.Data();
+  if (!stored->rankings_node || stored->key_len <= 0)
     return false;
 
-  Addr rankings_addr(entry_.Data()->rankings_node);
+  if (stored->reuse_count < 0 || stored->refetch_count < 0)
+    return false;
+
+  Addr rankings_addr(stored->rankings_node);
   if (!rankings_addr.is_initialized() || rankings_addr.is_separate_file() ||
       rankings_addr.file_type() != RANKINGS)
     return false;
 
-  Addr next_addr(entry_.Data()->next);
+  Addr next_addr(stored->next);
   if (next_addr.is_initialized() &&
       (next_addr.is_separate_file() || next_addr.file_type() != BLOCK_256))
     return false;
+
+  if (!rankings_addr.SanityCheck() || !next_addr.SanityCheck())
+    return false;
+
+  if (stored->state > ENTRY_DOOMED || stored->state < ENTRY_NORMAL)
+    return false;
+
+  Addr key_addr(stored->long_key);
+  if (stored->key_len <= kMaxInternalKeyLength && key_addr.is_initialized())
+    return false;
+
+  if (!key_addr.SanityCheck())
+    return false;
+
+  if (stored->hash != Hash(GetKey()))
+    return false;
+
+  for (int i = 0; i < kNumStreams; i++) {
+    Addr data_addr(stored->data_addr[i]);
+    int data_size = stored->data_size[i];
+    if (data_size < 0)
+      return false;
+    if (!data_size && data_addr.is_initialized())
+      return false;
+    if (!data_addr.SanityCheck())
+      return false;
+    if (!data_size)
+      continue;
+    if (data_size <= kMaxBlockSize && data_addr.is_separate_file())
+      return false;
+    if (data_size > kMaxBlockSize && data_addr.is_block_file())
+      return false;
+  }
 
   return true;
 }
@@ -692,7 +655,7 @@ void EntryImpl::BeginLogging(net::NetLog* net_log, bool created) {
   net_log_ = net::BoundNetLog::Make(
       net_log, net::NetLog::SOURCE_DISK_CACHE_ENTRY);
   net_log_.BeginEvent(
-      net::NetLog::TYPE_DISK_CACHE_ENTRY,
+      net::NetLog::TYPE_DISK_CACHE_ENTRY_IMPL,
       make_scoped_refptr(new EntryCreationParameters(GetKey(), created)));
 }
 
@@ -859,7 +822,7 @@ EntryImpl::~EntryImpl() {
   if (doomed_) {
     DeleteEntryData(true);
   } else {
-    net_log_.AddEvent(net::NetLog::TYPE_DISK_CACHE_CLOSE, NULL);
+    net_log_.AddEvent(net::NetLog::TYPE_ENTRY_CLOSE, NULL);
     bool ret = true;
     for (int index = 0; index < kNumStreams; index++) {
       if (user_buffers_[index].get()) {
@@ -885,7 +848,7 @@ EntryImpl::~EntryImpl() {
   }
 
   Trace("~EntryImpl out 0x%p", reinterpret_cast<void*>(this));
-  net_log_.EndEvent(net::NetLog::TYPE_DISK_CACHE_ENTRY, NULL);
+  net_log_.EndEvent(net::NetLog::TYPE_DISK_CACHE_ENTRY_IMPL, NULL);
   backend_->OnEntryDestroyEnd();
 }
 
@@ -944,7 +907,7 @@ int EntryImpl::InternalReadData(int index, int offset, net::IOBuffer* buf,
   SyncCallback* io_callback = NULL;
   if (callback) {
     io_callback = new SyncCallback(this, buf, callback,
-                                   net::NetLog::TYPE_DISK_CACHE_READ_DATA);
+                                   net::NetLog::TYPE_ENTRY_READ_DATA);
   }
 
   bool completed;
@@ -1038,7 +1001,7 @@ int EntryImpl::InternalWriteData(int index, int offset, net::IOBuffer* buf,
   SyncCallback* io_callback = NULL;
   if (callback) {
     io_callback = new SyncCallback(this, buf, callback,
-                                   net::NetLog::TYPE_DISK_CACHE_WRITE_DATA);
+                                   net::NetLog::TYPE_ENTRY_WRITE_DATA);
   }
 
   bool completed;

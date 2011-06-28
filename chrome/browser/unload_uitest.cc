@@ -103,25 +103,13 @@ class UnloadTest : public UITest {
     UITest::SetUp();
   }
 
-  void WaitForBrowserClosed() {
-    const int kCheckDelayMs = 100;
-    for (int max_wait_time = TestTimeouts::action_max_timeout_ms();
-         max_wait_time > 0; max_wait_time -= kCheckDelayMs) {
-      CrashAwareSleep(kCheckDelayMs);
-      if (!IsBrowserRunning())
-        break;
-    }
-
-    EXPECT_FALSE(IsBrowserRunning());
-  }
-
   void CheckTitle(const std::wstring& expected_title) {
     const int kCheckDelayMs = 100;
     for (int max_wait_time = TestTimeouts::action_max_timeout_ms();
          max_wait_time > 0; max_wait_time -= kCheckDelayMs) {
-      CrashAwareSleep(kCheckDelayMs);
       if (expected_title == GetActiveTabTitle())
         break;
+      base::PlatformThread::Sleep(kCheckDelayMs);
     }
 
     EXPECT_EQ(expected_title, GetActiveTabTitle());
@@ -301,7 +289,11 @@ TEST_F(UnloadTest, BrowserCloseBeforeUnloadOK) {
 
   CloseBrowserAsync(browser.get());
   ClickModalDialogButton(ui::MessageBoxFlags::DIALOGBUTTON_OK);
-  WaitForBrowserClosed();
+
+  int exit_code = -1;
+  ASSERT_TRUE(launcher_->WaitForBrowserProcessToQuit(
+                  TestTimeouts::action_max_timeout_ms(), &exit_code));
+  EXPECT_EQ(0, exit_code);  // Expect a clean shutown.
 }
 
 // Tests closing the browser with a beforeunload handler and clicking
@@ -313,14 +305,19 @@ TEST_F(UnloadTest, BrowserCloseBeforeUnloadCancel) {
 
   CloseBrowserAsync(browser.get());
   ClickModalDialogButton(ui::MessageBoxFlags::DIALOGBUTTON_CANCEL);
+
   // There's no real graceful way to wait for something _not_ to happen, so
   // we just wait a short period.
-  CrashAwareSleep(500);
+  base::PlatformThread::Sleep(TestTimeouts::action_timeout_ms());
   ASSERT_TRUE(IsBrowserRunning());
 
   CloseBrowserAsync(browser.get());
   ClickModalDialogButton(ui::MessageBoxFlags::DIALOGBUTTON_OK);
-  WaitForBrowserClosed();
+
+  int exit_code = -1;
+  ASSERT_TRUE(launcher_->WaitForBrowserProcessToQuit(
+                  TestTimeouts::action_max_timeout_ms(), &exit_code));
+  EXPECT_EQ(0, exit_code);  // Expect a clean shutdown.
 }
 
 #if defined(OS_LINUX)
@@ -342,7 +339,11 @@ TEST_F(UnloadTest, MAYBE_BrowserCloseWithInnerFocusedFrame) {
 
   CloseBrowserAsync(browser.get());
   ClickModalDialogButton(ui::MessageBoxFlags::DIALOGBUTTON_OK);
-  WaitForBrowserClosed();
+
+  int exit_code = -1;
+  ASSERT_TRUE(launcher_->WaitForBrowserProcessToQuit(
+                  TestTimeouts::action_max_timeout_ms(), &exit_code));
+  EXPECT_EQ(0, exit_code);  // Expect a clean shutdown.
 }
 
 // Tests closing the browser with a beforeunload handler that takes
@@ -362,8 +363,15 @@ TEST_F(UnloadTest, BrowserCloseInfiniteUnload) {
   LoadUrlAndQuitBrowser(INFINITE_UNLOAD_HTML, L"infiniteunload");
 }
 
+#if defined(OS_WIN)
+// Flakily fails, times out: http://crbug.com/78803
+#define MAYBE_BrowserCloseInfiniteBeforeUnload \
+    DISABLED_BrowserCloseInfiniteBeforeUnload
+#else
+#define MAYBE_BrowserCloseInfiniteBeforeUnload BrowserCloseInfiniteBeforeUnload
+#endif
 // Tests closing the browser with a beforeunload handler that hangs.
-TEST_F(UnloadTest, BrowserCloseInfiniteBeforeUnload) {
+TEST_F(UnloadTest, MAYBE_BrowserCloseInfiniteBeforeUnload) {
   // Tests makes no sense in single-process mode since the renderer is hung.
   if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kSingleProcess))
     return;
@@ -381,9 +389,17 @@ TEST_F(UnloadTest, BrowserCloseInfiniteUnloadAlert) {
   LoadUrlAndQuitBrowser(INFINITE_UNLOAD_ALERT_HTML, L"infiniteunloadalert");
 }
 
+#if defined(OS_WIN)
+// Flakily fails, times out: http://crbug.com/78803
+#define MAYBE_BrowserCloseInfiniteBeforeUnloadAlert \
+    DISABLED_BrowserCloseInfiniteBeforeUnloadAlert
+#else
+#define MAYBE_BrowserCloseInfiniteBeforeUnloadAlert \
+    BrowserCloseInfiniteBeforeUnloadAlert
+#endif
 // Tests closing the browser with a beforeunload handler that hangs then
 // pops up an alert.
-TEST_F(UnloadTest, BrowserCloseInfiniteBeforeUnloadAlert) {
+TEST_F(UnloadTest, MAYBE_BrowserCloseInfiniteBeforeUnloadAlert) {
   // Tests makes no sense in single-process mode since the renderer is hung.
   if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kSingleProcess))
     return;

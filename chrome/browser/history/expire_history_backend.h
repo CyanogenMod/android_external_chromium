@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,9 +12,9 @@
 
 #include "base/basictypes.h"
 #include "base/gtest_prod_util.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/task.h"
 #include "base/time.h"
-#include "base/scoped_ptr.h"
 #include "chrome/browser/history/history_types.h"
 
 class BookmarkService;
@@ -168,7 +168,7 @@ class ExpireHistoryBackend {
   void DeleteURLs(const std::vector<URLRow>& urls,
                   DeleteDependencies* dependencies);
 
-  // Expiration involves removing visits, then propogating the visits out from
+  // Expiration involves removing visits, then propagating the visits out from
   // there and delete any orphaned URLs. These will be added to the deleted URLs
   // field of the dependencies and DeleteOneURL will handle deleting out from
   // there. This function does not handle favicons.
@@ -199,7 +199,7 @@ class ExpireHistoryBackend {
 
   // Deletes the favicons listed in the set if unused. Fails silently (we don't
   // care about favicons so much, so don't want to stop everything if it fails).
-  void DeleteFaviconsIfPossible(const std::set<FavIconID>& favicon_id);
+  void DeleteFaviconsIfPossible(const std::set<FaviconID>& favicon_id);
 
   // Broadcast the URL deleted notification.
   void BroadcastDeleteNotifications(DeleteDependencies* dependencies);

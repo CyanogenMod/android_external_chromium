@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,9 @@
 
 #include <Security/Security.h>
 
-#include "base/crypto/cssm_init.h"
 #include "base/logging.h"
 #include "base/synchronization/lock.h"
+#include "crypto/mac_security_services_lock.h"
 #include "net/base/net_errors.h"
 #include "net/base/x509_certificate.h"
 
@@ -43,11 +43,13 @@ int CertDatabase::CheckUserCert(X509Certificate* cert) {
 int CertDatabase::AddUserCert(X509Certificate* cert) {
   OSStatus err;
   {
-    base::AutoLock locked(base::GetMacSecurityServicesLock());
+    base::AutoLock locked(crypto::GetMacSecurityServicesLock());
     err = SecCertificateAddToKeychain(cert->os_cert_handle(), NULL);
   }
   switch (err) {
     case noErr:
+      CertDatabase::NotifyObserversOfUserCertAdded(cert);
+      // Fall through.
     case errSecDuplicateItem:
       return OK;
     default:

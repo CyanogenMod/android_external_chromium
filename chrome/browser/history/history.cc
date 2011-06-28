@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,15 +25,13 @@
 #include "chrome/browser/history/history.h"
 
 #include "base/callback.h"
+#include "base/memory/ref_counted.h"
 #include "base/message_loop.h"
 #include "base/path_service.h"
-#include "base/ref_counted.h"
 #include "base/string_util.h"
 #include "base/task.h"
 #include "chrome/browser/autocomplete/history_url_provider.h"
-#include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/browser_window.h"
 #include "chrome/browser/history/download_create_info.h"
 #include "chrome/browser/history/history_backend.h"
 #include "chrome/browser/history/history_notifications.h"
@@ -43,13 +41,14 @@
 #include "chrome/browser/history/top_sites.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ui/profile_error_dialog.h"
 #include "chrome/browser/visitedlink/visitedlink_master.h"
 #include "chrome/common/chrome_constants.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/thumbnail_score.h"
 #include "chrome/common/url_constants.h"
 #include "content/browser/browser_thread.h"
+#include "content/common/notification_service.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -74,21 +73,22 @@ class HistoryService::BackendDelegate : public HistoryBackend::Delegate {
         message_loop_(MessageLoop::current()) {
   }
 
-  virtual void NotifyProfileError(int message_id) {
-    // Send the backend to the history service on the main thread.
+  virtual void NotifyProfileError(sql::InitStatus init_status) OVERRIDE {
+    // Send to the history service on the main thread.
     message_loop_->PostTask(FROM_HERE, NewRunnableMethod(history_service_.get(),
-        &HistoryService::NotifyProfileError, message_id));
+        &HistoryService::NotifyProfileError, init_status));
   }
 
   virtual void SetInMemoryBackend(
-      history::InMemoryHistoryBackend* backend) {
+      history::InMemoryHistoryBackend* backend) OVERRIDE {
     // Send the backend to the history service on the main thread.
     message_loop_->PostTask(FROM_HERE, NewRunnableMethod(history_service_.get(),
         &HistoryService::SetInMemoryBackend, backend));
   }
 
-  virtual void BroadcastNotifications(NotificationType type,
-                                      history::HistoryDetails* details) {
+  virtual void BroadcastNotifications(
+      NotificationType type,
+      history::HistoryDetails* details) OVERRIDE {
     // Send the notification on the history thread.
     if (NotificationService::current()) {
       Details<history::HistoryDetails> det(details);
@@ -101,12 +101,12 @@ class HistoryService::BackendDelegate : public HistoryBackend::Delegate {
         &HistoryService::BroadcastNotifications, type, details));
   }
 
-  virtual void DBLoaded() {
+  virtual void DBLoaded() OVERRIDE {
     message_loop_->PostTask(FROM_HERE, NewRunnableMethod(history_service_.get(),
         &HistoryService::OnDBLoaded));
   }
 
-  virtual void StartTopSitesMigration() {
+  virtual void StartTopSitesMigration() OVERRIDE {
     message_loop_->PostTask(FROM_HERE, NewRunnableMethod(history_service_.get(),
         &HistoryService::StartTopSitesMigration));
   }
@@ -449,44 +449,49 @@ HistoryService::Handle HistoryService::GetPageThumbnail(
 }
 
 void HistoryService::GetFavicon(FaviconService::GetFaviconRequest* request,
-                                const GURL& icon_url) {
-  Schedule(PRIORITY_NORMAL, &HistoryBackend::GetFavIcon, NULL, request,
-           icon_url);
+                                const GURL& icon_url,
+                                history::IconType icon_type) {
+  Schedule(PRIORITY_NORMAL, &HistoryBackend::GetFavicon, NULL, request,
+           icon_url, icon_type);
 }
 
 void HistoryService::UpdateFaviconMappingAndFetch(
     FaviconService::GetFaviconRequest* request,
     const GURL& page_url,
-    const GURL& icon_url) {
-  Schedule(PRIORITY_NORMAL, &HistoryBackend::UpdateFavIconMappingAndFetch, NULL,
-           request, page_url, icon_url);
+    const GURL& icon_url,
+    history::IconType icon_type) {
+  Schedule(PRIORITY_NORMAL, &HistoryBackend::UpdateFaviconMappingAndFetch, NULL,
+           request, page_url, icon_url, history::FAVICON);
 }
 
 void HistoryService::GetFaviconForURL(
     FaviconService::GetFaviconRequest* request,
-    const GURL& page_url) {
-  Schedule(PRIORITY_NORMAL, &HistoryBackend::GetFavIconForURL, NULL, request,
-           page_url);
+    const GURL& page_url,
+    int icon_types) {
+  Schedule(PRIORITY_NORMAL, &HistoryBackend::GetFaviconForURL, NULL, request,
+           page_url, icon_types);
 }
 
 void HistoryService::SetFavicon(const GURL& page_url,
                                 const GURL& icon_url,
-                                const std::vector<unsigned char>& image_data) {
+                                const std::vector<unsigned char>& image_data,
+                                history::IconType icon_type) {
   if (!CanAddURL(page_url))
     return;
 
-  ScheduleAndForget(PRIORITY_NORMAL, &HistoryBackend::SetFavIcon,
+  ScheduleAndForget(PRIORITY_NORMAL, &HistoryBackend::SetFavicon,
       page_url, icon_url,
-      scoped_refptr<RefCountedMemory>(new RefCountedBytes(image_data)));
+      scoped_refptr<RefCountedMemory>(new RefCountedBytes(image_data)),
+      icon_type);
 }
 
 void HistoryService::SetFaviconOutOfDateForPage(const GURL& page_url) {
   ScheduleAndForget(PRIORITY_NORMAL,
-                    &HistoryBackend::SetFavIconOutOfDateForPage, page_url);
+                    &HistoryBackend::SetFaviconOutOfDateForPage, page_url);
 }
 
 void HistoryService::SetImportedFavicons(
-    const std::vector<history::ImportedFavIconUsage>& favicon_usage) {
+    const std::vector<history::ImportedFaviconUsage>& favicon_usage) {
   ScheduleAndForget(PRIORITY_NORMAL,
                     &HistoryBackend::SetImportedFavicons, favicon_usage);
 }
@@ -717,10 +722,10 @@ void HistoryService::SetInMemoryBackend(
   in_memory_backend_->AttachToHistoryService(profile_);
 }
 
-void HistoryService::NotifyProfileError(int message_id) {
-  Source<HistoryService> source(this);
-  NotificationService::current()->Notify(NotificationType::PROFILE_ERROR,
-                                         source, Details<int>(&message_id));
+void HistoryService::NotifyProfileError(sql::InitStatus init_status) {
+  ShowProfileErrorDialog(
+      (init_status == sql::INIT_FAILURE) ?
+      IDS_COULDNT_OPEN_PROFILE_ERROR : IDS_PROFILE_TOO_NEW_ERROR);
 }
 
 void HistoryService::DeleteURL(const GURL& url) {

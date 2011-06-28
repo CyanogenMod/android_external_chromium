@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,9 +10,10 @@
 #include <string>
 
 #include "base/basictypes.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/threading/non_thread_safe.h"
 #include "base/time.h"
+#include "net/base/cert_database.h"
 #include "net/base/cert_verify_result.h"
 #include "net/base/completion_callback.h"
 #include "net/base/x509_cert_types.h"
@@ -46,7 +47,8 @@ struct CachedCertVerifyResult {
 // request at a time is to create a SingleRequestCertVerifier wrapper around
 // CertVerifier (which will automatically cancel the single request when it
 // goes out of scope).
-class CertVerifier : public base::NonThreadSafe {
+class CertVerifier : public base::NonThreadSafe,
+                     public CertDatabase::Observer {
  public:
   // Opaque type used to cancel a request.
   typedef void* RequestHandle;
@@ -154,6 +156,9 @@ class CertVerifier : public base::NonThreadSafe {
                     int error,
                     const CertVerifyResult& verify_result);
 
+  // CertDatabase::Observer methods:
+  virtual void OnCertTrustChanged(const X509Certificate* cert);
+
   // cache_ maps from a request to a cached result. The cached result may
   // have expired and the size of |cache_| must be <= kMaxCacheEntries.
   std::map<RequestParams, CachedCertVerifyResult> cache_;
@@ -205,7 +210,7 @@ class SingleRequestCertVerifier {
   CompletionCallback* cur_request_callback_;
 
   // Completion callback for when request to |cert_verifier_| completes.
-  net::CompletionCallbackImpl<SingleRequestCertVerifier> callback_;
+  CompletionCallbackImpl<SingleRequestCertVerifier> callback_;
 
   DISALLOW_COPY_AND_ASSIGN(SingleRequestCertVerifier);
 };

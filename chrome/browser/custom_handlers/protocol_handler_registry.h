@@ -10,7 +10,7 @@
 #include <map>
 
 #include "base/basictypes.h"
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
 #include "base/values.h"
 #include "chrome/browser/custom_handlers/protocol_handler.h"
 #include "chrome/browser/profiles/profile.h"
@@ -60,6 +60,10 @@ class ProtocolHandlerRegistry
   // Registers the preferences that we store registered protocol handlers in.
   static void RegisterPrefs(PrefService* prefService);
 
+  // Creates a URL request job for the given request if there is a matching
+  // protocol handler, returns NULL otherwise.
+  net::URLRequestJob* MaybeCreateJob(net::URLRequest* request) const;
+
  private:
   typedef std::map<std::string, ProtocolHandler*> ProtocolHandlerMap;
 
@@ -72,11 +76,6 @@ class ProtocolHandlerRegistry
 
   // Registers a new protocol handler.
   void RegisterProtocolHandler(ProtocolHandler* handler);
-
-  // Creates a URL request job for the given request if there is a matching
-  // protocol handler, returns NULL otherwise.
-  net::URLRequestJob* CreateJob(net::URLRequest* request,
-                                const std::string& scheme) const;
 
   // Registers a new protocol handler from a JSON dictionary.
   void RegisterHandlerFromValue(const DictionaryValue* value);

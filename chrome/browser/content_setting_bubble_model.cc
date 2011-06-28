@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,11 +13,12 @@
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tab_contents/tab_specific_content_settings.h"
-#include "chrome/common/notification_service.h"
+#include "chrome/browser/ui/collected_cookies_infobar_delegate.h"
 #include "chrome/common/pref_names.h"
 #include "content/browser/renderer_host/render_view_host.h"
 #include "content/browser/tab_contents/tab_contents.h"
 #include "content/browser/tab_contents/tab_contents_delegate.h"
+#include "content/common/notification_service.h"
 #include "grit/generated_resources.h"
 #include "net/base/net_util.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -120,7 +121,7 @@ class ContentSettingTitleAndLinkModel : public ContentSettingBubbleModel {
 
   virtual void OnManageLinkClicked() {
     if (tab_contents())
-      tab_contents()->delegate()->ShowContentSettingsWindow(content_type());
+      tab_contents()->delegate()->ShowContentSettingsPage(content_type());
   }
 };
 
@@ -172,7 +173,7 @@ class ContentSettingSingleRadioGroup
   }
 
   virtual ~ContentSettingSingleRadioGroup() {
-    if (selected_item_ != bubble_content().radio_group.default_item) {
+    if (settings_changed()) {
       ContentSetting setting =
           selected_item_ == 0 ? CONTENT_SETTING_ALLOW : block_setting_;
       const std::set<std::string>& resources =
@@ -186,6 +187,11 @@ class ContentSettingSingleRadioGroup
         }
       }
     }
+  }
+
+ protected:
+  bool settings_changed() const {
+    return selected_item_ != bubble_content().radio_group.default_item;
   }
 
  private:
@@ -212,7 +218,7 @@ class ContentSettingSingleRadioGroup
     radio_group.url = url;
 
     static const int kAllowIDs[] = {
-      0,  // We don't manage cookies here.
+      IDS_BLOCKED_COOKIES_UNBLOCK,
       IDS_BLOCKED_IMAGES_UNBLOCK,
       IDS_BLOCKED_JAVASCRIPT_UNBLOCK,
       IDS_BLOCKED_PLUGINS_UNBLOCK_ALL,
@@ -244,7 +250,7 @@ class ContentSettingSingleRadioGroup
         allowIDs[content_type()], UTF8ToUTF16(display_host));
 
     static const int kBlockIDs[] = {
-      0,  // We don't manage cookies here.
+      IDS_BLOCKED_COOKIES_NO_ACTION,
       IDS_BLOCKED_IMAGES_NO_ACTION,
       IDS_BLOCKED_JAVASCRIPT_NO_ACTION,
       IDS_BLOCKED_PLUGINS_NO_ACTION,
@@ -303,19 +309,22 @@ class ContentSettingSingleRadioGroup
   }
 };
 
-class ContentSettingCookiesBubbleModel
-    : public ContentSettingTitleLinkAndCustomModel {
+class ContentSettingCookiesBubbleModel : public ContentSettingSingleRadioGroup {
  public:
   ContentSettingCookiesBubbleModel(TabContents* tab_contents,
                                    Profile* profile,
                                    ContentSettingsType content_type)
-      : ContentSettingTitleLinkAndCustomModel(tab_contents, profile,
-                                              content_type) {
+      : ContentSettingSingleRadioGroup(tab_contents, profile, content_type) {
     DCHECK_EQ(CONTENT_SETTINGS_TYPE_COOKIES, content_type);
     set_custom_link_enabled(true);
   }
 
-  virtual ~ContentSettingCookiesBubbleModel() {}
+  virtual ~ContentSettingCookiesBubbleModel() {
+    if (settings_changed()) {
+      tab_contents()->AddInfoBar(
+          new CollectedCookiesInfoBarDelegate(tab_contents()));
+    }
+  }
 
  private:
   virtual void OnCustomLinkClicked() OVERRIDE {
@@ -382,7 +391,7 @@ class ContentSettingPopupBubbleModel : public ContentSettingSingleRadioGroup {
         title = l10n_util::GetStringUTF8(IDS_TAB_LOADING_TITLE);
       PopupItem popup_item;
       popup_item.title = title;
-      popup_item.bitmap = (*i)->GetFavIcon();
+      popup_item.bitmap = (*i)->GetFavicon();
       popup_item.tab_contents = (*i);
       add_popup(popup_item);
     }

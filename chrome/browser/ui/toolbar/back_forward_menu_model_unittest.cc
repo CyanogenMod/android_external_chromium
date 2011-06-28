@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,17 +7,57 @@
 #include "base/path_service.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
+#include "chrome/browser/history/history.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/ui/browser.h"
 #include "chrome/common/url_constants.h"
+#include "chrome/test/testing_profile.h"
+#include "content/browser/browser_thread.h"
 #include "content/browser/renderer_host/test_render_view_host.h"
 #include "content/browser/tab_contents/navigation_controller.h"
 #include "content/browser/tab_contents/navigation_entry.h"
 #include "content/browser/tab_contents/tab_contents.h"
 #include "content/browser/tab_contents/test_tab_contents.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/gfx/codec/png_codec.h"
+
+namespace {
+
+// Creates a bitmap of the specified color.
+SkBitmap CreateBitmap(SkColor color) {
+  SkBitmap bitmap;
+  bitmap.setConfig(SkBitmap::kARGB_8888_Config, 16, 16);
+  bitmap.allocPixels();
+  bitmap.eraseColor(color);
+  return bitmap;
+}
+
+class FaviconDelegate : public ui::MenuModelDelegate {
+ public:
+  FaviconDelegate() : was_called_(false) {}
+
+  void OnIconChanged(int model_index) {
+    was_called_ = true;
+    MessageLoop::current()->Quit();
+  }
+
+  bool was_called() const { return was_called_; }
+
+ private:
+  bool was_called_;
+
+  DISALLOW_COPY_AND_ASSIGN(FaviconDelegate);
+};
+
+}  // namespace
 
 class BackFwdMenuModelTest : public RenderViewHostTestHarness {
  public:
+  BackFwdMenuModelTest()
+      : ui_thread_(BrowserThread::UI, &message_loop_) {
+  }
+
   void ValidateModel(BackForwardMenuModel* model, int history_items,
                      int chapter_stops) {
     int h = std::min(BackForwardMenuModel::kMaxHistoryItems, history_items);
@@ -58,6 +98,8 @@ class BackFwdMenuModelTest : public RenderViewHostTestHarness {
     controller().GoForward();
     contents()->CommitPendingNavigation();
   }
+
+  BrowserThread ui_thread_;
 };
 
 TEST_F(BackFwdMenuModelTest, BasicCase) {
@@ -420,3 +462,96 @@ TEST_F(BackFwdMenuModelTest, ChapterStops) {
   EXPECT_EQ(1, back_model->GetIndexOfNextChapterStop(2, false));
   EXPECT_EQ(-1, back_model->GetIndexOfNextChapterStop(1, false));
 }
+
+TEST_F(BackFwdMenuModelTest, EscapeLabel) {
+  scoped_ptr<BackForwardMenuModel> back_model(new BackForwardMenuModel(
+      NULL, BackForwardMenuModel::BACKWARD_MENU));
+  back_model->set_test_tab_contents(contents());
+
+  EXPECT_EQ(0, back_model->GetItemCount());
+  EXPECT_FALSE(back_model->ItemHasCommand(1));
+
+  LoadURLAndUpdateState("http://www.a.com/1", "A B");
+  LoadURLAndUpdateState("http://www.a.com/1", "A & B");
+  LoadURLAndUpdateState("http://www.a.com/2", "A && B");
+  LoadURLAndUpdateState("http://www.a.com/2", "A &&& B");
+  LoadURLAndUpdateState("http://www.a.com/3", "");
+
+  EXPECT_EQ(6, back_model->GetItemCount());
+
+  // On Mac ui::MenuModel::GetLabelAt should return unescaped strings.
+#if defined(OS_MACOSX)
+  EXPECT_EQ(ASCIIToUTF16("A B"), back_model->GetLabelAt(3));
+  EXPECT_EQ(ASCIIToUTF16("A & B"), back_model->GetLabelAt(2));
+  EXPECT_EQ(ASCIIToUTF16("A && B"), back_model->GetLabelAt(1));
+  EXPECT_EQ(ASCIIToUTF16("A &&& B"), back_model->GetLabelAt(0));
+#else
+  EXPECT_EQ(ASCIIToUTF16("A B"), back_model->GetLabelAt(3));
+  EXPECT_EQ(ASCIIToUTF16("A && B"), back_model->GetLabelAt(2));
+  EXPECT_EQ(ASCIIToUTF16("A &&&& B"), back_model->GetLabelAt(1));
+  EXPECT_EQ(ASCIIToUTF16("A &&&&&& B"), back_model->GetLabelAt(0));
+#endif // defined(OS_MACOSX)
+}
+
+// Test asynchronous loading of favicon from history service.
+TEST_F(BackFwdMenuModelTest, FaviconLoadTest) {
+  profile()->CreateHistoryService(true, false);
+  profile()->CreateFaviconService();
+  Browser browser(Browser::TYPE_NORMAL, profile());
+  FaviconDelegate favicon_delegate;
+
+  BackForwardMenuModel back_model(
+      &browser, BackForwardMenuModel::BACKWARD_MENU);
+  back_model.set_test_tab_contents(controller().tab_contents());
+  back_model.SetMenuModelDelegate(&favicon_delegate);
+
+  SkBitmap new_icon(CreateBitmap(SK_ColorRED));
+  std::vector<unsigned char> icon_data;
+  gfx::PNGCodec::EncodeBGRASkBitmap(new_icon, false, &icon_data);
+
+  GURL url1 = GURL("http://www.a.com/1");
+  GURL url2 = GURL("http://www.a.com/2");
+  GURL url1_favicon("http://www.a.com/1/favicon.ico");
+
+  NavigateAndCommit(url1);
+  // Navigate to a new URL so that url1 will be in the BackForwardMenuModel.
+  NavigateAndCommit(url2);
+
+  // Set the desired favicon for url1.
+  profile()->GetHistoryService(Profile::EXPLICIT_ACCESS)->AddPage(url1,
+      history::SOURCE_BROWSED);
+  profile()->GetFaviconService(Profile::EXPLICIT_ACCESS)->SetFavicon(url1,
+      url1_favicon, icon_data, history::FAVICON);
+
+  // Will return the current icon (default) but start an anync call
+  // to retrieve the favicon from the favicon service.
+  SkBitmap default_icon;
+  back_model.GetIconAt(0, &default_icon);
+
+  // Make the favicon service run GetFavIconForURL,
+  // FaviconDelegate.OnIconChanged will be called.
+  MessageLoop::current()->Run();
+
+  // Verify that the callback executed.
+  EXPECT_TRUE(favicon_delegate.was_called());
+
+  // Verify the bitmaps match.
+  SkBitmap valid_icon;
+  // This time we will get the new favicon returned.
+  back_model.GetIconAt(0, &valid_icon);
+  SkAutoLockPixels a(new_icon);
+  SkAutoLockPixels b(valid_icon);
+  SkAutoLockPixels c(default_icon);
+  // Verify we did not get the default favicon.
+  EXPECT_NE(0, memcmp(default_icon.getPixels(), valid_icon.getPixels(),
+               default_icon.getSize()));
+  // Verify we did get the expected favicon.
+  EXPECT_EQ(0, memcmp(new_icon.getPixels(), valid_icon.getPixels(),
+              new_icon.getSize()));
+
+  // Make sure the browser deconstructor doesn't have problems.
+  browser.CloseAllTabs();
+  // This is required to prevent the message loop from hanging.
+  profile()->DestroyHistoryService();
+}
+

@@ -6,7 +6,8 @@
 #import <QuartzCore/QuartzCore.h>
 
 #include "base/logging.h"
-#include "base/scoped_nsobject.h"
+#include "base/memory/scoped_nsobject.h"
+#include "base/metrics/histogram.h"
 #include "base/sys_string_conversions.h"
 #import "chrome/browser/ui/cocoa/confirm_quit_panel_controller.h"
 #include "grit/generated_resources.h"
@@ -23,6 +24,20 @@ const NSTimeInterval kTimeDeltaFuzzFactor = 1.0;
 
 // Duration of the window fade out animation.
 const NSTimeInterval kWindowFadeAnimationDuration = 0.2;
+
+// For metrics recording only: How long the user must hold the keys to
+// differentitate kDoubleTap from kTapHold.
+const NSTimeInterval kDoubleTapTimeDelta = 0.32;
+
+// Functions ///////////////////////////////////////////////////////////////////
+
+namespace confirm_quit {
+
+void RecordHistogram(ConfirmQuitMetric sample) {
+  HISTOGRAM_ENUMERATION("ConfirmToQuit", sample, kSampleCount);
+}
+
+}  // namespace confirm_quit
 
 // Custom Content View /////////////////////////////////////////////////////////
 
@@ -71,8 +86,9 @@ const NSTimeInterval kWindowFadeAnimationDuration = 0.2;
   scoped_nsobject<NSMutableAttributedString> attrString(
       [[NSMutableAttributedString alloc] initWithString:text]);
   scoped_nsobject<NSShadow> textShadow([[NSShadow alloc] init]);
-  [textShadow setShadowColor:[NSColor colorWithCalibratedWhite:0 alpha:0.6]];
-  [textShadow setShadowOffset:NSMakeSize(0, -1)];
+  [textShadow.get() setShadowColor:[NSColor colorWithCalibratedWhite:0
+                                                               alpha:0.6]];
+  [textShadow.get() setShadowOffset:NSMakeSize(0, -1)];
   [textShadow setShadowBlurRadius:1.0];
   [attrString addAttribute:NSShadowAttributeName
                      value:textShadow
@@ -96,11 +112,49 @@ const NSTimeInterval kWindowFadeAnimationDuration = 0.2;
 
 @end
 
+// Animation ///////////////////////////////////////////////////////////////////
+
+// This animation will run through all the windows of the passed-in
+// NSApplication and will fade their alpha value to 0.0. When the animation is
+// complete, this will release itself.
+@interface FadeAllWindowsAnimation : NSAnimation<NSAnimationDelegate> {
+ @private
+  NSApplication* application_;
+}
+- (id)initWithApplication:(NSApplication*)app
+        animationDuration:(NSTimeInterval)duration;
+@end
+
+
+@implementation FadeAllWindowsAnimation
+
+- (id)initWithApplication:(NSApplication*)app
+        animationDuration:(NSTimeInterval)duration {
+  if ((self = [super initWithDuration:duration
+                       animationCurve:NSAnimationLinear])) {
+    application_ = app;
+    [self setDelegate:self];
+  }
+  return self;
+}
+
+- (void)setCurrentProgress:(NSAnimationProgress)progress {
+  for (NSWindow* window in [application_ windows]) {
+    [window setAlphaValue:1.0 - progress];
+  }
+}
+
+- (void)animationDidStop:(NSAnimation*)anim {
+  DCHECK_EQ(self, anim);
+  [self autorelease];
+}
+
+@end
+
 // Private Interface ///////////////////////////////////////////////////////////
 
 @interface ConfirmQuitPanelController (Private)
 - (void)animateFadeOut;
-- (NSString*)keyCommandString;
 - (NSEvent*)pumpEventQueueForKeyUp:(NSApplication*)app untilDate:(NSDate*)date;
 - (void)hideAllWindowsForApplication:(NSApplication*)app
                         withDuration:(NSTimeInterval)duration;
@@ -117,7 +171,7 @@ ConfirmQuitPanelController* g_confirmQuitPanelController = nil;
     g_confirmQuitPanelController =
         [[ConfirmQuitPanelController alloc] init];
   }
-  return g_confirmQuitPanelController;
+  return [[g_confirmQuitPanelController retain] autorelease];
 }
 
 - (id)init {
@@ -142,7 +196,7 @@ ConfirmQuitPanelController* g_confirmQuitPanelController = nil;
 
     // Set the proper string.
     NSString* message = l10n_util::GetNSStringF(IDS_CONFIRM_TO_QUIT_DESCRIPTION,
-        base::SysNSStringToUTF16([self keyCommandString]));
+        base::SysNSStringToUTF16([[self class] keyCommandString]));
     [contentView_ setMessageText:message];
   }
   return self;
@@ -151,12 +205,14 @@ ConfirmQuitPanelController* g_confirmQuitPanelController = nil;
 + (BOOL)eventTriggersFeature:(NSEvent*)event {
   if ([event type] != NSKeyDown)
     return NO;
-  ui::AcceleratorCocoa eventAccelerator([event characters],
+  ui::AcceleratorCocoa eventAccelerator([event charactersIgnoringModifiers],
       [event modifierFlags] & NSDeviceIndependentModifierFlagsMask);
   return [self quitAccelerator] == eventAccelerator;
 }
 
 - (NSApplicationTerminateReply)runModalLoopForApplication:(NSApplication*)app {
+  scoped_nsobject<ConfirmQuitPanelController> keepAlive([self retain]);
+
   // If this is the second of two such attempts to quit within a certain time
   // interval, then just quit.
   // Time of last quit attempt, if any.
@@ -176,6 +232,12 @@ ConfirmQuitPanelController* g_confirmQuitPanelController = nil;
     NSEvent* nextEvent = [self pumpEventQueueForKeyUp:app
                                             untilDate:[NSDate distantFuture]];
     [app discardEventsMatchingMask:NSAnyEventMask beforeEvent:nextEvent];
+
+    // Based on how long the user held the keys, record the metric.
+    if ([[NSDate date] timeIntervalSinceDate:timeNow] < kDoubleTapTimeDelta)
+      confirm_quit::RecordHistogram(confirm_quit::kDoubleTap);
+    else
+      confirm_quit::RecordHistogram(confirm_quit::kTapHold);
     return NSTerminateNow;
   } else {
     [lastQuitAttempt release];  // Harmless if already nil.
@@ -191,9 +253,12 @@ ConfirmQuitPanelController* g_confirmQuitPanelController = nil;
   BOOL willQuit = NO;
   NSEvent* nextEvent = nil;
   do {
-    // Dequeue events until a key up is received.
-    // TODO(rsesek): Explore using |untilDate| with |targetDate|.
-    nextEvent = [self pumpEventQueueForKeyUp:app untilDate:nil];
+    // Dequeue events until a key up is received. To avoid busy waiting, figure
+    // out the amount of time that the thread can sleep before taking further
+    // action.
+    NSDate* waitDate = [NSDate dateWithTimeIntervalSinceNow:
+        kTimeToConfirmQuit - kTimeDeltaFuzzFactor];
+    nextEvent = [self pumpEventQueueForKeyUp:app untilDate:waitDate];
 
     // Wait for the time expiry to happen. Once past the hold threshold,
     // commit to quitting and hide all the open windows.
@@ -219,6 +284,7 @@ ConfirmQuitPanelController* g_confirmQuitPanelController = nil;
   if (willQuit) {
     // The user held down the combination long enough that quitting should
     // happen.
+    confirm_quit::RecordHistogram(confirm_quit::kHoldDuration);
     return NSTerminateNow;
   } else {
     // Slowly fade the confirm window out in case the user doesn't
@@ -242,7 +308,7 @@ ConfirmQuitPanelController* g_confirmQuitPanelController = nil;
 - (void)showWindow:(id)sender {
   // If a panel that is fading out is going to be reused here, make sure it
   // does not get released when the animation finishes.
-  scoped_nsobject<ConfirmQuitPanelController> stayAlive([self retain]);
+  scoped_nsobject<ConfirmQuitPanelController> keepAlive([self retain]);
   [[self window] setAnimations:[NSDictionary dictionary]];
   [[self window] center];
   [[self window] setAlphaValue:1.0];
@@ -293,9 +359,9 @@ ConfirmQuitPanelController* g_confirmQuitPanelController = nil;
 // This looks at the Main Menu and determines what the user has set as the
 // key combination for quit. It then gets the modifiers and builds a string
 // to display them.
-- (NSString*)keyCommandString {
++ (NSString*)keyCommandString {
   ui::AcceleratorCocoa accelerator = [[self class] quitAccelerator];
-  return [self keyCombinationForAccelerator:accelerator];
+  return [[self class] keyCombinationForAccelerator:accelerator];
 }
 
 // Runs a nested loop that pumps the event queue until the next KeyUp event.
@@ -309,23 +375,14 @@ ConfirmQuitPanelController* g_confirmQuitPanelController = nil;
 // Iterates through the list of open windows and hides them all.
 - (void)hideAllWindowsForApplication:(NSApplication*)app
                         withDuration:(NSTimeInterval)duration {
-  [NSAnimationContext beginGrouping];
-  [[NSAnimationContext currentContext] setDuration:duration];
-  for (NSWindow* window in [app windows]) {
-    // Windows that are set to animate and have a delegate do no expect to be
-    // animated by other things and could result in an invalid state. If a
-    // window is set up like so, just force the alpha value to 0. Otherwise,
-    // animate all pretty and stuff.
-    if (duration > 0 && ![[window animationForKey:@"alphaValue"] delegate]) {
-      [[window animator] setAlphaValue:0.0];
-    } else {
-      [window setAlphaValue:0.0];
-    }
-  }
-  [NSAnimationContext endGrouping];
+  FadeAllWindowsAnimation* animation =
+      [[FadeAllWindowsAnimation alloc] initWithApplication:app
+                                         animationDuration:duration];
+  // Releases itself when the animation stops.
+  [animation startAnimation];
 }
 
-- (NSString*)keyCombinationForAccelerator:(const ui::AcceleratorCocoa&)item {
++ (NSString*)keyCombinationForAccelerator:(const ui::AcceleratorCocoa&)item {
   NSMutableString* string = [NSMutableString string];
   NSUInteger modifiers = item.modifiers();
 

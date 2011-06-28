@@ -8,11 +8,11 @@
 
 #include "chrome/browser/webdata/autofill_entry.h"
 
-class AutoFillProfile;
+class AutofillProfile;
 class CreditCard;
 
 // For classic Autofill form fields, the KeyType is AutofillKey.
-// Autofill++ types such as AutoFillProfile and CreditCard simply use an int.
+// Autofill++ types such as AutofillProfile and CreditCard simply use an int.
 template <typename KeyType>
 class GenericAutofillChange {
  public:
@@ -45,7 +45,7 @@ class AutofillChange : public GenericAutofillChange<AutofillKey> {
   }
 };
 
-// Change notification details for AutoFill profile changes.
+// Change notification details for Autofill profile changes.
 class AutofillProfileChange : public GenericAutofillChange<std::string> {
  public:
   // The |type| input specifies the change type.  The |key| input is the key,
@@ -55,18 +55,18 @@ class AutofillProfileChange : public GenericAutofillChange<std::string> {
   // When |type| == REMOVE, |profile| should be NULL.
   AutofillProfileChange(Type type,
                         std::string key,
-                        const AutoFillProfile* profile);
+                        const AutofillProfile* profile);
   virtual ~AutofillProfileChange();
 
-  const AutoFillProfile* profile() const { return profile_; }
+  const AutofillProfile* profile() const { return profile_; }
   bool operator==(const AutofillProfileChange& change) const;
 
  private:
   // Weak reference, can be NULL.
-  const AutoFillProfile* profile_;
+  const AutofillProfile* profile_;
 };
 
-// Change notification details for AutoFill credit card changes.
+// Change notification details for Autofill credit card changes.
 class AutofillCreditCardChange : public GenericAutofillChange<std::string> {
  public:
   // The |type| input specifies the change type.  The |key| input is the key,

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,15 +7,15 @@
 #include <sstream>
 
 #include "base/logging.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/stl_util-inl.h"
 #include "base/version.h"
 #include "chrome/browser/extensions/extension_prefs.h"
 #include "chrome/browser/extensions/extension_service.h"
+#include "chrome/browser/extensions/extension_sync_data.h"
 #include "chrome/browser/sync/protocol/extension_specifics.pb.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_constants.h"
-#include "googleurl/src/gurl.h"
 
 namespace browser_sync {
 
@@ -143,21 +143,12 @@ bool AreExtensionSpecificsNonUserPropertiesEqual(
 }
 
 void GetExtensionSpecifics(const Extension& extension,
-                           ExtensionPrefs* extension_prefs,
+                           const ExtensionServiceInterface& extension_service,
                            sync_pb::ExtensionSpecifics* specifics) {
-  const std::string& id = extension.id();
-  bool enabled =
-      extension_prefs->GetExtensionState(id) == Extension::ENABLED;
-  bool incognito_enabled = extension_prefs->IsIncognitoEnabled(id);
-  GetExtensionSpecificsHelper(extension, enabled, incognito_enabled,
-                              specifics);
-}
-
-void GetExtensionSpecificsHelper(const Extension& extension,
-                                 bool enabled, bool incognito_enabled,
-                                 sync_pb::ExtensionSpecifics* specifics) {
   DCHECK(IsExtensionValid(extension));
   const std::string& id = extension.id();
+  bool enabled = extension_service.IsExtensionEnabled(id);
+  bool incognito_enabled = extension_service.IsIncognitoEnabled(id);
   specifics->set_id(id);
   specifics->set_version(extension.VersionString());
   specifics->set_update_url(extension.update_url().spec());
@@ -165,52 +156,6 @@ void GetExtensionSpecificsHelper(const Extension& extension,
   specifics->set_incognito_enabled(incognito_enabled);
   specifics->set_name(extension.name());
   DcheckIsExtensionSpecificsValid(*specifics);
-}
-
-bool IsExtensionOutdated(const Extension& extension,
-                         const sync_pb::ExtensionSpecifics& specifics) {
-  DCHECK(IsExtensionValid(extension));
-  DcheckIsExtensionSpecificsValid(specifics);
-  scoped_ptr<Version> specifics_version(
-      Version::GetVersionFromString(specifics.version()));
-  if (!specifics_version.get()) {
-    // If version is invalid, assume we're up-to-date.
-    return false;
-  }
-  return extension.version()->CompareTo(*specifics_version) < 0;
-}
-
-void SetExtensionProperties(
-    const sync_pb::ExtensionSpecifics& specifics,
-    ExtensionService* extensions_service, const Extension* extension) {
-  DcheckIsExtensionSpecificsValid(specifics);
-  CHECK(extensions_service);
-  CHECK(extension);
-  DCHECK(IsExtensionValid(*extension));
-  const std::string& id = extension->id();
-  GURL update_url(specifics.update_url());
-  if (update_url != extension->update_url()) {
-    LOG(WARNING) << "specifics for extension " << id
-                 << "has a different update URL than the extension: "
-                 << update_url.spec() << " vs. " << extension->update_url();
-  }
-  ExtensionPrefs* extension_prefs = extensions_service->extension_prefs();
-  bool enabled = extension_prefs->GetExtensionState(id) == Extension::ENABLED;
-  if (enabled && !specifics.enabled()) {
-    extensions_service->DisableExtension(id);
-  } else if (!enabled && specifics.enabled()) {
-    extensions_service->EnableExtension(id);
-  }
-  bool incognito_enabled = extension_prefs->IsIncognitoEnabled(id);
-  if (incognito_enabled != specifics.incognito_enabled()) {
-    extensions_service->SetIsIncognitoEnabled(
-        extension, specifics.incognito_enabled());
-  }
-  if (specifics.name() != extension->name()) {
-    LOG(WARNING) << "specifics for extension " << id
-                 << "has a different name than the extension: "
-                 << specifics.name() << " vs. " << extension->name();
-  }
 }
 
 void MergeExtensionSpecifics(
@@ -235,6 +180,33 @@ void MergeExtensionSpecifics(
       CopyUserProperties(specifics, merged_specifics);
     }
   }
+}
+
+bool GetExtensionSyncData(
+    const sync_pb::ExtensionSpecifics& specifics,
+    ExtensionSyncData* sync_data) {
+  if (!Extension::IdIsValid(specifics.id())) {
+    return false;
+  }
+
+  scoped_ptr<Version> version(
+      Version::GetVersionFromString(specifics.version()));
+  if (!version.get()) {
+    return false;
+  }
+
+  // The update URL must be either empty or valid.
+  GURL update_url(specifics.update_url());
+  if (!update_url.is_empty() && !update_url.is_valid()) {
+    return false;
+  }
+
+  sync_data->id = specifics.id();
+  sync_data->update_url = update_url;
+  sync_data->version = *version;
+  sync_data->enabled = specifics.enabled();
+  sync_data->incognito_enabled = specifics.incognito_enabled();
+  return true;
 }
 
 }  // namespace browser_sync

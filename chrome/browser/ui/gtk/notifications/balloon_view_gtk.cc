@@ -11,8 +11,6 @@
 
 #include "base/message_loop.h"
 #include "base/string_util.h"
-#include "chrome/browser/browser_list.h"
-#include "chrome/browser/browser_window.h"
 #include "chrome/browser/extensions/extension_host.h"
 #include "chrome/browser/extensions/extension_process_manager.h"
 #include "chrome/browser/notifications/balloon.h"
@@ -20,9 +18,11 @@
 #include "chrome/browser/notifications/notification.h"
 #include "chrome/browser/notifications/notification_options_menu_model.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/themes/browser_theme_provider.h"
+#include "chrome/browser/themes/theme_service.h"
+#include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/gtk/custom_button.h"
-#include "chrome/browser/ui/gtk/gtk_theme_provider.h"
+#include "chrome/browser/ui/gtk/gtk_theme_service.h"
 #include "chrome/browser/ui/gtk/gtk_util.h"
 #include "chrome/browser/ui/gtk/info_bubble_gtk.h"
 #include "chrome/browser/ui/gtk/menu_gtk.h"
@@ -108,6 +108,11 @@ BalloonViewImpl::BalloonViewImpl(BalloonCollection* collection)
 }
 
 BalloonViewImpl::~BalloonViewImpl() {
+  if (frame_container_) {
+    GtkWidget* widget = frame_container_;
+    frame_container_ = NULL;
+    gtk_widget_hide(widget);
+  }
 }
 
 void BalloonViewImpl::Close(bool by_user) {
@@ -201,7 +206,7 @@ void BalloonViewImpl::AnimationProgressed(const ui::Animation* animation) {
 }
 
 void BalloonViewImpl::Show(Balloon* balloon) {
-  theme_provider_ = GtkThemeProvider::GetFrom(balloon->profile());
+  theme_service_ = GtkThemeService::GetFrom(balloon->profile());
 
   const std::string source_label_text = l10n_util::GetStringFUTF8(
       IDS_NOTIFICATION_BALLOON_SOURCE_LABEL,

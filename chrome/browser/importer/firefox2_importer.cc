@@ -17,36 +17,45 @@
 #include "base/string_split.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
-#include "base/values.h"
 #include "chrome/browser/history/history_types.h"
 #include "chrome/browser/importer/firefox_importer_utils.h"
 #include "chrome/browser/importer/importer_bridge.h"
-#include "chrome/browser/importer/importer_data_types.h"
 #include "chrome/browser/importer/mork_reader.h"
 #include "chrome/browser/importer/nss_decryptor.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_parser.h"
 #include "chrome/common/time_format.h"
 #include "chrome/common/url_constants.h"
+#include "googleurl/src/gurl.h"
 #include "grit/generated_resources.h"
 #include "net/base/data_url.h"
 #include "webkit/glue/password_form.h"
 
-Firefox2Importer::Firefox2Importer() : parsing_bookmarks_html_file_(false) {
+namespace {
+const char kItemOpen[] = "<DT><A";
+const char kItemClose[] = "</A>";
+const char kFeedURLAttribute[] = "FEEDURL";
+const char kHrefAttribute[] = "HREF";
+const char kIconAttribute[] = "ICON";
+const char kShortcutURLAttribute[] = "SHORTCUTURL";
+const char kAddDateAttribute[] = "ADD_DATE";
+const char kPostDataAttribute[] = "POST_DATA";
 }
 
-Firefox2Importer::~Firefox2Importer() {
-}
+Firefox2Importer::Firefox2Importer() : parsing_bookmarks_html_file_(false) {}
 
-void Firefox2Importer::StartImport(const importer::ProfileInfo& profile_info,
-                                   uint16 items,
-                                   ImporterBridge* bridge) {
+Firefox2Importer::~Firefox2Importer() {}
+
+void Firefox2Importer::StartImport(
+    const importer::SourceProfile& source_profile,
+    uint16 items,
+    ImporterBridge* bridge) {
   bridge_ = bridge;
-  source_path_ = profile_info.source_path;
-  app_path_ = profile_info.app_path;
+  source_path_ = source_profile.source_path;
+  app_path_ = source_profile.app_path;
 
   parsing_bookmarks_html_file_ =
-      (profile_info.browser_type == importer::BOOKMARKS_HTML);
+      (source_profile.importer_type == importer::BOOKMARKS_HTML);
 
   // The order here is important!
   bridge_->NotifyStarted();
@@ -105,11 +114,11 @@ void Firefox2Importer::LoadDefaultBookmarks(const FilePath& app_path,
       continue;
 
     // Get the bookmark.
-    std::wstring title;
+    string16 title;
     GURL url, favicon;
-    std::wstring shortcut;
+    string16 shortcut;
     base::Time add_date;
-    std::wstring post_data;
+    string16 post_data;
     if (ParseBookmarkFromLine(line, charset, &title, &url,
                               &favicon, &shortcut, &add_date,
                               &post_data))
@@ -118,8 +127,8 @@ void Firefox2Importer::LoadDefaultBookmarks(const FilePath& app_path,
 }
 
 // static
-TemplateURL* Firefox2Importer::CreateTemplateURL(const std::wstring& title,
-                                                 const std::wstring& keyword,
+TemplateURL* Firefox2Importer::CreateTemplateURL(const string16& title,
+                                                 const string16& keyword,
                                                  const GURL& url) {
   // Skip if the keyword or url is invalid.
   if (keyword.empty() && url.is_valid())
@@ -128,8 +137,8 @@ TemplateURL* Firefox2Importer::CreateTemplateURL(const std::wstring& title,
   TemplateURL* t_url = new TemplateURL();
   // We set short name by using the title if it exists.
   // Otherwise, we use the shortcut.
-  t_url->set_short_name(WideToUTF16Hack(!title.empty() ? title : keyword));
-  t_url->set_keyword(WideToUTF16Hack(keyword));
+  t_url->set_short_name(!title.empty() ? title : keyword);
+  t_url->set_keyword(keyword);
   t_url->SetURL(TemplateURLRef::DisplayURLToURLRef(UTF8ToUTF16(url.spec())),
                 0, 0);
   return t_url;
@@ -140,22 +149,22 @@ void Firefox2Importer::ImportBookmarksFile(
     const FilePath& file_path,
     const std::set<GURL>& default_urls,
     bool import_to_bookmark_bar,
-    const std::wstring& first_folder_name,
+    const string16& first_folder_name,
     Importer* importer,
     std::vector<ProfileWriter::BookmarkEntry>* bookmarks,
     std::vector<TemplateURL*>* template_urls,
-    std::vector<history::ImportedFavIconUsage>* favicons) {
+    std::vector<history::ImportedFaviconUsage>* favicons) {
   std::string content;
   file_util::ReadFileToString(file_path, &content);
   std::vector<std::string> lines;
   base::SplitString(content, '\n', &lines);
 
   std::vector<ProfileWriter::BookmarkEntry> toolbar_bookmarks;
-  std::wstring last_folder = first_folder_name;
+  string16 last_folder = first_folder_name;
   bool last_folder_on_toolbar = false;
   bool last_folder_is_empty = true;
   base::Time last_folder_add_date;
-  std::vector<std::wstring> path;
+  std::vector<string16> path;
   size_t toolbar_folder = 0;
   std::string charset;
   for (size_t i = 0; i < lines.size() && (!importer || !importer->cancelled());
@@ -174,10 +183,11 @@ void Firefox2Importer::ImportBookmarksFile(
       continue;
 
     // Get the bookmark entry.
-    std::wstring title, shortcut;
+    string16 title;
+    string16 shortcut;
     GURL url, favicon;
     base::Time add_date;
-    std::wstring post_data;
+    string16 post_data;
     bool is_bookmark;
     // TODO(jcampan): http://b/issue?id=1196285 we do not support POST based
     //                keywords yet.
@@ -245,7 +255,7 @@ void Firefox2Importer::ImportBookmarksFile(
       if (path.empty())
         break;  // Mismatch <DL>.
 
-      std::wstring folder_title = path.back();
+      string16 folder_title = path.back();
       path.pop_back();
 
       if (last_folder_is_empty) {
@@ -289,12 +299,11 @@ void Firefox2Importer::ImportBookmarks() {
   // Parse the bookmarks.html file.
   std::vector<ProfileWriter::BookmarkEntry> bookmarks, toolbar_bookmarks;
   std::vector<TemplateURL*> template_urls;
-  std::vector<history::ImportedFavIconUsage> favicons;
+  std::vector<history::ImportedFaviconUsage> favicons;
   FilePath file = source_path_;
   if (!parsing_bookmarks_html_file_)
     file = file.AppendASCII("bookmarks.html");
-  std::wstring first_folder_name;
-  first_folder_name = bridge_->GetLocalizedString(
+  string16 first_folder_name = bridge_->GetLocalizedString(
       parsing_bookmarks_html_file_ ? IDS_BOOKMARK_GROUP :
                                      IDS_BOOKMARK_GROUP_FROM_FIREFOX);
 
@@ -318,7 +327,7 @@ void Firefox2Importer::ImportBookmarks() {
     STLDeleteContainerPointers(template_urls.begin(), template_urls.end());
   }
   if (!favicons.empty()) {
-    bridge_->SetFavIcons(favicons);
+    bridge_->SetFavicons(favicons);
   }
 }
 
@@ -407,7 +416,7 @@ bool Firefox2Importer::ParseCharsetFromLine(const std::string& line,
 // static
 bool Firefox2Importer::ParseFolderNameFromLine(const std::string& line,
                                                const std::string& charset,
-                                               std::wstring* folder_name,
+                                               string16* folder_name,
                                                bool* is_toolbar_folder,
                                                base::Time* add_date) {
   const char kFolderOpen[] = "<DT><H3";
@@ -424,8 +433,8 @@ bool Firefox2Importer::ParseFolderNameFromLine(const std::string& line,
   if (end == std::string::npos || tag_end < arraysize(kFolderOpen))
     return false;
 
-  base::CodepageToWide(line.substr(tag_end, end - tag_end), charset.c_str(),
-                       base::OnStringConversionError::SKIP, folder_name);
+  base::CodepageToUTF16(line.substr(tag_end, end - tag_end), charset.c_str(),
+                        base::OnStringConversionError::SKIP, folder_name);
   HTMLUnescape(folder_name);
 
   std::string attribute_list = line.substr(arraysize(kFolderOpen),
@@ -453,21 +462,12 @@ bool Firefox2Importer::ParseFolderNameFromLine(const std::string& line,
 // static
 bool Firefox2Importer::ParseBookmarkFromLine(const std::string& line,
                                              const std::string& charset,
-                                             std::wstring* title,
+                                             string16* title,
                                              GURL* url,
                                              GURL* favicon,
-                                             std::wstring* shortcut,
+                                             string16* shortcut,
                                              base::Time* add_date,
-                                             std::wstring* post_data) {
-  const char kItemOpen[] = "<DT><A";
-  const char kItemClose[] = "</A>";
-  const char kFeedURLAttribute[] = "FEEDURL";
-  const char kHrefAttribute[] = "HREF";
-  const char kIconAttribute[] = "ICON";
-  const char kShortcutURLAttribute[] = "SHORTCUTURL";
-  const char kAddDateAttribute[] = "ADD_DATE";
-  const char kPostDataAttribute[] = "POST_DATA";
-
+                                             string16* post_data) {
   title->clear();
   *url = GURL();
   *favicon = GURL();
@@ -494,18 +494,16 @@ bool Firefox2Importer::ParseBookmarkFromLine(const std::string& line,
     return false;
 
   // Title
-  base::CodepageToWide(line.substr(tag_end, end - tag_end), charset.c_str(),
-                       base::OnStringConversionError::SKIP, title);
+  base::CodepageToUTF16(line.substr(tag_end, end - tag_end), charset.c_str(),
+                        base::OnStringConversionError::SKIP, title);
   HTMLUnescape(title);
 
   // URL
   if (GetAttribute(attribute_list, kHrefAttribute, &value)) {
-    std::wstring w_url;
-    base::CodepageToWide(value, charset.c_str(),
-                         base::OnStringConversionError::SKIP, &w_url);
-    HTMLUnescape(&w_url);
-
-    string16 url16 = WideToUTF16Hack(w_url);
+    string16 url16;
+    base::CodepageToUTF16(value, charset.c_str(),
+                          base::OnStringConversionError::SKIP, &url16);
+    HTMLUnescape(&url16);
 
     *url = GURL(url16);
   }
@@ -516,8 +514,8 @@ bool Firefox2Importer::ParseBookmarkFromLine(const std::string& line,
 
   // Keyword
   if (GetAttribute(attribute_list, kShortcutURLAttribute, &value)) {
-    base::CodepageToWide(value, charset.c_str(),
-                         base::OnStringConversionError::SKIP, shortcut);
+    base::CodepageToUTF16(value, charset.c_str(),
+                          base::OnStringConversionError::SKIP, shortcut);
     HTMLUnescape(shortcut);
   }
 
@@ -532,8 +530,8 @@ bool Firefox2Importer::ParseBookmarkFromLine(const std::string& line,
 
   // Post data.
   if (GetAttribute(attribute_list, kPostDataAttribute, &value)) {
-    base::CodepageToWide(value, charset.c_str(),
-                         base::OnStringConversionError::SKIP, post_data);
+    base::CodepageToUTF16(value, charset.c_str(),
+                          base::OnStringConversionError::SKIP, post_data);
     HTMLUnescape(post_data);
   }
 
@@ -543,7 +541,7 @@ bool Firefox2Importer::ParseBookmarkFromLine(const std::string& line,
 // static
 bool Firefox2Importer::ParseMinimumBookmarkFromLine(const std::string& line,
                                                     const std::string& charset,
-                                                    std::wstring* title,
+                                                    string16* title,
                                                     GURL* url) {
   const char kItemOpen[] = "<DT><A";
   const char kItemClose[] = "</";
@@ -567,8 +565,8 @@ bool Firefox2Importer::ParseMinimumBookmarkFromLine(const std::string& line,
       tag_end - arraysize(kItemOpen) - 1);
 
   // Title
-  base::CodepageToWide(line.substr(tag_end, end - tag_end), charset.c_str(),
-                       base::OnStringConversionError::SKIP, title);
+  base::CodepageToUTF16(line.substr(tag_end, end - tag_end), charset.c_str(),
+                        base::OnStringConversionError::SKIP, title);
   HTMLUnescape(title);
 
   // URL
@@ -576,12 +574,10 @@ bool Firefox2Importer::ParseMinimumBookmarkFromLine(const std::string& line,
   if (GetAttribute(attribute_list, kHrefAttributeUpper, &value) ||
       GetAttribute(attribute_list, kHrefAttributeLower, &value)) {
     if (charset.length() != 0) {
-      std::wstring w_url;
-      base::CodepageToWide(value, charset.c_str(),
-                           base::OnStringConversionError::SKIP, &w_url);
-      HTMLUnescape(&w_url);
-
-      string16 url16 = WideToUTF16Hack(w_url);
+      string16 url16;
+      base::CodepageToUTF16(value, charset.c_str(),
+                            base::OnStringConversionError::SKIP, &url16);
+      HTMLUnescape(&url16);
 
       *url = GURL(url16);
     } else {
@@ -621,8 +617,8 @@ bool Firefox2Importer::GetAttribute(const std::string& attribute_list,
 }
 
 // static
-void Firefox2Importer::HTMLUnescape(std::wstring *text) {
-  string16 text16 = WideToUTF16Hack(*text);
+void Firefox2Importer::HTMLUnescape(string16* text) {
+  string16 text16 = *text;
   ReplaceSubstringsAfterOffset(
       &text16, 0, ASCIIToUTF16("&lt;"), ASCIIToUTF16("<"));
   ReplaceSubstringsAfterOffset(
@@ -633,7 +629,7 @@ void Firefox2Importer::HTMLUnescape(std::wstring *text) {
       &text16, 0, ASCIIToUTF16("&quot;"), ASCIIToUTF16("\""));
   ReplaceSubstringsAfterOffset(
       &text16, 0, ASCIIToUTF16("&#39;"), ASCIIToUTF16("\'"));
-  text->assign(UTF16ToWideHack(text16));
+  text->assign(text16);
 }
 
 // static
@@ -654,7 +650,7 @@ void Firefox2Importer::FindXMLFilesInDir(
 void Firefox2Importer::DataURLToFaviconUsage(
     const GURL& link_url,
     const GURL& favicon_data,
-    std::vector<history::ImportedFavIconUsage>* favicons) {
+    std::vector<history::ImportedFaviconUsage>* favicons) {
   if (!link_url.is_valid() || !favicon_data.is_valid() ||
       !favicon_data.SchemeIs(chrome::kDataScheme))
     return;
@@ -665,7 +661,7 @@ void Firefox2Importer::DataURLToFaviconUsage(
       data.empty())
     return;
 
-  history::ImportedFavIconUsage usage;
+  history::ImportedFaviconUsage usage;
   if (!ReencodeFavicon(reinterpret_cast<const unsigned char*>(&data[0]),
                        data.size(), &usage.png_data))
     return;  // Unable to decode.

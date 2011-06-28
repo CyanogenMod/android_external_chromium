@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,6 +17,10 @@ using testing::Invoke;
 const char* kTestSystemPath = "/this/system/path";
 const char* kTestDevicePath = "/this/device/path";
 const char* kTestMountPath = "/media/foofoo";
+const char* kTestFilePath = "/this/file/path";
+const char* kTestDeviceLabel = "A label";
+const char* kTestDriveLabel = "Another label";
+const char* kTestParentPath = "/this/is/my/parent";
 
 void MockMountLibrary::AddObserverInternal(MountLibrary::Observer* observer) {
   observers_.AddObserver(observer);
@@ -42,40 +46,92 @@ MockMountLibrary::~MockMountLibrary() {
 
 void MockMountLibrary::FireDeviceInsertEvents() {
 
-  disks_.clear();
+  scoped_ptr<MountLibrary::Disk> disk1(new MountLibrary::Disk(
+      std::string(kTestDevicePath),
+      std::string(),
+      std::string(kTestSystemPath),
+      std::string(kTestFilePath),
+      std::string(),
+      std::string(kTestDriveLabel),
+      std::string(kTestParentPath),
+      FLASH,
+      4294967295U,
+      false,
+      false,
+      true,
+      false));
 
-  disks_.push_back(Disk(kTestDevicePath, "",  kTestSystemPath, false, true));
+  disks_.clear();
+  disks_.insert(std::pair<std::string, MountLibrary::Disk*>(
+      std::string(kTestDevicePath), disk1.get()));
 
   // Device Added
-  chromeos::MountEventType evt;
-  evt = chromeos::DEVICE_ADDED;
-  UpdateMountStatus(evt, kTestSystemPath);
+  chromeos::MountLibraryEventType evt;
+  evt = chromeos::MOUNT_DEVICE_ADDED;
+  UpdateDeviceChanged(evt, kTestSystemPath);
 
   // Disk Added
-  evt = chromeos::DISK_ADDED;
-  UpdateMountStatus(evt, kTestDevicePath);
+  evt = chromeos::MOUNT_DISK_ADDED;
+  UpdateDiskChanged(evt, disk1.get());
 
   // Disk Changed
+  scoped_ptr<MountLibrary::Disk> disk2(new MountLibrary::Disk(
+      std::string(kTestDevicePath),
+      std::string(kTestMountPath),
+      std::string(kTestSystemPath),
+      std::string(kTestFilePath),
+      std::string(kTestDeviceLabel),
+      std::string(kTestDriveLabel),
+      std::string(kTestParentPath),
+      FLASH,
+      1073741824,
+      false,
+      false,
+      true,
+      false));
   disks_.clear();
-  disks_.push_back(Disk(
-      kTestDevicePath, kTestMountPath, kTestSystemPath, false, true));
-  evt = chromeos::DISK_CHANGED;
-  UpdateMountStatus(evt, kTestDevicePath);
+  disks_.insert(std::pair<std::string, MountLibrary::Disk*>(
+      std::string(kTestDevicePath), disk2.get()));
+  evt = chromeos::MOUNT_DISK_CHANGED;
+  UpdateDiskChanged(evt, disk2.get());
 }
 
 void MockMountLibrary::FireDeviceRemoveEvents() {
+  scoped_ptr<MountLibrary::Disk> disk(new MountLibrary::Disk(
+      std::string(kTestDevicePath),
+      std::string(kTestMountPath),
+      std::string(kTestSystemPath),
+      std::string(kTestFilePath),
+      std::string(kTestDeviceLabel),
+      std::string(kTestDriveLabel),
+      std::string(kTestParentPath),
+      FLASH,
+      1073741824,
+      false,
+      false,
+      true,
+      false));
   disks_.clear();
-  chromeos::MountEventType evt;
-  evt = chromeos::DISK_REMOVED;
-  UpdateMountStatus(evt, kTestDevicePath);
+  disks_.insert(std::pair<std::string, MountLibrary::Disk*>(
+      std::string(kTestDevicePath), disk.get()));
+  UpdateDiskChanged(chromeos::MOUNT_DISK_REMOVED, disk.get());
 }
 
-void MockMountLibrary::UpdateMountStatus(MountEventType evt,
-                                         const std::string& path) {
+void MockMountLibrary::UpdateDiskChanged(MountLibraryEventType evt,
+                                         const MountLibrary::Disk* disk) {
   // Make sure we run on UI thread.
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
-  FOR_EACH_OBSERVER(Observer, observers_, MountChanged(this, evt, path));
+  FOR_EACH_OBSERVER(Observer, observers_, DiskChanged(evt, disk));
+}
+
+
+void MockMountLibrary::UpdateDeviceChanged(MountLibraryEventType evt,
+                                           const std::string& path) {
+  // Make sure we run on UI thread.
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+
+  FOR_EACH_OBSERVER(Observer, observers_, DeviceChanged(evt, path));
 }
 
 }  // namespace chromeos

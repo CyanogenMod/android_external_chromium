@@ -40,11 +40,10 @@ class JsSyncManagerObserver : public sync_api::SyncManager::Observer {
   virtual void OnEncryptionComplete(
       const syncable::ModelTypeSet& encrypted_types);
   virtual void OnInitializationComplete();
-  virtual void OnPaused();
-  virtual void OnResumed();
   virtual void OnStopSyncingPermanently();
   virtual void OnClearServerDataSucceeded();
   virtual void OnClearServerDataFailed();
+  virtual void OnMigrationNeededForTypes(const syncable::ModelTypeSet& types);
 
  private:
   JsEventRouter* parent_router_;

@@ -2,12 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/scoped_vector.h"
+#include "base/memory/scoped_vector.h"
 #include "chrome/browser/geolocation/geolocation_content_settings_map.h"
 #include "chrome/browser/tab_contents/confirm_infobar_delegate.h"
-#include "chrome/common/notification_details.h"
-#include "chrome/common/notification_type.h"
-#include "chrome/common/render_messages.h"
 #include "chrome/test/testing_profile.h"
 #include "content/browser/browser_thread.h"
 #include "content/browser/geolocation/arbitrator_dependency_factories_for_test.h"
@@ -18,6 +15,9 @@
 #include "content/browser/renderer_host/mock_render_process_host.h"
 #include "content/browser/renderer_host/test_render_view_host.h"
 #include "content/browser/tab_contents/test_tab_contents.h"
+#include "content/common/geolocation_messages.h"
+#include "content/common/notification_details.h"
+#include "content/common/notification_type.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 // TestTabContentsWithPendingInfoBar ------------------------------------------
@@ -138,10 +138,10 @@ void GeolocationPermissionContextTests::CheckPermissionMessageSentInternal(
   MessageLoop::current()->PostTask(FROM_HERE, new MessageLoop::QuitTask());
   MessageLoop::current()->Run();
   const IPC::Message* message = process->sink().GetFirstMessageMatching(
-      ViewMsg_Geolocation_PermissionSet::ID);
+      GeolocationMsg_PermissionSet::ID);
   ASSERT_TRUE(message);
-  ViewMsg_Geolocation_PermissionSet::Param param;
-  ViewMsg_Geolocation_PermissionSet::Read(message, &param);
+  GeolocationMsg_PermissionSet::Param param;
+  GeolocationMsg_PermissionSet::Read(message, &param);
   EXPECT_EQ(bridge_id, param.a);
   EXPECT_EQ(allowed, param.b);
   process->sink().ClearMessages();
@@ -176,10 +176,10 @@ void GeolocationPermissionContextTests::SetUp() {
   RenderViewHostTestHarness::SetUp();
   GeolocationArbitrator::SetDependencyFactoryForTest(
       dependency_factory_.get());
-  SiteInstance* site_instance = contents_->GetSiteInstance();
+  SiteInstance* site_instance = contents()->GetSiteInstance();
   tab_contents_with_pending_infobar_ =
       new TestTabContentsWithPendingInfoBar(profile_.get(), site_instance);
-  contents_.reset(tab_contents_with_pending_infobar_);
+  SetContents(tab_contents_with_pending_infobar_);
   geolocation_permission_context_ =
       new GeolocationPermissionContext(profile());
 }

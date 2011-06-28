@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,13 +9,14 @@
 #include <string>
 
 #include "base/basictypes.h"
-#include "base/scoped_ptr.h"
-#include "chrome/browser/sync/profile_sync_service.h"
+#include "base/memory/scoped_ptr.h"
+#include "base/synchronization/waitable_event.h"
 #include "chrome/browser/sync/glue/data_type_controller.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
-#include "chrome/common/notification_type.h"
+#include "chrome/browser/sync/profile_sync_service.h"
 #include "content/browser/cancelable_request.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
+#include "content/common/notification_type.h"
 
 class NotificationSource;
 class NotificationDetails;
@@ -52,13 +53,13 @@ class TypedUrlDataTypeController : public DataTypeController,
 
   virtual bool enabled();
 
-  virtual syncable::ModelType type();
+  virtual syncable::ModelType type() const;
 
-  virtual browser_sync::ModelSafeGroup model_safe_group();
+  virtual browser_sync::ModelSafeGroup model_safe_group() const;
 
-  virtual const char* name() const;
+  virtual std::string name() const;
 
-  virtual State state();
+  virtual State state() const;
 
   // UnrecoverableHandler implementation
   virtual void OnUnrecoverableError(const tracked_objects::Location& from_here,
@@ -108,6 +109,14 @@ class TypedUrlDataTypeController : public DataTypeController,
   scoped_refptr<HistoryService> history_service_;
 
   NotificationRegistrar notification_registrar_;
+
+  base::Lock abort_association_lock_;
+  bool abort_association_;
+  base::WaitableEvent abort_association_complete_;
+
+  // Barrier to ensure that the datatype has been stopped on the DB thread
+  // from the UI thread.
+  base::WaitableEvent datatype_stopped_;
 
   DISALLOW_COPY_AND_ASSIGN(TypedUrlDataTypeController);
 };

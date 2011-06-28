@@ -2,9 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/message_loop.h"
-#include "base/ref_counted.h"
-#include "base/scoped_ptr.h"
 #include "base/string16.h"
 #include "base/string_util.h"
 #include "base/stringprintf.h"
@@ -89,6 +89,15 @@ class NotificationTest : public InProcessBrowserTest,
                          PanelController::State state) {
     if (under_chromeos_ && state != state_) {
       expected_ = state;
+      ui_test_utils::RunAllPendingInMessageLoop();
+    }
+  }
+
+  // Busy loop to wait until the view becomes visible in the panel.
+  void WaitForVisible(BalloonViewImpl* view) {
+    WaitForResize(view);
+    NotificationPanelTester* tester = GetNotificationPanel()->GetTester();
+    while (!tester->IsVisible(view)) {
       ui_test_utils::RunAllPendingInMessageLoop();
     }
   }
@@ -404,8 +413,7 @@ IN_PROC_BROWSER_TEST_F(NotificationTest, TestCloseOpen) {
   EXPECT_EQ(NotificationPanel::CLOSED, tester->state());
 }
 
-// TODO(oshima): bug chromium-os:7139 Fix this flaky test on ChromeOS.
-IN_PROC_BROWSER_TEST_F(NotificationTest, FLAKY_TestScrollBalloonToVisible) {
+IN_PROC_BROWSER_TEST_F(NotificationTest, TestScrollBalloonToVisible) {
   BalloonCollectionImpl* collection = GetBalloonCollectionImpl();
   NotificationPanel* panel = GetNotificationPanel();
   NotificationPanelTester* tester = panel->GetTester();
@@ -417,27 +425,25 @@ IN_PROC_BROWSER_TEST_F(NotificationTest, FLAKY_TestScrollBalloonToVisible) {
   // new notification is always visible
   for (int i = 0; i < create_count; i++) {
     {
-      SCOPED_TRACE(base::StringPrintf("new n%d", i));
+      SCOPED_TRACE(base::StringPrintf("new normal %d", i));
       std::string id = base::StringPrintf("n%d", i);
       collection->Add(NewMockNotification(id), profile);
       EXPECT_EQ(NotificationPanel::STICKY_AND_NEW, tester->state());
       BalloonViewImpl* view =
           tester->GetBalloonView(collection, NewMockNotification(id));
-      WaitForResize(view);
-      EXPECT_TRUE(tester->IsVisible(view));
+      WaitForVisible(view);
     }
     {
-      SCOPED_TRACE(base::StringPrintf("new s%d", i));
+      SCOPED_TRACE(base::StringPrintf("new system %d", i));
       std::string id = base::StringPrintf("s%d", i);
       collection->AddSystemNotification(
           NewMockNotification(id), browser()->profile(), true, false);
-      ui_test_utils::RunAllPendingInMessageLoop();
       BalloonViewImpl* view =
           tester->GetBalloonView(collection, NewMockNotification(id));
-      WaitForResize(view);
-      EXPECT_TRUE(tester->IsVisible(view));
+      WaitForVisible(view);
     }
   }
+
   // Update should not change the visibility
   for (int i = 0; i < create_count; i++) {
     {

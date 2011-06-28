@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,10 +7,10 @@
 #pragma once
 
 #include "base/file_path.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
+#include "base/memory/scoped_temp_dir.h"
 #include "base/message_loop.h"
-#include "base/ref_counted.h"
-#include "base/scoped_ptr.h"
-#include "base/scoped_temp_dir.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "content/browser/browser_thread.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -18,15 +18,18 @@
 class ExtensionServiceTestBase : public testing::Test {
  public:
   ExtensionServiceTestBase();
-  ~ExtensionServiceTestBase();
+  virtual ~ExtensionServiceTestBase();
 
-  virtual void InitializeExtensionService(
-      const FilePath& pref_file, const FilePath& extensions_install_dir);
+  void InitializeExtensionService(
+      const FilePath& pref_file, const FilePath& extensions_install_dir,
+      bool autoupdate_enabled);
 
-  virtual void InitializeInstalledExtensionService(
+  void InitializeInstalledExtensionService(
       const FilePath& prefs_file, const FilePath& source_install_dir);
 
-  virtual void InitializeEmptyExtensionService();
+  void InitializeEmptyExtensionService();
+
+  void InitializeExtensionServiceWithUpdater();
 
   static void SetUpTestCase();
 
@@ -37,9 +40,12 @@ class ExtensionServiceTestBase : public testing::Test {
   }
 
  protected:
+  void InitializeExtensionServiceHelper(bool autoupdate_enabled);
+
   ScopedTempDir temp_dir_;
   scoped_ptr<Profile> profile_;
   FilePath extensions_install_dir_;
+  FilePath data_dir_;
   scoped_refptr<ExtensionService> service_;
   size_t total_successes_;
   MessageLoop loop_;

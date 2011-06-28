@@ -11,7 +11,6 @@
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/common/bindings_policy.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/url_constants.h"
 #include "content/browser/browser_child_process_host.h"
@@ -21,6 +20,7 @@
 #include "content/browser/renderer_host/render_view_host.h"
 #include "content/browser/tab_contents/navigation_entry.h"
 #include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/bindings_policy.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -156,6 +156,7 @@ void MemoryDetails::CollectChildInfoOnUIThread() {
 
         const RenderViewHost* host = static_cast<const RenderViewHost*>(widget);
         RenderViewHostDelegate* host_delegate = host->delegate();
+        DCHECK(host_delegate);
         GURL url = host_delegate->GetURL();
         ViewType::Type type = host_delegate->GetRenderViewType();
         if (host->enabled_bindings() & BindingsPolicy::WEB_UI) {
@@ -168,9 +169,7 @@ void MemoryDetails::CollectChildInfoOnUIThread() {
         } else if (host->enabled_bindings() & BindingsPolicy::EXTENSION) {
           process.renderer_type = ChildProcessInfo::RENDERER_EXTENSION;
         }
-        TabContents* contents = NULL;
-        if (host_delegate)
-          contents = host_delegate->GetAsTabContents();
+        TabContents* contents = host_delegate->GetAsTabContents();
         if (!contents) {
           if (host->is_extension_process()) {
             const Extension* extension =

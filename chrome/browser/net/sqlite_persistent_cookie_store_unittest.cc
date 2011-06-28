@@ -1,11 +1,11 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/file_util.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_temp_dir.h"
 #include "base/message_loop.h"
-#include "base/ref_counted.h"
-#include "base/scoped_temp_dir.h"
 #include "base/stl_util-inl.h"
 #include "base/time.h"
 #include "chrome/browser/net/sqlite_persistent_cookie_store.h"
@@ -35,10 +35,10 @@ class SQLitePersistentCookieStoreTest : public testing::Test {
     // Make sure the store gets written at least once.
     store_->AddCookie(
         net::CookieMonster::CanonicalCookie(GURL(), "A", "B", "http://foo.bar",
-                                            "/", false, false,
+                                            "/", base::Time::Now(),
                                             base::Time::Now(),
                                             base::Time::Now(),
-                                            true, base::Time::Now()));
+                                            false, false, true));
   }
 
   BrowserThread ui_thread_;
@@ -129,8 +129,8 @@ TEST_F(SQLitePersistentCookieStoreTest, TestFlush) {
     std::string value(1000, c);
     store_->AddCookie(
         net::CookieMonster::CanonicalCookie(GURL(), name, value,
-                                            "http://foo.bar", "/", false, false,
-                                            t, t, true, t));
+                                            "http://foo.bar", "/", t, t, t,
+                                            false, false, true));
   }
 
   // Call Flush() and wait until the DB thread is idle.

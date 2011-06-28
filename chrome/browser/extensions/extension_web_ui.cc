@@ -7,26 +7,28 @@
 #include <set>
 #include <vector>
 
-#include "net/base/file_stream.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/browser_list.h"
 #include "chrome/browser/extensions/extension_bookmark_manager_api.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/image_loading_tracker.h"
 #include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/prefs/scoped_user_pref_update.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/common/bindings_policy.h"
+#include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/extensions/extension.h"
+#include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/extensions/extension_icon_set.h"
 #include "chrome/common/extensions/extension_resource.h"
-#include "chrome/common/page_transition_types.h"
 #include "chrome/common/url_constants.h"
 #include "content/browser/renderer_host/render_widget_host_view.h"
 #include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/bindings_policy.h"
+#include "content/common/page_transition_types.h"
+#include "net/base/file_stream.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/gfx/codec/png_codec.h"
 #include "ui/gfx/favicon_size.h"
@@ -76,14 +78,14 @@ class ExtensionWebUIImageLoadingTracker : public ImageLoadingTracker::Observer {
                                       ExtensionIconSet::MATCH_EXACTLY);
 
       tracker_.LoadImage(extension_, icon_resource,
-                         gfx::Size(kFavIconSize, kFavIconSize),
+                         gfx::Size(kFaviconSize, kFaviconSize),
                          ImageLoadingTracker::DONT_CACHE);
     } else {
       ForwardResult(NULL);
     }
   }
 
-  virtual void OnImageLoaded(SkBitmap* image, ExtensionResource resource,
+  virtual void OnImageLoaded(SkBitmap* image, const ExtensionResource& resource,
                              int index) {
     if (image) {
       std::vector<unsigned char> image_data;
@@ -103,10 +105,13 @@ class ExtensionWebUIImageLoadingTracker : public ImageLoadingTracker::Observer {
   // |icon_data| may be backed by NULL. Once the result has been forwarded the
   // instance is deleted.
   void ForwardResult(scoped_refptr<RefCountedMemory> icon_data) {
-    bool know_icon = icon_data.get() != NULL && icon_data->size() > 0;
+    history::FaviconData favicon;
+    favicon.known_icon = icon_data.get() != NULL && icon_data->size() > 0;
+    favicon.image_data = icon_data;
+    favicon.icon_type = history::FAVICON;
     request_->ForwardResultAsync(
         FaviconService::FaviconDataCallback::TupleType(request_->handle(),
-            know_icon, icon_data, false, GURL()));
+                                                       favicon));
     delete this;
   }
 
@@ -180,7 +185,7 @@ void ExtensionWebUI::RenderViewReused(RenderViewHost* render_view_host) {
 }
 
 void ExtensionWebUI::ProcessWebUIMessage(
-    const ViewHostMsg_DomMessage_Params& params) {
+    const ExtensionHostMsg_DomMessage_Params& params) {
   extension_function_dispatcher_->HandleRequest(params);
 }
 
@@ -188,7 +193,7 @@ Browser* ExtensionWebUI::GetBrowser() {
   TabContents* contents = tab_contents();
   TabContentsIterator tab_iterator;
   for (; !tab_iterator.done(); ++tab_iterator) {
-    if (contents == *tab_iterator)
+    if (contents == (*tab_iterator)->tab_contents())
       return tab_iterator.browser();
   }
 
@@ -219,7 +224,8 @@ gfx::NativeWindow ExtensionWebUI::GetCustomFrameNativeWindow() {
 }
 
 gfx::NativeView ExtensionWebUI::GetNativeViewOfHost() {
-  return tab_contents()->GetRenderWidgetHostView()->GetNativeView();
+  RenderWidgetHostView* rwhv = tab_contents()->GetRenderWidgetHostView();
+  return rwhv ? rwhv->GetNativeView() : NULL;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -279,7 +285,7 @@ bool ExtensionWebUI::HandleChromeURLOverride(GURL* url, Profile* profile) {
     // extension uses split mode.
     bool incognito_override_allowed =
         extension->incognito_split_mode() &&
-        service->IsIncognitoEnabled(extension);
+        service->IsIncognitoEnabled(extension->id());
     if (profile->IsOffTheRecord() && !incognito_override_allowed) {
       ++i;
       continue;
@@ -298,8 +304,8 @@ void ExtensionWebUI::RegisterChromeURLOverrides(
     return;
 
   PrefService* prefs = profile->GetPrefs();
-  DictionaryValue* all_overrides =
-      prefs->GetMutableDictionary(kExtensionURLOverrides);
+  DictionaryPrefUpdate update(prefs, kExtensionURLOverrides);
+  DictionaryValue* all_overrides = update.Get();
 
   // For each override provided by the extension, add it to the front of
   // the override list if it's not already in the list.
@@ -342,7 +348,7 @@ void ExtensionWebUI::UnregisterAndReplaceOverride(const std::string& page,
     // This is the active override, so we need to find all existing
     // tabs for this override and get them to reload the original URL.
     for (TabContentsIterator iterator; !iterator.done(); ++iterator) {
-      TabContents* tab = *iterator;
+      TabContents* tab = (*iterator)->tab_contents();
       if (tab->profile() != profile)
         continue;
 
@@ -363,8 +369,8 @@ void ExtensionWebUI::UnregisterChromeURLOverride(const std::string& page,
   if (!override)
     return;
   PrefService* prefs = profile->GetPrefs();
-  DictionaryValue* all_overrides =
-      prefs->GetMutableDictionary(kExtensionURLOverrides);
+  DictionaryPrefUpdate update(prefs, kExtensionURLOverrides);
+  DictionaryValue* all_overrides = update.Get();
   ListValue* page_overrides;
   if (!all_overrides->GetList(page, &page_overrides)) {
     // If it's being unregistered, it should already be in the list.
@@ -381,8 +387,8 @@ void ExtensionWebUI::UnregisterChromeURLOverrides(
   if (overrides.empty())
     return;
   PrefService* prefs = profile->GetPrefs();
-  DictionaryValue* all_overrides =
-      prefs->GetMutableDictionary(kExtensionURLOverrides);
+  DictionaryPrefUpdate update(prefs, kExtensionURLOverrides);
+  DictionaryValue* all_overrides = update.Get();
   Extension::URLOverrideMap::const_iterator iter = overrides.begin();
   for (; iter != overrides.end(); ++iter) {
     const std::string& page = iter->first;

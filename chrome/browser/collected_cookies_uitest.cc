@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,8 +20,13 @@ const FilePath::CharType kDocRoot[] = FILE_PATH_LITERAL("chrome/test/data");
 
 typedef UITest CollectedCookiesTest;
 
-// Flaky, http://crbug.com/62311.
-TEST_F(CollectedCookiesTest, FLAKY_DoubleDisplay) {
+// Crashing on Windows, see http://crbug.com/79331
+#if defined(OS_WIN)
+#define MAYBE_DoubleDisplay DISABLED_DoubleDisplay
+#else
+#define MAYBE_DoubleDisplay DoubleDisplay
+#endif
+TEST_F(CollectedCookiesTest, MAYBE_DoubleDisplay) {
   net::TestServer test_server(net::TestServer::TYPE_HTTP, FilePath(kDocRoot));
   ASSERT_TRUE(test_server.Start());
 
@@ -43,8 +48,13 @@ TEST_F(CollectedCookiesTest, FLAKY_DoubleDisplay) {
   ASSERT_TRUE(tab->ShowCollectedCookiesDialog());
 }
 
-// Flaky, http://crbug.com/62311.
-TEST_F(CollectedCookiesTest, FLAKY_NavigateAway) {
+// Crashing on Windows, see http://crbug.com/79331
+#if defined(OS_WIN)
+#define MAYBE_NavigateAway DISABLED_NavigateAway
+#else
+#define MAYBE_NavigateAway NavigateAway
+#endif
+TEST_F(CollectedCookiesTest, MAYBE_NavigateAway) {
   net::TestServer test_server(net::TestServer::TYPE_HTTP, FilePath(kDocRoot));
   ASSERT_TRUE(test_server.Start());
 

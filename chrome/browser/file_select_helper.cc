@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,16 +10,38 @@
 #include "base/string_split.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
-#include "net/base/mime_util.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/common/notification_details.h"
-#include "chrome/common/notification_source.h"
-#include "chrome/common/render_messages_params.h"
+#include "content/browser/child_process_security_policy.h"
+#include "content/browser/renderer_host/render_process_host.h"
 #include "content/browser/renderer_host/render_view_host.h"
 #include "content/browser/renderer_host/render_widget_host_view.h"
+#include "content/browser/tab_contents/tab_contents.h"
+#include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_list.h"
+#include "content/common/notification_details.h"
+#include "content/common/notification_source.h"
+#include "content/common/view_messages.h"
 #include "grit/generated_resources.h"
+#include "net/base/mime_util.h"
 #include "ui/base/l10n/l10n_util.h"
+
+namespace {
+
+// There is only one file-selection happening at any given time,
+// so we allocate an enumeration ID for that purpose.  All IDs from
+// the renderer must start at 0 and increase.
+static const int kFileSelectEnumerationId = -1;
+}
+
+struct FileSelectHelper::ActiveDirectoryEnumeration {
+  ActiveDirectoryEnumeration() {}
+
+  scoped_ptr<DirectoryListerDispatchDelegate> delegate_;
+  scoped_refptr<net::DirectoryLister> lister_;
+  RenderViewHost* rvh_;
+  std::vector<FilePath> results_;
+};
 
 FileSelectHelper::FileSelectHelper(Profile* profile)
     : profile_(profile),
@@ -34,10 +56,17 @@ FileSelectHelper::~FileSelectHelper() {
   if (select_file_dialog_.get())
     select_file_dialog_->ListenerDestroyed();
 
-  // Stop any pending directory enumeration and prevent a callback.
-  if (directory_lister_.get()) {
-    directory_lister_->set_delegate(NULL);
-    directory_lister_->Cancel();
+  // Stop any pending directory enumeration, prevent a callback, and free
+  // allocated memory.
+  std::map<int, ActiveDirectoryEnumeration*>::iterator iter;
+  for (iter = directory_enumerations_.begin();
+       iter != directory_enumerations_.end();
+       ++iter) {
+    if (iter->second->lister_.get()) {
+      iter->second->lister_->set_delegate(NULL);
+      iter->second->lister_->Cancel();
+    }
+    delete iter->second;
   }
 }
 
@@ -49,7 +78,7 @@ void FileSelectHelper::FileSelected(const FilePath& path,
   profile_->set_last_selected_directory(path.DirName());
 
   if (dialog_type_ == SelectFileDialog::SELECT_FOLDER) {
-    DirectorySelected(path);
+    StartNewEnumeration(path, kFileSelectEnumerationId, render_view_host_);
     return;
   }
 
@@ -84,40 +113,55 @@ void FileSelectHelper::FileSelectionCanceled(void* params) {
   render_view_host_ = NULL;
 }
 
-void FileSelectHelper::DirectorySelected(const FilePath& path) {
-  directory_lister_ = new net::DirectoryLister(path,
-                                               true,
-                                               net::DirectoryLister::NO_SORT,
-                                               this);
-  if (!directory_lister_->Start())
-    FileSelectionCanceled(NULL);
+void FileSelectHelper::StartNewEnumeration(const FilePath& path,
+                                           int request_id,
+                                           RenderViewHost* render_view_host) {
+  scoped_ptr<ActiveDirectoryEnumeration> entry(new ActiveDirectoryEnumeration);
+  entry->rvh_ = render_view_host;
+  entry->delegate_.reset(new DirectoryListerDispatchDelegate(this, request_id));
+  entry->lister_ = new net::DirectoryLister(path,
+                                            true,
+                                            net::DirectoryLister::NO_SORT,
+                                            entry->delegate_.get());
+  if (!entry->lister_->Start()) {
+    if (request_id == kFileSelectEnumerationId)
+      FileSelectionCanceled(NULL);
+    else
+      render_view_host->DirectoryEnumerationFinished(request_id,
+                                                     entry->results_);
+  } else {
+    directory_enumerations_[request_id] = entry.release();
+  }
 }
 
 void FileSelectHelper::OnListFile(
+    int id,
     const net::DirectoryLister::DirectoryListerData& data) {
+  ActiveDirectoryEnumeration* entry = directory_enumerations_[id];
+
   // Directory upload returns directories via a "." file, so that
   // empty directories are included.  This util call just checks
   // the flags in the structure; there's no file I/O going on.
   if (file_util::FileEnumerator::IsDirectory(data.info))
-    directory_lister_results_.push_back(
-        data.path.Append(FILE_PATH_LITERAL(".")));
+    entry->results_.push_back(data.path.Append(FILE_PATH_LITERAL(".")));
   else
-    directory_lister_results_.push_back(data.path);
+    entry->results_.push_back(data.path);
 }
 
-void FileSelectHelper::OnListDone(int error) {
-  if (!render_view_host_)
+void FileSelectHelper::OnListDone(int id, int error) {
+  // This entry needs to be cleaned up when this function is done.
+  scoped_ptr<ActiveDirectoryEnumeration> entry(directory_enumerations_[id]);
+  directory_enumerations_.erase(id);
+  if (!entry->rvh_)
     return;
-
   if (error) {
     FileSelectionCanceled(NULL);
     return;
   }
-
-  render_view_host_->FilesSelectedInChooser(directory_lister_results_);
-  render_view_host_ = NULL;
-  directory_lister_ = NULL;
-  directory_lister_results_.clear();
+  if (id == kFileSelectEnumerationId)
+    entry->rvh_->FilesSelectedInChooser(entry->results_);
+  else
+    entry->rvh_->DirectoryEnumerationFinished(id, entry->results_);
 }
 
 SelectFileDialog::FileTypeInfo* FileSelectHelper::GetFileTypesFromAcceptType(
@@ -192,7 +236,8 @@ SelectFileDialog::FileTypeInfo* FileSelectHelper::GetFileTypesFromAcceptType(
 
 void FileSelectHelper::RunFileChooser(
     RenderViewHost* render_view_host,
-    const ViewHostMsg_RunFileChooser_Params &params) {
+    TabContents* tab_contents,
+    const ViewHostMsg_RunFileChooser_Params& params) {
   DCHECK(!render_view_host_);
   render_view_host_ = render_view_host;
   notification_registrar_.RemoveAll();
@@ -204,16 +249,16 @@ void FileSelectHelper::RunFileChooser(
     select_file_dialog_ = SelectFileDialog::Create(this);
 
   switch (params.mode) {
-    case ViewHostMsg_RunFileChooser_Params::Open:
+    case ViewHostMsg_RunFileChooser_Mode::Open:
       dialog_type_ = SelectFileDialog::SELECT_OPEN_FILE;
       break;
-    case ViewHostMsg_RunFileChooser_Params::OpenMultiple:
+    case ViewHostMsg_RunFileChooser_Mode::OpenMultiple:
       dialog_type_ = SelectFileDialog::SELECT_OPEN_MULTI_FILE;
       break;
-    case ViewHostMsg_RunFileChooser_Params::OpenFolder:
+    case ViewHostMsg_RunFileChooser_Mode::OpenFolder:
       dialog_type_ = SelectFileDialog::SELECT_FOLDER;
       break;
-    case ViewHostMsg_RunFileChooser_Params::Save:
+    case ViewHostMsg_RunFileChooser_Mode::Save:
       dialog_type_ = SelectFileDialog::SELECT_SAVEAS_FILE;
       break;
     default:
@@ -228,14 +273,23 @@ void FileSelectHelper::RunFileChooser(
 
   gfx::NativeWindow owning_window =
       platform_util::GetTopLevel(render_view_host_->view()->GetNativeView());
+
   select_file_dialog_->SelectFile(dialog_type_,
                                   params.title,
                                   default_file_name,
                                   file_types.get(),
                                   file_types.get() ? 1 : 0,  // 1-based index.
                                   FILE_PATH_LITERAL(""),
+                                  tab_contents,
                                   owning_window,
                                   NULL);
+}
+
+void FileSelectHelper::EnumerateDirectory(int request_id,
+                                          RenderViewHost* render_view_host,
+                                          const FilePath& path) {
+  DCHECK_NE(kFileSelectEnumerationId, request_id);
+  StartNewEnumeration(path, request_id, render_view_host);
 }
 
 void FileSelectHelper::Observe(NotificationType type,
@@ -244,4 +298,48 @@ void FileSelectHelper::Observe(NotificationType type,
   DCHECK(type == NotificationType::RENDER_WIDGET_HOST_DESTROYED);
   DCHECK(Details<RenderViewHost>(details).ptr() == render_view_host_);
   render_view_host_ = NULL;
+}
+
+FileSelectObserver::FileSelectObserver(TabContents* tab_contents)
+    : TabContentsObserver(tab_contents) {
+}
+
+FileSelectObserver::~FileSelectObserver() {
+}
+
+bool FileSelectObserver::OnMessageReceived(const IPC::Message& message) {
+  bool handled = true;
+  IPC_BEGIN_MESSAGE_MAP(FileSelectObserver, message)
+    IPC_MESSAGE_HANDLER(ViewHostMsg_RunFileChooser, OnRunFileChooser)
+    IPC_MESSAGE_HANDLER(ViewHostMsg_EnumerateDirectory, OnEnumerateDirectory)
+    IPC_MESSAGE_UNHANDLED(handled = false)
+  IPC_END_MESSAGE_MAP()
+
+  return handled;
+}
+
+void FileSelectObserver::OnRunFileChooser(
+    const ViewHostMsg_RunFileChooser_Params& params) {
+  if (!file_select_helper_.get())
+    file_select_helper_.reset(new FileSelectHelper(tab_contents()->profile()));
+  file_select_helper_->RunFileChooser(tab_contents()->render_view_host(),
+                                      tab_contents(),
+                                      params);
+}
+
+void FileSelectObserver::OnEnumerateDirectory(int request_id,
+                                              const FilePath& path) {
+  ChildProcessSecurityPolicy* policy =
+      ChildProcessSecurityPolicy::GetInstance();
+  if (!policy->CanReadDirectory(
+          tab_contents()->render_view_host()->process()->id(),
+          path)) {
+    return;
+  }
+
+  if (!file_select_helper_.get())
+    file_select_helper_.reset(new FileSelectHelper(tab_contents()->profile()));
+  file_select_helper_->EnumerateDirectory(request_id,
+                                          tab_contents()->render_view_host(),
+                                          path);
 }

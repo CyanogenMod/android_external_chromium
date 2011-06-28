@@ -9,6 +9,7 @@
 #include <string>
 
 #include "base/utf_string_conversions.h"
+#include "chrome/browser/importer/importer_host.h"
 #include "chrome/browser/importer/importer_observer.h"
 #include "chrome/browser/ui/gtk/gtk_util.h"
 #include "grit/chromium_strings.h"
@@ -36,7 +37,7 @@ void ImportProgressDialogGtk::StartImport(
     uint16 items,
     ImporterHost* importer_host,
     ImporterObserver* importer_observer,
-    const importer::ProfileInfo& browser_profile,
+    const importer::SourceProfile& source_profile,
     Profile* profile,
     bool first_run) {
   ImportProgressDialogGtk* dialog = new ImportProgressDialogGtk(
@@ -44,8 +45,8 @@ void ImportProgressDialogGtk::StartImport(
       items,
       importer_host,
       importer_observer,
-      WideToUTF16(browser_profile.description),
-      browser_profile.browser_type == importer::BOOKMARKS_HTML);
+      source_profile.importer_name,
+      source_profile.importer_type == importer::BOOKMARKS_HTML);
 
   // In headless mode it means that we don't show the progress window, but it
   // still need it to exist. No user interaction will be required.
@@ -53,7 +54,7 @@ void ImportProgressDialogGtk::StartImport(
     dialog->ShowDialog();
 
   importer_host->StartImportSettings(
-      browser_profile, profile, items, new ProfileWriter(profile), first_run);
+      source_profile, profile, items, new ProfileWriter(profile), first_run);
 }
 
 ImportProgressDialogGtk::ImportProgressDialogGtk(
@@ -61,7 +62,7 @@ ImportProgressDialogGtk::ImportProgressDialogGtk(
     uint16 items,
     ImporterHost* importer_host,
     ImporterObserver* importer_observer,
-    const string16& source_profile,
+    const string16& importer_name,
     bool bookmarks_import)
     : parent_(parent),
       items_(items),
@@ -87,7 +88,7 @@ ImportProgressDialogGtk::ImportProgressDialogGtk(
 
   GtkWidget* import_info = gtk_label_new(
       l10n_util::GetStringFUTF8(IDS_IMPORT_PROGRESS_INFO,
-                                source_profile).c_str());
+                                importer_name).c_str());
   gtk_util::SetLabelWidth(import_info, 400);
   gtk_box_pack_start(GTK_BOX(control_group), import_info, FALSE, FALSE, 0);
 
@@ -154,6 +155,10 @@ void ImportProgressDialogGtk::CloseDialog() {
   delete this;
 }
 
+void ImportProgressDialogGtk::ImportStarted() {
+  importing_ = true;
+}
+
 void ImportProgressDialogGtk::ImportItemStarted(importer::ImportItem item) {
   DCHECK(items_ & item);
   switch (item) {
@@ -202,10 +207,6 @@ void ImportProgressDialogGtk::ImportItemEnded(importer::ImportItem item) {
   }
 }
 
-void ImportProgressDialogGtk::ImportStarted() {
-  importing_ = true;
-}
-
 void ImportProgressDialogGtk::ImportEnded() {
   importing_ = false;
   importer_host_->SetObserver(NULL);
@@ -220,12 +221,12 @@ void ShowImportProgressDialog(GtkWindow* parent,
                               uint16 items,
                               ImporterHost* importer_host,
                               ImporterObserver* importer_observer,
-                              const ProfileInfo& browser_profile,
+                              const SourceProfile& source_profile,
                               Profile* profile,
                               bool first_run) {
   DCHECK_NE(0, items);
   ImportProgressDialogGtk::StartImport(
-      parent, items, importer_host, importer_observer, browser_profile, profile,
+      parent, items, importer_host, importer_observer, source_profile, profile,
       first_run);
 }
 

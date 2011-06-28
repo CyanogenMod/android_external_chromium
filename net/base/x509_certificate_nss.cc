@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,12 +16,12 @@
 #include <sechash.h>
 #include <sslerr.h>
 
-#include "base/crypto/rsa_private_key.h"
 #include "base/logging.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/pickle.h"
-#include "base/scoped_ptr.h"
 #include "base/time.h"
-#include "base/nss_util.h"
+#include "crypto/nss_util.h"
+#include "crypto/rsa_private_key.h"
 #include "net/base/cert_status_flags.h"
 #include "net/base/cert_verify_result.h"
 #include "net/base/ev_root_ca_metadata.h"
@@ -98,20 +98,27 @@ int MapSecurityError(int err) {
       return ERR_CERT_COMMON_NAME_INVALID;
     case SEC_ERROR_INVALID_TIME:
     case SEC_ERROR_EXPIRED_CERTIFICATE:
+    case SEC_ERROR_EXPIRED_ISSUER_CERTIFICATE:
       return ERR_CERT_DATE_INVALID;
     case SEC_ERROR_UNKNOWN_ISSUER:
     case SEC_ERROR_UNTRUSTED_ISSUER:
     case SEC_ERROR_CA_CERT_INVALID:
-    case SEC_ERROR_UNTRUSTED_CERT:
       return ERR_CERT_AUTHORITY_INVALID;
     case SEC_ERROR_REVOKED_CERTIFICATE:
+    case SEC_ERROR_UNTRUSTED_CERT:  // Treat as revoked.
       return ERR_CERT_REVOKED;
     case SEC_ERROR_BAD_DER:
     case SEC_ERROR_BAD_SIGNATURE:
     case SEC_ERROR_CERT_NOT_VALID:
     // TODO(port): add an ERR_CERT_WRONG_USAGE error code.
     case SEC_ERROR_CERT_USAGES_INVALID:
+    case SEC_ERROR_INADEQUATE_KEY_USAGE:
+    case SEC_ERROR_INADEQUATE_CERT_TYPE:
     case SEC_ERROR_POLICY_VALIDATION_FAILED:
+    case SEC_ERROR_CERT_NOT_IN_NAME_SPACE:
+    case SEC_ERROR_PATH_LEN_CONSTRAINT_INVALID:
+    case SEC_ERROR_UNKNOWN_CRITICAL_EXTENSION:
+    case SEC_ERROR_EXTENSION_VALUE_INVALID:
       return ERR_CERT_INVALID;
     default:
       LOG(WARNING) << "Unknown error " << err << " mapped to net::ERR_FAILED";
@@ -126,8 +133,8 @@ int MapCertErrorToCertStatus(int err) {
       return CERT_STATUS_COMMON_NAME_INVALID;
     case SEC_ERROR_INVALID_TIME:
     case SEC_ERROR_EXPIRED_CERTIFICATE:
+    case SEC_ERROR_EXPIRED_ISSUER_CERTIFICATE:
       return CERT_STATUS_DATE_INVALID;
-    case SEC_ERROR_UNTRUSTED_CERT:
     case SEC_ERROR_UNKNOWN_ISSUER:
     case SEC_ERROR_UNTRUSTED_ISSUER:
     case SEC_ERROR_CA_CERT_INVALID:
@@ -137,13 +144,21 @@ int MapCertErrorToCertStatus(int err) {
     case SEC_ERROR_OCSP_SERVER_ERROR:
       return CERT_STATUS_UNABLE_TO_CHECK_REVOCATION;
     case SEC_ERROR_REVOKED_CERTIFICATE:
+    case SEC_ERROR_UNTRUSTED_CERT:  // Treat as revoked.
       return CERT_STATUS_REVOKED;
     case SEC_ERROR_BAD_DER:
     case SEC_ERROR_BAD_SIGNATURE:
     case SEC_ERROR_CERT_NOT_VALID:
     // TODO(port): add a CERT_STATUS_WRONG_USAGE error code.
     case SEC_ERROR_CERT_USAGES_INVALID:
+    case SEC_ERROR_INADEQUATE_KEY_USAGE:  // Key usage.
+    case SEC_ERROR_INADEQUATE_CERT_TYPE:  // Extended key usage and whether
+                                          // the certificate is a CA.
     case SEC_ERROR_POLICY_VALIDATION_FAILED:
+    case SEC_ERROR_CERT_NOT_IN_NAME_SPACE:
+    case SEC_ERROR_PATH_LEN_CONSTRAINT_INVALID:
+    case SEC_ERROR_UNKNOWN_CRITICAL_EXTENSION:
+    case SEC_ERROR_EXTENSION_VALUE_INVALID:
       return CERT_STATUS_INVALID;
     default:
       return 0;
@@ -186,6 +201,18 @@ void GetCertChainInfo(CERTCertList* cert_list,
         break;
     }
   }
+}
+
+// IsKnownRoot returns true if the given certificate is one that we believe
+// is a standard (as opposed to user-installed) root.
+bool IsKnownRoot(CERTCertificate* root) {
+  if (!root->slot)
+    return false;
+
+  // This magic name is taken from
+  // http://bonsai.mozilla.org/cvsblame.cgi?file=mozilla/security/nss/lib/ckfw/builtins/constants.c&rev=1.13&mark=86,89#79
+  return 0 == strcmp(PK11_GetSlotName(root->slot),
+                     "NSS Builtin Objects");
 }
 
 typedef char* (*CERTGetNameFunc)(CERTName* name);
@@ -251,7 +278,7 @@ void ParseDate(SECItem* der_date, base::Time* result) {
   PRTime prtime;
   SECStatus rv = DER_DecodeTimeChoice(&prtime, der_date);
   DCHECK(rv == SECSuccess);
-  *result = base::PRTimeToBaseTime(prtime);
+  *result = crypto::PRTimeToBaseTime(prtime);
 }
 
 void GetCertSubjectAltNamesOfType(X509Certificate::OSCertHandle cert_handle,
@@ -584,6 +611,25 @@ CollectCertsCallback(void* arg, SECItem** certs, int num_certs) {
   return SECSuccess;
 }
 
+SHA1Fingerprint CertPublicKeyHash(CERTCertificate* cert) {
+  SHA1Fingerprint hash;
+  SECStatus rv = HASH_HashBuf(HASH_AlgSHA1, hash.data,
+                              cert->derPublicKey.data, cert->derPublicKey.len);
+  DCHECK_EQ(rv, SECSuccess);
+  return hash;
+}
+
+void AppendPublicKeyHashes(CERTCertList* cert_list,
+                           CERTCertificate* root_cert,
+                           std::vector<SHA1Fingerprint>* hashes) {
+  for (CERTCertListNode* node = CERT_LIST_HEAD(cert_list);
+       !CERT_LIST_END(node, cert_list);
+       node = CERT_LIST_NEXT(node)) {
+    hashes->push_back(CertPublicKeyHash(node->cert));
+  }
+  hashes->push_back(CertPublicKeyHash(root_cert));
+}
+
 }  // namespace
 
 void X509Certificate::Initialize() {
@@ -594,22 +640,18 @@ void X509Certificate::Initialize() {
   ParseDate(&cert_handle_->validity.notAfter, &valid_expiry_);
 
   fingerprint_ = CalculateFingerprint(cert_handle_);
-}
 
-// static
-X509Certificate* X509Certificate::CreateFromPickle(const Pickle& pickle,
-                                                   void** pickle_iter) {
-  const char* data;
-  int length;
-  if (!pickle.ReadData(pickle_iter, &data, &length))
-    return NULL;
-
-  return CreateFromBytes(data, length);
+  serial_number_ = std::string(
+      reinterpret_cast<char*>(cert_handle_->serialNumber.data),
+      cert_handle_->serialNumber.len);
+  // Remove leading zeros.
+  while (serial_number_.size() > 1 && serial_number_[0] == 0)
+    serial_number_ = serial_number_.substr(1, serial_number_.size() - 1);
 }
 
 // static
 X509Certificate* X509Certificate::CreateSelfSigned(
-    base::RSAPrivateKey* key,
+    crypto::RSAPrivateKey* key,
     const std::string& subject,
     uint32 serial_number,
     base::TimeDelta valid_duration) {
@@ -709,11 +751,6 @@ X509Certificate* X509Certificate::CreateSelfSigned(
   return x509_cert;
 }
 
-void X509Certificate::Persist(Pickle* pickle) {
-  pickle->WriteData(reinterpret_cast<const char*>(cert_handle_->derCert.data),
-                    cert_handle_->derCert.len);
-}
-
 void X509Certificate::GetDNSNames(std::vector<std::string>* dns_names) const {
   dns_names->clear();
 
@@ -729,6 +766,11 @@ int X509Certificate::Verify(const std::string& hostname,
                             CertVerifyResult* verify_result) const {
   verify_result->Reset();
 
+  if (IsBlacklisted()) {
+    verify_result->cert_status |= CERT_STATUS_REVOKED;
+    return ERR_CERT_REVOKED;
+  }
+
   // Make sure that the hostname matches with the common name of the cert.
   SECStatus status = CERT_VerifyCertName(cert_handle_, hostname.c_str());
   if (status != SECSuccess)
@@ -742,10 +784,13 @@ int X509Certificate::Verify(const std::string& hostname,
 
   CERTValOutParam cvout[3];
   int cvout_index = 0;
-  // We don't need the trust anchor for the first PKIXVerifyCert call.
   cvout[cvout_index].type = cert_po_certList;
   cvout[cvout_index].value.pointer.chain = NULL;
   int cvout_cert_list_index = cvout_index;
+  cvout_index++;
+  cvout[cvout_index].type = cert_po_trustAnchor;
+  cvout[cvout_index].value.pointer.cert = NULL;
+  int cvout_trust_anchor_index = cvout_index;
   cvout_index++;
   cvout[cvout_index].type = cert_po_end;
   ScopedCERTValOutParam scoped_cvout(cvout);
@@ -781,6 +826,13 @@ int X509Certificate::Verify(const std::string& hostname,
   if (IsCertStatusError(verify_result->cert_status))
     return MapCertStatusToNetError(verify_result->cert_status);
 
+  AppendPublicKeyHashes(cvout[cvout_cert_list_index].value.pointer.chain,
+                        cvout[cvout_trust_anchor_index].value.pointer.cert,
+                        &verify_result->public_key_hashes);
+
+  verify_result->is_issued_by_known_root =
+      IsKnownRoot(cvout[cvout_trust_anchor_index].value.pointer.cert);
+
   if ((flags & VERIFY_EV_CERT) && VerifyEV())
     verify_result->cert_status |= CERT_STATUS_IS_EV;
   return OK;
@@ -798,7 +850,7 @@ bool X509Certificate::VerifyNameMatch(const std::string& hostname) const {
 // Otherwise, we pass just that EV policy (as opposed to all the EV policies)
 // to the second PKIXVerifyCert call.
 bool X509Certificate::VerifyEV() const {
-  net::EVRootCAMetadata* metadata = net::EVRootCAMetadata::GetInstance();
+  EVRootCAMetadata* metadata = EVRootCAMetadata::GetInstance();
 
   CERTValOutParam cvout[3];
   int cvout_index = 0;
@@ -858,7 +910,7 @@ X509Certificate::OSCertHandle X509Certificate::CreateOSCertHandleFromBytes(
   if (length < 0)
     return NULL;
 
-  base::EnsureNSSInit();
+  crypto::EnsureNSSInit();
 
   if (!NSS_IsInitialized())
     return NULL;
@@ -880,7 +932,7 @@ X509Certificate::OSCertHandles X509Certificate::CreateOSCertHandlesFromBytes(
   if (length < 0)
     return results;
 
-  base::EnsureNSSInit();
+  crypto::EnsureNSSInit();
 
   if (!NSS_IsInitialized())
     return results;
@@ -935,6 +987,26 @@ SHA1Fingerprint X509Certificate::CalculateFingerprint(
   DCHECK(rv == SECSuccess);
 
   return sha1;
+}
+
+// static
+X509Certificate::OSCertHandle
+X509Certificate::ReadCertHandleFromPickle(const Pickle& pickle,
+                                          void** pickle_iter) {
+  const char* data;
+  int length;
+  if (!pickle.ReadData(pickle_iter, &data, &length))
+    return NULL;
+
+  return CreateOSCertHandleFromBytes(data, length);
+}
+
+// static
+bool X509Certificate::WriteCertHandleToPickle(OSCertHandle cert_handle,
+                                              Pickle* pickle) {
+  return pickle->WriteData(
+      reinterpret_cast<const char*>(cert_handle->derCert.data),
+      cert_handle->derCert.len);
 }
 
 }  // namespace net

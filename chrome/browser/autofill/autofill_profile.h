@@ -6,47 +6,58 @@
 #define CHROME_BROWSER_AUTOFILL_AUTOFILL_PROFILE_H_
 #pragma once
 
+#include <stddef.h>
 #include <list>
-#include <map>
+#include <ostream>
+#include <string>
 #include <vector>
 
 #include "base/string16.h"
+#include "chrome/browser/autofill/address.h"
+#include "chrome/browser/autofill/autofill_type.h"
+#include "chrome/browser/autofill/contact_info.h"
+#include "chrome/browser/autofill/fax_number.h"
+#include "chrome/browser/autofill/field_types.h"
 #include "chrome/browser/autofill/form_group.h"
+#include "chrome/browser/autofill/home_phone_number.h"
 
-// A collection of FormGroups stored in a profile.  AutoFillProfile also
+// A collection of FormGroups stored in a profile.  AutofillProfile also
 // implements the FormGroup interface so that owners of this object can request
 // form information from the profile, and the profile will delegate the request
 // to the requested form group type.
-class AutoFillProfile : public FormGroup {
+class AutofillProfile : public FormGroup {
  public:
-  explicit AutoFillProfile(const std::string& guid);
+  explicit AutofillProfile(const std::string& guid);
 
   // For use in STL containers.
-  AutoFillProfile();
-  AutoFillProfile(const AutoFillProfile&);
-  virtual ~AutoFillProfile();
+  AutofillProfile();
+  AutofillProfile(const AutofillProfile& profile);
+  virtual ~AutofillProfile();
 
-  // FormGroup implementation:
+  AutofillProfile& operator=(const AutofillProfile& profile);
+
+  // FormGroup:
   virtual void GetPossibleFieldTypes(const string16& text,
                                      FieldTypeSet* possible_types) const;
   virtual void GetAvailableFieldTypes(FieldTypeSet* available_types) const;
-  virtual string16 GetFieldText(const AutofillType& type) const;
-  // Returns true if the info matches the profile data corresponding to type.
-  // If the type is UNKNOWN_TYPE then info will be matched against all of the
-  // profile data.
-  virtual void FindInfoMatches(const AutofillType& type,
-                               const string16& info,
-                               std::vector<string16>* matched_text) const;
-  virtual void SetInfo(const AutofillType& type, const string16& value);
-  // Returns a copy of the profile it is called on. The caller is responsible
-  // for deleting profile when they are done with it.
-  virtual FormGroup* Clone() const;
+  virtual string16 GetInfo(AutofillFieldType type) const;
+  virtual void SetInfo(AutofillFieldType type, const string16& value);
+
+  // Multi-value equivalents to |GetInfo| and |SetInfo|.
+  void SetMultiInfo(AutofillFieldType type,
+                    const std::vector<string16>& values);
+  void GetMultiInfo(AutofillFieldType type,
+                    std::vector<string16>* values) const;
+
+  // Returns |true| if |type| accepts multi-values.
+  static bool SupportsMultiValue(AutofillFieldType type);
+
   // The user-visible label of the profile, generated in relation to other
   // profiles. Shows at least 2 fields that differentiate profile from other
   // profiles. See AdjustInferredLabels() further down for more description.
   virtual const string16 Label() const;
 
-  // This guid is the primary identifier for |AutoFillProfile| objects.
+  // This guid is the primary identifier for |AutofillProfile| objects.
   const std::string guid() const { return guid_; }
   void set_guid(const std::string& guid) { guid_ = guid; }
 
@@ -67,7 +78,7 @@ class AutoFillProfile : public FormGroup {
   // This function is useful if you want to adjust unique labels for all
   // profiles. For non permanent situations (selection of profile, when user
   // started typing in the field, for example) use CreateInferredLabels().
-  static bool AdjustInferredLabels(std::vector<AutoFillProfile*>* profiles);
+  static bool AdjustInferredLabels(std::vector<AutofillProfile*>* profiles);
 
   // Creates inferred labels for |profiles|, according to the rules above and
   // stores them in |created_labels|. If |suggested_fields| is not NULL, the
@@ -77,7 +88,7 @@ class AutoFillProfile : public FormGroup {
   // |UNKNOWN_TYPE| when |suggested_fields| is NULL. Each label includes at
   // least |minimal_fields_shown| fields, if possible.
   static void CreateInferredLabels(
-      const std::vector<AutoFillProfile*>* profiles,
+      const std::vector<AutofillProfile*>* profiles,
       const std::vector<AutofillFieldType>* suggested_fields,
       AutofillFieldType excluded_field,
       size_t minimal_fields_shown,
@@ -86,27 +97,34 @@ class AutoFillProfile : public FormGroup {
   // Returns true if there are no values (field types) set.
   bool IsEmpty() const;
 
-  // For use in STL containers.
-  void operator=(const AutoFillProfile&);
-
   // Comparison for Sync.  Returns 0 if the profile is the same as |this|,
   // or < 0, or > 0 if it is different.  The implied ordering can be used for
   // culling duplicates.  The ordering is based on collation order of the
   // textual contents of the fields.
   // GUIDs are not compared, only the values of the contents themselves.
-  int Compare(const AutoFillProfile& profile) const;
+  // DEPRECATED: Use |CompareMulti| instead.  |Compare| does not compare
+  // multi-valued items.
+  int Compare(const AutofillProfile& profile) const;
+
+  // Comparison for Sync.  Same as |Compare| but includes multi-valued fields.
+  int CompareMulti(const AutofillProfile& profile) const;
 
   // Equality operators compare GUIDs and the contents in the comparison.
-  bool operator==(const AutoFillProfile& profile) const;
-  virtual bool operator!=(const AutoFillProfile& profile) const;
+  // TODO(dhollowa): This needs to be made multi-profile once Sync updates.
+  bool operator==(const AutofillProfile& profile) const;
+  virtual bool operator!=(const AutofillProfile& profile) const;
 
   // Returns concatenation of full name and address line 1.  This acts as the
   // basis of comparison for new values that are submitted through forms to
   // aid with correct aggregation of new data.
   const string16 PrimaryValue() const;
 
+  // Overwrites the single-valued field data in |profile| with this
+  // Profile.  Or, for multi-valued fields append the new values.
+  void OverwriteWithOrAddTo(const AutofillProfile& profile);
+
  private:
-  typedef std::map<FieldTypeGroup, FormGroup*> FormGroupMap;
+  typedef std::vector<const FormGroup*> FormGroupList;
 
   // Builds inferred label from the first |num_fields_to_include| non-empty
   // fields in |label_fields|. Uses as many fields as possible if there are not
@@ -121,14 +139,17 @@ class AutoFillProfile : public FormGroup {
   // the profiles, if possible; and also at least |num_fields_to_include|
   // fields, if possible. The label fields are drawn from |fields|.
   static void CreateDifferentiatingLabels(
-      const std::vector<AutoFillProfile*>& profiles,
+      const std::vector<AutofillProfile*>& profiles,
       const std::list<size_t>& indices,
       const std::vector<AutofillFieldType>& fields,
       size_t num_fields_to_include,
       std::vector<string16>* created_labels);
 
-  // Utility to initialize a |FormGroupMap|.
-  static void InitPersonalInfo(FormGroupMap* personal_info);
+  // Utilities for listing and lookup of the data members that constitute
+  // user-visible profile information.
+  FormGroupList FormGroups() const;
+  const FormGroup* FormGroupForType(AutofillFieldType type) const;
+  FormGroup* MutableFormGroupForType(AutofillFieldType type);
 
   // The label presented to the user when selecting a profile.
   string16 label_;
@@ -137,10 +158,15 @@ class AutoFillProfile : public FormGroup {
   std::string guid_;
 
   // Personal information for this profile.
-  FormGroupMap personal_info_;
+  std::vector<NameInfo> name_;
+  std::vector<EmailInfo> email_;
+  CompanyInfo company_;
+  std::vector<HomePhoneNumber> home_number_;
+  std::vector<FaxNumber> fax_number_;
+  Address address_;
 };
 
-// So we can compare AutoFillProfiles with EXPECT_EQ().
-std::ostream& operator<<(std::ostream& os, const AutoFillProfile& profile);
+// So we can compare AutofillProfiles with EXPECT_EQ().
+std::ostream& operator<<(std::ostream& os, const AutofillProfile& profile);
 
 #endif  // CHROME_BROWSER_AUTOFILL_AUTOFILL_PROFILE_H_

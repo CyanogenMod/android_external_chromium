@@ -1,10 +1,10 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import <AppKit/AppKit.h>
 
-#import "base/scoped_nsobject.h"
+#import "base/memory/scoped_nsobject.h"
 #include "base/string16.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
@@ -181,7 +181,7 @@ TEST_F(BookmarkMenuBridgeTest, TestAddNodeToMenu) {
   model->AddURL(root, 0, ASCIIToUTF16(short_url), GURL(short_url));
   bridge_->UpdateMenu(menu);
   int prev_count = [menu numberOfItems] - 1; // "extras" added at this point
-  node = model->AddGroup(root, 1, empty);
+  node = model->AddFolder(root, 1, empty);
   model->AddURL(root, 2, ASCIIToUTF16(long_url), GURL(long_url));
 
   // And the submenu fo the middle one
@@ -310,7 +310,7 @@ TEST_F(BookmarkMenuBridgeTest, TestGetMenuItemForNode) {
 
   BookmarkModel* model = bridge_->GetBookmarkModel();
   const BookmarkNode* bookmark_bar = model->GetBookmarkBarNode();
-  const BookmarkNode* root = model->AddGroup(bookmark_bar, 0, empty);
+  const BookmarkNode* root = model->AddFolder(bookmark_bar, 0, empty);
   EXPECT_TRUE(model && root);
 
   model->AddURL(root, 0, ASCIIToUTF16("Test Item"), GURL("http://test"));
@@ -323,9 +323,9 @@ TEST_F(BookmarkMenuBridgeTest, TestGetMenuItemForNode) {
   EXPECT_TRUE(MenuItemForNode(bridge_.get(), root->GetChild(1)));
 
   const BookmarkNode* removed_node = root->GetChild(0);
-  EXPECT_EQ(2, root->GetChildCount());
+  EXPECT_EQ(2, root->child_count());
   model->Remove(root, 0);
-  EXPECT_EQ(1, root->GetChildCount());
+  EXPECT_EQ(1, root->child_count());
   bridge_->UpdateMenu(menu);
   EXPECT_FALSE(MenuItemForNode(bridge_.get(), removed_node));
   EXPECT_TRUE(MenuItemForNode(bridge_.get(), root->GetChild(0)));
@@ -355,7 +355,7 @@ TEST_F(BookmarkMenuBridgeTest, TestAddNodeToOther) {
   EXPECT_NSEQ(@"http://foo/", [[[other submenu] itemAtIndex:0] title]);
 }
 
-TEST_F(BookmarkMenuBridgeTest, TestFavIconLoading) {
+TEST_F(BookmarkMenuBridgeTest, TestFaviconLoading) {
   NSMenu* menu = bridge_->menu_;
 
   BookmarkModel* model = bridge_->GetBookmarkModel();
@@ -369,7 +369,7 @@ TEST_F(BookmarkMenuBridgeTest, TestFavIconLoading) {
   NSMenuItem* item = [menu itemWithTitle:@"Test Item"];
   EXPECT_TRUE([item image]);
   [item setImage:nil];
-  bridge_->BookmarkNodeFavIconLoaded(model, node);
+  bridge_->BookmarkNodeFaviconLoaded(model, node);
   EXPECT_TRUE([item image]);
 }
 

@@ -36,11 +36,15 @@ class FontSettingsHandler : public OptionsPageUIHandler,
  private:
   void HandleFetchFontsData(const ListValue* args);
 
-  void SetupStandardFontSample();
-  void SetupFixedFontSample();
-  void SetupMinimumFontSample();
+  void SetUpStandardFontSample();
+  void SetUpSerifFontSample();
+  void SetUpSansSerifFontSample();
+  void SetUpFixedFontSample();
+  void SetUpMinimumFontSample();
 
   StringPrefMember standard_font_;
+  StringPrefMember serif_font_;
+  StringPrefMember sans_serif_font_;
   StringPrefMember fixed_font_;
   StringPrefMember font_encoding_;
   IntegerPrefMember default_font_size_;

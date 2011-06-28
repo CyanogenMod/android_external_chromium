@@ -210,6 +210,11 @@ void AppPanelBrowserFrameView::ResetWindowControls() {
   // The close button isn't affected by this constraint.
 }
 
+void AppPanelBrowserFrameView::UpdateWindowIcon() {
+  window_icon_->SchedulePaint();
+}
+
+
 ///////////////////////////////////////////////////////////////////////////////
 // AppPanelBrowserFrameView, views::View overrides:
 
@@ -236,7 +241,7 @@ void AppPanelBrowserFrameView::Layout() {
 void AppPanelBrowserFrameView::ButtonPressed(views::Button* sender,
                                              const views::Event& event) {
   if (sender == close_button_)
-    frame_->GetWindow()->Close();
+    frame_->GetWindow()->CloseWindow();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -250,7 +255,7 @@ bool AppPanelBrowserFrameView::ShouldTabIconViewAnimate() const {
   return current_tab ? current_tab->is_loading() : false;
 }
 
-SkBitmap AppPanelBrowserFrameView::GetFavIconForTabIconView() {
+SkBitmap AppPanelBrowserFrameView::GetFaviconForTabIconView() {
   return frame_->GetWindow()->window_delegate()->GetWindowIcon();
 }
 

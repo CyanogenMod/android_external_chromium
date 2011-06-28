@@ -12,14 +12,14 @@
 #include <string>
 
 #include "base/basictypes.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/string_util.h"
 #include "chrome/browser/autocomplete/autocomplete_edit_view.h"
 #include "chrome/browser/ui/gtk/owned_widget_gtk.h"
 #include "chrome/browser/ui/toolbar/toolbar_model.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
-#include "chrome/common/page_transition_types.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
+#include "content/common/page_transition_types.h"
 #include "ui/base/animation/animation_delegate.h"
 #include "ui/base/gtk/gtk_signal.h"
 #include "ui/base/gtk/gtk_signal_registrar.h"
@@ -45,7 +45,7 @@ class View;
 }
 
 #if !defined(TOOLKIT_VIEWS)
-class GtkThemeProvider;
+class GtkThemeService;
 #endif
 
 class AutocompleteEditViewGtk : public AutocompleteEditView,
@@ -139,7 +139,8 @@ class AutocompleteEditViewGtk : public AutocompleteEditView,
   virtual bool OnAfterPossibleChange();
   virtual gfx::NativeView GetNativeView() const;
   virtual CommandUpdater* GetCommandUpdater();
-  virtual void SetInstantSuggestion(const string16& suggestion);
+  virtual void SetInstantSuggestion(const string16& suggestion,
+                                    bool animate_to_complete);
   virtual string16 GetInstantSuggestion() const;
   virtual int TextWidth() const;
   virtual bool IsImeComposing() const;
@@ -464,7 +465,7 @@ class AutocompleteEditViewGtk : public AutocompleteEditView,
   views::View* location_bar_view_;
 #else
   // Supplies colors, et cetera.
-  GtkThemeProvider* theme_provider_;
+  GtkThemeService* theme_service_;
 
   NotificationRegistrar registrar_;
 #endif

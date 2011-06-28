@@ -9,7 +9,7 @@
 #endif
 
 #include "base/command_line.h"
-#include "base/scoped_vector.h"
+#include "base/memory/scoped_vector.h"
 #include "base/string16.h"
 #include "base/string_util.h"
 #include "base/stl_util-inl.h"
@@ -3374,7 +3374,7 @@ TemplateURL* MakePrepopulatedTemplateURL(const wchar_t* name,
   TemplateURL* new_turl = new TemplateURL();
   new_turl->SetURL(WideToUTF8(search_url), 0, 0);
   if (favicon_url)
-    new_turl->SetFavIconURL(GURL(favicon_url));
+    new_turl->SetFaviconURL(GURL(favicon_url));
   if (suggest_url)
     new_turl->SetSuggestionsURL(WideToUTF8(suggest_url), 0, 0);
   if (instant_url)

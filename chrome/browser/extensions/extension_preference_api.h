@@ -9,18 +9,62 @@
 #include <string>
 
 #include "chrome/browser/extensions/extension_function.h"
+#include "chrome/browser/prefs/pref_change_registrar.h"
+#include "content/common/notification_observer.h"
+
+class ExtensionPreferenceEventRouter : public NotificationObserver {
+ public:
+  explicit ExtensionPreferenceEventRouter(Profile* profile);
+  virtual ~ExtensionPreferenceEventRouter();
+
+ private:
+  // NotificationObserver implementation.
+  virtual void Observe(NotificationType type,
+                       const NotificationSource& source,
+                       const NotificationDetails& details);
+
+  void OnPrefChanged(PrefService* pref_service, const std::string& pref_key);
+
+  // This method dispatches events to the extension message service.
+  void DispatchEvent(const std::string& extension_id,
+                     const std::string& event_name,
+                     const std::string& json_args);
+
+  PrefChangeRegistrar registrar_;
+  PrefChangeRegistrar incognito_registrar_;
+
+  // Weak, owns us (transitively via ExtensionService).
+  Profile* profile_;
+
+  DISALLOW_COPY_AND_ASSIGN(ExtensionPreferenceEventRouter);
+};
+
+class Value;
+
+class PrefTransformerInterface {
+ public:
+  virtual ~PrefTransformerInterface() {}
+
+  // Converts the representation of a preference as seen by the extension
+  // into a representation that is used in the pref stores of the browser.
+  // Returns the pref store representation in case of success or sets
+  // |error| and returns NULL otherwise.
+  // The ownership of the returned value is passed to the caller.
+  virtual Value* ExtensionToBrowserPref(const Value* extension_pref,
+                                        std::string* error) = 0;
+
+  // Converts the representation of the preference as stored in the browser
+  // into a representation that is used by the extension.
+  // Returns the extension representation in case of success or NULL otherwise.
+  // The ownership of the returned value is passed to the caller.
+  virtual Value* BrowserToExtensionPref(const Value* browser_pref) = 0;
+};
 
 class GetPreferenceFunction : public SyncExtensionFunction {
  public:
   virtual ~GetPreferenceFunction();
   virtual bool RunImpl();
   DECLARE_EXTENSION_FUNCTION_NAME("experimental.preferences.get")
-
- private:
-  // Returns a string constant (defined in API) indicating the level of
-  // control this extension has on the specified preference.
-  const char* GetLevelOfControl(const std::string& browser_pref,
-                                bool incognito) const;
 };
 
 class SetPreferenceFunction : public SyncExtensionFunction {

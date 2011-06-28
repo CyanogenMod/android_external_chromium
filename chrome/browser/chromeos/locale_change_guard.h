@@ -9,7 +9,7 @@
 #include <string>
 
 #include "base/lazy_instance.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/chromeos/notifications/system_notification.h"
 #include "content/common/notification_observer.h"
 #include "content/common/notification_registrar.h"
@@ -29,11 +29,19 @@ class LocaleChangeGuard : public NotificationObserver {
  public:
   explicit LocaleChangeGuard(Profile* profile);
 
+  // Called just before changing locale.
+  void PrepareChangingLocale(
+      const std::string& from_locale, const std::string& to_locale);
+
+  // Called after login.
+  void OnLogin();
+
  private:
   class Delegate;
 
   void RevertLocaleChange(const ListValue* list);
   void AcceptLocaleChange();
+  void Check();
 
   // NotificationObserver implementation.
   virtual void Observe(NotificationType type,
@@ -46,6 +54,13 @@ class LocaleChangeGuard : public NotificationObserver {
   scoped_ptr<chromeos::SystemNotification> note_;
   bool reverted_;
   NotificationRegistrar registrar_;
+
+  // We want to show locale change notification in previous language however
+  // we cannot directly load strings for non-current locale.  So we cache
+  // messages before locale change.
+  string16 title_text_;
+  string16 message_text_;
+  string16 revert_link_text_;
 };
 
 }  // namespace chromeos

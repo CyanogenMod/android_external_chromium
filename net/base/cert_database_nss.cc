@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,9 +11,9 @@
 #include <secmod.h>
 
 #include "base/logging.h"
-#include "base/nss_util.h"
-#include "base/nss_util_internal.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
+#include "crypto/nss_util.h"
+#include "crypto/nss_util_internal.h"
 #include "net/base/crypto_module.h"
 #include "net/base/net_errors.h"
 #include "net/base/x509_certificate.h"
@@ -27,7 +27,7 @@ namespace psm = mozilla_security_manager;
 namespace net {
 
 CertDatabase::CertDatabase() {
-  base::EnsureNSSInit();
+  crypto::EnsureNSSInit();
   psm::EnsurePKCS12Init();
 }
 
@@ -78,7 +78,7 @@ int CertDatabase::AddUserCert(X509Certificate* cert_obj) {
   nickname = username + "'s " + ca_name + " ID";
 
   {
-    base::AutoNSSWriteLock lock;
+    crypto::AutoNSSWriteLock lock;
     slot = PK11_ImportCertForKey(cert,
                                  const_cast<char*>(nickname.c_str()),
                                  NULL);
@@ -89,6 +89,7 @@ int CertDatabase::AddUserCert(X509Certificate* cert_obj) {
     return ERR_ADD_USER_CERT_FAILED;
   }
   PK11_FreeSlot(slot);
+  CertDatabase::NotifyObserversOfUserCertAdded(cert_obj);
   return OK;
 }
 
@@ -108,11 +109,21 @@ void CertDatabase::ListCerts(CertificateList* certs) {
   CERT_DestroyCertList(cert_list);
 }
 
-CryptoModule* CertDatabase::GetDefaultModule() const {
+CryptoModule* CertDatabase::GetPublicModule() const {
   CryptoModule* module =
-      CryptoModule::CreateFromHandle(base::GetDefaultNSSKeySlot());
-  // The module is already referenced when returned from GetDefaultNSSKeymodule,
-  // so we need to deref it once.
+      CryptoModule::CreateFromHandle(crypto::GetPublicNSSKeySlot());
+  // The module is already referenced when returned from
+  // GetPublicNSSKeySlot, so we need to deref it once.
+  PK11_FreeSlot(module->os_module_handle());
+
+  return module;
+}
+
+CryptoModule* CertDatabase::GetPrivateModule() const {
+  CryptoModule* module =
+      CryptoModule::CreateFromHandle(crypto::GetPrivateNSSKeySlot());
+  // The module is already referenced when returned from
+  // GetPrivateNSSKeySlot, so we need to deref it once.
   PK11_FreeSlot(module->os_module_handle());
 
   return module;
@@ -143,12 +154,16 @@ void CertDatabase::ListModules(CryptoModuleList* modules, bool need_rw) const {
 }
 
 int CertDatabase::ImportFromPKCS12(
-    net::CryptoModule* module,
+    CryptoModule* module,
     const std::string& data,
     const string16& password) {
-  return psm::nsPKCS12Blob_Import(module->os_module_handle(),
-                                  data.data(), data.size(),
-                                  password);
+  int result = psm::nsPKCS12Blob_Import(module->os_module_handle(),
+                                        data.data(), data.size(),
+                                        password);
+  if (result == net::OK)
+    CertDatabase::NotifyObserversOfUserCertAdded(NULL);
+
+  return result;
 }
 
 int CertDatabase::ExportToPKCS12(
@@ -185,7 +200,12 @@ bool CertDatabase::ImportCACerts(const CertificateList& certificates,
                                  unsigned int trust_bits,
                                  ImportCertFailureList* not_imported) {
   X509Certificate* root = FindRootInList(certificates);
-  return psm::ImportCACerts(certificates, root, trust_bits, not_imported);
+  bool success = psm::ImportCACerts(certificates, root, trust_bits,
+                                    not_imported);
+  if (success)
+    CertDatabase::NotifyObserversOfCertTrustChanged(NULL);
+
+  return success;
 }
 
 bool CertDatabase::ImportServerCert(const CertificateList& certificates,
@@ -219,9 +239,14 @@ unsigned int CertDatabase::GetCertTrust(
 bool CertDatabase::SetCertTrust(const X509Certificate* cert,
                                 CertType type,
                                 unsigned int trusted) {
-  return psm::SetCertTrust(cert, type, trusted);
+  bool success = psm::SetCertTrust(cert, type, trusted);
+  if (success)
+    CertDatabase::NotifyObserversOfCertTrustChanged(cert);
+
+  return success;
 }
 
+// TODO(xiyuan): Add an Observer method for this event.
 bool CertDatabase::DeleteCertAndKey(const X509Certificate* cert) {
   // For some reason, PK11_DeleteTokenCertAndKey only calls
   // SEC_DeletePermCertificate if the private key is found.  So, we check

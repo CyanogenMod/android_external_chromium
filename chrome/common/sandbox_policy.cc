@@ -17,11 +17,11 @@
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
 #include "base/win/windows_version.h"
-#include "chrome/common/child_process_info.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/debug_flags.h"
+#include "content/common/child_process_info.h"
+#include "content/common/debug_flags.h"
 #include "sandbox/src/sandbox.h"
 
 static sandbox::BrokerServices* g_broker_services = NULL;
@@ -29,15 +29,18 @@ static sandbox::BrokerServices* g_broker_services = NULL;
 namespace {
 
 // The DLLs listed here are known (or under strong suspicion) of causing crashes
-// when they are loaded in the renderer.
+// when they are loaded in the renderer. Note: at runtime we generate short
+// versions of the dll name only if the dll has an extension.
 const wchar_t* const kTroublesomeDlls[] = {
   L"adialhk.dll",                 // Kaspersky Internet Security.
   L"acpiz.dll",                   // Unknown.
   L"avgrsstx.dll",                // AVG 8.
+  L"babylonchromepi.dll",         // Babylon translator.
   L"btkeyind.dll",                // Widcomm Bluetooth.
   L"cmcsyshk.dll",                // CMC Internet Security.
+  L"cooliris.dll",                // CoolIris.
   L"dockshellhook.dll",           // Stardock Objectdock.
-  L"GoogleDesktopNetwork3.DLL",   // Google Desktop Search v5.
+  L"googledesktopnetwork3.dll",   // Google Desktop Search v5.
   L"fwhook.dll",                  // PC Tools Firewall Plus.
   L"hookprocesscreation.dll",     // Blumentals Program protector.
   L"hookterminateapis.dll",       // Blumentals and Cyberprinter.
@@ -57,13 +60,17 @@ const wchar_t* const kTroublesomeDlls[] = {
   L"oawatch.dll",                 // Online Armor.
   L"pavhook.dll",                 // Panda Internet Security.
   L"pavshook.dll",                // Panda Antivirus.
+  L"pavshookwow.dll",             // Panda Antivirus.
   L"pctavhook.dll",               // PC Tools Antivirus.
   L"pctgmhk.dll",                 // PC Tools Spyware Doctor.
   L"prntrack.dll",                // Pharos Systems.
   L"radhslib.dll",                // Radiant Naomi Internet Filter.
   L"radprlib.dll",                // Radiant Naomi Internet Filter.
+  L"rapportnikko.dll",            // Trustware Rapport.
   L"rlhook.dll",                  // Trustware Bufferzone.
+  L"rooksdol.dll",                // Trustware Rapport.
   L"rpchromebrowserrecordhelper.dll",  // RealPlayer.
+  L"rpmainbrowserrecordplugin.dll",    // RealPlayer.
   L"r3hook.dll",                  // Kaspersky Internet Security.
   L"sahook.dll",                  // McAfee Site Advisor.
   L"sbrige.dll",                  // Unknown.
@@ -75,6 +82,7 @@ const wchar_t* const kTroublesomeDlls[] = {
   L"syncor11.dll",                // SynthCore Midi interface.
   L"systools.dll",                // Panda Antivirus.
   L"tfwah.dll",                   // Threatfire (PC tools).
+  L"ycwebcamerasource.ax",        // Cyberlink Camera helper.
   L"wblind.dll",                  // Stardock Object desktop.
   L"wbhelp.dll",                  // Stardock Object desktop.
   L"winstylerthemehelper.dll"     // Tuneup utilities 2006.
@@ -164,18 +172,58 @@ bool AddKeyAndSubkeys(std::wstring key,
   return true;
 }
 
+// Compares the loaded |module| file name matches |module_name|.
+bool IsExpandedModuleName(HMODULE module, const wchar_t* module_name) {
+  wchar_t path[MAX_PATH];
+  DWORD sz = ::GetModuleFileNameW(module, path, arraysize(path));
+  if ((sz == arraysize(path)) || (sz == 0)) {
+    // XP does not set the last error properly, so we bail out anyway.
+    return false;
+  }
+  if (!::GetLongPathName(path, path, arraysize(path)))
+    return false;
+  FilePath fname(path);
+  return (fname.BaseName().value() == module_name);
+}
+
+// Adds a single dll by |module_name| into the |policy| blacklist.
+// To minimize the list we only add an unload policy only if the dll is
+// also loaded in this process. All the injected dlls of interest do this.
+void BlacklistAddOneDll(const wchar_t* module_name,
+                        sandbox::TargetPolicy* policy) {
+  HMODULE module = ::GetModuleHandleW(module_name);
+  if (!module) {
+    // The module could have been loaded with a 8.3 short name. We use
+    // the most common case: 'thelongname.dll' becomes 'thelon~1.dll'.
+    std::wstring name(module_name);
+    size_t period = name.rfind(L'.');
+    DCHECK_NE(std::string::npos, period);
+    DCHECK_LE(3U, (name.size() - period));
+    if (period <= 8)
+      return;
+    std::wstring alt_name = name.substr(0, 6) + L"~1";
+    alt_name += name.substr(period, name.size());
+    module = ::GetModuleHandleW(alt_name.c_str());
+    if (!module)
+      return;
+    // We found it, but because it only has 6 significant letters, we
+    // want to make sure it is the right one.
+    if (!IsExpandedModuleName(module, module_name))
+      return;
+    // Found a match. We add both forms to the policy.
+    policy->AddDllToUnload(alt_name.c_str());
+  }
+  policy->AddDllToUnload(module_name);
+  VLOG(1) << "dll to unload found: " << module_name;
+  return;
+}
+
 // Adds policy rules for unloaded the known dlls that cause chrome to crash.
 // Eviction of injected DLLs is done by the sandbox so that the injected module
 // does not get a chance to execute any code.
 void AddDllEvictionPolicy(sandbox::TargetPolicy* policy) {
-  for (int ix = 0; ix != arraysize(kTroublesomeDlls); ++ix) {
-    // To minimize the list we only add an unload policy if the dll is also
-    // loaded in this process. All the injected dlls of interest do this.
-    if (::GetModuleHandleW(kTroublesomeDlls[ix])) {
-      VLOG(1) << "dll to unload found: " << kTroublesomeDlls[ix];
-      policy->AddDllToUnload(kTroublesomeDlls[ix]);
-    }
-  }
+  for (int ix = 0; ix != arraysize(kTroublesomeDlls); ++ix)
+    BlacklistAddOneDll(kTroublesomeDlls[ix], policy);
 }
 
 // Adds the generic policy rules to a sandbox TargetPolicy.

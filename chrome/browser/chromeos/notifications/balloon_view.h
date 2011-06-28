@@ -9,7 +9,7 @@
 #pragma once
 
 #include "base/basictypes.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/task.h"
 #include "chrome/browser/notifications/balloon.h"
 #include "content/common/notification_observer.h"
@@ -25,7 +25,7 @@ class Menu2;
 class MenuButton;
 class MouseEvent;
 class TextButton;
-class WidgetGtk;
+class Widget;
 }  // namespace views
 
 class Notification;
@@ -113,7 +113,7 @@ class BalloonViewImpl : public BalloonView,
   ScopedRunnableMethodFactory<BalloonViewImpl> method_factory_;
 
   // A widget for ControlView.
-  scoped_ptr<views::WidgetGtk> control_view_host_;
+  scoped_ptr<views::Widget> control_view_host_;
 
   bool stale_;
   NotificationRegistrar notification_registrar_;

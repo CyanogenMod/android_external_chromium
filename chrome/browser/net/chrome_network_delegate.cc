@@ -5,9 +5,13 @@
 #include "chrome/browser/net/chrome_network_delegate.h"
 
 #include "base/logging.h"
+#include "chrome/browser/custom_handlers/protocol_handler_registry.h"
 #include "chrome/browser/extensions/extension_event_router_forwarder.h"
 #include "chrome/browser/extensions/extension_proxy_api.h"
 #include "chrome/browser/extensions/extension_webrequest_api.h"
+#include "chrome/browser/prefs/pref_member.h"
+#include "chrome/common/pref_names.h"
+#include "content/browser/browser_thread.h"
 #include "net/base/net_errors.h"
 #include "net/http/http_request_headers.h"
 #include "net/url_request/url_request.h"
@@ -34,21 +38,44 @@ void ForwardProxyErrors(net::URLRequest* request,
 
 ChromeNetworkDelegate::ChromeNetworkDelegate(
     ExtensionEventRouterForwarder* event_router,
-    ProfileId profile_id)
+    ProfileId profile_id,
+    BooleanPrefMember* enable_referrers,
+    ProtocolHandlerRegistry* protocol_handler_registry)
     : event_router_(event_router),
-      profile_id_(profile_id) {
+      profile_id_(profile_id),
+      enable_referrers_(enable_referrers),
+      protocol_handler_registry_(protocol_handler_registry) {
+  DCHECK(event_router);
+  DCHECK(enable_referrers);
 }
 
 ChromeNetworkDelegate::~ChromeNetworkDelegate() {}
 
-void ChromeNetworkDelegate::OnBeforeURLRequest(net::URLRequest* request) {
-  ExtensionWebRequestEventRouter::GetInstance()->OnBeforeRequest(
-      event_router_.get(), profile_id_, request->url(), request->method());
+// static
+void ChromeNetworkDelegate::InitializeReferrersEnabled(
+    BooleanPrefMember* enable_referrers,
+    PrefService* pref_service) {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  enable_referrers->Init(prefs::kEnableReferrers, pref_service, NULL);
+  enable_referrers->MoveToThread(BrowserThread::IO);
 }
 
-void ChromeNetworkDelegate::OnSendHttpRequest(
+int ChromeNetworkDelegate::OnBeforeURLRequest(
+    net::URLRequest* request,
+    net::CompletionCallback* callback,
+    GURL* new_url) {
+  if (!enable_referrers_->GetValue())
+    request->set_referrer(std::string());
+  return ExtensionWebRequestEventRouter::GetInstance()->OnBeforeRequest(
+      profile_id_, event_router_.get(), request, callback, new_url);
+}
+
+int ChromeNetworkDelegate::OnBeforeSendHeaders(
+    uint64 request_id,
+    net::CompletionCallback* callback,
     net::HttpRequestHeaders* headers) {
-  DCHECK(headers);
+  return ExtensionWebRequestEventRouter::GetInstance()->OnBeforeSendHeaders(
+      profile_id_, event_router_.get(), request_id, callback, headers);
 }
 
 void ChromeNetworkDelegate::OnResponseStarted(net::URLRequest* request) {
@@ -58,4 +85,16 @@ void ChromeNetworkDelegate::OnResponseStarted(net::URLRequest* request) {
 void ChromeNetworkDelegate::OnReadCompleted(net::URLRequest* request,
                                             int bytes_read) {
   ForwardProxyErrors(request, event_router_.get(), profile_id_);
+}
+
+void ChromeNetworkDelegate::OnURLRequestDestroyed(net::URLRequest* request) {
+  ExtensionWebRequestEventRouter::GetInstance()->OnURLRequestDestroyed(
+      profile_id_, request);
+}
+
+net::URLRequestJob* ChromeNetworkDelegate::OnMaybeCreateURLRequestJob(
+      net::URLRequest* request) {
+  if (!protocol_handler_registry_)
+    return NULL;
+  return protocol_handler_registry_->MaybeCreateJob(request);
 }

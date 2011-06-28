@@ -13,10 +13,9 @@
 #import "chrome/browser/app_controller_mac.h"
 #import "chrome/browser/autocomplete/autocomplete_edit_view_mac.h"
 #import "chrome/browser/autocomplete/autocomplete_popup_model.h"
-#include "chrome/browser/browser_list.h"
 #include "chrome/browser/command_updater.h"
-#include "chrome/browser/content_setting_image_model.h"
 #include "chrome/browser/content_setting_bubble_model.h"
+#include "chrome/browser/content_setting_image_model.h"
 #include "chrome/browser/defaults.h"
 #include "chrome/browser/extensions/extension_browser_event_router.h"
 #include "chrome/browser/extensions/extension_service.h"
@@ -25,6 +24,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
+#include "chrome/browser/ui/browser_list.h"
 #import "chrome/browser/ui/cocoa/content_settings/content_setting_bubble_cocoa.h"
 #include "chrome/browser/ui/cocoa/event_utils.h"
 #import "chrome/browser/ui/cocoa/extensions/extension_action_context_menu.h"
@@ -43,12 +43,13 @@
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_action.h"
 #include "chrome/common/extensions/extension_resource.h"
-#include "chrome/common/notification_service.h"
+#include "chrome/common/pref_names.h"
 #include "content/browser/tab_contents/navigation_entry.h"
 #include "content/browser/tab_contents/tab_contents.h"
-#include "net/base/net_util.h"
+#include "content/common/notification_service.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
+#include "net/base/net_util.h"
 #include "skia/ext/skia_utils_mac.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/base/l10n/l10n_util_mac.h"
@@ -101,6 +102,9 @@ LocationBarViewMac::LocationBarViewMac(
   registrar_.Add(this,
       NotificationType::EXTENSION_PAGE_ACTION_VISIBILITY_CHANGED,
       NotificationService::AllSources());
+
+  edit_bookmarks_enabled_.Init(prefs::kEditBookmarksEnabled,
+                               profile_->GetPrefs(), this);
 }
 
 LocationBarViewMac::~LocationBarViewMac() {
@@ -137,8 +141,9 @@ std::wstring LocationBarViewMac::GetInputString() const {
   return location_input_;
 }
 
-void LocationBarViewMac::SetSuggestedText(const string16& text) {
-  edit_view_->model()->SetSuggestedText(text);
+void LocationBarViewMac::SetSuggestedText(const string16& text,
+                                          InstantCompleteBehavior behavior) {
+  edit_view_->model()->SetSuggestedText(text, behavior);
 }
 
 WindowOpenDisposition LocationBarViewMac::GetWindowOpenDisposition() const {
@@ -201,8 +206,7 @@ void LocationBarViewMac::SaveStateToContents(TabContents* contents) {
 
 void LocationBarViewMac::Update(const TabContents* contents,
                                 bool should_restore_state) {
-  bool star_enabled = browser_defaults::bookmarks_enabled &&
-      [field_ isEditable] && !toolbar_model_->input_in_progress();
+  bool star_enabled = IsStarEnabled();
   command_updater_->UpdateCommandEnabled(IDC_BOOKMARK_PAGE, star_enabled);
   star_decoration_->SetVisible(star_enabled);
   RefreshPageActionDecorations();
@@ -273,7 +277,7 @@ void LocationBarViewMac::OnKillFocus() {
   // Do nothing.
 }
 
-SkBitmap LocationBarViewMac::GetFavIcon() const {
+SkBitmap LocationBarViewMac::GetFavicon() const {
   NOTIMPLEMENTED();
   return SkBitmap();
 }
@@ -287,7 +291,7 @@ InstantController* LocationBarViewMac::GetInstant() {
   return browser_->instant();
 }
 
-TabContentsWrapper* LocationBarViewMac::GetTabContentsWrapper() {
+TabContentsWrapper* LocationBarViewMac::GetTabContentsWrapper() const {
   return browser_->GetSelectedTabContentsWrapper();
 }
 
@@ -416,8 +420,7 @@ void LocationBarViewMac::TestPageActionPressed(size_t index) {
 
 void LocationBarViewMac::SetEditable(bool editable) {
   [field_ setEditable:editable ? YES : NO];
-  star_decoration_->SetVisible(browser_defaults::bookmarks_enabled &&
-      editable && !toolbar_model_->input_in_progress());
+  star_decoration_->SetVisible(IsStarEnabled());
   UpdatePageActions();
   Layout();
 }
@@ -486,6 +489,12 @@ void LocationBarViewMac::Observe(NotificationType type,
       [field_ setNeedsDisplay:YES];
       break;
     }
+
+    case NotificationType::PREF_CHANGED:
+      star_decoration_->SetVisible(IsStarEnabled());
+      OnChanged();
+      break;
+
     default:
       NOTREACHED() << "Unexpected notification";
       break;
@@ -628,4 +637,11 @@ void LocationBarViewMac::Layout() {
   [field_ updateCursorAndToolTipRects];
 
   [field_ setNeedsDisplay:YES];
+}
+
+bool LocationBarViewMac::IsStarEnabled() {
+  return [field_ isEditable] &&
+         browser_defaults::bookmarks_enabled &&
+         !toolbar_model_->input_in_progress() &&
+         edit_bookmarks_enabled_.GetValue();
 }

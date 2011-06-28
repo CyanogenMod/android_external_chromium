@@ -7,19 +7,18 @@
 #pragma once
 
 #include <set>
+#include <string>
 
 #include "base/callback.h"
-#include "base/scoped_ptr.h"
-#include "base/singleton.h"
+#include "base/memory/scoped_ptr.h"
+#include "base/memory/singleton.h"
+#include "base/synchronization/lock.h"
 #include "base/values.h"
-#include "chrome/browser/web_resource/gpu_blacklist_updater.h"
-#include "chrome/common/gpu_feature_flags.h"
-#include "chrome/common/gpu_info.h"
+#include "content/common/gpu/gpu_info.h"
+#include "content/common/gpu_feature_flags.h"
 
 class CommandLine;
-class DictionaryValue;
 class GpuBlacklist;
-class GPUInfo;
 
 class GpuDataManager {
  public:
@@ -29,21 +28,32 @@ class GpuDataManager {
   // Requests complete GPUinfo if it has not already been requested
   void RequestCompleteGpuInfoIfNeeded();
 
-  // Only update if the level is higher than the cached GPUInfo level.
+  // Only update if the current GPUInfo is not finalized.
   void UpdateGpuInfo(const GPUInfo& gpu_info);
 
   const GPUInfo& gpu_info() const;
 
-  // Returns blacklisting reasons structure from gpu_blacklist or NULL
-  // if not blacklisted. Caller is responsible for deleting returned value.
-  Value* GetBlacklistingReasons() const;
+  // Returns status of various GPU features. Return type is
+  // GpuBlacklist::GetFeatureStatus, or NULL if blacklist is
+  // uninitialized. Caller is responsible for deleting the returned value.
+  Value* GetFeatureStatus();
+
+  std::string GetBlacklistVersion() const;
 
   void AddLogMessage(Value* msg);
 
   const ListValue& log_messages() const;
 
-  // If necessary, compute the flags before returning them.
+  // Can be called on any thread.
   GpuFeatureFlags GetGpuFeatureFlags();
+
+  // This indicator might change because we could collect more GPU info or
+  // because the GPU blacklist could be updated.
+  // If this returns false, any further GPU access, including launching GPU
+  // process, establish GPU channel, and GPU info collection, should be
+  // blocked.
+  // Can be called on any thread.
+  bool GpuAccessAllowed();
 
   // Add a callback.
   void AddGpuInfoUpdateCallback(Callback0::Type* callback);
@@ -56,21 +66,15 @@ class GpuDataManager {
   // in correspondance to preliminary gpu feature flags.
   void AppendRendererCommandLine(CommandLine* command_line);
 
-  // If necessary, compute the flags before checking if a feature is allowed
-  bool GpuFeatureAllowed(uint32 feature);
+  // Gives ownership of the latest blacklist.  This is always called on the UI
+  // thread.
+  void UpdateGpuBlacklist(GpuBlacklist* gpu_blacklist);
 
  private:
   friend struct DefaultSingletonTraits<GpuDataManager>;
 
   GpuDataManager();
   virtual ~GpuDataManager();
-
-  bool LoadGpuBlacklist();
-
-  // Check if a newer version of GPU blacklist has been downloaded from the
-  // web (and saved in the local state); if yes, use the newer version instead.
-  // Return true if a newer version is installed.
-  bool UpdateGpuBlacklist();
 
   // Check if we should go ahead and use gpu blacklist.
   // If not, return NULL; otherwise, update and return the current list.
@@ -87,16 +91,11 @@ class GpuDataManager {
 
   bool gpu_feature_flags_set_;
   GpuFeatureFlags gpu_feature_flags_;
-  GpuFeatureFlags preliminary_gpu_feature_flags_;
 
   GPUInfo gpu_info_;
+  mutable base::Lock gpu_info_lock_;
 
   scoped_ptr<GpuBlacklist> gpu_blacklist_;
-
-  scoped_refptr<GpuBlacklistUpdater> gpu_blacklist_updater_;
-  // This is the version cached in local state that's automatically updated
-  // from the web.
-  DictionaryValue* gpu_blacklist_cache_;
 
   // Map of callbacks.
   std::set<Callback0::Type*> gpu_info_update_callbacks_;
@@ -107,4 +106,3 @@ class GpuDataManager {
 };
 
 #endif  // CHROME_BROWSER_GPU_DATA_MANAGER_H_
-

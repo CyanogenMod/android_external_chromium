@@ -15,7 +15,7 @@
 #include <string>
 
 #include "base/string16.h"
-#include "chrome/common/page_transition_types.h"
+#include "content/common/page_transition_types.h"
 #include "ui/gfx/native_widget_types.h"
 #include "webkit/glue/window_open_disposition.h"
 
@@ -159,8 +159,10 @@ class AutocompleteEditView {
   // Returns the command updater for this view.
   virtual CommandUpdater* GetCommandUpdater() = 0;
 
-  // Shows the instant suggestion text.
-  virtual void SetInstantSuggestion(const string16& input) = 0;
+  // Shows the instant suggestion text. If |animate_to_complete| is true the
+  // view should start an animation that when done commits the text.
+  virtual void SetInstantSuggestion(const string16& input,
+                                    bool animate_to_complete) = 0;
 
   // Returns the current instant suggestion text.
   virtual string16 GetInstantSuggestion() const = 0;

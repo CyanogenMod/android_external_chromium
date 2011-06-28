@@ -11,13 +11,14 @@
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/views/bookmarks/bookmark_bar_view.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/interactive_ui/view_event_test_base.h"
 #include "chrome/test/testing_profile.h"
 #include "chrome/test/ui_test_utils.h"
 #include "content/browser/tab_contents/page_navigator.h"
+#include "content/common/notification_service.h"
 #include "grit/generated_resources.h"
+#include "ui/base/accessibility/accessibility_types.h"
 #include "ui/base/clipboard/clipboard.h"
 #include "ui/base/keycodes/keyboard_codes.h"
 #include "views/controls/button/menu_button.h"
@@ -43,6 +44,9 @@
 // See http://crbug.com/47089 for details.
 #define MAYBE_CloseMenuAfterClosingContextMenu \
         DISABLED_CloseMenuAfterClosingContextMenu
+
+// See bug http://crbug.com/60444 for details.
+#define MAYBE_ScrollButtonScrolls DISABLED_ScrollButtonScrolls
 #else
 
 #define MAYBE_DND DND
@@ -52,14 +56,8 @@
 #define MAYBE_KeyEvents KeyEvents
 #define MAYBE_CloseWithModalDialog CloseWithModalDialog
 #define MAYBE_CloseMenuAfterClosingContextMenu CloseMenuAfterClosingContextMenu
-
-#endif
-
-#if defined(OS_LINUX)
-// See bug http://crbug.com/60444 for details.
-#define MAYBE_ScrollButtonScrolls DISABLED_ScrollButtonScrolls
-#else
 #define MAYBE_ScrollButtonScrolls ScrollButtonScrolls
+
 #endif
 
 namespace {
@@ -84,7 +82,7 @@ class ViewsDelegateImpl : public views::ViewsDelegate {
   }
 
   virtual void NotifyAccessibilityEvent(
-      views::View* view, AccessibilityTypes::Event event_type) {}
+      views::View* view, ui::AccessibilityTypes::Event event_type) {}
   virtual void NotifyMenuItemFocused(
       const std::wstring& menu_name,
       const std::wstring& menu_item_name,
@@ -164,7 +162,6 @@ class BookmarkBarViewEventTestBase : public ViewEventTestBase {
     BookmarkBarView::testing_ = true;
 
     profile_.reset(new TestingProfile());
-    profile_->set_has_history_service(true);
     profile_->CreateBookmarkModel(true);
     profile_->BlockUntilBookmarkModelLoaded();
     profile_->GetPrefs()->SetBoolean(prefs::kShowBookmarkBar, true);
@@ -233,10 +230,10 @@ class BookmarkBarViewEventTestBase : public ViewEventTestBase {
   void AddTestData(bool big_menu) {
     std::string test_base = "file:///c:/tmp/";
 
-    const BookmarkNode* f1 = model_->AddGroup(
+    const BookmarkNode* f1 = model_->AddFolder(
         model_->GetBookmarkBarNode(), 0, ASCIIToUTF16("F1"));
     model_->AddURL(f1, 0, ASCIIToUTF16("f1a"), GURL(test_base + "f1a"));
-    const BookmarkNode* f11 = model_->AddGroup(f1, 1, ASCIIToUTF16("F11"));
+    const BookmarkNode* f11 = model_->AddFolder(f1, 1, ASCIIToUTF16("F11"));
     model_->AddURL(f11, 0, ASCIIToUTF16("f11a"), GURL(test_base + "f11a"));
     if (big_menu) {
       for (int i = 1; i <= 100; ++i) {
@@ -254,12 +251,12 @@ class BookmarkBarViewEventTestBase : public ViewEventTestBase {
                    GURL(test_base + "d"));
     model_->AddURL(model_->other_node(), 0, ASCIIToUTF16("oa"),
                    GURL(test_base + "oa"));
-    const BookmarkNode* of = model_->AddGroup(model_->other_node(), 1,
-                                              ASCIIToUTF16("OF"));
+    const BookmarkNode* of = model_->AddFolder(model_->other_node(), 1,
+                                               ASCIIToUTF16("OF"));
     model_->AddURL(of, 0, ASCIIToUTF16("ofa"), GURL(test_base + "ofa"));
     model_->AddURL(of, 1, ASCIIToUTF16("ofb"), GURL(test_base + "ofb"));
-    const BookmarkNode* of2 = model_->AddGroup(model_->other_node(), 2,
-                                               ASCIIToUTF16("OF2"));
+    const BookmarkNode* of2 = model_->AddFolder(model_->other_node(), 2,
+                                                ASCIIToUTF16("OF2"));
     model_->AddURL(of2, 0, ASCIIToUTF16("of2a"), GURL(test_base + "of2a"));
     model_->AddURL(of2, 1, ASCIIToUTF16("of2b"), GURL(test_base + "of2b"));
   }
@@ -462,6 +459,9 @@ class ContextMenuNotificationObserver : public NotificationObserver {
                        const NotificationDetails& details) {
     MessageLoop::current()->PostTask(FROM_HERE, task_);
   }
+
+  // Sets the task that is posted when the context menu is shown.
+  void set_task(Task* task) { task_ = task; }
 
  private:
   NotificationRegistrar registrar_;
@@ -1216,7 +1216,7 @@ class BookmarkBarViewTest13 : public BookmarkBarViewEventTestBase {
 
 VIEW_TEST(BookmarkBarViewTest13, ClickOnContextMenuSeparator)
 
-// Makes sure right cliking on a folder on the bookmark bar doesn't result in
+// Makes sure right clicking on a folder on the bookmark bar doesn't result in
 // both a context menu and showing the menu.
 class BookmarkBarViewTest14 : public BookmarkBarViewEventTestBase {
  public:
@@ -1361,10 +1361,84 @@ class BookmarkBarViewTest16 : public BookmarkBarViewEventTestBase {
     ASSERT_TRUE(button->state() == views::CustomButton::BS_PUSHED);
 
     // Close the window.
-    window_->Close();
+    window_->CloseWindow();
     window_ = NULL;
   }
 };
 
 // Disabled, http://crbug.com/64303.
 VIEW_TEST(BookmarkBarViewTest16, DISABLED_DeleteMenu)
+
+// Makes sure right clicking on an item while a context menu is already showing
+// doesn't crash and works.
+class BookmarkBarViewTest17 : public BookmarkBarViewEventTestBase {
+ public:
+  BookmarkBarViewTest17()
+      : ALLOW_THIS_IN_INITIALIZER_LIST(
+          observer_(CreateEventTask(this, &BookmarkBarViewTest17::Step3))) {
+  }
+
+ protected:
+  virtual void DoTestOnMessageLoop() {
+    // Move the mouse to the other folder on the bookmark bar and press the
+    // left mouse button.
+    views::TextButton* button = bb_view_->other_bookmarked_button();
+    ui_controls::MoveMouseToCenterAndPress(button, ui_controls::LEFT,
+        ui_controls::DOWN | ui_controls::UP,
+        CreateEventTask(this, &BookmarkBarViewTest17::Step2));
+  }
+
+ private:
+  void Step2() {
+    // Menu should be showing.
+    views::MenuItemView* menu = bb_view_->GetMenu();
+    ASSERT_TRUE(menu != NULL);
+    ASSERT_TRUE(menu->GetSubmenu()->IsShowing());
+
+    // Right click on the second item to show its context menu.
+    views::MenuItemView* child_menu = menu->GetSubmenu()->GetMenuItemAt(2);
+    ASSERT_TRUE(child_menu != NULL);
+    ui_controls::MoveMouseToCenterAndPress(child_menu, ui_controls::RIGHT,
+        ui_controls::DOWN | ui_controls::UP, NULL);
+    // Step3 will be invoked by ContextMenuNotificationObserver.
+  }
+
+  void Step3() {
+    // Make sure the context menu is showing.
+    views::MenuItemView* context_menu = bb_view_->GetContextMenu();
+    ASSERT_TRUE(context_menu != NULL);
+    ASSERT_TRUE(context_menu->GetSubmenu());
+    ASSERT_TRUE(context_menu->GetSubmenu()->IsShowing());
+
+    // Right click on the first menu item to trigger its context menu.
+    views::MenuItemView* menu = bb_view_->GetMenu();
+    ASSERT_TRUE(menu != NULL);
+    ASSERT_TRUE(menu->GetSubmenu()->IsShowing());
+    views::MenuItemView* child_menu = menu->GetSubmenu()->GetMenuItemAt(1);
+    ASSERT_TRUE(child_menu != NULL);
+
+    observer_.set_task(CreateEventTask(this, &BookmarkBarViewTest17::Step4));
+    ui_controls::MoveMouseToCenterAndPress(child_menu, ui_controls::RIGHT,
+        ui_controls::DOWN | ui_controls::UP, NULL);
+    // Step4 will be invoked by ContextMenuNotificationObserver.
+  }
+
+  void Step4() {
+    // The context menu should still be showing.
+    views::MenuItemView* context_menu = bb_view_->GetContextMenu();
+    ASSERT_TRUE(context_menu != NULL);
+
+    // And the menu should be showing.
+    views::MenuItemView* menu = bb_view_->GetMenu();
+    ASSERT_TRUE(menu != NULL);
+    ASSERT_TRUE(menu->GetSubmenu()->IsShowing());
+
+    bb_view_->GetMenu()->GetMenuController()->CancelAll();
+
+    Done();
+  }
+
+  ContextMenuNotificationObserver observer_;
+};
+
+VIEW_TEST(BookmarkBarViewTest17, ContextMenus3)

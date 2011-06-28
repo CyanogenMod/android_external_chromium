@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -35,15 +35,15 @@
 
 #include "base/basictypes.h"
 #include "base/gtest_prod_util.h"
-#include "base/ref_counted.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/time.h"
 
 class GURL;
 
 namespace net {
+
 class IOBuffer;
-}
 
 //------------------------------------------------------------------------------
 // Define an interface class that allows access to contextual information
@@ -94,13 +94,6 @@ class FilterContext {
   // For example: 200 is ok.   4xx are error codes. etc.
   virtual int GetResponseCode() const = 0;
 
-  // What is the desirable input buffer size for these filters?
-  // This value is currently supplied by the context, and is constant for all
-  // filters, even when they are part of a chain of filters. (i.e., we currently
-  // don't change the input buffer sizes for a linked chain of filters, and the
-  // buffer size for input to all filters in a chain is this one constant).
-  virtual int GetInputStreamBufferSize() const = 0;
-
   // The following method forces the context to emit a specific set of
   // statistics as selected by the argument.
   virtual void RecordPacketStats(StatisticSelector statistic) const = 0;
@@ -145,22 +138,27 @@ class Filter {
   // If success, the function returns the pointer to the Filter object created.
   // If failed or a filter is not needed, the function returns NULL.
   //
-  // Note: filter_types is an array of filter names (content encoding types as
+  // Note: filter_types is an array of filter types (content encoding types as
   // provided in an HTTP header), which will be chained together serially to do
-  // successive filtering of data.  The names in the vector are ordered based on
+  // successive filtering of data.  The types in the vector are ordered based on
   // encoding order, and the filters are chained to operate in the reverse
-  // (decoding) order. For example, types[0] = "sdch", types[1] = "gzip" will
-  // cause data to first be gunizip filtered, and the resulting output from that
-  // filter will be sdch decoded.
+  // (decoding) order. For example, types[0] = FILTER_TYPE_SDCH,
+  // types[1] = FILTER_TYPE_GZIP will cause data to first be gunzip filtered,
+  // and the resulting output from that filter will be sdch decoded.
   static Filter* Factory(const std::vector<FilterType>& filter_types,
                          const FilterContext& filter_context);
+
+  // A simpler version of Factory() which creates a single, unchained
+  // Filter of type FILTER_TYPE_GZIP, or NULL if the filter could not be
+  // initialized.
+  static Filter* GZipFactory();
 
   // External call to obtain data from this filter chain.  If ther is no
   // next_filter_, then it obtains data from this specific filter.
   FilterStatus ReadData(char* dest_buffer, int* dest_len);
 
   // Returns a pointer to the stream_buffer_.
-  net::IOBuffer* stream_buffer() const { return stream_buffer_.get(); }
+  IOBuffer* stream_buffer() const { return stream_buffer_.get(); }
 
   // Returns the maximum size of stream_buffer_ in number of chars.
   int stream_buffer_size() const { return stream_buffer_size_; }
@@ -199,9 +197,10 @@ class Filter {
                                  std::vector<FilterType>* encoding_types);
 
  protected:
-  FRIEND_TEST_ALL_PREFIXES(SdchFilterTest, ContentTypeId);
+  friend class GZipUnitTest;
+  friend class SdchFilterChainingTest;
 
-  explicit Filter(const FilterContext& filter_context);
+  Filter();
 
   // Filters the data stored in stream_buffer_ and writes the output into the
   // dest_buffer passed in.
@@ -214,17 +213,15 @@ class Filter {
   // stream_buffer_. On the other hand, *dest_len can be 0 upon successful
   // return. For example, a decoding filter may process some pre-filter data
   // but not produce output yet.
-  virtual FilterStatus ReadFilteredData(char* dest_buffer, int* dest_len);
+  virtual FilterStatus ReadFilteredData(char* dest_buffer, int* dest_len) = 0;
 
   // Copy pre-filter data directly to destination buffer without decoding.
   FilterStatus CopyOut(char* dest_buffer, int* dest_len);
 
   FilterStatus last_status() const { return last_status_; }
 
-  const FilterContext& filter_context() const { return filter_context_; }
-
   // Buffer to hold the data to be filtered (the input queue).
-  scoped_refptr<net::IOBuffer> stream_buffer_;
+  scoped_refptr<IOBuffer> stream_buffer_;
 
   // Maximum size of stream_buffer_ in number of chars.
   int stream_buffer_size_;
@@ -236,6 +233,9 @@ class Filter {
   int stream_data_len_;
 
  private:
+  // Allocates and initializes stream_buffer_ and stream_buffer_size_.
+  void InitBuffer(int size);
+
   // A factory helper for creating filters for within a chain of potentially
   // multiple encodings.  If a chain of filters is created, then this may be
   // called multiple times during the filter creation process.  In most simple
@@ -243,15 +243,24 @@ class Filter {
   // filter_list) if a new filter can't be constructed.
   static Filter* PrependNewFilter(FilterType type_id,
                                   const FilterContext& filter_context,
+                                  int buffer_size,
                                   Filter* filter_list);
 
-  // Allocates and initializes stream_buffer_ based on filter_context_.
-  // Establishes a buffer large enough to handle the amount specified in
-  // filter_context_.GetInputStreamBufferSize().
-  bool InitBuffer();
+  // Helper methods for PrependNewFilter. If initialization is successful,
+  // they return a fully initialized Filter. Otherwise, return NULL.
+  static Filter* InitGZipFilter(FilterType type_id, int buffer_size);
+  static Filter* InitSdchFilter(FilterType type_id,
+                                const FilterContext& filter_context,
+                                int buffer_size);
 
   // Helper function to empty our output into the next filter's input.
   void PushDataIntoNextFilter();
+
+  // Constructs a filter with an internal buffer of the given size.
+  // Only meant to be called by unit tests that need to control the buffer size.
+  static Filter* FactoryForTests(const std::vector<FilterType>& filter_types,
+                                 const FilterContext& filter_context,
+                                 int buffer_size);
 
   // An optional filter to process output from this filter.
   scoped_ptr<Filter> next_filter_;
@@ -259,12 +268,9 @@ class Filter {
   // chained filters.
   FilterStatus last_status_;
 
-  // Context data from the owner of this filter.  Some filters need additional
-  // context information (mime type, etc.) to properly function, and they access
-  // this data via this reference member.
-  const FilterContext& filter_context_;
-
   DISALLOW_COPY_AND_ASSIGN(Filter);
 };
+
+}  // namespace net
 
 #endif  // NET_BASE_FILTER_H__

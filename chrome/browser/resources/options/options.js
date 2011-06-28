@@ -3,12 +3,11 @@
 // found in the LICENSE file.
 
 var AddLanguageOverlay = options.AddLanguageOverlay;
-var AddStartupPageOverlay = options.AddStartupPageOverlay;
 var AdvancedOptions = options.AdvancedOptions;
 var AlertOverlay = options.AlertOverlay;
-var AutoFillEditAddressOverlay = options.AutoFillEditAddressOverlay;
-var AutoFillEditCreditCardOverlay = options.AutoFillEditCreditCardOverlay;
-var AutoFillOptions = options.AutoFillOptions;
+var AutofillEditAddressOverlay = options.AutofillEditAddressOverlay;
+var AutofillEditCreditCardOverlay = options.AutofillEditCreditCardOverlay;
+var AutofillOptions = options.AutofillOptions;
 var BrowserOptions = options.BrowserOptions;
 var ClearBrowserDataOverlay = options.ClearBrowserDataOverlay;
 var ContentSettings = options.ContentSettings;
@@ -26,6 +25,7 @@ var Preferences = options.Preferences;
 var ProxyOptions = options.ProxyOptions;
 var SearchEngineManager = options.SearchEngineManager;
 var SearchPage = options.SearchPage;
+var SyncSetupOverlay = options.SyncSetupOverlay;
 
 /**
  * DOMContentLoaded handler, sets up the page.
@@ -59,7 +59,7 @@ function load() {
                               BrowserOptions.getInstance(),
                               [$('defaultSearchManageEnginesButton')]);
   OptionsPage.register(PersonalOptions.getInstance());
-  OptionsPage.registerSubPage(AutoFillOptions.getInstance(),
+  OptionsPage.registerSubPage(AutofillOptions.getInstance(),
                               PersonalOptions.getInstance(),
                               [$('autofill-settings')]);
   OptionsPage.registerSubPage(PasswordManager.getInstance(),
@@ -127,13 +127,11 @@ function load() {
   }
   OptionsPage.registerOverlay(AddLanguageOverlay.getInstance(),
                               LanguageOptions.getInstance());
-  OptionsPage.registerOverlay(AddStartupPageOverlay.getInstance(),
-                              BrowserOptions.getInstance());
   OptionsPage.registerOverlay(AlertOverlay.getInstance());
-  OptionsPage.registerOverlay(AutoFillEditAddressOverlay.getInstance(),
-                              AutoFillOptions.getInstance());
-  OptionsPage.registerOverlay(AutoFillEditCreditCardOverlay.getInstance(),
-                              AutoFillOptions.getInstance());
+  OptionsPage.registerOverlay(AutofillEditAddressOverlay.getInstance(),
+                              AutofillOptions.getInstance());
+  OptionsPage.registerOverlay(AutofillEditCreditCardOverlay.getInstance(),
+                              AutofillOptions.getInstance());
   OptionsPage.registerOverlay(ClearBrowserDataOverlay.getInstance(),
                               AdvancedOptions.getInstance(),
                               [$('privacyClearDataButton')]);
@@ -141,12 +139,17 @@ function load() {
                               PersonalOptions.getInstance());
   OptionsPage.registerOverlay(InstantConfirmOverlay.getInstance(),
                               BrowserOptions.getInstance());
+  OptionsPage.registerOverlay(SyncSetupOverlay.getInstance(),
+                              PersonalOptions.getInstance());
 
   if (cr.isChromeOS) {
     OptionsPage.register(AccountsOptions.getInstance());
     OptionsPage.registerSubPage(ProxyOptions.getInstance(),
                                 AdvancedOptions.getInstance(),
                                 [$('proxiesConfigureButton')]);
+    OptionsPage.registerSubPage(ChangePictureOptions.getInstance(),
+                                PersonalOptions.getInstance(),
+                                [$('change-picture-button')]);
     OptionsPage.registerOverlay(new OptionsPage('detailsInternetPage',
                                                 'detailsInternetPage',
                                                 'detailsInternetPage'),
@@ -194,6 +197,8 @@ function load() {
   }
   if (cr.isViews)
     document.documentElement.setAttribute('toolkit', 'views');
+  if (navigator.plugins['Shockwave Flash'])
+    document.documentElement.setAttribute('hasFlashPlugin', '');
 
   // Clicking on the Settings title brings up the 'Basics' page.
   $('settings-title').onclick = function() {
@@ -205,4 +210,8 @@ document.addEventListener('DOMContentLoaded', load);
 
 window.onpopstate = function(e) {
   options.OptionsPage.setState(e.state);
+};
+
+window.onbeforeunload = function() {
+  options.OptionsPage.willClose();
 };

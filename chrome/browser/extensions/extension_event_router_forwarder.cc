@@ -80,11 +80,11 @@ void ExtensionEventRouterForwarder::HandleEvent(
         profile, extension_id, event_name, event_args,
         use_profile_to_restrict_events ? profile : NULL, event_url);
   } else {
-    ProfileManager::iterator i;
-    for (i = profile_manager->begin(); i != profile_manager->end(); ++i) {
+    std::vector<Profile*> profiles(profile_manager->GetLoadedProfiles());
+    for (size_t i = 0; i < profiles.size(); ++i) {
       CallExtensionEventRouter(
-          *i, extension_id, event_name, event_args,
-          use_profile_to_restrict_events ? (*i) : NULL, event_url);
+          profiles[i], extension_id, event_name, event_args,
+          use_profile_to_restrict_events ? profiles[i] : NULL, event_url);
     }
   }
 }
@@ -93,6 +93,14 @@ void ExtensionEventRouterForwarder::CallExtensionEventRouter(
     Profile* profile, const std::string& extension_id,
     const std::string& event_name, const std::string& event_args,
     Profile* restrict_to_profile, const GURL& event_url) {
+#if defined(OS_CHROMEOS)
+  // Extension does not exist for chromeos login.  This needs to be
+  // removed once we have an extension service for login screen.
+  // crosbug.com/12856.
+  if (!profile->GetExtensionEventRouter())
+    return;
+#endif
+
   if (extension_id.empty()) {
     profile->GetExtensionEventRouter()->
         DispatchEventToRenderers(
@@ -104,4 +112,3 @@ void ExtensionEventRouterForwarder::CallExtensionEventRouter(
             event_name, event_args, restrict_to_profile, event_url);
   }
 }
-

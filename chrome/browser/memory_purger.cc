@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,21 +7,21 @@
 #include <set>
 
 #include "base/threading/thread.h"
-#include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/history/history.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/webdata/web_data_service.h"
-#include "chrome/common/net/url_request_context_getter.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/render_messages.h"
 #include "content/browser/in_process_webkit/webkit_context.h"
 #include "content/browser/renderer_host/backing_store_manager.h"
 #include "content/browser/renderer_host/render_process_host.h"
 #include "content/browser/renderer_host/resource_dispatcher_host.h"
+#include "content/common/notification_service.h"
 #include "net/proxy/proxy_resolver.h"
 #include "net/url_request/url_request_context.h"
+#include "net/url_request/url_request_context_getter.h"
 #include "third_party/tcmalloc/chromium/src/google/malloc_extension.h"
 #include "v8/include/v8.h"
 
@@ -38,12 +38,12 @@ class PurgeMemoryIOHelper
   }
 
   void AddRequestContextGetter(
-      scoped_refptr<URLRequestContextGetter> request_context_getter);
+      scoped_refptr<net::URLRequestContextGetter> request_context_getter);
 
   void PurgeMemoryOnIOThread();
 
  private:
-  typedef scoped_refptr<URLRequestContextGetter> RequestContextGetter;
+  typedef scoped_refptr<net::URLRequestContextGetter> RequestContextGetter;
   typedef std::set<RequestContextGetter> RequestContextGetters;
 
   RequestContextGetters request_context_getters_;
@@ -53,7 +53,7 @@ class PurgeMemoryIOHelper
 };
 
 void PurgeMemoryIOHelper::AddRequestContextGetter(
-    scoped_refptr<URLRequestContextGetter> request_context_getter) {
+    scoped_refptr<net::URLRequestContextGetter> request_context_getter) {
   request_context_getters_.insert(request_context_getter);
 }
 
@@ -98,11 +98,10 @@ void MemoryPurger::PurgeBrowser() {
       new PurgeMemoryIOHelper(g_browser_process->resource_dispatcher_host()->
           safe_browsing_service()));
   ProfileManager* profile_manager = g_browser_process->profile_manager();
-  for (ProfileManager::iterator i(profile_manager->begin());
-       i != profile_manager->end(); ++i) {
-    Profile* profile = *i;
+  std::vector<Profile*> profiles(profile_manager->GetLoadedProfiles());
+  for (size_t i = 0; i < profiles.size(); ++i) {
     purge_memory_io_helper->AddRequestContextGetter(
-        make_scoped_refptr(profile->GetRequestContext()));
+        make_scoped_refptr(profiles[i]->GetRequestContext()));
 
     // NOTE: Some objects below may be duplicates across profiles.  We could
     // conceivably put all these in sets and then iterate over the sets.
@@ -111,20 +110,20 @@ void MemoryPurger::PurgeBrowser() {
     // Spinning up the history service is expensive, so we avoid doing it if it
     // hasn't been done already.
     HistoryService* history_service =
-        profile->GetHistoryServiceWithoutCreating();
+        profiles[i]->GetHistoryServiceWithoutCreating();
     if (history_service)
       history_service->UnloadBackend();
 
     // Unload all web databases (freeing memory used to cache sqlite).
     WebDataService* web_data_service =
-        profile->GetWebDataServiceWithoutCreating();
+        profiles[i]->GetWebDataServiceWithoutCreating();
     if (web_data_service)
       web_data_service->UnloadDatabase();
 
     // Ask all WebKitContexts to purge memory (freeing memory used to cache
     // the LocalStorage sqlite DB).  WebKitContext creation is basically free so
     // we don't bother with a "...WithoutCreating()" function.
-    profile->GetWebKitContext()->PurgeMemory();
+    profiles[i]->GetWebKitContext()->PurgeMemory();
   }
 
   BrowserThread::PostTask(BrowserThread::IO, FROM_HERE,

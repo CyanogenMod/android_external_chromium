@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,7 @@
 #include <sys/socket.h>
 #endif
 
+#include <list>
 #include <string>
 #include <set>
 #include <vector>
@@ -132,7 +133,7 @@ void GetIdentityFromURL(const GURL& url,
 std::string GetHostOrSpecFromURL(const GURL& url);
 
 // Return the value of the HTTP response header with name 'name'.  'headers'
-// should be in the format that net::URLRequest::GetResponseHeaders() returns.
+// should be in the format that URLRequest::GetResponseHeaders() returns.
 // Returns the empty string if the header is not found.
 std::wstring GetSpecificHeader(const std::wstring& headers,
                                const std::wstring& name);
@@ -197,15 +198,21 @@ std::string GetFileNameFromCD(const std::string& header,
 // script-language pairs (currently Han, Kana and Hangul for zh,ja and ko).
 // When |languages| is empty, even that mixing is not allowed.
 //
-// |offset_for_adjustment| is an offset into |host|, which will be adjusted to
-// point at the same logical place in the output string. If this isn't possible
-// because it points past the end of |host| or into the middle of a punycode
-// sequence, it will be set to std::wstring::npos.  |offset_for_adjustment| may
-// be NULL.
+// (|offset[s]_for_adjustment|) specifies one or more offsets into the original
+// |url|'s spec(); each offset will be adjusted to point at the same logical
+// place in the result strings during decoding.  If this isn't possible because
+// an offset points past the end of |host| or into the middle of a punycode
+// sequence, the offending offset will be set to std::wstring::npos.
+// |offset[s]_for_adjustment| may be NULL.
 std::wstring IDNToUnicode(const char* host,
                           size_t host_len,
                           const std::wstring& languages,
                           size_t* offset_for_adjustment);
+std::wstring IDNToUnicodeWithOffsets(
+    const char* host,
+    size_t host_len,
+    const std::wstring& languages,
+    std::vector<size_t>* offsets_for_adjustment);
 
 // Canonicalizes |host| and returns it.  Also fills |host_info| with
 // IP address information.  |host_info| must not be NULL.
@@ -291,11 +298,24 @@ int SetNonBlocking(int fd);
 // the user. The given parsed structure will be updated. The host name formatter
 // also takes the same accept languages component as ElideURL. |new_parsed| may
 // be null.
+//
+// (|offset[s]_for_adjustment|) specifies one or more offsets into the original
+// |url|'s spec(); each offset will be adjusted to point at the same logical
+// place in the result strings after reformatting of the host.  If this isn't
+// possible because an offset points past the end of the host or into the middle
+// of a multi-character sequence, the offending offset will be set to
+// std::wstring::npos. |offset[s]_for_adjustment| may be NULL.
 void AppendFormattedHost(const GURL& url,
                          const std::wstring& languages,
                          std::wstring* output,
                          url_parse::Parsed* new_parsed,
                          size_t* offset_for_adjustment);
+void AppendFormattedHostWithOffsets(
+    const GURL& url,
+    const std::wstring& languages,
+    std::wstring* output,
+    url_parse::Parsed* new_parsed,
+    std::vector<size_t>* offsets_for_adjustment);
 
 // Creates a string representation of |url|. The IDN host name may be in Unicode
 // if |languages| accepts the Unicode representation. |format_type| is a bitmask
@@ -308,12 +328,13 @@ void AppendFormattedHost(const GURL& url,
 // The last three parameters may be NULL.
 // |new_parsed| will be set to the parsing parameters of the resultant URL.
 // |prefix_end| will be the length before the hostname of the resultant URL.
-// |offset_for_adjustment| is an offset into the original |url|'s spec(), which
-// will be modified to reflect changes this function makes to the output string;
-// for example, if |url| is "http://a:b@c.com/", |omit_username_password| is
-// true, and |offset_for_adjustment| is 12 (the offset of '.'), then on return
-// the output string will be "http://c.com/" and |offset_for_adjustment| will be
-// 8.  If the offset cannot be successfully adjusted (e.g. because it points
+//
+// (|offset[s]_for_adjustment|) specifies one or more offsets into the original
+// |url|'s spec(); each offset will be modified to reflect changes this function
+// makes to the output string. For example, if |url| is "http://a:b@c.com/",
+// |omit_username_password| is true, and an offset is 12 (the offset of '.'),
+// then on return the output string will be "http://c.com/" and the offset will
+// be 8.  If an offset cannot be successfully adjusted (e.g. because it points
 // into the middle of a component that was entirely removed, past the end of the
 // string, or into the middle of an encoding sequence), it will be set to
 // string16::npos.
@@ -324,6 +345,13 @@ string16 FormatUrl(const GURL& url,
                    url_parse::Parsed* new_parsed,
                    size_t* prefix_end,
                    size_t* offset_for_adjustment);
+string16 FormatUrlWithOffsets(const GURL& url,
+                              const std::string& languages,
+                              FormatUrlTypes format_types,
+                              UnescapeRule::Type unescape_rules,
+                              url_parse::Parsed* new_parsed,
+                              size_t* prefix_end,
+                              std::vector<size_t>* offsets_for_adjustment);
 
 // This is a convenience function for FormatUrl() with
 // format_types = kFormatUrlOmitAll and unescape = SPACES.  This is the typical
@@ -372,6 +400,9 @@ bool HaveOnlyLoopbackAddresses();
 // IPv4 addresses will have length 4, whereas IPv6 address will have length 16.
 typedef std::vector<unsigned char> IPAddressNumber;
 
+static const size_t kIPv4AddressSize = 4;
+static const size_t kIPv6AddressSize = 16;
+
 // Parses an IP address literal (either IPv4 or IPv6) to its numeric value.
 // Returns true on success and fills |ip_number| with the numeric value.
 bool ParseIPLiteralToNumber(const std::string& ip_literal,
@@ -410,6 +441,16 @@ bool IPNumberMatchesPrefix(const IPAddressNumber& ip_number,
                            const IPAddressNumber& ip_prefix,
                            size_t prefix_length_in_bits);
 
+// Makes a copy of |info|. The dynamically-allocated parts are copied as well.
+// If |recursive| is true, chained entries via ai_next are copied too.
+// The copy returned by this function should be freed using
+// FreeCopyOfAddrinfo(), and NOT freeaddrinfo().
+struct addrinfo* CreateCopyOfAddrinfo(const struct addrinfo* info,
+                                      bool recursive);
+
+// Frees an addrinfo that was created by CreateCopyOfAddrinfo().
+void FreeCopyOfAddrinfo(struct addrinfo* info);
+
 // Returns the port field of the sockaddr in |info|.
 const uint16* GetPortFieldFromAddrinfo(const struct addrinfo* info);
 uint16* GetPortFieldFromAddrinfo(struct addrinfo* info);
@@ -422,6 +463,43 @@ const uint16* GetPortFieldFromSockaddr(const struct sockaddr* address,
                                        socklen_t address_len);
 int GetPortFromSockaddr(const struct sockaddr* address,
                         socklen_t address_len);
+
+// Returns true if |host| is one of the names (e.g. "localhost") or IP
+// addresses (IPv4 127.0.0.0/8 or IPv6 ::1) that indicate a loopback.
+//
+// Note that this function does not check for IP addresses other than
+// the above, although other IP addresses may point to the local
+// machine.
+bool IsLocalhost(const std::string& host);
+
+// struct that is used by GetNetworkList() to represent a network
+// interface.
+struct NetworkInterface {
+  NetworkInterface();
+  NetworkInterface(const std::string& name, const IPAddressNumber& address);
+  ~NetworkInterface();
+
+  std::string name;
+  IPAddressNumber address;
+};
+
+typedef std::list<NetworkInterface> NetworkInterfaceList;
+
+// Returns list of network interfaces except loopback interface. If an
+// interface has more than one address, a separate entry is added to
+// the list for each address.
+// Can be called only on a thread that allows IO.
+bool GetNetworkList(NetworkInterfaceList* networks);
+
+// Private adjustment function called by std::transform which sets the offset
+// to npos if the offset occurs at or before |component_start|, otherwise don't
+// alter the offset. Exposed here for unit testing.
+struct ClampComponentOffset {
+  explicit ClampComponentOffset(size_t component_start);
+  size_t operator()(size_t offset);
+
+  const size_t component_start;
+};
 
 }  // namespace net
 

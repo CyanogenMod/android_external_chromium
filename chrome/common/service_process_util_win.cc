@@ -7,8 +7,8 @@
 #include "base/command_line.h"
 #include "base/file_util.h"
 #include "base/logging.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/path_service.h"
-#include "base/scoped_ptr.h"
 #include "base/string16.h"
 #include "base/task.h"
 #include "base/utf_string_conversions.h"
@@ -103,10 +103,9 @@ struct ServiceProcessState::StateData {
   scoped_ptr<ServiceProcessShutdownMonitor> shutdown_monitor;
 };
 
-bool ServiceProcessState::InitializeState() {
-  DCHECK(!state_);
+void ServiceProcessState::CreateState() {
+  CHECK(!state_);
   state_ = new StateData;
-  return true;
 }
 
 bool ServiceProcessState::TakeSingletonLock() {
@@ -128,12 +127,13 @@ bool ServiceProcessState::SignalReady(
     base::MessageLoopProxy* message_loop_proxy, Task* shutdown_task) {
   DCHECK(state_);
   DCHECK(state_->ready_event.IsValid());
+  scoped_ptr<Task> scoped_shutdown_task(shutdown_task);
   if (!SetEvent(state_->ready_event.Get())) {
     return false;
   }
   if (shutdown_task) {
     state_->shutdown_monitor.reset(
-        new ServiceProcessShutdownMonitor(shutdown_task));
+        new ServiceProcessShutdownMonitor(scoped_shutdown_task.release()));
     state_->shutdown_monitor->Start();
   }
   return true;

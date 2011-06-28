@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #pragma once
 
 #include <set>
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
 #include "base/threading/non_thread_safe.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/host_resolver.h"
@@ -87,8 +87,8 @@ class HttpNetworkSession : public base::RefCounted<HttpNetworkSession>,
     return &alternate_protocols_;
   }
 
-  TCPClientSocketPool* tcp_socket_pool() {
-    return socket_pool_manager_.tcp_socket_pool();
+  TransportClientSocketPool* transport_socket_pool() {
+    return socket_pool_manager_.transport_socket_pool();
   }
 
   SSLClientSocketPool* ssl_socket_pool() {

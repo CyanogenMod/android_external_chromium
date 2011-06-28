@@ -15,15 +15,18 @@
 #include "chrome/browser/renderer_preferences_util.h"
 #include "chrome/browser/ui/login/login_prompt.h"
 #include "chrome/common/extensions/extension_constants.h"
-#include "chrome/common/notification_service.h"
+#include "chrome/common/icon_messages.h"
 #include "chrome/common/render_messages.h"
-#include "chrome/common/render_messages_params.h"
+#include "chrome/common/extensions/extension_messages.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/common/view_types.h"
 #include "content/browser/browsing_instance.h"
-#include "content/browser/renderer_host/resource_dispatcher_host.h"
 #include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/renderer_host/resource_dispatcher_host.h"
+#include "content/browser/renderer_host/resource_request_details.h"
 #include "content/browser/site_instance.h"
+#include "content/common/notification_service.h"
+#include "content/common/view_messages.h"
 #include "ui/gfx/rect.h"
 
 #if defined(OS_MACOSX)
@@ -66,7 +69,8 @@ PrerenderContents::PrerenderContents(PrerenderManager* prerender_manager,
       profile_(profile),
       page_id_(0),
       has_stopped_loading_(false),
-      final_status_(FINAL_STATUS_MAX) {
+      final_status_(FINAL_STATUS_MAX),
+      prerendering_has_started_(false) {
   DCHECK(prerender_manager != NULL);
   if (!AddAliasURL(prerender_url_))
     LOG(DFATAL) << "PrerenderContents given invalid URL " << prerender_url_;
@@ -85,20 +89,31 @@ PrerenderContents::Factory* PrerenderContents::CreateFactory() {
 
 void PrerenderContents::StartPrerendering() {
   DCHECK(profile_ != NULL);
+  DCHECK(!prerendering_has_started_);
+  prerendering_has_started_ = true;
   SiteInstance* site_instance = SiteInstance::CreateSiteInstance(profile_);
   render_view_host_ = new RenderViewHost(site_instance, this, MSG_ROUTING_NONE,
                                          NULL);
+
+  int process_id = render_view_host_->process()->id();
+  int view_id = render_view_host_->routing_id();
+  std::pair<int, int> process_view_pair = std::make_pair(process_id, view_id);
+  NotificationService::current()->Notify(
+      NotificationType::PRERENDER_CONTENTS_STARTED,
+      Source<std::pair<int, int> >(&process_view_pair),
+      NotificationService::NoDetails());
+
+  // Create the RenderView, so it can receive messages.
+  render_view_host_->CreateRenderView(string16());
+
   // Hide the RVH, so that we will run at a lower CPU priority.
   // Once the RVH is being swapped into a tab, we will Restore it again.
   render_view_host_->WasHidden();
-  render_view_host_->AllowScriptToClose(true);
 
   // Register this with the ResourceDispatcherHost as a prerender
   // RenderViewHost. This must be done before the Navigate message to catch all
   // resource requests, but as it is on the same thread as the Navigate message
   // (IO) there is no race condition.
-  int process_id = render_view_host_->process()->id();
-  int view_id = render_view_host_->routing_id();
   ResourceDispatcherHost* rdh = g_browser_process->resource_dispatcher_host();
   BrowserThread::PostTask(BrowserThread::IO, FROM_HERE,
                           NewRunnableFunction(&AddChildRoutePair, rdh,
@@ -115,7 +130,6 @@ void PrerenderContents::StartPrerendering() {
   // TODO(tburkard): figure out if this is needed.
   registrar_.Add(this, NotificationType::PROFILE_DESTROYED,
                  Source<Profile>(profile_));
-  render_view_host_->CreateRenderView(string16());
 
   // Register to cancel if Authentication is required.
   registrar_.Add(this, NotificationType::AUTH_NEEDED,
@@ -128,16 +142,42 @@ void PrerenderContents::StartPrerendering() {
   registrar_.Add(this, NotificationType::DOWNLOAD_INITIATED,
                  NotificationService::AllSources());
 
+  // Register for redirect notifications sourced from |this|.
+  registrar_.Add(this, NotificationType::RESOURCE_RECEIVED_REDIRECT,
+                 Source<RenderViewHostDelegate>(this));
+
   DCHECK(load_start_time_.is_null());
   load_start_time_ = base::TimeTicks::Now();
 
   ViewMsg_Navigate_Params params;
+  params.page_id = -1;
+  params.pending_history_list_offset = -1;
+  params.current_history_list_offset = -1;
+  params.current_history_list_length = 0;
   params.url = prerender_url_;
   params.transition = PageTransition::LINK;
-  params.navigation_type = ViewMsg_Navigate_Params::PRERENDER;
+  params.navigation_type = ViewMsg_Navigate_Type::PRERENDER;
   params.referrer = referrer_;
 
   render_view_host_->Navigate(params);
+}
+
+bool PrerenderContents::GetChildId(int* child_id) const {
+  CHECK(child_id);
+  if (render_view_host_) {
+    *child_id = render_view_host_->process()->id();
+    return true;
+  }
+  return false;
+}
+
+bool PrerenderContents::GetRouteId(int* route_id) const {
+  CHECK(route_id);
+  if (render_view_host_) {
+    *route_id = render_view_host_->routing_id();
+    return true;
+  }
+  return false;
 }
 
 void PrerenderContents::set_final_status(FinalStatus final_status) {
@@ -153,13 +193,23 @@ FinalStatus PrerenderContents::final_status() const {
 
 PrerenderContents::~PrerenderContents() {
   DCHECK(final_status_ != FINAL_STATUS_MAX);
-  RecordFinalStatus(final_status_);
+
+  // If we haven't even started prerendering, we were just in the control
+  // group, which means we do not want to record the status.
+  if (prerendering_has_started())
+    RecordFinalStatus(final_status_);
 
   if (!render_view_host_)   // Will be null for unit tests.
     return;
 
   int process_id = render_view_host_->process()->id();
   int view_id = render_view_host_->routing_id();
+  std::pair<int, int> process_view_pair = std::make_pair(process_id, view_id);
+  NotificationService::current()->Notify(
+      NotificationType::PRERENDER_CONTENTS_DESTROYED,
+      Source<std::pair<int, int> >(&process_view_pair),
+      NotificationService::NoDetails());
+
   ResourceDispatcherHost* rdh = g_browser_process->resource_dispatcher_host();
   BrowserThread::PostTask(BrowserThread::IO, FROM_HERE,
                           NewRunnableFunction(&RemoveChildRoutePair, rdh,
@@ -280,6 +330,24 @@ void PrerenderContents::Observe(NotificationType type,
       break;
     }
 
+    case NotificationType::RESOURCE_RECEIVED_REDIRECT: {
+      // RESOURCE_RECEIVED_REDIRECT can come for any resource on a page.
+      // If it's a redirect on the top-level resource, the name needs
+      // to be remembered for future matching, and if it redirects to
+      // an https resource, it needs to be canceled. If a subresource
+      // is redirected, nothing changes.
+      DCHECK(Source<RenderViewHostDelegate>(source).ptr() == this);
+      ResourceRedirectDetails* resource_redirect_details =
+          Details<ResourceRedirectDetails>(details).ptr();
+      CHECK(resource_redirect_details);
+      if (resource_redirect_details->resource_type() ==
+          ResourceType::MAIN_FRAME) {
+        if (!AddAliasURL(resource_redirect_details->new_url()))
+          Destroy(FINAL_STATUS_HTTPS);
+      }
+      break;
+    }
+
     default:
       NOTREACHED() << "Unexpected notification sent.";
       break;
@@ -330,11 +398,6 @@ WebPreferences PrerenderContents::GetWebkitPrefs() {
                                                       false);  // is_web_ui
 }
 
-void PrerenderContents::ProcessWebUIMessage(
-    const ViewHostMsg_DomMessage_Params& params) {
-  render_view_host_->BlockExtensionRequest(params.request_id);
-}
-
 void PrerenderContents::CreateNewWindow(
     int route_id,
     const ViewHostMsg_CreateWindow_Params& params) {
@@ -375,9 +438,9 @@ bool PrerenderContents::OnMessageReceived(const IPC::Message& message) {
   IPC_BEGIN_MESSAGE_MAP_EX(PrerenderContents, message, message_is_ok)
     IPC_MESSAGE_HANDLER(ViewHostMsg_DidStartProvisionalLoadForFrame,
                         OnDidStartProvisionalLoadForFrame)
-    IPC_MESSAGE_HANDLER(ViewHostMsg_DidRedirectProvisionalLoad,
-                        OnDidRedirectProvisionalLoad)
-    IPC_MESSAGE_HANDLER(ViewHostMsg_UpdateFavIconURL, OnUpdateFavIconURL)
+    IPC_MESSAGE_HANDLER(IconHostMsg_UpdateFaviconURL, OnUpdateFaviconURL)
+    IPC_MESSAGE_HANDLER(ViewHostMsg_MaybeCancelPrerenderForHTML5Media,
+                        OnMaybeCancelPrerenderForHTML5Media)
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP_EX()
 
@@ -392,19 +455,32 @@ void PrerenderContents::OnDidStartProvisionalLoadForFrame(int64 frame_id,
       Destroy(FINAL_STATUS_HTTPS);
       return;
     }
+
+    // Usually, this event fires if the user clicks or enters a new URL.
+    // Neither of these can happen in the case of an invisible prerender.
+    // So the cause is: Some JavaScript caused a new URL to be loaded.  In that
+    // case, the spinner would start again in the browser, so we must reset
+    // has_stopped_loading_ so that the spinner won't be stopped.
+    has_stopped_loading_ = false;
   }
 }
 
-void PrerenderContents::OnDidRedirectProvisionalLoad(int32 page_id,
-                                                     const GURL& source_url,
-                                                     const GURL& target_url) {
-  if (!AddAliasURL(target_url))
-    Destroy(FINAL_STATUS_HTTPS);
+void PrerenderContents::OnUpdateFaviconURL(
+    int32 page_id,
+    const std::vector<FaviconURL>& urls) {
+  LOG(INFO) << "PrerenderContents::OnUpdateFaviconURL" << icon_url_;
+  for (std::vector<FaviconURL>::const_iterator i = urls.begin();
+       i != urls.end(); ++i) {
+    if (i->icon_type == FaviconURL::FAVICON) {
+      icon_url_ = i->icon_url;
+      LOG(INFO) << icon_url_;
+      return;
+    }
+  }
 }
 
-void PrerenderContents::OnUpdateFavIconURL(int32 page_id,
-                                           const GURL& icon_url) {
-  icon_url_ = icon_url;
+void PrerenderContents::OnMaybeCancelPrerenderForHTML5Media() {
+  Destroy(FINAL_STATUS_HTML5_MEDIA);
 }
 
 bool PrerenderContents::AddAliasURL(const GURL& url) {
@@ -441,6 +517,9 @@ void PrerenderContents::RendererUnresponsive(RenderViewHost* render_view_host,
 
 base::ProcessMetrics* PrerenderContents::MaybeGetProcessMetrics() {
   if (process_metrics_.get() == NULL) {
+    // If a PrenderContents hasn't started prerending, don't be fully formed.
+    if (!render_view_host_ || !render_view_host_->process())
+      return NULL;
     base::ProcessHandle handle = render_view_host_->process()->GetHandle();
     if (handle == base::kNullProcessHandle)
       return NULL;

@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,12 +6,16 @@
 
 #include <vector>
 
+#include "base/i18n/char_iterator.h"
 #include "base/logging.h"
 #include "base/string_number_conversions.h"
 #include "base/string_tokenizer.h"
 #include "base/string_util.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
+#include "unicode/datefmt.h"
+#include "unicode/dtfmtsym.h"
+#include "unicode/uchar.h"
 
 // For examples of Unix<->VMS path conversions, see the unit test file. On VMS
 // a path looks differently depending on whether it's a file or directory.
@@ -108,39 +112,43 @@ std::string FtpUtil::VMSPathToUnix(const std::string& vms_path) {
 }
 
 // static
-bool FtpUtil::ThreeLetterMonthToNumber(const string16& text, int* number) {
-  const static char* months[] = { "jan", "feb", "mar", "apr", "may", "jun",
-                                  "jul", "aug", "sep", "oct", "nov", "dec" };
+bool FtpUtil::AbbreviatedMonthToNumber(const string16& text, int* number) {
+  icu::UnicodeString unicode_text(text.data(), text.size());
 
-  for (size_t i = 0; i < arraysize(months); i++) {
-    if (LowerCaseEqualsASCII(text, months[i])) {
-      *number = i + 1;
-      return true;
+  int32_t locales_count;
+  const icu::Locale* locales =
+      icu::DateFormat::getAvailableLocales(locales_count);
+
+  // Some FTP servers localize the date listings. To guess the locale,
+  // we loop over all available ones.
+  for (int32_t locale = 0; locale < locales_count; locale++) {
+    UErrorCode status(U_ZERO_ERROR);
+
+    icu::DateFormatSymbols format_symbols(locales[locale], status);
+
+    // If we cannot get format symbols for some locale, it's not a fatal error.
+    // Just try another one.
+    if (U_FAILURE(status))
+      continue;
+
+    int32_t months_count;
+    const icu::UnicodeString* months =
+        format_symbols.getShortMonths(months_count);
+
+    // Loop over all abbreviated month names in given locale.
+    // An alternative solution (to parse |text| in given locale) is more
+    // lenient, and may accept more than we want even with setLenient(false).
+    for (int32_t month = 0; month < months_count; month++) {
+      // Compare (case-insensitive), but just first three characters. Sometimes
+      // ICU returns longer strings (for example for Russian locale), and in FTP
+      // listings they are abbreviated to just three characters.
+      // Note: ICU may also return strings shorter than three characters,
+      // and those also should be accepted.
+      if (months[month].caseCompare(0, 3, unicode_text, 0) == 0) {
+        *number = month + 1;
+        return true;
+      }
     }
-  }
-
-  // Special cases for directory listings in German (other three-letter month
-  // abbreviations are the same as in English). Note that we don't need to do
-  // a case-insensitive compare here. Only "ls -l" style listings may use
-  // localized month names, and they will always start capitalized. Also,
-  // converting non-ASCII characters to lowercase would be more complicated.
-  if (text == UTF8ToUTF16("M\xc3\xa4r")) {
-    // The full month name is M-(a-umlaut)-rz (March), which is M-(a-umlaut)r
-    // when abbreviated.
-    *number = 3;
-    return true;
-  }
-  if (text == ASCIIToUTF16("Mai")) {
-    *number = 5;
-    return true;
-  }
-  if (text == ASCIIToUTF16("Okt")) {
-    *number = 10;
-    return true;
-  }
-  if (text == ASCIIToUTF16("Dez")) {
-    *number = 12;
-    return true;
   }
 
   return false;
@@ -153,10 +161,12 @@ bool FtpUtil::LsDateListingToTime(const string16& month, const string16& day,
                                   base::Time* result) {
   base::Time::Exploded time_exploded = { 0 };
 
-  if (!ThreeLetterMonthToNumber(month, &time_exploded.month))
+  if (!AbbreviatedMonthToNumber(month, &time_exploded.month))
     return false;
 
   if (!base::StringToInt(day, &time_exploded.day_of_month))
+    return false;
+  if (time_exploded.day_of_month > 31)
     return false;
 
   if (!base::StringToInt(rest, &time_exploded.year)) {
@@ -208,19 +218,20 @@ bool FtpUtil::LsDateListingToTime(const string16& month, const string16& day,
 
 // static
 string16 FtpUtil::GetStringPartAfterColumns(const string16& text, int columns) {
-  size_t pos = 0;
+  base::i18n::UTF16CharIterator iter(&text);
 
+  // TODO(jshin): Is u_isspace the right function to use here?
   for (int i = 0; i < columns; i++) {
     // Skip the leading whitespace.
-    while (pos < text.length() && isspace(text[pos]))
-      pos++;
+    while (!iter.end() && u_isspace(iter.get()))
+      iter.Advance();
 
     // Skip the actual text of i-th column.
-    while (pos < text.length() && !isspace(text[pos]))
-      pos++;
+    while (!iter.end() && !u_isspace(iter.get()))
+      iter.Advance();
   }
 
-  string16 result(text.substr(pos));
+  string16 result(text.substr(iter.array_pos()));
   TrimWhitespace(result, TRIM_ALL, &result);
   return result;
 }

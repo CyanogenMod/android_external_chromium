@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -30,8 +30,7 @@ extern const wchar_t kStatusTrayWindowClass[];
 extern const wchar_t kMessageWindowClass[];
 extern const wchar_t kCrashReportLog[];
 extern const wchar_t kTestingInterfaceDLL[];
-extern const wchar_t kNotSignedInProfile[];
-extern const wchar_t kNotSignedInID[];
+extern const char    kNotSignedInProfile[];
 extern const char    kStatsFilename[];
 extern const wchar_t kBrowserResourcesDll[];
 extern const wchar_t kNaClAppName[];
@@ -44,10 +43,10 @@ extern const FilePath::CharType kCacheDirname[];
 extern const FilePath::CharType kMediaCacheDirname[];
 extern const FilePath::CharType kOffTheRecordMediaCacheDirname[];
 extern const FilePath::CharType kAppCacheDirname[];
-extern const FilePath::CharType kChromePluginDataDirname[];
 extern const FilePath::CharType kThemePackFilename[];
 extern const FilePath::CharType kCookieFilename[];
 extern const FilePath::CharType kExtensionsCookieFilename[];
+extern const FilePath::CharType kIsolatedAppStateDirname[];
 extern const FilePath::CharType kFaviconsFilename[];
 extern const FilePath::CharType kHistoryFilename[];
 extern const FilePath::CharType kLocalStateFilename[];
@@ -75,20 +74,24 @@ extern const unsigned int kMaxRendererProcessCount;
 extern const int kStatsMaxThreads;
 extern const int kStatsMaxCounters;
 
-// The maximum number of characters of the document's title that we're willing
-// to accept in the browser process.
-extern const size_t kMaxTitleChars;
-
 extern const bool kRecordModeEnabled;
 
+// Most sequence numbers are used by a renderer when responding to a browser
+// request for histogram data.  This reserved number is used when a renderer
+// sends an unprovoked update, such as after a page has been loaded.  Using
+// this reserved constant avoids any chance of confusion with a response having
+// a browser-supplied sequence number.
 extern const int kHistogramSynchronizerReservedSequenceNumber;
-
-// The maximum number of session history entries per tab.
-extern const int kMaxSessionHistoryEntries;
 
 // The language code used when the language of a page could not be detected.
 // (Matches what the CLD -Compact Language Detection- library reports.)
 extern const char* const kUnknownLanguageCode;
+
+// If another javascript message box is displayed within
+// kJavascriptMessageExpectedDelay of a previous javascript message box being
+// dismissed, display an option to suppress future message boxes from this
+// contents.
+extern const int kJavascriptMessageExpectedDelay;
 
 }  // namespace chrome
 

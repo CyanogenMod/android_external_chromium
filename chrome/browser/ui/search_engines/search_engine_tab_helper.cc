@@ -10,7 +10,7 @@
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/browser/ui/search_engines/template_url_fetcher_ui_callbacks.h"
 #include "chrome/common/render_messages.h"
-#include "chrome/common/render_messages_params.h"
+#include "content/common/view_messages.h"
 #include "content/browser/tab_contents/tab_contents.h"
 
 namespace {
@@ -50,7 +50,7 @@ bool SearchEngineTabHelper::OnMessageReceived(const IPC::Message& message) {
 void SearchEngineTabHelper::OnPageHasOSDD(
     int32 page_id,
     const GURL& doc_url,
-    const ViewHostMsg_PageHasOSDD_Type& msg_provider_type) {
+    const search_provider::OSDDType& msg_provider_type) {
   // Checks to see if we should generate a keyword based on the OSDD, and if
   // necessary uses TemplateURLFetcher to download the OSDD and create a
   // keyword.
@@ -65,16 +65,16 @@ void SearchEngineTabHelper::OnPageHasOSDD(
     return;
 
   TemplateURLFetcher::ProviderType provider_type;
-  switch (msg_provider_type.type) {
-    case ViewHostMsg_PageHasOSDD_Type::AUTODETECTED_PROVIDER:
+  switch (msg_provider_type) {
+    case search_provider::AUTODETECTED_PROVIDER:
       provider_type = TemplateURLFetcher::AUTODETECTED_PROVIDER;
       break;
 
-    case ViewHostMsg_PageHasOSDD_Type::EXPLICIT_DEFAULT_PROVIDER:
+    case search_provider::EXPLICIT_DEFAULT_PROVIDER:
       provider_type = TemplateURLFetcher::EXPLICIT_DEFAULT_PROVIDER;
       break;
 
-    case ViewHostMsg_PageHasOSDD_Type::EXPLICIT_PROVIDER:
+    case search_provider::EXPLICIT_PROVIDER:
       provider_type = TemplateURLFetcher::EXPLICIT_PROVIDER;
       break;
 
@@ -186,14 +186,14 @@ void SearchEngineTabHelper::GenerateKeywordIfNecessary(
   const GURL& favicon_url =
       controller.GetLastCommittedEntry()->favicon().url();
   if (favicon_url.is_valid()) {
-    new_url->SetFavIconURL(favicon_url);
+    new_url->SetFaviconURL(favicon_url);
   } else {
     // The favicon url isn't valid. This means there really isn't a favicon,
     // or the favicon url wasn't obtained before the load started. This assumes
     // the later.
     // TODO(sky): Need a way to set the favicon that doesn't involve generating
     // its url.
-    new_url->SetFavIconURL(TemplateURL::GenerateFaviconURL(params.referrer));
+    new_url->SetFaviconURL(TemplateURL::GenerateFaviconURL(params.referrer));
   }
   new_url->set_safe_for_autoreplace(true);
   url_model->Add(new_url);

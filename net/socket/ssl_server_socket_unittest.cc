@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,15 +17,17 @@
 
 #include <queue>
 
-#include "base/crypto/rsa_private_key.h"
 #include "base/file_path.h"
 #include "base/file_util.h"
-#include "base/nss_util.h"
 #include "base/path_service.h"
+#include "crypto/nss_util.h"
+#include "crypto/rsa_private_key.h"
 #include "net/base/address_list.h"
+#include "net/base/cert_status_flags.h"
 #include "net/base/cert_verifier.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/io_buffer.h"
+#include "net/base/ip_endpoint.h"
 #include "net/base/net_errors.h"
 #include "net/base/net_log.h"
 #include "net/base/ssl_config_service.h"
@@ -147,6 +149,12 @@ class FakeSocket : public ClientSocket {
     return net::OK;
   }
 
+  virtual int GetLocalAddress(IPEndPoint* address) const {
+    net::IPAddressNumber ip_address(4);
+    *address = net::IPEndPoint(ip_address, 0);
+    return net::OK;
+  }
+
   virtual const BoundNetLog& NetLog() const {
     return net_log_;
   }
@@ -233,18 +241,17 @@ class SSLServerSocketTest : public PlatformTest {
         reinterpret_cast<const uint8*>(key_string.data() +
                                        key_string.length()));
 
-    scoped_ptr<base::RSAPrivateKey> private_key(
-        base::RSAPrivateKey::CreateFromPrivateKeyInfo(key_vector));
+    scoped_ptr<crypto::RSAPrivateKey> private_key(
+        crypto::RSAPrivateKey::CreateFromPrivateKeyInfo(key_vector));
 
     net::SSLConfig ssl_config;
     ssl_config.false_start_enabled = false;
-    ssl_config.snap_start_enabled = false;
     ssl_config.ssl3_enabled = true;
     ssl_config.tls1_enabled = true;
 
     // Certificate provided by the host doesn't need authority.
     net::SSLConfig::CertAndStatus cert_and_status;
-    cert_and_status.cert_status = net::ERR_CERT_AUTHORITY_INVALID;
+    cert_and_status.cert_status = net::CERT_STATUS_AUTHORITY_INVALID;
     cert_and_status.cert = cert;
     ssl_config.allowed_bad_certs.push_back(cert_and_status);
 

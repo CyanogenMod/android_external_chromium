@@ -17,7 +17,7 @@
 #pragma once
 
 #include "base/basictypes.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "net/base/filter.h"
 
 typedef struct z_stream_s z_stream;
@@ -28,8 +28,6 @@ class GZipHeader;
 
 class GZipFilter : public Filter {
  public:
-  explicit GZipFilter(const FilterContext& filter_context);
-
   virtual ~GZipFilter();
 
   // Initializes filter decoding mode and internal control blocks.
@@ -74,6 +72,10 @@ class GZipFilter : public Filter {
   };
 
   static const int kGZipFooterSize = 8;
+
+  // Only to be instantiated by Filter::Factory.
+  GZipFilter();
+  friend class Filter;
 
   // Parses and verifies the GZip header.
   // Upon exit, the function updates gzip_header_status_ accordingly.

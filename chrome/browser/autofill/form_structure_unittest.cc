@@ -1,8 +1,8 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/autofill/form_structure.h"
@@ -75,7 +75,7 @@ TEST(FormStructureTest, FieldCount) {
   EXPECT_EQ(3U, form_structure.field_count());
 }
 
-TEST(FormStructureTest, AutoFillCount) {
+TEST(FormStructureTest, AutofillCount) {
   FormData form;
   form.method = ASCIIToUTF16("post");
   form.fields.push_back(webkit_glue::FormField(ASCIIToUTF16("username"),
@@ -103,6 +103,7 @@ TEST(FormStructureTest, AutoFillCount) {
                                                0,
                                                false));
   FormStructure form_structure(form);
+  form_structure.DetermineHeuristicTypes();
 
   // Only text and select fields that are heuristically matched are counted.
   EXPECT_EQ(1U, form_structure.autofill_count());
@@ -117,90 +118,7 @@ TEST(FormStructureTest, SourceURL) {
   EXPECT_EQ(form.origin, form_structure.source_url());
 }
 
-TEST(FormStructureTest, HasAutoFillableValues) {
-  scoped_ptr<FormStructure> form_structure;
-  FormData form;
-  form.method = ASCIIToUTF16("post");
-
-  // Non text/select fields are not used when saving auto fill data.
-  form.fields.push_back(webkit_glue::FormField(string16(),
-                                               ASCIIToUTF16("Submit1"),
-                                               string16(),
-                                               ASCIIToUTF16("submit"),
-                                               0,
-                                               false));
-  form.fields.push_back(webkit_glue::FormField(string16(),
-                                               ASCIIToUTF16("Submit2"),
-                                               ASCIIToUTF16("dummy value"),
-                                               ASCIIToUTF16("submit"),
-                                               0,
-                                               false));
-  form_structure.reset(new FormStructure(form));
-  EXPECT_FALSE(form_structure->HasAutoFillableValues());
-
-  // Empty text/select fields are also not used when saving auto fill data.
-  form.fields.push_back(webkit_glue::FormField(ASCIIToUTF16("Email"),
-                                               ASCIIToUTF16("email"),
-                                               string16(),
-                                               ASCIIToUTF16("text"),
-                                               0,
-                                               false));
-  form.fields.push_back(webkit_glue::FormField(ASCIIToUTF16("state"),
-                                               ASCIIToUTF16("state"),
-                                               string16(),
-                                               ASCIIToUTF16("select-one"),
-                                               0,
-                                               false));
-  form_structure.reset(new FormStructure(form));
-  EXPECT_FALSE(form_structure->HasAutoFillableValues());
-
-  // Non-empty fields can be saved in auto fill profile.
-  form.fields.push_back(webkit_glue::FormField(ASCIIToUTF16("First Name"),
-                                               ASCIIToUTF16("firstname"),
-                                               ASCIIToUTF16("John"),
-                                               ASCIIToUTF16("text"),
-                                               0,
-                                               false));
-  form.fields.push_back(webkit_glue::FormField(ASCIIToUTF16("Last Name"),
-                                               ASCIIToUTF16("lastname"),
-                                               ASCIIToUTF16("Dear"),
-                                               ASCIIToUTF16("text"),
-                                               0,
-                                               false));
-  form_structure.reset(new FormStructure(form));
-  EXPECT_TRUE(form_structure->HasAutoFillableValues());
-
-  // The fields must be recognized heuristically by AutoFill in addition to
-  // being text or select and non-empty.
-  form.fields.clear();
-  form.fields.push_back(webkit_glue::FormField(string16(),
-                                               ASCIIToUTF16("Field1"),
-                                               string16(),
-                                               ASCIIToUTF16("text"),
-                                               0,
-                                               false));
-  form.fields.push_back(webkit_glue::FormField(string16(),
-                                               ASCIIToUTF16("Field2"),
-                                               ASCIIToUTF16("dummy value"),
-                                               ASCIIToUTF16("text"),
-                                               0,
-                                               false));
-  form_structure.reset(new FormStructure(form));
-  EXPECT_FALSE(form_structure->HasAutoFillableValues());
-
-  // Add a field that we match heuristically, verify that this form has
-  // auto-fillable values.
-  form.fields.push_back(webkit_glue::FormField(ASCIIToUTF16("Full Name"),
-                                               ASCIIToUTF16("fullname"),
-                                               ASCIIToUTF16("John Dear"),
-                                               ASCIIToUTF16("text"),
-                                               0,
-                                               false));
-  form_structure.reset(new FormStructure(form));
-  EXPECT_TRUE(form_structure->HasAutoFillableValues());
-}
-
-TEST(FormStructureTest, IsAutoFillable) {
+TEST(FormStructureTest, IsAutofillable) {
   scoped_ptr<FormStructure> form_structure;
   FormData form;
 
@@ -225,7 +143,8 @@ TEST(FormStructureTest, IsAutoFillable) {
                                                0,
                                                false));
   form_structure.reset(new FormStructure(form));
-  EXPECT_FALSE(form_structure->IsAutoFillable(true));
+  form_structure->DetermineHeuristicTypes();
+  EXPECT_FALSE(form_structure->IsAutofillable(true));
 
   // We now have three text fields, but only two auto-fillable fields.
   form.fields.push_back(webkit_glue::FormField(ASCIIToUTF16("First Name"),
@@ -241,7 +160,8 @@ TEST(FormStructureTest, IsAutoFillable) {
                                                0,
                                                false));
   form_structure.reset(new FormStructure(form));
-  EXPECT_FALSE(form_structure->IsAutoFillable(true));
+  form_structure->DetermineHeuristicTypes();
+  EXPECT_FALSE(form_structure->IsAutofillable(true));
 
   // We now have three auto-fillable fields.
   form.fields.push_back(webkit_glue::FormField(ASCIIToUTF16("Email"),
@@ -251,25 +171,29 @@ TEST(FormStructureTest, IsAutoFillable) {
                                                0,
                                                false));
   form_structure.reset(new FormStructure(form));
-  EXPECT_TRUE(form_structure->IsAutoFillable(true));
+  form_structure->DetermineHeuristicTypes();
+  EXPECT_TRUE(form_structure->IsAutofillable(true));
 
   // The method must be 'post', though we can intentionally ignore this
   // criterion for the sake of providing a helpful warning message to the user.
   form.method = ASCIIToUTF16("get");
   form_structure.reset(new FormStructure(form));
-  EXPECT_FALSE(form_structure->IsAutoFillable(true));
-  EXPECT_TRUE(form_structure->IsAutoFillable(false));
+  form_structure->DetermineHeuristicTypes();
+  EXPECT_FALSE(form_structure->IsAutofillable(true));
+  EXPECT_TRUE(form_structure->IsAutofillable(false));
 
   // The target cannot include http(s)://*/search...
   form.method = ASCIIToUTF16("post");
   form.action = GURL("http://google.com/search?q=hello");
   form_structure.reset(new FormStructure(form));
-  EXPECT_FALSE(form_structure->IsAutoFillable(true));
+  form_structure->DetermineHeuristicTypes();
+  EXPECT_FALSE(form_structure->IsAutofillable(true));
 
   // But search can be in the URL.
   form.action = GURL("http://search.com/?q=hello");
   form_structure.reset(new FormStructure(form));
-  EXPECT_TRUE(form_structure->IsAutoFillable(true));
+  form_structure->DetermineHeuristicTypes();
+  EXPECT_TRUE(form_structure->IsAutofillable(true));
 }
 
 TEST(FormStructureTest, HeuristicsContactInfo) {
@@ -332,7 +256,8 @@ TEST(FormStructureTest, HeuristicsContactInfo) {
                                                0,
                                                false));
   form_structure.reset(new FormStructure(form));
-  EXPECT_TRUE(form_structure->IsAutoFillable(true));
+  form_structure->DetermineHeuristicTypes();
+  EXPECT_TRUE(form_structure->IsAutofillable(true));
 
   // Expect the correct number of fields.
   ASSERT_EQ(9U, form_structure->field_count());
@@ -435,7 +360,8 @@ TEST(FormStructureTest, HeuristicsSample8) {
                              0,
                              false));
   form_structure.reset(new FormStructure(form));
-  EXPECT_TRUE(form_structure->IsAutoFillable(true));
+  form_structure->DetermineHeuristicTypes();
+  EXPECT_TRUE(form_structure->IsAutofillable(true));
   ASSERT_EQ(10U, form_structure->field_count());
   ASSERT_EQ(9U, form_structure->autofill_count());
 
@@ -520,7 +446,8 @@ TEST(FormStructureTest, HeuristicsSample6) {
                              0,
                              false));
   form_structure.reset(new FormStructure(form));
-  EXPECT_TRUE(form_structure->IsAutoFillable(true));
+  form_structure->DetermineHeuristicTypes();
+  EXPECT_TRUE(form_structure->IsAutofillable(true));
   ASSERT_EQ(7U, form_structure->field_count());
   ASSERT_EQ(6U, form_structure->autofill_count());
 
@@ -603,7 +530,8 @@ TEST(FormStructureTest, HeuristicsLabelsOnly) {
                                                0,
                                                false));
   form_structure.reset(new FormStructure(form));
-  EXPECT_TRUE(form_structure->IsAutoFillable(true));
+  form_structure->DetermineHeuristicTypes();
+  EXPECT_TRUE(form_structure->IsAutofillable(true));
   ASSERT_EQ(9U, form_structure->field_count());
   ASSERT_EQ(8U, form_structure->autofill_count());
 
@@ -670,7 +598,8 @@ TEST(FormStructureTest, HeuristicsCreditCardInfo) {
                                                0,
                                                false));
   form_structure.reset(new FormStructure(form));
-  EXPECT_TRUE(form_structure->IsAutoFillable(true));
+  form_structure->DetermineHeuristicTypes();
+  EXPECT_TRUE(form_structure->IsAutofillable(true));
   ASSERT_EQ(6U, form_structure->field_count());
   ASSERT_EQ(4U, form_structure->autofill_count());
 
@@ -739,7 +668,8 @@ TEST(FormStructureTest, HeuristicsCreditCardInfoWithUnknownCardField) {
                                                0,
                                                false));
   form_structure.reset(new FormStructure(form));
-  EXPECT_TRUE(form_structure->IsAutoFillable(true));
+  form_structure->DetermineHeuristicTypes();
+  EXPECT_TRUE(form_structure->IsAutofillable(true));
   ASSERT_EQ(7U, form_structure->field_count());
   ASSERT_EQ(4U, form_structure->autofill_count());
 
@@ -794,7 +724,8 @@ TEST(FormStructureTest, ThreeAddressLines) {
                              0,
                              false));
   form_structure.reset(new FormStructure(form));
-  EXPECT_TRUE(form_structure->IsAutoFillable(true));
+  form_structure->DetermineHeuristicTypes();
+  EXPECT_TRUE(form_structure->IsAutofillable(true));
   ASSERT_EQ(4U, form_structure->field_count());
   ASSERT_EQ(3U, form_structure->autofill_count());
 
@@ -844,7 +775,8 @@ TEST(FormStructureTest, BillingAndShippingAddresses) {
                              0,
                              false));
   form_structure.reset(new FormStructure(form));
-  EXPECT_TRUE(form_structure->IsAutoFillable(true));
+  form_structure->DetermineHeuristicTypes();
+  EXPECT_TRUE(form_structure->IsAutofillable(true));
   ASSERT_EQ(4U, form_structure->field_count());
   ASSERT_EQ(4U, form_structure->autofill_count());
 
@@ -898,7 +830,8 @@ TEST(FormStructureTest, ThreeAddressLinesExpedia) {
                              0,
                              false));
   form_structure.reset(new FormStructure(form));
-  EXPECT_TRUE(form_structure->IsAutoFillable(true));
+  form_structure->DetermineHeuristicTypes();
+  EXPECT_TRUE(form_structure->IsAutofillable(true));
   ASSERT_EQ(4U, form_structure->field_count());
   ASSERT_EQ(3U, form_structure->autofill_count());
 
@@ -942,7 +875,8 @@ TEST(FormStructureTest, TwoAddressLinesEbay) {
                              0,
                              false));
   form_structure.reset(new FormStructure(form));
-  EXPECT_TRUE(form_structure->IsAutoFillable(true));
+  form_structure->DetermineHeuristicTypes();
+  EXPECT_TRUE(form_structure->IsAutofillable(true));
   ASSERT_EQ(3U, form_structure->field_count());
   ASSERT_EQ(3U, form_structure->autofill_count());
 
@@ -981,7 +915,8 @@ TEST(FormStructureTest, HeuristicsStateWithProvince) {
                              0,
                              false));
   form_structure.reset(new FormStructure(form));
-  EXPECT_TRUE(form_structure->IsAutoFillable(true));
+  form_structure->DetermineHeuristicTypes();
+  EXPECT_TRUE(form_structure->IsAutofillable(true));
   ASSERT_EQ(3U, form_structure->field_count());
   ASSERT_EQ(3U, form_structure->autofill_count());
 
@@ -1077,7 +1012,8 @@ TEST(FormStructureTest, HeuristicsWithBilling) {
                              0,
                              false));
   form_structure.reset(new FormStructure(form));
-  EXPECT_TRUE(form_structure->IsAutoFillable(true));
+  form_structure->DetermineHeuristicTypes();
+  EXPECT_TRUE(form_structure->IsAutofillable(true));
   ASSERT_EQ(11U, form_structure->field_count());
   ASSERT_EQ(11U, form_structure->autofill_count());
 
@@ -1132,7 +1068,8 @@ TEST(FormStructureTest, ThreePartPhoneNumber) {
                              0,
                              false));
   form_structure.reset(new FormStructure(form));
-  EXPECT_TRUE(form_structure->IsAutoFillable(true));
+  form_structure->DetermineHeuristicTypes();
+  EXPECT_TRUE(form_structure->IsAutofillable(true));
   ASSERT_EQ(4U, form_structure->field_count());
   ASSERT_EQ(3U, form_structure->autofill_count());
 
@@ -1183,7 +1120,8 @@ TEST(FormStructureTest, HeuristicsInfernoCC) {
                                                0,
                                                false));
   form_structure.reset(new FormStructure(form));
-  EXPECT_TRUE(form_structure->IsAutoFillable(true));
+  form_structure->DetermineHeuristicTypes();
+  EXPECT_TRUE(form_structure->IsAutofillable(true));
 
   // Expect the correct number of fields.
   ASSERT_EQ(5U, form_structure->field_count());
@@ -1243,7 +1181,8 @@ TEST(FormStructureTest, CVCCodeClash) {
                                                0,
                                                false));
   form_structure.reset(new FormStructure(form));
-  EXPECT_TRUE(form_structure->IsAutoFillable(true));
+  form_structure->DetermineHeuristicTypes();
+  EXPECT_TRUE(form_structure->IsAutofillable(true));
 
   // Expect the correct number of fields.
   ASSERT_EQ(6U, form_structure->field_count());
@@ -1390,6 +1329,7 @@ TEST(FormStructureTest, EncodeUploadRequest) {
   FormData form;
   form.method = ASCIIToUTF16("post");
   form_structure.reset(new FormStructure(form));
+  form_structure->DetermineHeuristicTypes();
   form.fields.push_back(webkit_glue::FormField(ASCIIToUTF16("First Name"),
                         ASCIIToUTF16("firstname"),
                         string16(),

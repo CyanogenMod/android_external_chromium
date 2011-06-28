@@ -1,17 +1,17 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/chromeos/tab_closeable_state_watcher.h"
 
 #include "base/file_path.h"
-#include "chrome/browser/browser_list.h"
-#include "chrome/browser/browser_window.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/app_modal_dialogs/app_modal_dialog.h"
 #include "chrome/browser/ui/app_modal_dialogs/native_app_modal_dialog.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/in_process_browser_test.h"
 #include "chrome/test/ui_test_utils.h"
@@ -248,6 +248,8 @@ IN_PROC_BROWSER_TEST_F(TabCloseableStateWatcherTest, SecondIncognitoBrowser) {
 // Tests closing an incognito browser - the incognito browser should close,
 // and a new normal browser opened with a NewTabPage (which is not closeable).
 IN_PROC_BROWSER_TEST_F(TabCloseableStateWatcherTest, CloseIncognitoBrowser) {
+  NavigateToURL(ntp_url_);
+
   // Open an incognito browser.
   Browser* incognito_browser = CreateIncognitoBrowser();
   EXPECT_TRUE(incognito_browser->profile()->IsOffTheRecord());
@@ -262,9 +264,8 @@ IN_PROC_BROWSER_TEST_F(TabCloseableStateWatcherTest, CloseIncognitoBrowser) {
 
   // Close incognito browser.
   incognito_browser->CloseWindow();
-  ui_test_utils::RunAllPendingInMessageLoop();
+  Browser* new_browser = ui_test_utils::WaitForNewBrowser();
   EXPECT_EQ(1u, BrowserList::size());
-  Browser* new_browser = *(BrowserList::begin());
   EXPECT_FALSE(new_browser->profile()->IsOffTheRecord());
   EXPECT_EQ(1, new_browser->tab_count());
   EXPECT_EQ(ntp_url_, new_browser->GetSelectedTabContents()->GetURL());
@@ -273,8 +274,9 @@ IN_PROC_BROWSER_TEST_F(TabCloseableStateWatcherTest, CloseIncognitoBrowser) {
 // Tests closing of browser with BeforeUnload handler where user clicks cancel
 // (i.e. stay on the page and cancel closing) - browser and its tabs should stay
 // the same.
+// Sporadically crashing test. See http://crbug.com/79333
 IN_PROC_BROWSER_TEST_F(TabCloseableStateWatcherTest,
-                       CloseBrowserWithBeforeUnloadHandlerCancel) {
+                       DISABLED_CloseBrowserWithBeforeUnloadHandlerCancel) {
   // Navigate to URL with BeforeUnload handler.
   NavigateToBeforeUnloadURL();
   EXPECT_TRUE(CanCloseTab(browser()));

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,9 +10,9 @@
 
 #include "base/path_service.h"
 #import "base/mac/scoped_nsautorelease_pool.h"
-#import "base/scoped_nsobject.h"
-#import "chrome/common/chrome_application_mac.h"
+#import "base/memory/scoped_nsobject.h"
 #include "chrome/common/chrome_constants.h"
+#import "content/common/chrome_application_mac.h"
 #include "testing/platform_test.h"
 
 // Background windows normally will not display things such as focus
@@ -109,13 +109,13 @@ class CocoaTest : public PlatformTest {
 // from a window. All tests that work with NSView subclasses and/or
 // NSViewController subclasses should use it.
 #define TEST_VIEW(test_fixture, test_view) \
-  TEST_F(test_fixture, AddRemove##test_fixture) { \
+  TEST_F(test_fixture, test_fixture##_TestViewMacroAddRemove) { \
     scoped_nsobject<NSView> view([test_view retain]); \
     EXPECT_EQ([test_window() contentView], [view superview]); \
     [view removeFromSuperview]; \
     EXPECT_FALSE([view superview]); \
   } \
-  TEST_F(test_fixture, Display##test_fixture) { \
+  TEST_F(test_fixture, test_fixture##_TestViewMacroDisplay) { \
     [test_view display]; \
   }
 

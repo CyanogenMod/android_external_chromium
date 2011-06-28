@@ -8,13 +8,12 @@
 #include "base/message_loop_proxy.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/io_thread.h"
-#include "chrome/browser/net/chrome_cookie_policy.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_io_data.h"
 #include "chrome/browser/ui/webui/chrome_url_data_manager_backend.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
 #include "content/browser/browser_thread.h"
+#include "content/common/notification_service.h"
 #include "net/base/cookie_store.h"
 #include "net/ftp/ftp_transaction_factory.h"
 #include "net/http/http_transaction_factory.h"
@@ -24,12 +23,6 @@
 #if defined(USE_NSS)
 #include "net/ocsp/nss_ocsp.h"
 #endif
-
-#if defined(OS_CHROMEOS)
-#include "chrome/browser/chromeos/cros/cros_library.h"
-#include "chrome/browser/chromeos/cros/libcros_service_library.h"
-#include "chrome/browser/chromeos/proxy_config_service.h"
-#endif  // defined(OS_CHROMEOS)
 
 class ChromeURLRequestContextFactory {
  public:
@@ -75,6 +68,29 @@ class FactoryForExtensions : public ChromeURLRequestContextFactory {
 
  private:
   const scoped_refptr<const ProfileIOData> profile_io_data_;
+};
+
+// Factory that creates the ChromeURLRequestContext for a given isolated app.
+class FactoryForIsolatedApp : public ChromeURLRequestContextFactory {
+ public:
+  FactoryForIsolatedApp(const ProfileIOData* profile_io_data,
+                        const std::string& app_id,
+                        ChromeURLRequestContextGetter* main_context)
+      : profile_io_data_(profile_io_data),
+        app_id_(app_id),
+        main_request_context_getter_(main_context) {}
+
+  virtual scoped_refptr<ChromeURLRequestContext> Create() {
+    // We will copy most of the state from the main request context.
+    return profile_io_data_->GetIsolatedAppRequestContext(
+        main_request_context_getter_->GetIOContext(), app_id_);
+  }
+
+ private:
+  const scoped_refptr<const ProfileIOData> profile_io_data_;
+  const std::string app_id_;
+  scoped_refptr<ChromeURLRequestContextGetter>
+      main_request_context_getter_;
 };
 
 // Factory that creates the ChromeURLRequestContext for media.
@@ -154,7 +170,7 @@ void ChromeURLRequestContextGetter::ReleaseURLRequestContext() {
   url_request_context_ = NULL;
 }
 
-net::CookieStore* ChromeURLRequestContextGetter::GetCookieStore() {
+net::CookieStore* ChromeURLRequestContextGetter::DONTUSEME_GetCookieStore() {
   // If we are running on the IO thread this is real easy.
   if (BrowserThread::CurrentlyOn(BrowserThread::IO))
     return GetURLRequestContext()->cookie_store();
@@ -215,6 +231,20 @@ ChromeURLRequestContextGetter::CreateOriginalForExtensions(
 
 // static
 ChromeURLRequestContextGetter*
+ChromeURLRequestContextGetter::CreateOriginalForIsolatedApp(
+    Profile* profile,
+    const ProfileIOData* profile_io_data,
+    const std::string& app_id) {
+  DCHECK(!profile->IsOffTheRecord());
+  ChromeURLRequestContextGetter* main_context =
+      static_cast<ChromeURLRequestContextGetter*>(profile->GetRequestContext());
+  return new ChromeURLRequestContextGetter(
+      profile,
+      new FactoryForIsolatedApp(profile_io_data, app_id, main_context));
+}
+
+// static
+ChromeURLRequestContextGetter*
 ChromeURLRequestContextGetter::CreateOffTheRecord(
     Profile* profile, const ProfileIOData* profile_io_data) {
   DCHECK(profile->IsOffTheRecord());
@@ -229,6 +259,20 @@ ChromeURLRequestContextGetter::CreateOffTheRecordForExtensions(
   DCHECK(profile->IsOffTheRecord());
   return new ChromeURLRequestContextGetter(
       profile, new FactoryForExtensions(profile_io_data));
+}
+
+// static
+ChromeURLRequestContextGetter*
+ChromeURLRequestContextGetter::CreateOffTheRecordForIsolatedApp(
+    Profile* profile,
+    const ProfileIOData* profile_io_data,
+    const std::string& app_id) {
+  DCHECK(profile->IsOffTheRecord());
+  ChromeURLRequestContextGetter* main_context =
+      static_cast<ChromeURLRequestContextGetter*>(profile->GetRequestContext());
+  return new ChromeURLRequestContextGetter(
+      profile,
+      new FactoryForIsolatedApp(profile_io_data, app_id, main_context));
 }
 
 void ChromeURLRequestContextGetter::CleanupOnUIThread() {
@@ -303,7 +347,7 @@ void ChromeURLRequestContextGetter::OnDefaultCharsetChange(
 
 void ChromeURLRequestContextGetter::OnClearSiteDataOnExitChange(
     bool clear_site_data) {
-  GetCookieStore()->GetCookieMonster()->
+  GetURLRequestContext()->cookie_store()->GetCookieMonster()->
       SetClearPersistentStoreOnExit(clear_site_data);
 }
 
@@ -320,14 +364,24 @@ void ChromeURLRequestContextGetter::GetCookieStoreAsyncHelper(
 // ----------------------------------------------------------------------------
 
 ChromeURLRequestContext::ChromeURLRequestContext()
-    : is_off_the_record_(false) {
+    : is_incognito_(false) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
 }
 
-void ChromeURLRequestContext::set_chrome_cookie_policy(
-    ChromeCookiePolicy* cookie_policy) {
-  chrome_cookie_policy_ = cookie_policy;  // Take a strong reference.
-  set_cookie_policy(cookie_policy);
+void ChromeURLRequestContext::CopyFrom(ChromeURLRequestContext* other) {
+  URLRequestContext::CopyFrom(other);
+
+  // Copy ChromeURLRequestContext parameters.
+  set_user_script_dir_path(other->user_script_dir_path());
+  set_appcache_service(other->appcache_service());
+  set_host_content_settings_map(other->host_content_settings_map());
+  set_host_zoom_map(other->host_zoom_map_);
+  set_blob_storage_context(other->blob_storage_context());
+  set_file_system_context(other->file_system_context());
+  set_extension_info_map(other->extension_info_map_);
+  set_prerender_manager(other->prerender_manager());
+  // ChromeURLDataManagerBackend is unique per context.
+  set_is_incognito(other->is_incognito());
 }
 
 ChromeURLDataManagerBackend*

@@ -7,21 +7,23 @@
 #include <gtk/gtk.h>
 
 #include "base/message_loop.h"
-#include "chrome/browser/importer/importer.h"
-#include "chrome/browser/ui/browser_dialogs.h"
+#include "chrome/browser/importer/importer_host.h"
+#include "chrome/browser/importer/importer_lock_dialog.h"
+#include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/ui/gtk/gtk_util.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 
-namespace browser {
+namespace importer {
 
 void ShowImportLockDialog(gfx::NativeWindow parent,
                           ImporterHost* importer_host) {
   ImportLockDialogGtk::Show(parent, importer_host);
+  UserMetrics::RecordAction(UserMetricsAction("ImportLockDialogGtk_Shown"));
 }
 
-}  // namespace browser
+}  // namespace importer
 
 // static
 void ImportLockDialogGtk::Show(GtkWindow* parent, ImporterHost* importer_host) {
@@ -62,10 +64,10 @@ ImportLockDialogGtk::~ImportLockDialogGtk() {}
 void ImportLockDialogGtk::OnResponse(GtkWidget* dialog, int response_id) {
   if (response_id == GTK_RESPONSE_ACCEPT) {
     MessageLoop::current()->PostTask(FROM_HERE, NewRunnableMethod(
-        importer_host_.get(), &ImporterHost::OnLockViewEnd, true));
+        importer_host_.get(), &ImporterHost::OnImportLockDialogEnd, true));
   } else {
     MessageLoop::current()->PostTask(FROM_HERE, NewRunnableMethod(
-        importer_host_.get(), &ImporterHost::OnLockViewEnd, false));
+        importer_host_.get(), &ImporterHost::OnImportLockDialogEnd, false));
   }
   gtk_widget_destroy(dialog_);
   delete this;

@@ -16,11 +16,11 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/chrome_url_data_manager.h"
 #include "chrome/common/jstemplate_builder.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/url_constants.h"
 #include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
+#include "content/common/notification_service.h"
 #include "grit/browser_resources.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
@@ -44,7 +44,7 @@ class ConflictsUIHTMLSource : public ChromeURLDataManager::DataSource {
   // Called when the network layer has requested a resource underneath
   // the path we registered.
   virtual void StartDataRequest(const std::string& path,
-                                bool is_off_the_record,
+                                bool is_incognito,
                                 int request_id);
 
   virtual std::string GetMimeType(const std::string&) const {
@@ -56,10 +56,12 @@ class ConflictsUIHTMLSource : public ChromeURLDataManager::DataSource {
 };
 
 void ConflictsUIHTMLSource::StartDataRequest(const std::string& path,
-                                             bool is_off_the_record,
+                                             bool is_incognito,
                                              int request_id) {
   // Strings used in the JsTemplate file.
   DictionaryValue localized_strings;
+  localized_strings.SetString("loadingMessage",
+      l10n_util::GetStringUTF16(IDS_CONFLICTS_LOADING_MESSAGE));
   localized_strings.SetString("modulesLongTitle",
       l10n_util::GetStringUTF16(IDS_CONFLICTS_CHECK_PAGE_TITLE_LONG));
   localized_strings.SetString("modulesBlurb",
@@ -169,7 +171,7 @@ void ConflictsDOMHandler::SendModuleList() {
   }
   results.SetString("modulesTableTitle", table_title);
 
-  web_ui_->CallJavascriptFunction(L"returnModuleList", results);
+  web_ui_->CallJavascriptFunction("returnModuleList", results);
 }
 
 void ConflictsDOMHandler::Observe(NotificationType type,

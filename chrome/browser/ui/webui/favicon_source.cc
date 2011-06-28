@@ -10,16 +10,16 @@
 #include "grit/app_resources.h"
 #include "ui/base/resource/resource_bundle.h"
 
-FavIconSource::FavIconSource(Profile* profile)
-    : DataSource(chrome::kChromeUIFavIconHost, MessageLoop::current()),
+FaviconSource::FaviconSource(Profile* profile)
+    : DataSource(chrome::kChromeUIFaviconHost, MessageLoop::current()),
       profile_(profile->GetOriginalProfile()) {
 }
 
-FavIconSource::~FavIconSource() {
+FaviconSource::~FaviconSource() {
 }
 
-void FavIconSource::StartDataRequest(const std::string& path,
-                                     bool is_off_the_record,
+void FaviconSource::StartDataRequest(const std::string& path,
+                                     bool is_incognito,
                                      int request_id) {
   FaviconService* favicon_service =
       profile_->GetFaviconService(Profile::EXPLICIT_ACCESS);
@@ -33,13 +33,15 @@ void FavIconSource::StartDataRequest(const std::string& path,
     if (path.size() > 8 && path.substr(0, 8) == "iconurl/") {
       handle = favicon_service->GetFavicon(
           GURL(path.substr(8)),
+          history::FAVICON,
           &cancelable_consumer_,
-          NewCallback(this, &FavIconSource::OnFavIconDataAvailable));
+          NewCallback(this, &FaviconSource::OnFaviconDataAvailable));
     } else {
       handle = favicon_service->GetFaviconForURL(
           GURL(path),
+          history::FAVICON,
           &cancelable_consumer_,
-          NewCallback(this, &FavIconSource::OnFavIconDataAvailable));
+          NewCallback(this, &FaviconSource::OnFaviconDataAvailable));
     }
     // Attach the ChromeURLDataManager request ID to the history request.
     cancelable_consumer_.SetClientData(favicon_service, handle, request_id);
@@ -48,38 +50,35 @@ void FavIconSource::StartDataRequest(const std::string& path,
   }
 }
 
-std::string FavIconSource::GetMimeType(const std::string&) const {
+std::string FaviconSource::GetMimeType(const std::string&) const {
   // We need to explicitly return a mime type, otherwise if the user tries to
   // drag the image they get no extension.
   return "image/png";
 }
 
-bool FavIconSource::ShouldReplaceExistingSource() const {
+bool FaviconSource::ShouldReplaceExistingSource() const {
   // Leave the existing DataSource in place, otherwise we'll drop any pending
   // requests on the floor.
   return false;
 }
 
-void FavIconSource::OnFavIconDataAvailable(
+void FaviconSource::OnFaviconDataAvailable(
     FaviconService::Handle request_handle,
-    bool know_favicon,
-    scoped_refptr<RefCountedMemory> data,
-    bool expired,
-    GURL icon_url) {
+    history::FaviconData favicon) {
   FaviconService* favicon_service =
       profile_->GetFaviconService(Profile::EXPLICIT_ACCESS);
   int request_id = cancelable_consumer_.GetClientData(favicon_service,
                                                       request_handle);
 
-  if (know_favicon && data.get() && data->size()) {
+  if (favicon.is_valid()) {
     // Forward the data along to the networking system.
-    SendResponse(request_id, data);
+    SendResponse(request_id, favicon.image_data);
   } else {
     SendDefaultResponse(request_id);
   }
 }
 
-void FavIconSource::SendDefaultResponse(int request_id) {
+void FaviconSource::SendDefaultResponse(int request_id) {
   if (!default_favicon_.get()) {
     default_favicon_ =
         ResourceBundle::GetSharedInstance().LoadDataResourceBytes(

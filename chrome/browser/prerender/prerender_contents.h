@@ -9,17 +9,19 @@
 #include <string>
 #include <vector>
 
+#include "base/scoped_ptr.h"
 #include "base/time.h"
 #include "chrome/browser/prerender/prerender_final_status.h"
 #include "chrome/browser/tab_contents/render_view_host_delegate_helper.h"
 #include "chrome/browser/ui/app_modal_dialogs/js_modal_dialog.h"
-#include "chrome/common/notification_registrar.h"
 #include "chrome/common/view_types.h"
-#include "chrome/common/window_container_type.h"
 #include "content/browser/renderer_host/render_view_host_delegate.h"
+#include "content/common/notification_registrar.h"
+#include "content/common/window_container_type.h"
 #include "webkit/glue/window_open_disposition.h"
 
 class TabContents;
+struct FaviconURL;
 struct WebPreferences;
 struct ViewHostMsg_FrameNavigate_Params;
 
@@ -82,6 +84,15 @@ class PrerenderContents : public RenderViewHostDelegate,
   int32 page_id() const { return page_id_; }
   GURL icon_url() const { return icon_url_; }
   bool has_stopped_loading() const { return has_stopped_loading_; }
+  bool prerendering_has_started() const { return prerendering_has_started_; }
+
+  // Sets the parameter to the value of the associated RenderViewHost's child id
+  // and returns a boolean indicating the validity of that id.
+  virtual bool GetChildId(int* child_id) const;
+
+  // Sets the parameter to the value of the associated RenderViewHost's route id
+  // and returns a boolean indicating the validity of that id.
+  virtual bool GetRouteId(int* route_id) const;
 
   // Set the final status for how the PrerenderContents was used. This
   // should only be called once, and should be called before the prerender
@@ -106,7 +117,6 @@ class PrerenderContents : public RenderViewHostDelegate,
                            int32 page_id,
                            const std::wstring& title);
   virtual WebPreferences GetWebkitPrefs();
-  virtual void ProcessWebUIMessage(const ViewHostMsg_DomMessage_Params& params);
   virtual void RunJavaScriptMessage(const std::wstring& message,
                                     const std::wstring& default_prompt,
                                     const GURL& frame_url,
@@ -187,6 +197,8 @@ class PrerenderContents : public RenderViewHostDelegate,
   // from RenderViewHostDelegate.
   virtual bool OnMessageReceived(const IPC::Message& message);
 
+  const GURL& prerender_url() const { return prerender_url_; }
+
  private:
   // Needs to be able to call the constructor.
   friend class PrerenderContentsFactoryImpl;
@@ -195,11 +207,8 @@ class PrerenderContents : public RenderViewHostDelegate,
   void OnDidStartProvisionalLoadForFrame(int64 frame_id,
                                          bool main_frame,
                                          const GURL& url);
-  void OnDidRedirectProvisionalLoad(int32 page_id,
-                                    const GURL& source_url,
-                                    const GURL& target_url);
-
-  void OnUpdateFavIconURL(int32 page_id, const GURL& icon_url);
+  void OnUpdateFaviconURL(int32 page_id, const std::vector<FaviconURL>& urls);
+  void OnMaybeCancelPrerenderForHTML5Media();
 
   // Adds an alias URL, for one of the many redirections. Returns whether
   // the URL is valid.
@@ -252,6 +261,8 @@ class PrerenderContents : public RenderViewHostDelegate,
   bool has_stopped_loading_;
 
   FinalStatus final_status_;
+
+  bool prerendering_has_started_;
 
   // Time at which we started to load the URL.  This is used to compute
   // the time elapsed from initiating a prerender until the time the

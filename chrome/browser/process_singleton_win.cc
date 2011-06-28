@@ -11,6 +11,7 @@
 #include "base/process_util.h"
 #include "base/utf_string_conversions.h"
 #include "base/win/scoped_handle.h"
+#include "base/win/wrapped_window_proc.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/extensions/extensions_startup.h"
 #include "chrome/browser/platform_util.h"
@@ -20,7 +21,7 @@
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/result_codes.h"
+#include "content/common/result_codes.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -178,7 +179,8 @@ bool ProcessSingleton::Create() {
 
   WNDCLASSEX wc = {0};
   wc.cbSize = sizeof(wc);
-  wc.lpfnWndProc = ProcessSingleton::WndProcStatic;
+  wc.lpfnWndProc =
+      base::win::WrappedWindowProc<ProcessSingleton::WndProcStatic>;
   wc.hInstance = hinst;
   wc.lpszClassName = chrome::kMessageWindowClass;
   ATOM clazz = RegisterClassEx(&wc);
@@ -192,8 +194,7 @@ bool ProcessSingleton::Create() {
   window_ = CreateWindow(chrome::kMessageWindowClass,
                          user_data_dir.value().c_str(),
                          0, 0, 0, 0, 0, HWND_MESSAGE, 0, hinst, 0);
-  DCHECK(window_);
-
+  ui::CheckWindowCreated(window_);
   ui::SetWindowUserData(window_, this);
   return true;
 }

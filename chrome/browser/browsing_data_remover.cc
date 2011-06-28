@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,17 +26,17 @@
 #include "chrome/browser/sessions/session_service.h"
 #include "chrome/browser/sessions/tab_restore_service.h"
 #include "chrome/browser/webdata/web_data_service.h"
-#include "chrome/common/net/url_request_context_getter.h"
-#include "chrome/common/notification_source.h"
 #include "chrome/common/url_constants.h"
 #include "content/browser/browser_thread.h"
 #include "content/browser/in_process_webkit/webkit_context.h"
+#include "content/common/notification_source.h"
 #include "net/base/cookie_monster.h"
 #include "net/base/net_errors.h"
 #include "net/base/transport_security_state.h"
 #include "net/disk_cache/disk_cache.h"
 #include "net/http/http_cache.h"
 #include "net/url_request/url_request_context.h"
+#include "net/url_request/url_request_context_getter.h"
 #include "webkit/database/database_tracker.h"
 #include "webkit/database/database_util.h"
 
@@ -172,7 +172,8 @@ void BrowsingDataRemover::Remove(int remove_mask) {
                               profile_);
     // Since we are running on the UI thread don't call GetURLRequestContext().
     net::CookieMonster* cookie_monster =
-        profile_->GetRequestContext()->GetCookieStore()->GetCookieMonster();
+        profile_->GetRequestContext()->DONTUSEME_GetCookieStore()->
+        GetCookieMonster();
     if (cookie_monster)
       cookie_monster->DeleteAllCreatedBetween(delete_begin_, delete_end_, true);
 
@@ -228,7 +229,7 @@ void BrowsingDataRemover::Remove(int remove_mask) {
     if (web_data_service) {
       web_data_service->RemoveFormElementsAddedBetween(delete_begin_,
           delete_end_);
-      web_data_service->RemoveAutoFillProfilesAndCreditCardsModifiedBetween(
+      web_data_service->RemoveAutofillProfilesAndCreditCardsModifiedBetween(
           delete_begin_, delete_end_);
       PersonalDataManager* data_manager = profile_->GetPersonalDataManager();
       if (data_manager) {
@@ -241,7 +242,7 @@ void BrowsingDataRemover::Remove(int remove_mask) {
     // Tell the renderers to clear their cache.
     WebCacheManager::GetInstance()->ClearCache();
 
-    // Invoke ClearBrowsingDataView::ClearCache on the IO thread.
+    // Invoke DoClearCache on the IO thread.
     waiting_for_clear_cache_ = true;
     UserMetrics::RecordAction(UserMetricsAction("ClearBrowsingData_Cache"),
                               profile_);
@@ -385,7 +386,7 @@ void BrowsingDataRemover::DoClearCache(int rv) {
       case STATE_CREATE_MAIN:
       case STATE_CREATE_MEDIA: {
         // Get a pointer to the cache.
-        URLRequestContextGetter* getter =
+        net::URLRequestContextGetter* getter =
             (next_cache_state_ == STATE_CREATE_MAIN) ?
                 main_context_getter_ : media_context_getter_;
         net::HttpTransactionFactory* factory =

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 #define CHROME_BROWSER_AUTOCOMPLETE_AUTOCOMPLETE_POPUP_MODEL_H_
 #pragma once
 
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/autocomplete/autocomplete.h"
 #include "chrome/browser/autocomplete/autocomplete_edit.h"
 
@@ -70,13 +70,18 @@ class AutocompletePopupModel {
   // will change the selected line back to the default match and redraw.
   void ResetToDefaultMatch();
 
-  // Gets the selected keyword or keyword hint for the given match.  Returns
-  // true if |keyword| represents a keyword hint, or false if |keyword|
-  // represents a selected keyword.  (|keyword| will always be set [though
-  // possibly to the empty string], and you cannot have both a selected keyword
-  // and a keyword hint simultaneously.)
+  // Gets the selected keyword or keyword hint for the given match. If the match
+  // is already keyword, then the keyword will be returned directly. Otherwise,
+  // it returns GetKeywordForText(match.fill_into_edit, keyword).
   bool GetKeywordForMatch(const AutocompleteMatch& match,
                           string16* keyword) const;
+
+  // Gets the selected keyword or keyword hint for the given text. Returns
+  // true if |keyword| represents a keyword hint, or false if |keyword|
+  // represents a selected keyword. (|keyword| will always be set [though
+  // possibly to the empty string], and you cannot have both a selected keyword
+  // and a keyword hint simultaneously.)
+  bool GetKeywordForText(const string16& text, string16* keyword) const;
 
   // Immediately updates and opens the popup if necessary, then moves the
   // current selection down (|count| > 0) or up (|count| < 0), clamping to the
@@ -89,9 +94,9 @@ class AutocompletePopupModel {
   // can be removed from history, and if so, remove it and update the popup.
   void TryDeletingCurrentItem();
 
-  // Returns the special icon to use for a given match, or NULL if we should
-  // use a standard style icon.
-  const SkBitmap* GetSpecialIconForMatch(const AutocompleteMatch& match) const;
+  // If |match| is from an extension, returns the extension icon; otherwise
+  // returns NULL.
+  const SkBitmap* GetIconIfExtensionMatch(const AutocompleteMatch& match) const;
 
   // The match the user has manually chosen, if any.
   const AutocompleteResult::Selection& manually_selected_match() const {

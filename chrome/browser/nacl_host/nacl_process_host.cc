@@ -19,7 +19,7 @@
 #include "chrome/common/nacl_cmd_line.h"
 #include "chrome/common/nacl_messages.h"
 #include "chrome/common/render_messages.h"
-#include "content/browser/renderer_host/render_message_filter.h"
+#include "chrome/browser/renderer_host/chrome_render_message_filter.h"
 #include "ipc/ipc_switches.h"
 #include "native_client/src/shared/imc/nacl_imc.h"
 
@@ -49,17 +49,15 @@ struct NaClProcessHost::NaClInternal {
   std::vector<nacl::Handle> sockets_for_sel_ldr;
 };
 
-NaClProcessHost::NaClProcessHost(
-    ResourceDispatcherHost *resource_dispatcher_host,
-    const std::wstring& url)
-    : BrowserChildProcessHost(NACL_LOADER_PROCESS, resource_dispatcher_host),
-      resource_dispatcher_host_(resource_dispatcher_host),
+NaClProcessHost::NaClProcessHost(const std::wstring& url)
+    : BrowserChildProcessHost(NACL_LOADER_PROCESS),
       reply_msg_(NULL),
       internal_(new NaClInternal()),
       running_on_wow64_(false) {
   set_name(url);
 #if defined(OS_WIN)
-  running_on_wow64_ = (base::win::GetWOW64Status() == base::win::WOW64_ENABLED);
+  running_on_wow64_ = (base::win::OSInfo::GetInstance()->wow64_status() ==
+      base::win::OSInfo::WOW64_ENABLED);
 #endif
 }
 
@@ -82,12 +80,13 @@ NaClProcessHost::~NaClProcessHost() {
   // OnProcessLaunched didn't get called because the process couldn't launch.
   // Don't keep the renderer hanging.
   reply_msg_->set_reply_error();
-  render_message_filter_->Send(reply_msg_);
+  chrome_render_message_filter_->Send(reply_msg_);
 }
 
-bool NaClProcessHost::Launch(RenderMessageFilter* render_message_filter,
-                             int socket_count,
-                             IPC::Message* reply_msg) {
+bool NaClProcessHost::Launch(
+    ChromeRenderMessageFilter* chrome_render_message_filter,
+    int socket_count,
+    IPC::Message* reply_msg) {
 #ifdef DISABLE_NACL
   NOTIMPLEMENTED() << "Native Client disabled at build time";
   return false;
@@ -124,7 +123,7 @@ bool NaClProcessHost::Launch(RenderMessageFilter* render_message_filter,
     return false;
   }
   UmaNaclHistogramEnumeration(NACL_STARTED);
-  render_message_filter_ = render_message_filter;
+  chrome_render_message_filter_ = chrome_render_message_filter;
   reply_msg_ = reply_msg;
 
   return true;
@@ -153,9 +152,8 @@ bool NaClProcessHost::LaunchSelLdr() {
   // On Windows we might need to start the broker process to launch a new loader
 #if defined(OS_WIN)
   if (running_on_wow64_) {
-    NaClBrokerService::GetInstance()->Init(resource_dispatcher_host_);
-    return NaClBrokerService::GetInstance()->LaunchLoader(this,
-        ASCIIToWide(channel_id()));
+    return NaClBrokerService::GetInstance()->LaunchLoader(
+        this, ASCIIToWide(channel_id()));
   } else {
     BrowserChildProcessHost::Launch(FilePath(), cmd_line);
   }
@@ -198,7 +196,7 @@ void NaClProcessHost::OnProcessLaunched() {
     DuplicateHandle(base::GetCurrentProcessHandle(),
                     reinterpret_cast<HANDLE>(
                         internal_->sockets_for_renderer[i]),
-                    render_message_filter_->peer_handle(),
+                    chrome_render_message_filter_->peer_handle(),
                     &handle_in_renderer,
                     GENERIC_READ | GENERIC_WRITE,
                     FALSE,
@@ -219,7 +217,7 @@ void NaClProcessHost::OnProcessLaunched() {
   // Copy the process handle into the renderer process.
   DuplicateHandle(base::GetCurrentProcessHandle(),
                   handle(),
-                  render_message_filter_->peer_handle(),
+                  chrome_render_message_filter_->peer_handle(),
                   &nacl_process_handle,
                   PROCESS_DUP_HANDLE,
                   FALSE,
@@ -234,8 +232,8 @@ void NaClProcessHost::OnProcessLaunched() {
 
   ViewHostMsg_LaunchNaCl::WriteReplyParams(
       reply_msg_, handles_for_renderer, nacl_process_handle, nacl_process_id);
-  render_message_filter_->Send(reply_msg_);
-  render_message_filter_ = NULL;
+  chrome_render_message_filter_->Send(reply_msg_);
+  chrome_render_message_filter_ = NULL;
   reply_msg_ = NULL;
   internal_->sockets_for_renderer.clear();
 

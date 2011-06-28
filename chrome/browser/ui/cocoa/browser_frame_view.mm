@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 
 #include "base/logging.h"
 #include "base/mac/scoped_nsautorelease_pool.h"
-#import "chrome/browser/themes/browser_theme_provider.h"
+#import "chrome/browser/themes/theme_service.h"
 #import "chrome/browser/ui/cocoa/framed_browser_window.h"
 #import "chrome/browser/ui/cocoa/themed_window.h"
 #include "grit/theme_resources.h"
@@ -22,8 +22,6 @@ static BOOL gCanGetCornerRadius = NO;
 
 @interface NSView (Swizzles)
 - (void)drawRectOriginal:(NSRect)rect;
-- (BOOL)_mouseInGroup:(NSButton*)widget;
-- (void)updateTrackingAreas;
 - (NSUInteger)_shadowFlagsOriginal;
 @end
 
@@ -69,27 +67,6 @@ static BOOL gCanGetCornerRadius = NO;
         method_exchangeImplementations(m1, m2);
       }
     }
-  }
-
-  // Add _mouseInGroup.
-  m0 = class_getInstanceMethod([self class], @selector(_mouseInGroup:));
-  DCHECK(m0);
-  if (m0) {
-    BOOL didAdd = class_addMethod(grayFrameClass,
-                                  @selector(_mouseInGroup:),
-                                  method_getImplementation(m0),
-                                  method_getTypeEncoding(m0));
-    DCHECK(didAdd);
-  }
-  // Add updateTrackingArea.
-  m0 = class_getInstanceMethod([self class], @selector(updateTrackingAreas));
-  DCHECK(m0);
-  if (m0) {
-    BOOL didAdd = class_addMethod(grayFrameClass,
-                                  @selector(updateTrackingAreas),
-                                  method_getImplementation(m0),
-                                  method_getTypeEncoding(m0));
-    DCHECK(didAdd);
   }
 
   gCanDrawTitle =
@@ -248,8 +225,8 @@ static BOOL gCanGetCornerRadius = NO;
   NSGradient* gradient = nil;
   if (!themeImageColor && incognito)
     gradient = themeProvider->GetNSGradient(
-        active ? BrowserThemeProvider::GRADIENT_FRAME_INCOGNITO :
-                 BrowserThemeProvider::GRADIENT_FRAME_INCOGNITO_INACTIVE);
+        active ? ThemeService::GRADIENT_FRAME_INCOGNITO :
+                 ThemeService::GRADIENT_FRAME_INCOGNITO_INACTIVE);
 
   BOOL themed = NO;
   if (themeImageColor) {
@@ -336,10 +313,10 @@ static BOOL gCanGetCornerRadius = NO;
   NSColor* titleColor = nil;
   if (popup && active) {
     titleColor = themeProvider->GetNSColor(
-        BrowserThemeProvider::COLOR_TAB_TEXT, false);
+        ThemeService::COLOR_TAB_TEXT, false);
   } else if (popup && !active) {
     titleColor = themeProvider->GetNSColor(
-        BrowserThemeProvider::COLOR_BACKGROUND_TAB_TEXT, false);
+        ThemeService::COLOR_BACKGROUND_TAB_TEXT, false);
   }
 
   if (titleColor)
@@ -349,29 +326,6 @@ static BOOL gCanGetCornerRadius = NO;
     return [NSColor whiteColor];
   else
     return [NSColor windowFrameTextColor];
-}
-
-// Check to see if the mouse is currently in one of our window widgets.
-- (BOOL)_mouseInGroup:(NSButton*)widget {
-  BOOL mouseInGroup = NO;
-  if ([[self window] isKindOfClass:[FramedBrowserWindow class]]) {
-    FramedBrowserWindow* window =
-        static_cast<FramedBrowserWindow*>([self window]);
-    mouseInGroup = [window mouseInGroup:widget];
-  } else if ([super respondsToSelector:@selector(_mouseInGroup:)]) {
-    mouseInGroup = [super _mouseInGroup:widget];
-  }
-  return mouseInGroup;
-}
-
-// Let our window handle updating the window widget tracking area.
-- (void)updateTrackingAreas {
-  [super updateTrackingAreas];
-  if ([[self window] isKindOfClass:[FramedBrowserWindow class]]) {
-    FramedBrowserWindow* window =
-        static_cast<FramedBrowserWindow*>([self window]);
-    [window updateTrackingAreas];
-  }
 }
 
 // When the compositor is active, the whole content area is transparent (with

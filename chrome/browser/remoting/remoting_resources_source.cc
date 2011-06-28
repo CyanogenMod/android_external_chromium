@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,9 +23,9 @@
 
 // Define the values of standard URLs.
 const char RemotingResourcesSource::kInvalidPasswordHelpUrl[] =
-  "http://www.google.com/support/accounts/bin/answer.py?ctx=ch&answer=27444";
+  "https://www.google.com/support/accounts/bin/answer.py?ctx=ch&answer=27444";
 const char RemotingResourcesSource::kCanNotAccessAccountUrl[] =
-  "http://www.google.com/support/accounts/bin/answer.py?answer=48598";
+  "https://www.google.com/support/accounts/bin/answer.py?answer=48598";
 const char RemotingResourcesSource::kCreateNewAccountUrl[] =
   "https://www.google.com/accounts/NewAccount?service=chromiumsync";
 
@@ -35,7 +35,8 @@ RemotingResourcesSource::RemotingResourcesSource()
 }
 
 void RemotingResourcesSource::StartDataRequest(const std::string& path_raw,
-    bool is_off_the_record, int request_id) {
+                                               bool is_incognito,
+                                               int request_id) {
   const char kRemotingGaiaLoginPath[] = "gaialogin";
   const char kRemotingSetupFlowPath[] = "setup";
   const char kRemotingSetupDonePath[] = "setupdone";

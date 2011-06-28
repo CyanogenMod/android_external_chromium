@@ -2,12 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/scoped_nsobject.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_nsobject.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/app/chrome_command_ids.h"
-#include "chrome/browser/browser_window.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/sync/sync_ui_util.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/cocoa/browser_test_helper.h"
 #include "chrome/browser/ui/cocoa/browser_window_controller.h"
 #include "chrome/browser/ui/cocoa/cocoa_test_helper.h"
@@ -622,6 +622,14 @@ class BrowserWindowFullScreenControllerTest : public CocoaTest {
 - (BOOL)supportsFullscreen;
 @end
 
+// Check if the window is front most or if one of its child windows (such
+// as a status bubble) is front most.
+static bool IsFrontWindow(NSWindow *window) {
+  NSWindow* frontmostWindow = [[NSApp orderedWindows] objectAtIndex:0];
+  return [frontmostWindow isEqual:window] ||
+         [[frontmostWindow parentWindow] isEqual:window];
+}
+
 TEST_F(BrowserWindowFullScreenControllerTest, TestFullscreen) {
   EXPECT_FALSE([controller_ isFullscreen]);
   [controller_ setFullscreen:YES];
@@ -638,13 +646,11 @@ TEST_F(BrowserWindowFullScreenControllerTest, TestActivate) {
   EXPECT_FALSE([controller_ isFullscreen]);
 
   [controller_ activate];
-  NSWindow* frontmostWindow = [[NSApp orderedWindows] objectAtIndex:0];
-  EXPECT_EQ(frontmostWindow, [controller_ window]);
+  EXPECT_TRUE(IsFrontWindow([controller_ window]));
 
   [controller_ setFullscreen:YES];
   [controller_ activate];
-  frontmostWindow = [[NSApp orderedWindows] objectAtIndex:0];
-  EXPECT_EQ(frontmostWindow, [controller_ createFullscreenWindow]);
+  EXPECT_TRUE(IsFrontWindow([controller_ createFullscreenWindow]));
 
   // We have to cleanup after ourselves by unfullscreening.
   [controller_ setFullscreen:NO];

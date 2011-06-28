@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,13 +7,13 @@
 #include <map>
 #include <string>
 
-#include "base/metrics/field_trial.h"
 #include "base/lazy_instance.h"
+#include "base/metrics/field_trial.h"
 #include "base/stl_util-inl.h"
 #include "base/string_number_conversions.h"
+#include "base/synchronization/waitable_event.h"
 #include "base/threading/thread.h"
 #include "base/values.h"
-#include "base/synchronization/waitable_event.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/io_thread.h"
 #include "chrome/browser/net/preconnect.h"
@@ -21,13 +21,14 @@
 #include "chrome/browser/net/url_info.h"
 #include "chrome/browser/prefs/browser_prefs.h"
 #include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/prefs/scoped_user_pref_update.h"
 #include "chrome/browser/prefs/session_startup_pref.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/common/notification_registrar.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
 #include "content/browser/browser_thread.h"
+#include "content/common/notification_registrar.h"
+#include "content/common/notification_service.h"
 #include "net/base/host_resolver.h"
 #include "net/base/host_resolver_impl.h"
 
@@ -146,7 +147,6 @@ void DiscardInitialNavigationHistory() {
 void RegisterUserPrefs(PrefService* user_prefs) {
   user_prefs->RegisterListPref(prefs::kDnsPrefetchingStartupList);
   user_prefs->RegisterListPref(prefs::kDnsPrefetchingHostReferralList);
-  user_prefs->RegisterBooleanPref(prefs::kDnsPrefetchingEnabled, true);
 }
 
 // When enabled, we use the following instance to service all requests in the
@@ -381,6 +381,13 @@ void PredictorGetHtmlInfo(std::string* output) {
   output->append("</body></html>");
 }
 
+void ClearPredictorCache() {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  if (!predictor_enabled || NULL == g_predictor)
+    return;
+  g_predictor->DiscardAllResults();
+}
+
 //------------------------------------------------------------------------------
 // This section intializes global DNS prefetch services.
 //------------------------------------------------------------------------------
@@ -393,14 +400,14 @@ static void InitNetworkPredictor(TimeDelta max_dns_queue_delay,
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
   bool prefetching_enabled =
-      user_prefs->GetBoolean(prefs::kDnsPrefetchingEnabled);
+      user_prefs->GetBoolean(prefs::kNetworkPredictionEnabled);
 
   // Gather the list of hostnames to prefetch on startup.
   UrlList urls =
       GetPredictedUrlListAtStartup(user_prefs, local_state);
 
   ListValue* referral_list =
-      static_cast<ListValue*>(user_prefs->GetMutableList(
+      static_cast<ListValue*>(user_prefs->GetList(
           prefs::kDnsPrefetchingHostReferralList)->DeepCopy());
 
   // Remove obsolete preferences from local state if necessary.
@@ -459,11 +466,9 @@ static void SaveDnsPrefetchStateForNextStartupAndTrimOnIOThread(
   if (g_initial_observer)
     g_initial_observer->GetInitialDnsResolutionList(startup_list);
 
-  // TODO(jar): Trimming should be done more regularly, such as every 48 hours
-  // of physical time, or perhaps after 48 hours of running (excluding time
-  // between sessions possibly).
-  // For now, we'll just trim at shutdown.
-  g_predictor->TrimReferrers();
+  // Do at least one trim at shutdown, in case the user wasn't running long
+  // enough to do any regular trimming of referrers.
+  g_predictor->TrimReferrersNow();
   g_predictor->SerializeReferrers(referral_list);
 
   completion->Signal();
@@ -477,14 +482,19 @@ void SavePredictorStateForNextStartupAndTrim(PrefService* prefs) {
 
   base::WaitableEvent completion(true, false);
 
+  ListPrefUpdate update_startup_list(prefs, prefs::kDnsPrefetchingStartupList);
+  ListPrefUpdate update_referral_list(prefs,
+                                      prefs::kDnsPrefetchingHostReferralList);
   bool posted = BrowserThread::PostTask(
       BrowserThread::IO,
       FROM_HERE,
       NewRunnableFunction(SaveDnsPrefetchStateForNextStartupAndTrimOnIOThread,
-          prefs->GetMutableList(prefs::kDnsPrefetchingStartupList),
-          prefs->GetMutableList(prefs::kDnsPrefetchingHostReferralList),
+          update_startup_list.Get(),
+          update_referral_list.Get(),
           &completion));
 
+  // TODO(jar): Synchronous waiting for the IO thread is a potential source
+  // to deadlocks and should be investigated. See http://crbug.com/78451.
   DCHECK(posted);
   if (posted)
     completion.Wait();
@@ -498,11 +508,11 @@ static UrlList GetPredictedUrlListAtStartup(PrefService* user_prefs,
   // This may catch secondary hostnames, pulled in by the homepages.  It will
   // also catch more of the "primary" home pages, since that was (presumably)
   // rendered first (and will be rendered first this time too).
-  ListValue* startup_list =
-      user_prefs->GetMutableList(prefs::kDnsPrefetchingStartupList);
+  const ListValue* startup_list =
+      user_prefs->GetList(prefs::kDnsPrefetchingStartupList);
 
   if (startup_list) {
-    ListValue::iterator it = startup_list->begin();
+    ListValue::const_iterator it = startup_list->begin();
     int format_version = -1;
     if (it != startup_list->end() &&
         (*it)->GetAsInteger(&format_version) &&
@@ -547,8 +557,7 @@ static UrlList GetPredictedUrlListAtStartup(PrefService* user_prefs,
 
 //------------------------------------------------------------------------------
 // Methods for the helper class that is used to startup and teardown the whole
-// g_predictor system (both DNS pre-resolution and TCP/IP connection
-// prewarming).
+// g_predictor system (both DNS pre-resolution and TCP/IP pre-connection).
 
 PredictorInit::PredictorInit(PrefService* user_prefs,
                              PrefService* local_state,

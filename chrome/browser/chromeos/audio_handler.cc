@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,8 @@
 #include <math.h>
 
 #include "base/logging.h"
-#include "base/singleton.h"
+#include "base/memory/singleton.h"
 #include "chrome/browser/chromeos/audio_mixer_alsa.h"
-#include "chrome/browser/chromeos/audio_mixer_pulse.h"
 #include "content/browser/browser_thread.h"
 
 namespace chromeos {
@@ -25,12 +24,13 @@ const double kMaxVolumeDb = 6.0;
 const double kVolumeBias = 0.5;
 // If a connection is lost, we try again this many times
 const int kMaxReconnectTries = 4;
+// A flag to disable mixer.
+bool g_disabled = false;
 
 }  // namespace
 
 // chromeos:  This class will set the volume using ALSA to adjust volume and
-// mute, and handle the volume level logic.  PulseAudio is no longer called
-// and support can be removed once there is no need to go back to using PA.
+// mute, and handle the volume level logic.
 
 double AudioHandler::GetVolumePercent() {
   if (!VerifyMixerConnection())
@@ -98,11 +98,12 @@ void AudioHandler::Disconnect() {
   mixer_.reset();
 }
 
+void AudioHandler::Disable() {
+  g_disabled = true;
+}
+
 bool AudioHandler::TryToConnect(bool async) {
-  if (mixer_type_ == MIXER_TYPE_PULSEAUDIO) {
-    VLOG(1) << "Trying to connect to PulseAudio";
-    mixer_.reset(new AudioMixerPulse());
-  } else if (mixer_type_ == MIXER_TYPE_ALSA) {
+  if (mixer_type_ == MIXER_TYPE_ALSA) {
     VLOG(1) << "Trying to connect to ALSA";
     mixer_.reset(new AudioMixerAlsa());
   } else {
@@ -120,13 +121,6 @@ bool AudioHandler::TryToConnect(bool async) {
     }
   }
   return true;
-}
-
-void AudioHandler::UseNextMixer() {
-  if (mixer_type_ == MIXER_TYPE_PULSEAUDIO)
-    mixer_type_ = MIXER_TYPE_ALSA;
-  else
-    mixer_type_ = MIXER_TYPE_NONE;
 }
 
 static void ClipVolume(double* min_volume, double* max_volume) {
@@ -147,9 +141,10 @@ void AudioHandler::OnMixerInitialized(bool success) {
     return;
   }
 
-  VLOG(1) << "Unable to connect to mixer, trying next";
-  UseNextMixer();
+  VLOG(1) << "Unable to connect to mixer";
+  mixer_type_ = MIXER_TYPE_NONE;
 
+  // This frees the mixer on the UI thread
   BrowserThread::PostTask(
       BrowserThread::UI, FROM_HERE,
       NewRunnableMethod(this, &AudioHandler::TryToConnect, true));
@@ -160,11 +155,7 @@ AudioHandler::AudioHandler()
       reconnect_tries_(0),
       max_volume_db_(kMaxVolumeDb),
       min_volume_db_(kMinVolumeDb),
-      mixer_type_(MIXER_TYPE_ALSA) {
-  // TODO(davej): Only attempting a connection to the ALSA mixer now as a first
-  // step in removing pulseaudio.  If all goes well, the other references to
-  // the pulseaudio mixer can be removed.
-
+      mixer_type_(g_disabled ? MIXER_TYPE_NONE : MIXER_TYPE_ALSA) {
   // Start trying to connect to mixers asynchronously, starting with the current
   // mixer_type_.  If the connection fails, another TryToConnect() for the next
   // mixer will be posted at that time.

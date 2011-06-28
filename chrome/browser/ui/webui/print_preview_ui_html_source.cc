@@ -27,14 +27,22 @@ void SetLocalizedStrings(DictionaryValue* localized_strings) {
       l10n_util::GetStringUTF8(IDS_PRINT_PREVIEW_LOADING));
   localized_strings->SetString(std::string("noPlugin"),
       l10n_util::GetStringUTF8(IDS_PRINT_PREVIEW_NO_PLUGIN));
-  localized_strings->SetString(std::string("noPrinter"),
-      l10n_util::GetStringUTF8(IDS_PRINT_PREVIEW_NO_PRINTER));
 
   localized_strings->SetString(std::string("printButton"),
       l10n_util::GetStringUTF8(IDS_PRINT_PREVIEW_PRINT_BUTTON));
   localized_strings->SetString(std::string("cancelButton"),
       l10n_util::GetStringUTF8(IDS_PRINT_PREVIEW_CANCEL_BUTTON));
 
+  localized_strings->SetString(std::string("destinationLabel"),
+      l10n_util::GetStringUTF8(IDS_PRINT_PREVIEW_DESTINATION_LABEL));
+  localized_strings->SetString(std::string("copiesLabel"),
+      l10n_util::GetStringUTF8(IDS_PRINT_PREVIEW_COPIES_LABEL));
+  localized_strings->SetString(std::string("examplePageRangeText"),
+      l10n_util::GetStringUTF8(IDS_PRINT_PREVIEW_EXAMPLE_PAGE_RANGE_TEXT));
+  localized_strings->SetString(std::string("invalidNumberOfCopiesTitleToolTip"),
+      l10n_util::GetStringUTF8(IDS_PRINT_PREVIEW_INVALID_COPIES_TOOL_TIP));
+  localized_strings->SetString(std::string("layoutLabel"),
+      l10n_util::GetStringUTF8(IDS_PRINT_PREVIEW_LAYOUT_LABEL));
   localized_strings->SetString(std::string("optionAllPages"),
       l10n_util::GetStringUTF8(IDS_PRINT_PREVIEW_OPTION_ALL_PAGES));
   localized_strings->SetString(std::string("optionBw"),
@@ -49,6 +57,34 @@ void SetLocalizedStrings(DictionaryValue* localized_strings) {
       l10n_util::GetStringUTF8(IDS_PRINT_PREVIEW_OPTION_PORTRAIT));
   localized_strings->SetString(std::string("optionTwoSided"),
       l10n_util::GetStringUTF8(IDS_PRINT_PREVIEW_OPTION_TWO_SIDED));
+  localized_strings->SetString(std::string("bindingLabel"),
+      l10n_util::GetStringUTF8(IDS_PRINT_PREVIEW_BINDING_LABEL));
+  localized_strings->SetString(std::string("optionLongEdgeBinding"),
+      l10n_util::GetStringUTF8(IDS_PRINT_PREVIEW_OPTION_LONG_EDGE_BINDING));
+  localized_strings->SetString(std::string("optionShortEdgeBinding"),
+      l10n_util::GetStringUTF8(IDS_PRINT_PREVIEW_OPTION_SHORT_EDGE_BINDING));
+  localized_strings->SetString(std::string("pagesLabel"),
+      l10n_util::GetStringUTF8(IDS_PRINT_PREVIEW_PAGES_LABEL));
+  localized_strings->SetString(std::string("pageRangeTextBox"),
+      l10n_util::GetStringUTF8(IDS_PRINT_PREVIEW_PAGE_RANGE_TEXT));
+  localized_strings->SetString(std::string("pageRangeRadio"),
+      l10n_util::GetStringUTF8(IDS_PRINT_PREVIEW_PAGE_RANGE_RADIO));
+  localized_strings->SetString(std::string("pageRangeInvalidTitleToolTip"),
+      l10n_util::GetStringUTF8(IDS_PRINT_PREVIEW_PAGE_RANGE_INVALID_TOOL_TIP));
+  localized_strings->SetString(std::string("printToPDF"),
+      l10n_util::GetStringUTF8(IDS_PRINT_PREVIEW_PRINT_TO_PDF));
+  localized_strings->SetString(std::string("printPreviewTitleFormat"),
+      l10n_util::GetStringUTF8(IDS_PRINT_PREVIEW_TITLE_FORMAT));
+  localized_strings->SetString(std::string("printPreviewSummaryFormat"),
+      l10n_util::GetStringUTF8(IDS_PRINT_PREVIEW_SUMMARY_FORMAT));
+  localized_strings->SetString(std::string("printPreviewSheetsLabel"),
+      l10n_util::GetStringUTF8(IDS_PRINT_PREVIEW_SHEETS_LABEL));
+  localized_strings->SetString(std::string("printPreviewPageLabelSingular"),
+      l10n_util::GetStringUTF8(IDS_PRINT_PREVIEW_PAGE_LABEL_SINGULAR));
+  localized_strings->SetString(std::string("printPreviewPageLabelPlural"),
+      l10n_util::GetStringUTF8(IDS_PRINT_PREVIEW_PAGE_LABEL_PLURAL));
+  localized_strings->SetString(std::string("systemDialogOption"),
+      l10n_util::GetStringUTF8(IDS_PRINT_PREVIEW_SYSTEM_DIALOG_OPTION));
 }
 
 }  // namespace
@@ -73,7 +109,7 @@ void PrintPreviewUIHTMLSource::SetPrintPreviewData(
 }
 
 void PrintPreviewUIHTMLSource::StartDataRequest(const std::string& path,
-                                                bool is_off_the_record,
+                                                bool is_incognito,
                                                 int request_id) {
   if (path.empty()) {
     // Print Preview Index page.

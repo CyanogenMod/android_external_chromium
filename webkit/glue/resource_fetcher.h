@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -16,10 +16,11 @@
 
 #include "base/basictypes.h"
 #include "base/callback.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/timer.h"
 #include "googleurl/src/gurl.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebURLLoaderClient.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebURLRequest.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebURLResponse.h"
 
 class GURL;
@@ -27,7 +28,6 @@ class GURL;
 namespace WebKit {
 class WebFrame;
 class WebURLLoader;
-class WebURLRequest;
 struct WebURLError;
 }
 
@@ -43,7 +43,8 @@ class ResourceFetcher : public WebKit::WebURLLoaderClient {
 
   // We need a frame to make requests.
   ResourceFetcher(
-      const GURL& url, WebKit::WebFrame* frame, Callback* callback);
+      const GURL& url, WebKit::WebFrame* frame,
+      WebKit::WebURLRequest::TargetType target_type, Callback* callback);
   ~ResourceFetcher();
 
   // Stop the request and don't call the callback.
@@ -63,8 +64,10 @@ class ResourceFetcher : public WebKit::WebURLLoaderClient {
       WebKit::WebURLLoader* loader, const WebKit::WebURLResponse& response);
   virtual void didReceiveCachedMetadata(
       WebKit::WebURLLoader* loader, const char* data, int data_length);
+
   virtual void didReceiveData(
-      WebKit::WebURLLoader* loader, const char* data, int data_length);
+      WebKit::WebURLLoader* loader, const char* data, int data_length,
+      int encoded_data_length);
   virtual void didFinishLoading(
       WebKit::WebURLLoader* loader, double finishTime);
   virtual void didFail(
@@ -74,6 +77,9 @@ class ResourceFetcher : public WebKit::WebURLLoaderClient {
 
   // URL we're fetching
   GURL url_;
+
+  // Target type
+  WebKit::WebURLRequest::TargetType target_type_;
 
   // A copy of the original resource response
   WebKit::WebURLResponse response_;
@@ -102,8 +108,11 @@ class ResourceFetcher : public WebKit::WebURLLoaderClient {
 // A resource fetcher with a timeout
 class ResourceFetcherWithTimeout : public ResourceFetcher {
  public:
-  ResourceFetcherWithTimeout(const GURL& url, WebKit::WebFrame* frame,
-                             int timeout_secs, Callback* c);
+  ResourceFetcherWithTimeout(const GURL& url,
+                             WebKit::WebFrame* frame,
+                             WebKit::WebURLRequest::TargetType target_type,
+                             int timeout_secs,
+                             Callback* callback);
   virtual ~ResourceFetcherWithTimeout();
 
  private:

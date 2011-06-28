@@ -1,22 +1,26 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef CHROME_COMMON_AUTOMATION_MESSAGES_H__
-#define CHROME_COMMON_AUTOMATION_MESSAGES_H__
-#pragma once
-
+// Multiply-included message file, no traditional include guard.
 #include <string>
 
 #include "base/basictypes.h"
 #include "chrome/common/automation_constants.h"
-#include "chrome/common/common_param_traits.h"
-#include "chrome/common/page_type.h"
+#include "chrome/common/content_settings.h"
 #include "chrome/common/security_style.h"
-#include "chrome/common/common_param_traits.h"
+#include "content/common/common_param_traits.h"
+#include "content/common/page_type.h"
+#include "content/common/webkit_param_traits.h"
+#include "ipc/ipc_message_macros.h"
+#include "ipc/ipc_message_utils.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/upload_data.h"
 #include "ui/gfx/rect.h"
+
+// Singly-included section, not yet converted.
+#ifndef CHROME_COMMON_AUTOMATION_MESSAGES_H__
+#define CHROME_COMMON_AUTOMATION_MESSAGES_H__
 
 struct AutomationMsg_Find_Params {
   // Unused value, which exists only for backwards compat.
@@ -60,7 +64,7 @@ struct ExternalTabSettings {
   ExternalTabSettings(gfx::NativeWindow parent,
                       const gfx::Rect& dimensions,
                       unsigned int style,
-                      bool is_off_the_record,
+                      bool is_incognito,
                       bool load_requests_via_automation,
                       bool handle_top_level_requests,
                       const GURL& initial_url,
@@ -72,7 +76,7 @@ struct ExternalTabSettings {
   gfx::NativeWindow parent;
   gfx::Rect dimensions;
   unsigned int style;
-  bool is_off_the_record;
+  bool is_incognito;
   bool load_requests_via_automation;
   bool handle_top_level_requests;
   GURL initial_url;
@@ -355,6 +359,9 @@ struct ParamTraits<AttachExternalTabParams> {
 
 }  // namespace IPC
 
+#endif  // CHROME_COMMON_AUTOMATION_MESSAGES_H__
+
+// Keep this internal message file unchanged to preserve line numbering
+// (and hence the dubious __LINE__-based message numberings) across versions.
 #include "chrome/common/automation_messages_internal.h"
 
-#endif  // CHROME_COMMON_AUTOMATION_MESSAGES_H__

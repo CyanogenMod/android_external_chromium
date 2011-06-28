@@ -9,8 +9,8 @@
 #include <string>
 
 #include "base/basictypes.h"
+#include "base/memory/ref_counted.h"
 #include "base/observer_list.h"
-#include "base/ref_counted.h"
 #include "chrome/browser/prefs/pref_value_map.h"
 #include "chrome/common/persistent_pref_store.h"
 
@@ -24,13 +24,20 @@ class OverlayPersistentPrefStore : public PersistentPrefStore,
   explicit OverlayPersistentPrefStore(PersistentPrefStore* underlay);
   virtual ~OverlayPersistentPrefStore();
 
+  // Returns true if a value has been set for the |key| in this
+  // OverlayPersistentPrefStore, i.e. if it potentially overrides a value
+  // from the |underlay_|.
+  virtual bool IsSetInOverlay(const std::string& key) const;
+
   // Methods of PrefStore.
   virtual void AddObserver(PrefStore::Observer* observer);
   virtual void RemoveObserver(PrefStore::Observer* observer);
   virtual bool IsInitializationComplete() const;
-  virtual ReadResult GetValue(const std::string& key, Value** result) const;
+  virtual ReadResult GetValue(const std::string& key,
+                              const Value** result) const;
 
   // Methods of PersistentPrefStore.
+  virtual ReadResult GetMutableValue(const std::string& key, Value** result);
   virtual void SetValue(const std::string& key, Value* value);
   virtual void SetValueSilently(const std::string& key, Value* value);
   virtual void RemoveValue(const std::string& key);
@@ -38,7 +45,7 @@ class OverlayPersistentPrefStore : public PersistentPrefStore,
   virtual PrefReadError ReadPrefs();
   virtual bool WritePrefs();
   virtual void ScheduleWritePrefs();
-  // TODO(battre) remove this function
+  virtual void CommitPendingWrite();
   virtual void ReportValueChanged(const std::string& key);
 
  private:

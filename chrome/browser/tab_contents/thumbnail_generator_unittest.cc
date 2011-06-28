@@ -1,22 +1,22 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "app/surface/transport_dib.h"
 #include "base/basictypes.h"
 #include "base/stringprintf.h"
 #include "chrome/browser/history/top_sites.h"
 #include "chrome/browser/tab_contents/thumbnail_generator.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/render_messages.h"
 #include "chrome/test/testing_profile.h"
 #include "content/browser/renderer_host/backing_store_manager.h"
 #include "content/browser/renderer_host/mock_render_process_host.h"
 #include "content/browser/renderer_host/test_render_view_host.h"
+#include "content/common/notification_service.h"
 #include "skia/ext/platform_canvas.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkColorPriv.h"
 #include "ui/gfx/canvas_skia.h"
+#include "ui/gfx/surface/transport_dib.h"
 
 static const int kBitmapWidth = 100;
 static const int kBitmapHeight = 100;
@@ -338,13 +338,13 @@ TEST(ThumbnailGeneratorSimpleTest, ShouldUpdateThumbnail) {
   EXPECT_TRUE(ThumbnailGenerator::ShouldUpdateThumbnail(
       &profile, top_sites.get(), kGoodURL));
 
-  // Should be false, if it's in the off-the-record mode.
-  profile.set_off_the_record(true);
+  // Should be false, if it's in the incognito mode.
+  profile.set_incognito(true);
   EXPECT_FALSE(ThumbnailGenerator::ShouldUpdateThumbnail(
       &profile, top_sites.get(), kGoodURL));
 
-  // Should be true again, once turning off the off-the-record mode.
-  profile.set_off_the_record(false);
+  // Should be true again, once turning off the incognito mode.
+  profile.set_incognito(false);
   EXPECT_TRUE(ThumbnailGenerator::ShouldUpdateThumbnail(
       &profile, top_sites.get(), kGoodURL));
 

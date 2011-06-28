@@ -25,6 +25,7 @@
 
 #include <time.h>
 
+#include "base/base_api.h"
 #include "base/basictypes.h"
 
 #if defined(OS_POSIX)
@@ -48,7 +49,7 @@ class PageLoadTrackerUnitTest;
 
 // TimeDelta ------------------------------------------------------------------
 
-class TimeDelta {
+class BASE_API TimeDelta {
  public:
   TimeDelta() : delta_(0) {
   }
@@ -178,7 +179,7 @@ inline TimeDelta operator*(int64 a, TimeDelta td) {
 // Time -----------------------------------------------------------------------
 
 // Represents a wall clock time.
-class Time {
+class BASE_API Time {
  public:
   static const int64 kMillisecondsPerSecond = 1000;
   static const int64 kMicrosecondsPerMillisecond = 1000;
@@ -204,7 +205,7 @@ class Time {
   // Represents an exploded time that can be formatted nicely. This is kind of
   // like the Win32 SYSTEMTIME structure or the Unix "struct tm" with a few
   // additions and changes to prevent errors.
-  struct Exploded {
+  struct BASE_API Exploded {
     int year;          // Four digit year "2007"
     int month;         // 1-based month (values 1 = January, etc.)
     int day_of_week;   // 0-based day of week (0 = Sunday, etc.)
@@ -449,7 +450,7 @@ inline Time TimeDelta::operator+(Time t) const {
 
 // TimeTicks ------------------------------------------------------------------
 
-class TimeTicks {
+class BASE_API TimeTicks {
  public:
   TimeTicks() : ticks_(0) {
   }

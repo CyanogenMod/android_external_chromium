@@ -4,42 +4,37 @@
 
 #include "chrome/browser/ui/views/infobars/infobar_container.h"
 
-#include "base/utf_string_conversions.h"
-#include "chrome/browser/tab_contents/confirm_infobar_delegate.h"
-#include "chrome/browser/ui/view_ids.h"
-#include "chrome/browser/ui/views/infobars/infobar_view.h"
-#include "chrome/common/notification_details.h"
-#include "chrome/common/notification_source.h"
+#include "chrome/browser/tab_contents/infobar_delegate.h"
+#include "chrome/browser/ui/views/infobars/infobar.h"
 #include "content/browser/tab_contents/tab_contents.h"
-#include "grit/generated_resources.h"
-#include "ui/base/l10n/l10n_util.h"
+#include "content/common/notification_details.h"
+#include "content/common/notification_source.h"
+#include "ui/base/animation/slide_animation.h"
 
 InfoBarContainer::Delegate::~Delegate() {
 }
 
 InfoBarContainer::InfoBarContainer(Delegate* delegate)
     : delegate_(delegate),
-      tab_contents_(NULL) {
-  SetID(VIEW_ID_INFO_BAR_CONTAINER);
-  SetAccessibleName(l10n_util::GetStringUTF16(IDS_ACCNAME_INFOBAR_CONTAINER));
+      tab_contents_(NULL),
+      top_arrow_target_height_(InfoBar::kDefaultArrowTargetHeight) {
 }
 
 InfoBarContainer::~InfoBarContainer() {
-  // Before we remove any children, we reset |delegate_|, so that no removals
-  // will result in us trying to call delegate_->InfoBarContainerSizeChanged().
-  // This is important because at this point |delegate_| may be shutting down,
-  // and it's at best unimportant and at worst disastrous to call that.
-  delegate_ = NULL;
-  ChangeTabContents(NULL);
+  // RemoveAllInfoBarsForDestruction() should have already cleared our infobars.
+  DCHECK(infobars_.empty());
 }
 
 void InfoBarContainer::ChangeTabContents(TabContents* contents) {
   registrar_.RemoveAll();
 
   while (!infobars_.empty()) {
-    InfoBarView* infobar = *infobars_.begin();
-    // NULL the container pointer first so OnInfoBarAnimated() won't get called;
-    // we'll manually trigger this once for the whole set of changes below.
+    InfoBar* infobar = infobars_.front();
+    // NULL the container pointer first so that if the infobar is currently
+    // animating, OnInfoBarAnimated() won't get called; we'll manually trigger
+    // this once for the whole set of changes below.  This also prevents
+    // InfoBar::MaybeDelete() from calling RemoveInfoBar() a second time if the
+    // infobar happens to be at zero height (dunno if this can actually happen).
     infobar->set_container(NULL);
     RemoveInfoBar(infobar);
   }
@@ -63,54 +58,61 @@ void InfoBarContainer::ChangeTabContents(TabContents* contents) {
   }
 
   // Now that everything is up to date, signal the delegate to re-layout.
-  OnInfoBarAnimated(true);
+  OnInfoBarStateChanged(false);
 }
 
-void InfoBarContainer::OnInfoBarAnimated(bool done) {
+int InfoBarContainer::GetVerticalOverlap(int* total_height) {
+  // Our |total_height| is the sum of the preferred heights of the InfoBars
+  // contained within us plus the |vertical_overlap|.
+  int vertical_overlap = 0;
+  int next_infobar_y = 0;
+
+  for (InfoBars::iterator i(infobars_.begin()); i != infobars_.end(); ++i) {
+    InfoBar* infobar = *i;
+    next_infobar_y -= infobar->arrow_height();
+    vertical_overlap = std::max(vertical_overlap, -next_infobar_y);
+    next_infobar_y += infobar->total_height();
+  }
+
+  if (total_height)
+    *total_height = next_infobar_y + vertical_overlap;
+  return vertical_overlap;
+}
+
+void InfoBarContainer::SetMaxTopArrowHeight(int height) {
+  // Decrease the height by the arrow stroke thickness, which is the separator
+  // line height, because the infobar arrow target heights are without-stroke.
+  top_arrow_target_height_ = std::min(
+      std::max(height - InfoBar::kSeparatorLineHeight, 0),
+      InfoBar::kMaximumArrowTargetHeight);
+  UpdateInfoBarArrowTargetHeights();
+}
+
+void InfoBarContainer::OnInfoBarStateChanged(bool is_animating) {
   if (delegate_)
-    delegate_->InfoBarContainerSizeChanged(!done);
+    delegate_->InfoBarContainerStateChanged(is_animating);
 }
 
 void InfoBarContainer::RemoveDelegate(InfoBarDelegate* delegate) {
   tab_contents_->RemoveInfoBar(delegate);
 }
 
-void InfoBarContainer::RemoveInfoBar(InfoBarView* infobar) {
-  RemoveChildView(infobar);
-  infobars_.erase(infobar);
+void InfoBarContainer::RemoveInfoBar(InfoBar* infobar) {
+  InfoBars::iterator infobar_iterator(std::find(infobars_.begin(),
+                                                infobars_.end(), infobar));
+  DCHECK(infobar_iterator != infobars_.end());
+  PlatformSpecificRemoveInfoBar(infobar);
+  infobars_.erase(infobar_iterator);
 }
 
-void InfoBarContainer::PaintInfoBarArrows(gfx::Canvas* canvas,
-                                          View* outer_view,
-                                          int arrow_center_x) {
-  for (int i = 0; i < child_count(); ++i) {
-    InfoBarView* infobar = static_cast<InfoBarView*>(GetChildViewAt(i));
-    infobar->PaintArrow(canvas, outer_view, arrow_center_x);
-  }
-}
-
-gfx::Size InfoBarContainer::GetPreferredSize() {
-  // We do not have a preferred width (we will expand to fit the available width
-  // of the delegate). Our preferred height is the sum of the preferred heights
-  // of the InfoBars contained within us.
-  int height = 0;
-  for (int i = 0; i < child_count(); ++i)
-    height += GetChildViewAt(i)->GetPreferredSize().height();
-  return gfx::Size(0, height);
-}
-
-void InfoBarContainer::Layout() {
-  int top = 0;
-  for (int i = 0; i < child_count(); ++i) {
-    View* child = GetChildViewAt(i);
-    gfx::Size ps = child->GetPreferredSize();
-    child->SetBounds(0, top, width(), ps.height());
-    top += ps.height();
-  }
-}
-
-AccessibilityTypes::Role InfoBarContainer::GetAccessibleRole() {
-  return AccessibilityTypes::ROLE_GROUPING;
+void InfoBarContainer::RemoveAllInfoBarsForDestruction() {
+  // Before we remove any children, we reset |delegate_|, so that no removals
+  // will result in us trying to call
+  // delegate_->InfoBarContainerStateChanged().  This is important because at
+  // this point |delegate_| may be shutting down, and it's at best unimportant
+  // and at worst disastrous to call that.
+  delegate_ = NULL;
+  ChangeTabContents(NULL);
 }
 
 void InfoBarContainer::Observe(NotificationType type,
@@ -147,11 +149,12 @@ void InfoBarContainer::RemoveInfoBar(InfoBarDelegate* delegate,
   // close animation completes, while the delegate is removed from the tab
   // immediately.
   for (InfoBars::iterator i(infobars_.begin()); i != infobars_.end(); ++i) {
-    InfoBarView* infobar = *i;
+    InfoBar* infobar = *i;
     if (infobar->delegate() == delegate) {
       // We merely need hide the infobar; it will call back to RemoveInfoBar()
       // itself once it's hidden.
       infobar->Hide(use_animation);
+      UpdateInfoBarArrowTargetHeights();
       break;
     }
   }
@@ -160,12 +163,36 @@ void InfoBarContainer::RemoveInfoBar(InfoBarDelegate* delegate,
 void InfoBarContainer::AddInfoBar(InfoBar* infobar,
                                   bool animate,
                                   CallbackStatus callback_status) {
-  InfoBarView* infobar_view = static_cast<InfoBarView*>(infobar);
-  infobars_.insert(infobar_view);
-  AddChildView(infobar_view);
+  DCHECK(std::find(infobars_.begin(), infobars_.end(), infobar) ==
+      infobars_.end());
+  infobars_.push_back(infobar);
+  UpdateInfoBarArrowTargetHeights();
+  PlatformSpecificAddInfoBar(infobar);
   if (callback_status == WANT_CALLBACK)
-    infobar_view->set_container(this);
-  infobar_view->Show(animate);
+    infobar->set_container(this);
+  infobar->Show(animate);
   if (callback_status == NO_CALLBACK)
-    infobar_view->set_container(this);
+    infobar->set_container(this);
+}
+
+void InfoBarContainer::UpdateInfoBarArrowTargetHeights() {
+  for (size_t i = 0; i < infobars_.size(); ++i)
+    infobars_[i]->SetArrowTargetHeight(ArrowTargetHeightForInfoBar(i));
+}
+
+int InfoBarContainer::ArrowTargetHeightForInfoBar(size_t infobar_index) const {
+  if (!delegate_->DrawInfoBarArrows(NULL))
+    return 0;
+  if (infobar_index == 0)
+    return top_arrow_target_height_;
+  const ui::SlideAnimation* first_infobar_animation =
+      const_cast<const InfoBar*>(infobars_.front())->animation();
+  if ((infobar_index > 1) || first_infobar_animation->IsShowing())
+    return InfoBar::kDefaultArrowTargetHeight;
+  // When the first infobar is animating closed, we animate the second infobar's
+  // arrow target height from the default to the top target height.  Note that
+  // the animation values here are going from 1.0 -> 0.0 as the top bar closes.
+  return top_arrow_target_height_ + static_cast<int>(
+      (InfoBar::kDefaultArrowTargetHeight - top_arrow_target_height_) *
+          first_infobar_animation->GetCurrentValue());
 }

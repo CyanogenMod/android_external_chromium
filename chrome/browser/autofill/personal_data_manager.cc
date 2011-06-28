@@ -13,24 +13,28 @@
 #include "chrome/browser/autofill/autofill-inl.h"
 #include "chrome/browser/autofill/autofill_field.h"
 #include "chrome/browser/autofill/autofill_metrics.h"
+#include "chrome/browser/autofill/form_field.h"
 #include "chrome/browser/autofill/form_structure.h"
 #include "chrome/browser/autofill/phone_number.h"
+#include "chrome/browser/autofill/select_control_handler.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/webdata/web_data_service.h"
 #include "chrome/common/pref_names.h"
 #ifndef ANDROID
 #include "content/browser/browser_thread.h"
+<<<<<<< HEAD
 #endif
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebRegularExpression.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebString.h"
+=======
+>>>>>>> chromium.org at r12.0.742.93
 
 namespace {
 
-// The minimum number of fields that must contain user data and have known types
-// before AutoFill will attempt to import the data into a profile or a credit
-// card.
-const int kMinProfileImportSize = 3;
+// The minimum number of fields that must contain relevant user data before
+// Autofill will attempt to import the data into a credit card.
 const int kMinCreditCardImportSize = 2;
 
 template<typename T>
@@ -77,26 +81,27 @@ T* address_of(T& v) {
 bool IsValidEmail(const string16& value) {
   // This regex is more permissive than the official rfc2822 spec on the
   // subject, but it does reject obvious non-email addresses.
-  const string16 kEmailPattern =
-      ASCIIToUTF16("^[^@]+@[^@]+\\.[a-z]{2,6}$");
-  WebKit::WebRegularExpression re(WebKit::WebString(kEmailPattern),
-                                  WebKit::WebTextCaseInsensitive);
-  return re.match(WebKit::WebString(StringToLowerASCII(value))) != -1;
+  const string16 kEmailPattern = ASCIIToUTF16("^[^@]+@[^@]+\\.[a-z]{2,6}$");
+  return autofill::MatchString(value, kEmailPattern);
+}
+
+// Valid for US zip codes only.
+bool IsValidZip(const string16& value) {
+  // Basic US zip code matching.
+  const string16 kZipPattern = ASCIIToUTF16("^\\d{5}(-\\d{4})?$");
+  return autofill::MatchString(value, kZipPattern);
 }
 
 // Returns true if minimum requirements for import of a given |profile| have
 // been met.  An address submitted via a form must have at least these fields
 // filled.  No verification of validity of the contents is preformed.  This is
 // and existence check only.
-bool IsMinimumAddress(const AutoFillProfile& profile) {
-  return !profile.GetFieldText(AutofillType(ADDRESS_HOME_LINE1)).empty() &&
-         !profile.GetFieldText(AutofillType(ADDRESS_HOME_CITY)).empty() &&
-         !profile.GetFieldText(AutofillType(ADDRESS_HOME_STATE)).empty() &&
-         !profile.GetFieldText(AutofillType(ADDRESS_HOME_ZIP)).empty();
+bool IsMinimumAddress(const AutofillProfile& profile) {
+  return !profile.GetInfo(ADDRESS_HOME_LINE1).empty() &&
+         !profile.GetInfo(ADDRESS_HOME_CITY).empty() &&
+         !profile.GetInfo(ADDRESS_HOME_STATE).empty() &&
+         !profile.GetInfo(ADDRESS_HOME_ZIP).empty();
 }
-
-// Whether we have already logged the number of profiles this session.
-bool g_has_logged_profile_count = false;
 
 }  // namespace
 
@@ -108,11 +113,17 @@ PersonalDataManager::~PersonalDataManager() {
 void PersonalDataManager::OnWebDataServiceRequestDone(
     WebDataService::Handle h,
     const WDTypedResult* result) {
-  // Error from the web database.
-  if (!result)
-    return;
-
   DCHECK(pending_profiles_query_ || pending_creditcards_query_);
+
+  if (!result) {
+    // Error from the web database.
+    if (h == pending_creditcards_query_)
+      pending_creditcards_query_ = 0;
+    else if (h == pending_profiles_query_)
+      pending_profiles_query_ = 0;
+    return;
+  }
+
   DCHECK(result->GetType() == AUTOFILL_PROFILES_RESULT ||
          result->GetType() == AUTOFILL_CREDITCARDS_RESULT);
 
@@ -130,10 +141,10 @@ void PersonalDataManager::OnWebDataServiceRequestDone(
   // If both requests have responded, then all personal data is loaded.
   if (pending_profiles_query_ == 0 && pending_creditcards_query_ == 0) {
     is_data_loaded_ = true;
-    std::vector<AutoFillProfile*> profile_pointers(web_profiles_.size());
+    std::vector<AutofillProfile*> profile_pointers(web_profiles_.size());
     std::copy(web_profiles_.begin(), web_profiles_.end(),
               profile_pointers.begin());
-    AutoFillProfile::AdjustInferredLabels(&profile_pointers);
+    AutofillProfile::AdjustInferredLabels(&profile_pointers);
     FOR_EACH_OBSERVER(Observer, observers_, OnPersonalDataLoaded());
   }
 }
@@ -141,21 +152,6 @@ void PersonalDataManager::OnWebDataServiceRequestDone(
 /////////////////////////////////////////////////////////////////////////////
 // PersonalDataManager,
 // views::ButtonListener implementations
-void PersonalDataManager::OnAutoFillDialogApply(
-    std::vector<AutoFillProfile>* profiles,
-    std::vector<CreditCard>* credit_cards) {
-  // |profiles| may be NULL.
-  // |credit_cards| may be NULL.
-  if (profiles) {
-    CancelPendingQuery(&pending_profiles_query_);
-    SetProfiles(profiles);
-  }
-  if (credit_cards) {
-    CancelPendingQuery(&pending_creditcards_query_);
-    SetCreditCards(credit_cards);
-  }
-}
-
 void PersonalDataManager::SetObserver(PersonalDataManager::Observer* observer) {
   // TODO: RemoveObserver is for compatibility with old code, it should be
   // nuked.
@@ -168,54 +164,103 @@ void PersonalDataManager::RemoveObserver(
   observers_.RemoveObserver(observer);
 }
 
+// The |PersonalDataManager| is set up as a listener of the sync service in
+// |EmptyMigrationTrash| in the case where sync is not yet ready to receive
+// changes.  This method, |OnStateChange| acts as a deferred call to
+// |EmptyMigrationTrash| once the sync service becomes available.
+void PersonalDataManager::OnStateChanged() {
+  if (!profile_ || profile_->IsOffTheRecord())
+    return;
+
+  WebDataService* web_data_service =
+      profile_->GetWebDataService(Profile::EXPLICIT_ACCESS);
+  if (!web_data_service) {
+    NOTREACHED();
+    return;
+  }
+
+  ProfileSyncService* sync_service = profile_->GetProfileSyncService();
+  if (!sync_service)
+    return;
+
+  if (sync_service->ShouldPushChanges()) {
+    web_data_service->EmptyMigrationTrash(true);
+    sync_service->RemoveObserver(this);
+  }
+}
+
 bool PersonalDataManager::ImportFormData(
     const std::vector<const FormStructure*>& form_structures,
     const CreditCard** imported_credit_card) {
+<<<<<<< HEAD
 #ifdef ANDROID
   // TODO: Is this the funcionality that tries to create a profile for the user
   // based on what they've entered into forms?
   return false;
 #else
   scoped_ptr<AutoFillProfile> imported_profile(new AutoFillProfile);
+=======
+  scoped_ptr<AutofillProfile> imported_profile(new AutofillProfile);
+>>>>>>> chromium.org at r12.0.742.93
   scoped_ptr<CreditCard> local_imported_credit_card(new CreditCard);
 
   // Parse the form and construct a profile based on the information that is
   // possible to import.
-  int importable_fields = 0;
   int importable_credit_card_fields = 0;
-
   std::vector<const FormStructure*>::const_iterator iter;
+
+  // Detect and discard forms with multiple fields of the same type.
+  std::set<AutofillFieldType> types_seen;
+
   for (iter = form_structures.begin(); iter != form_structures.end(); ++iter) {
     const FormStructure* form = *iter;
     for (size_t i = 0; i < form->field_count(); ++i) {
       const AutofillField* field = form->field(i);
-      string16 value = CollapseWhitespace(field->value(), false);
+      string16 value = CollapseWhitespace(field->value, false);
 
       // If we don't know the type of the field, or the user hasn't entered any
       // information into the field, then skip it.
       if (!field->IsFieldFillable() || value.empty())
         continue;
 
-      AutofillType field_type(field->type());
-      FieldTypeGroup group(field_type.group());
+      AutofillFieldType field_type = field->type();
+      FieldTypeGroup group(AutofillType(field_type).group());
+
+      // Abandon the import if two fields of the same type are encountered.
+      // This indicates ambiguous data or miscategorization of types.
+      // Make an exception for PHONE_HOME_NUMBER however as both prefix and
+      // suffix are stored against this type.
+      if (types_seen.count(field_type) &&
+          field_type != PHONE_HOME_NUMBER  &&
+          field_type != PHONE_FAX_NUMBER) {
+        imported_profile.reset();
+        local_imported_credit_card.reset();
+        break;
+      } else {
+        types_seen.insert(field_type);
+      }
 
       if (group == AutofillType::CREDIT_CARD) {
         // If the user has a password set, we have no way of setting credit
         // card numbers.
         if (!HasPassword()) {
-          if (LowerCaseEqualsASCII(field->form_control_type(), "month")) {
-            DCHECK_EQ(CREDIT_CARD_EXP_MONTH, field_type.field_type());
+          if (LowerCaseEqualsASCII(field->form_control_type, "month")) {
+            DCHECK_EQ(CREDIT_CARD_EXP_MONTH, field_type);
             local_imported_credit_card->SetInfoForMonthInputType(value);
           } else {
-            local_imported_credit_card->SetInfo(
-                AutofillType(field_type.field_type()), value);
+            if (field_type == CREDIT_CARD_NUMBER) {
+              // Clean up any imported credit card numbers.
+              value = CreditCard::StripSeparators(value);
+            }
+            local_imported_credit_card->SetInfo(field_type, value);
           }
           ++importable_credit_card_fields;
         }
       } else {
         // In the case of a phone number, if the whole phone number was entered
         // into a single field, then parse it and set the sub components.
-        if (field_type.subgroup() == AutofillType::PHONE_WHOLE_NUMBER) {
+        if (AutofillType(field_type).subgroup() ==
+                AutofillType::PHONE_WHOLE_NUMBER) {
           string16 number;
           string16 city_code;
           string16 country_code;
@@ -227,17 +272,13 @@ bool PersonalDataManager::ImportFormData(
             continue;
 
           if (group == AutofillType::PHONE_HOME) {
-            imported_profile->SetInfo(AutofillType(PHONE_HOME_COUNTRY_CODE),
-                                      country_code);
-            imported_profile->SetInfo(AutofillType(PHONE_HOME_CITY_CODE),
-                                      city_code);
-            imported_profile->SetInfo(AutofillType(PHONE_HOME_NUMBER), number);
+            imported_profile->SetInfo(PHONE_HOME_COUNTRY_CODE, country_code);
+            imported_profile->SetInfo(PHONE_HOME_CITY_CODE, city_code);
+            imported_profile->SetInfo(PHONE_HOME_NUMBER, number);
           } else if (group == AutofillType::PHONE_FAX) {
-            imported_profile->SetInfo(AutofillType(PHONE_FAX_COUNTRY_CODE),
-                                      country_code);
-            imported_profile->SetInfo(AutofillType(PHONE_FAX_CITY_CODE),
-                                      city_code);
-            imported_profile->SetInfo(AutofillType(PHONE_FAX_NUMBER), number);
+            imported_profile->SetInfo(PHONE_FAX_COUNTRY_CODE, country_code);
+            imported_profile->SetInfo(PHONE_FAX_CITY_CODE, city_code);
+            imported_profile->SetInfo(PHONE_FAX_NUMBER, number);
           }
 
           continue;
@@ -248,11 +289,11 @@ bool PersonalDataManager::ImportFormData(
         // If so, combine them to form the full number.
         if (group == AutofillType::PHONE_HOME ||
             group == AutofillType::PHONE_FAX) {
-          AutofillType number_type(PHONE_HOME_NUMBER);
+          AutofillFieldType number_type = PHONE_HOME_NUMBER;
           if (group == AutofillType::PHONE_FAX)
-            number_type = AutofillType(PHONE_FAX_NUMBER);
+            number_type = PHONE_FAX_NUMBER;
 
-          string16 stored_number = imported_profile->GetFieldText(number_type);
+          string16 stored_number = imported_profile->GetInfo(number_type);
           if (stored_number.size() ==
                   static_cast<size_t>(PhoneNumber::kPrefixLength) &&
               value.size() == static_cast<size_t>(PhoneNumber::kSuffixLength)) {
@@ -260,29 +301,29 @@ bool PersonalDataManager::ImportFormData(
           }
         }
 
-        if (field_type.field_type() == EMAIL_ADDRESS && !IsValidEmail(value))
-          continue;
+        imported_profile->SetInfo(field_type, value);
 
-        imported_profile->SetInfo(AutofillType(field_type.field_type()),
-                                   value);
-        ++importable_fields;
+        // Reject profiles with invalid country information.
+        if (field_type == ADDRESS_HOME_COUNTRY &&
+            !value.empty() && imported_profile->CountryCode().empty()) {
+          imported_profile.reset();
+          break;
+        }
       }
     }
   }
 
-  // If the user did not enter enough information on the page then don't bother
-  // importing the data.
-  if (importable_fields < kMinProfileImportSize)
-    imported_profile.reset();
-  if (importable_credit_card_fields < kMinCreditCardImportSize)
-    local_imported_credit_card.reset();
-
-  if (imported_profile.get() && !IsMinimumAddress(*imported_profile.get()))
+  // Reject the profile if minimum address and validation requirements are not
+  // met.
+  if (imported_profile.get() && !IsValidLearnableProfile(*imported_profile))
     imported_profile.reset();
 
+  // Reject the credit card if we did not detect enough filled credit card
+  // fields or if the credit card number does not seem to be valid.
   if (local_imported_credit_card.get() &&
-      !CreditCard::IsCreditCardNumber(local_imported_credit_card->GetFieldText(
-          AutofillType(CREDIT_CARD_NUMBER)))) {
+      (importable_credit_card_fields < kMinCreditCardImportSize ||
+       !CreditCard::IsValidCreditCardNumber(
+           local_imported_credit_card->GetInfo(CREDIT_CARD_NUMBER)))) {
     local_imported_credit_card.reset();
   }
 
@@ -308,14 +349,14 @@ bool PersonalDataManager::ImportFormData(
 #endif
 }
 
-void PersonalDataManager::SetProfiles(std::vector<AutoFillProfile>* profiles) {
+void PersonalDataManager::SetProfiles(std::vector<AutofillProfile>* profiles) {
   if (profile_->IsOffTheRecord())
     return;
 
   // Remove empty profiles from input.
   profiles->erase(
       std::remove_if(profiles->begin(), profiles->end(),
-                     std::mem_fun_ref(&AutoFillProfile::IsEmpty)),
+                     std::mem_fun_ref(&AutofillProfile::IsEmpty)),
       profiles->end());
 
 #ifndef ANDROID
@@ -323,10 +364,10 @@ void PersonalDataManager::SetProfiles(std::vector<AutoFillProfile>* profiles) {
   // labels to identify a profile.
   // TODO(dhollowa): We need to deprecate labels and update the way sync
   // identifies profiles.
-  std::vector<AutoFillProfile*> profile_pointers(profiles->size());
+  std::vector<AutofillProfile*> profile_pointers(profiles->size());
   std::transform(profiles->begin(), profiles->end(), profile_pointers.begin(),
-      address_of<AutoFillProfile>);
-  AutoFillProfile::AdjustInferredLabels(&profile_pointers);
+      address_of<AutofillProfile>);
+  AutofillProfile::AdjustInferredLabels(&profile_pointers);
 
   WebDataService* wds = profile_->GetWebDataService(Profile::EXPLICIT_ACCESS);
   if (!wds)
@@ -334,34 +375,34 @@ void PersonalDataManager::SetProfiles(std::vector<AutoFillProfile>* profiles) {
 
   // Any profiles that are not in the new profile list should be removed from
   // the web database.
-  for (std::vector<AutoFillProfile*>::const_iterator iter =
+  for (std::vector<AutofillProfile*>::const_iterator iter =
            web_profiles_.begin();
        iter != web_profiles_.end(); ++iter) {
-    if (!FindByGUID<AutoFillProfile>(*profiles, (*iter)->guid()))
-      wds->RemoveAutoFillProfile((*iter)->guid());
+    if (!FindByGUID<AutofillProfile>(*profiles, (*iter)->guid()))
+      wds->RemoveAutofillProfile((*iter)->guid());
   }
 
   // Update the web database with the existing profiles.
-  for (std::vector<AutoFillProfile>::iterator iter = profiles->begin();
+  for (std::vector<AutofillProfile>::iterator iter = profiles->begin();
        iter != profiles->end(); ++iter) {
-    if (FindByGUID<AutoFillProfile>(web_profiles_, iter->guid()))
-      wds->UpdateAutoFillProfile(*iter);
+    if (FindByGUID<AutofillProfile>(web_profiles_, iter->guid()))
+      wds->UpdateAutofillProfile(*iter);
   }
 
   // Add the new profiles to the web database.  Don't add a duplicate.
-  for (std::vector<AutoFillProfile>::iterator iter = profiles->begin();
+  for (std::vector<AutofillProfile>::iterator iter = profiles->begin();
        iter != profiles->end(); ++iter) {
-    if (!FindByGUID<AutoFillProfile>(web_profiles_, iter->guid()) &&
+    if (!FindByGUID<AutofillProfile>(web_profiles_, iter->guid()) &&
         !FindByContents(web_profiles_, *iter))
-      wds->AddAutoFillProfile(*iter);
+      wds->AddAutofillProfile(*iter);
   }
 #endif
 
   // Copy in the new profiles.
   web_profiles_.reset();
-  for (std::vector<AutoFillProfile>::iterator iter = profiles->begin();
+  for (std::vector<AutofillProfile>::iterator iter = profiles->begin();
        iter != profiles->end(); ++iter) {
-    web_profiles_.push_back(new AutoFillProfile(*iter));
+    web_profiles_.push_back(new AutofillProfile(*iter));
   }
 
   // Read our writes to ensure consistency with the database.
@@ -426,64 +467,68 @@ void PersonalDataManager::SetCreditCards(
 }
 
 // TODO(jhawkins): Refactor SetProfiles so this isn't so hacky.
-void PersonalDataManager::AddProfile(const AutoFillProfile& profile) {
+void PersonalDataManager::AddProfile(const AutofillProfile& profile) {
   // Don't save a web profile if the data in the profile is a subset of an
   // auxiliary profile.
-  for (std::vector<AutoFillProfile*>::const_iterator iter =
+  for (std::vector<AutofillProfile*>::const_iterator iter =
            auxiliary_profiles_.begin();
        iter != auxiliary_profiles_.end(); ++iter) {
     if (profile.IsSubsetOf(**iter))
       return;
   }
 
-  std::vector<AutoFillProfile> profiles;
+  std::vector<AutofillProfile> profiles;
   MergeProfile(profile, web_profiles_.get(), &profiles);
   SetProfiles(&profiles);
 }
 
+<<<<<<< HEAD
 void PersonalDataManager::UpdateProfile(const AutoFillProfile& profile) {
 #ifndef ANDROID
+=======
+void PersonalDataManager::UpdateProfile(const AutofillProfile& profile) {
+>>>>>>> chromium.org at r12.0.742.93
   WebDataService* wds = profile_->GetWebDataService(Profile::EXPLICIT_ACCESS);
   if (!wds)
     return;
 
   // Update the cached profile.
-  for (std::vector<AutoFillProfile*>::iterator iter = web_profiles_->begin();
+  for (std::vector<AutofillProfile*>::iterator iter = web_profiles_->begin();
        iter != web_profiles_->end(); ++iter) {
     if ((*iter)->guid() == profile.guid()) {
       delete *iter;
-      *iter = new AutoFillProfile(profile);
+      *iter = new AutofillProfile(profile);
       break;
     }
   }
 
   // Ensure that profile labels are up to date.
-  AutoFillProfile::AdjustInferredLabels(&web_profiles_.get());
+  AutofillProfile::AdjustInferredLabels(&web_profiles_.get());
 
-  wds->UpdateAutoFillProfile(profile);
+  wds->UpdateAutofillProfile(profile);
   FOR_EACH_OBSERVER(Observer, observers_, OnPersonalDataChanged());
 #endif
 }
 
 void PersonalDataManager::RemoveProfile(const std::string& guid) {
   // TODO(jhawkins): Refactor SetProfiles so this isn't so hacky.
-  std::vector<AutoFillProfile> profiles(web_profiles_.size());
+  std::vector<AutofillProfile> profiles(web_profiles_.size());
   std::transform(web_profiles_.begin(), web_profiles_.end(),
                  profiles.begin(),
-                 DereferenceFunctor<AutoFillProfile>());
+                 DereferenceFunctor<AutofillProfile>());
 
   // Remove the profile that matches |guid|.
   profiles.erase(
       std::remove_if(profiles.begin(), profiles.end(),
-                     FormGroupMatchesByGUIDFunctor<AutoFillProfile>(guid)),
+                     FormGroupMatchesByGUIDFunctor<AutofillProfile>(guid)),
       profiles.end());
 
   SetProfiles(&profiles);
 }
 
-AutoFillProfile* PersonalDataManager::GetProfileByGUID(
+AutofillProfile* PersonalDataManager::GetProfileByGUID(
     const std::string& guid) {
-  for (std::vector<AutoFillProfile*>::iterator iter = web_profiles_->begin();
+  for (std::vector<AutofillProfile*>::iterator iter = web_profiles_->begin();
        iter != web_profiles_->end(); ++iter) {
     if ((*iter)->guid() == guid)
       return *iter;
@@ -556,8 +601,8 @@ void PersonalDataManager::GetPossibleFieldTypes(const string16& text,
     return;
   }
 
-  const std::vector<AutoFillProfile*>& profiles = this->profiles();
-  for (std::vector<AutoFillProfile*>::const_iterator iter = profiles.begin();
+  const std::vector<AutofillProfile*>& profiles = this->profiles();
+  for (std::vector<AutofillProfile*>::const_iterator iter = profiles.begin();
        iter != profiles.end(); ++iter) {
     const FormGroup* profile = *iter;
     if (!profile) {
@@ -591,14 +636,18 @@ bool PersonalDataManager::IsDataLoaded() const {
   return is_data_loaded_;
 }
 
-const std::vector<AutoFillProfile*>& PersonalDataManager::profiles() {
+const std::vector<AutofillProfile*>& PersonalDataManager::profiles() {
   // |profile_| is NULL in AutofillManagerTest.
 #ifdef ANDROID
   bool auxiliary_profiles_enabled = false;
 #else
   bool auxiliary_profiles_enabled = profile_ ? profile_->GetPrefs()->GetBoolean(
+<<<<<<< HEAD
       prefs::kAutoFillAuxiliaryProfilesEnabled) : false;
 #endif
+=======
+      prefs::kAutofillAuxiliaryProfilesEnabled) : false;
+>>>>>>> chromium.org at r12.0.742.93
   if (!auxiliary_profiles_enabled)
     return web_profiles();
 
@@ -617,7 +666,7 @@ const std::vector<AutoFillProfile*>& PersonalDataManager::profiles() {
   return profiles_;
 }
 
-const std::vector<AutoFillProfile*>& PersonalDataManager::web_profiles() {
+const std::vector<AutofillProfile*>& PersonalDataManager::web_profiles() {
   return web_profiles_.get();
 }
 
@@ -630,24 +679,108 @@ void PersonalDataManager::Refresh() {
   LoadCreditCards();
 }
 
-// static
-void PersonalDataManager::set_has_logged_profile_count(
-    bool has_logged_profile_count) {
-  g_has_logged_profile_count = has_logged_profile_count;
-}
-
 PersonalDataManager::PersonalDataManager()
     : profile_(NULL),
       is_data_loaded_(false),
       pending_profiles_query_(0),
       pending_creditcards_query_(0),
-      metric_logger_(new AutofillMetrics) {
+      metric_logger_(new AutofillMetrics),
+      has_logged_profile_count_(false) {
 }
 
 void PersonalDataManager::Init(Profile* profile) {
   profile_ = profile;
+  metric_logger_->LogIsAutofillEnabledAtStartup(IsAutofillEnabled());
+
   LoadProfiles();
   LoadCreditCards();
+}
+
+bool PersonalDataManager::IsAutofillEnabled() const {
+  return profile_->GetPrefs()->GetBoolean(prefs::kAutofillEnabled);
+}
+
+// static
+bool PersonalDataManager::IsValidLearnableProfile(
+    const AutofillProfile& profile) {
+  if (!IsMinimumAddress(profile))
+    return false;
+
+  string16 email = profile.GetInfo(EMAIL_ADDRESS);
+  if (!email.empty() && !IsValidEmail(email))
+    return false;
+
+  // Reject profiles with invalid US state information.
+  string16 state = profile.GetInfo(ADDRESS_HOME_STATE);
+  if (profile.CountryCode() == "US" &&
+      !state.empty() && !autofill::IsValidState(state)) {
+    return false;
+  }
+
+  // Reject profiles with invalid US zip information.
+  string16 zip = profile.GetInfo(ADDRESS_HOME_ZIP);
+  if (profile.CountryCode() == "US" && !zip.empty() && !IsValidZip(zip))
+    return false;
+
+  return true;
+}
+
+// static
+bool PersonalDataManager::MergeProfile(
+    const AutofillProfile& profile,
+    const std::vector<AutofillProfile*>& existing_profiles,
+    std::vector<AutofillProfile>* merged_profiles) {
+  DCHECK(merged_profiles);
+  merged_profiles->clear();
+
+  // Set to true if |profile| is merged into |existing_profiles|.
+  bool merged = false;
+
+  // First preference is to add missing values to an existing profile.
+  // Only merge with the first match.
+  for (std::vector<AutofillProfile*>::const_iterator iter =
+           existing_profiles.begin();
+       iter != existing_profiles.end(); ++iter) {
+    if (!merged) {
+      if (profile.IsSubsetOf(**iter)) {
+        // In this case, the existing profile already contains all of the data
+        // in |profile|, so consider the profiles already merged.
+        merged = true;
+      } else if ((*iter)->IntersectionOfTypesHasEqualValues(profile)) {
+        // |profile| contains all of the data in this profile, plus more.
+        merged = true;
+        (*iter)->MergeWith(profile);
+      }
+    }
+    merged_profiles->push_back(**iter);
+  }
+
+  // The second preference, if not merged above, is to alter non-primary values
+  // where the primary values match.
+  // Again, only merge with the first match.
+  if (!merged) {
+    merged_profiles->clear();
+    for (std::vector<AutofillProfile*>::const_iterator iter =
+             existing_profiles.begin();
+         iter != existing_profiles.end(); ++iter) {
+      if (!merged) {
+        if (!profile.PrimaryValue().empty() &&
+            StringToLowerASCII((*iter)->PrimaryValue()) ==
+                StringToLowerASCII(profile.PrimaryValue())) {
+          merged = true;
+          (*iter)->OverwriteWithOrAddTo(profile);
+        }
+      }
+      merged_profiles->push_back(**iter);
+    }
+  }
+
+  // Finally, if the new profile was not merged with an existing profile then
+  // add the new profile to the list.
+  if (!merged)
+    merged_profiles->push_back(profile);
+
+  return merged;
 }
 
 void PersonalDataManager::LoadProfiles() {
@@ -665,8 +798,12 @@ void PersonalDataManager::LoadProfiles() {
 
   CancelPendingQuery(&pending_profiles_query_);
 
+<<<<<<< HEAD
   pending_profiles_query_ = web_data_service->GetAutoFillProfiles(this);
 #endif
+=======
+  pending_profiles_query_ = web_data_service->GetAutofillProfiles(this);
+>>>>>>> chromium.org at r12.0.742.93
 }
 
 // Win and Linux implementations do nothing.  Mac implementation fills in the
@@ -699,16 +836,17 @@ void PersonalDataManager::ReceiveLoadedProfiles(WebDataService::Handle h,
   pending_profiles_query_ = 0;
   web_profiles_.reset();
 
-  const WDResult<std::vector<AutoFillProfile*> >* r =
-      static_cast<const WDResult<std::vector<AutoFillProfile*> >*>(result);
+  const WDResult<std::vector<AutofillProfile*> >* r =
+      static_cast<const WDResult<std::vector<AutofillProfile*> >*>(result);
 
-  std::vector<AutoFillProfile*> profiles = r->GetValue();
-  for (std::vector<AutoFillProfile*>::iterator iter = profiles.begin();
+  std::vector<AutofillProfile*> profiles = r->GetValue();
+  for (std::vector<AutofillProfile*>::iterator iter = profiles.begin();
        iter != profiles.end(); ++iter) {
     web_profiles_.push_back(*iter);
   }
 
   LogProfileCount();
+  EmptyMigrationTrash();
 }
 
 void PersonalDataManager::ReceiveLoadedCreditCards(
@@ -745,72 +883,20 @@ void PersonalDataManager::CancelPendingQuery(WebDataService::Handle* handle) {
 }
 
 void PersonalDataManager::SaveImportedProfile(
+<<<<<<< HEAD
     const AutoFillProfile& imported_profile) {
 #ifdef ANDROID
   // TODO: This should update the profile in Java land.
   return;
 #else
+=======
+    const AutofillProfile& imported_profile) {
+>>>>>>> chromium.org at r12.0.742.93
   if (profile_->IsOffTheRecord())
     return;
 
   AddProfile(imported_profile);
 #endif
-}
-
-bool PersonalDataManager::MergeProfile(
-    const AutoFillProfile& profile,
-    const std::vector<AutoFillProfile*>& existing_profiles,
-    std::vector<AutoFillProfile>* merged_profiles) {
-  DCHECK(merged_profiles);
-  merged_profiles->clear();
-
-  // Set to true if |profile| is merged into |existing_profiles|.
-  bool merged = false;
-
-  // First preference is to add missing values to an existing profile.
-  // Only merge with the first match.
-  for (std::vector<AutoFillProfile*>::const_iterator iter =
-           existing_profiles.begin();
-       iter != existing_profiles.end(); ++iter) {
-    if (!merged) {
-      if (profile.IsSubsetOf(**iter)) {
-        // In this case, the existing profile already contains all of the data
-        // in |profile|, so consider the profiles already merged.
-        merged = true;
-      } else if ((*iter)->IntersectionOfTypesHasEqualValues(profile)) {
-        // |profile| contains all of the data in this profile, plus more.
-        merged = true;
-        (*iter)->MergeWith(profile);
-      }
-    }
-    merged_profiles->push_back(**iter);
-  }
-
-  // The second preference, if not merged above, is to alter non-primary values
-  // where the primary values match.
-  // Again, only merge with the first match.
-  if (!merged) {
-    merged_profiles->clear();
-    for (std::vector<AutoFillProfile*>::const_iterator iter =
-             existing_profiles.begin();
-         iter != existing_profiles.end(); ++iter) {
-      if (!merged) {
-        if (!profile.PrimaryValue().empty() &&
-            (*iter)->PrimaryValue() == profile.PrimaryValue()) {
-          merged = true;
-          (*iter)->OverwriteWith(profile);
-        }
-      }
-      merged_profiles->push_back(**iter);
-    }
-  }
-
-  // Finally, if the new profile was not merged with an existing profile then
-  // add the new profile to the list.
-  if (!merged)
-    merged_profiles->push_back(profile);
-
-  return merged;
 }
 
 
@@ -852,11 +938,37 @@ void PersonalDataManager::SaveImportedCreditCard(
   SetCreditCards(&creditcards);
 }
 
+void PersonalDataManager::EmptyMigrationTrash() {
+  if (!profile_ || profile_->IsOffTheRecord())
+    return;
+
+  WebDataService* web_data_service =
+      profile_->GetWebDataService(Profile::EXPLICIT_ACCESS);
+  if (!web_data_service) {
+    NOTREACHED();
+    return;
+  }
+
+  ProfileSyncService* sync_service = profile_->GetProfileSyncService();
+  if (!sync_service)
+    return;
+
+  if (!sync_service->HasSyncSetupCompleted()) {
+    web_data_service->EmptyMigrationTrash(false);
+  } else if (sync_service->ShouldPushChanges()) {
+    web_data_service->EmptyMigrationTrash(true);
+  } else {
+    // Install ourself as a listener so we can empty the trash once the
+    // sync service becomes available.
+    if (!sync_service->HasObserver(this))
+      sync_service->AddObserver(this);
+  }
+}
 
 void PersonalDataManager::LogProfileCount() const {
-  if (!g_has_logged_profile_count) {
-    g_has_logged_profile_count = true;
-    metric_logger_->LogProfileCount(web_profiles_.size());
+  if (!has_logged_profile_count_) {
+    metric_logger_->LogStoredProfileCount(web_profiles_.size());
+    has_logged_profile_count_ = true;
   }
 }
 

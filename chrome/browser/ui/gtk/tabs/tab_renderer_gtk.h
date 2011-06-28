@@ -10,7 +10,7 @@
 #include <map>
 
 #include "base/basictypes.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/string16.h"
 #include "chrome/browser/ui/gtk/owned_widget_gtk.h"
 #include "content/common/notification_observer.h"
@@ -27,7 +27,7 @@ class Size;
 }  // namespace gfx
 
 class CustomDrawButton;
-class GtkThemeProvider;
+class GtkThemeService;
 class TabContents;
 
 namespace ui {
@@ -93,7 +93,7 @@ class TabRendererGtk : public ui::AnimationDelegate,
     NotificationRegistrar registrar_;
 
     // Gives us our throbber images.
-    ui::ThemeProvider* theme_provider_;
+    ui::ThemeProvider* theme_service_;
 
     // Current state of the animation.
     AnimationState animation_state_;
@@ -172,7 +172,7 @@ class TabRendererGtk : public ui::AnimationDelegate,
   bool ValidateLoadingAnimation(AnimationState animation_state);
 
   // Repaint only the area of the tab that contains the favicon.
-  void PaintFavIconArea(GdkEventExpose* event);
+  void PaintFaviconArea(GdkEventExpose* event);
 
   // Returns whether the Tab should display a favicon.
   bool ShouldShowIcon() const;
@@ -239,7 +239,7 @@ class TabRendererGtk : public ui::AnimationDelegate,
                        GdkEventCrossing*);
 
  private:
-  class FavIconCrashAnimation;
+  class FaviconCrashAnimation;
 
   // The data structure used to hold cached bitmaps.  We need to manually free
   // the bitmap in CachedBitmap when we remove it from |cached_bitmaps_|.  We
@@ -260,7 +260,7 @@ class TabRendererGtk : public ui::AnimationDelegate,
         : is_default_favicon(false),
           loading(false),
           crashed(false),
-          off_the_record(false),
+          incognito(false),
           show_icon(true),
           mini(false),
           blocked(false),
@@ -273,7 +273,7 @@ class TabRendererGtk : public ui::AnimationDelegate,
     string16 title;
     bool loading;
     bool crashed;
-    bool off_the_record;
+    bool incognito;
     bool show_icon;
     bool mini;
     bool blocked;
@@ -304,10 +304,10 @@ class TabRendererGtk : public ui::AnimationDelegate,
   bool IsPerformingCrashAnimation() const;
 
   // Set the temporary offset for the favicon. This is used during animation.
-  void SetFavIconHidingOffset(int offset);
+  void SetFaviconHidingOffset(int offset);
 
-  void DisplayCrashedFavIcon();
-  void ResetCrashedFavIcon();
+  void DisplayCrashedFavicon();
+  void ResetCrashedFavicon();
 
   // Generates the bounds for the interior items of the tab.
   void Layout();
@@ -407,10 +407,10 @@ class TabRendererGtk : public ui::AnimationDelegate,
   bool showing_close_button_;
 
   // The offset used to animate the favicon location.
-  int fav_icon_hiding_offset_;
+  int favicon_hiding_offset_;
 
   // The animation object used to swap the favicon with the sad tab icon.
-  scoped_ptr<FavIconCrashAnimation> crash_animation_;
+  scoped_ptr<FaviconCrashAnimation> crash_animation_;
 
   // Set when the crashed favicon should be displayed.
   bool should_display_crashed_favicon_;
@@ -439,7 +439,7 @@ class TabRendererGtk : public ui::AnimationDelegate,
   // alignment in the BrowserTitlebar.
   int background_offset_y_;
 
-  GtkThemeProvider* theme_provider_;
+  GtkThemeService* theme_service_;
 
   // The close button.
   scoped_ptr<CustomDrawButton> close_button_;

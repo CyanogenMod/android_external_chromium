@@ -21,15 +21,15 @@
 #include "chrome/browser/autocomplete/autocomplete.h"
 #include "chrome/browser/autocomplete/autocomplete_classifier.h"
 #include "chrome/browser/autocomplete/autocomplete_match.h"
-#include "chrome/browser/browser_list.h"
-#include "chrome/browser/browser_window.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/gtk/cairo_cached_surface.h"
-#include "chrome/browser/ui/gtk/gtk_theme_provider.h"
-#include "chrome/common/renderer_preferences.h"
+#include "chrome/browser/ui/gtk/gtk_theme_service.h"
 #include "content/browser/disposition_utils.h"
 #include "content/browser/renderer_host/render_view_host.h"
 #include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/renderer_preferences.h"
 #include "googleurl/src/gurl.h"
 #include "grit/theme_resources.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -809,17 +809,17 @@ void DrawThemedToolbarBackground(GtkWidget* widget,
                                  cairo_t* cr,
                                  GdkEventExpose* event,
                                  const gfx::Point& tabstrip_origin,
-                                 GtkThemeProvider* theme_provider) {
+                                 GtkThemeService* theme_service) {
   // Fill the entire region with the toolbar color.
-  GdkColor color = theme_provider->GetGdkColor(
-      BrowserThemeProvider::COLOR_TOOLBAR);
+  GdkColor color = theme_service->GetGdkColor(
+      ThemeService::COLOR_TOOLBAR);
   gdk_cairo_set_source_color(cr, &color);
   cairo_fill(cr);
 
   // The toolbar is supposed to blend in with the active tab, so we have to pass
   // coordinates for the IDR_THEME_TOOLBAR bitmap relative to the top of the
   // tab strip.
-  CairoCachedSurface* background = theme_provider->GetSurfaceNamed(
+  CairoCachedSurface* background = theme_service->GetSurfaceNamed(
       IDR_THEME_TOOLBAR, widget);
   background->SetSource(cr, tabstrip_origin.x(), tabstrip_origin.y());
   // We tile the toolbar background in both directions.
@@ -860,38 +860,6 @@ void SetAlwaysShowImage(GtkWidget* image_menu_item) {
                           &true_value);
   }
 #endif
-}
-
-void StackPopupWindow(GtkWidget* popup, GtkWidget* toplevel) {
-  DCHECK(GTK_IS_WINDOW(popup) && GTK_WIDGET_TOPLEVEL(popup) &&
-         GTK_WIDGET_REALIZED(popup));
-  DCHECK(GTK_IS_WINDOW(toplevel) && GTK_WIDGET_TOPLEVEL(toplevel) &&
-         GTK_WIDGET_REALIZED(toplevel));
-
-  // Stack the |popup| window directly above the |toplevel| window.
-  // The popup window is a direct child of the root window, so we need to
-  // find a similar ancestor for the toplevel window (which might have been
-  // reparented by a window manager).  We grab the server while we're doing
-  // this -- otherwise, we'll get an error if the window manager reparents the
-  // toplevel window right after we call GetHighestAncestorWindow().
-  gdk_x11_display_grab(gtk_widget_get_display(toplevel));
-  XID toplevel_window_base = ui::GetHighestAncestorWindow(
-      ui::GetX11WindowFromGtkWidget(toplevel),
-      ui::GetX11RootWindow());
-  if (toplevel_window_base) {
-    XID window_xid = ui::GetX11WindowFromGtkWidget(popup);
-    XID window_parent = ui::GetParentWindow(window_xid);
-    if (window_parent == ui::GetX11RootWindow()) {
-      ui::RestackWindow(window_xid, toplevel_window_base, true);
-    } else {
-      // The window manager shouldn't reparent override-redirect windows.
-      DLOG(ERROR) << "override-redirect window " << window_xid
-                  << "'s parent is " << window_parent
-                  << ", rather than root window "
-                  << ui::GetX11RootWindow();
-    }
-  }
-  gdk_x11_display_ungrab(gtk_widget_get_display(toplevel));
 }
 
 gfx::Rect GetWidgetRectRelativeToToplevel(GtkWidget* widget) {
@@ -1188,11 +1156,6 @@ bool IsWidgetAncestryVisible(GtkWidget* widget) {
   while (parent && GTK_WIDGET_VISIBLE(parent))
     parent = parent->parent;
   return !parent;
-}
-
-void SetGtkFont(const std::string& font_name) {
-  g_object_set(gtk_settings_get_default(),
-               "gtk-font-name", font_name.c_str(), NULL);
 }
 
 void SetLabelWidth(GtkWidget* label, int pixel_width) {

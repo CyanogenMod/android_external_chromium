@@ -1,8 +1,8 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/scoped_nsobject.h"
+#include "base/memory/scoped_nsobject.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_bar_controller.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_bar_folder_view.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_button.h"
@@ -137,6 +137,10 @@ namespace {
 
 - (BOOL)shouldShowIndicatorShownForPoint:(NSPoint)point {
   return dropIndicatorShown_;
+}
+
+- (BOOL)draggingAllowed:(id<NSDraggingInfo>)info {
+  return YES;
 }
 
 - (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)info {

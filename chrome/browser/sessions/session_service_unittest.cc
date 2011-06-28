@@ -1,11 +1,12 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/file_util.h"
+#include "base/memory/scoped_ptr.h"
+#include "base/memory/scoped_vector.h"
+#include "base/memory/scoped_temp_dir.h"
 #include "base/path_service.h"
-#include "base/scoped_ptr.h"
-#include "base/scoped_vector.h"
 #include "base/stl_util-inl.h"
 #include "base/string_number_conversions.h"
 #include "base/time.h"
@@ -16,14 +17,14 @@
 #include "chrome/browser/sessions/session_service_test_helper.h"
 #include "chrome/browser/sessions/session_types.h"
 #include "chrome/common/chrome_paths.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
-#include "chrome/common/notification_service.h"
-#include "chrome/common/notification_type.h"
 #include "chrome/test/browser_with_test_window_test.h"
 #include "chrome/test/file_test_utils.h"
 #include "chrome/test/testing_profile.h"
 #include "content/browser/tab_contents/navigation_entry.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
+#include "content/common/notification_service.h"
+#include "content/common/notification_type.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 class SessionServiceTest : public BrowserWithTestWindowTest,
@@ -36,8 +37,8 @@ class SessionServiceTest : public BrowserWithTestWindowTest,
     BrowserWithTestWindowTest::SetUp();
     std::string b = base::Int64ToString(base::Time::Now().ToInternalValue());
 
-    PathService::Get(base::DIR_TEMP, &path_);
-    path_ = path_.Append(FILE_PATH_LITERAL("SessionTestDirs"));
+    ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
+    path_ = temp_dir_.path().Append(FILE_PATH_LITERAL("SessionTestDirs"));
     file_util::CreateDirectory(path_);
     path_deleter_.reset(new FileAutoDeleter(path_));
     path_ = path_.AppendASCII(b);
@@ -133,6 +134,7 @@ class SessionServiceTest : public BrowserWithTestWindowTest,
   int sync_save_count_;
 
   // Path used in testing.
+  ScopedTempDir temp_dir_;
   FilePath path_;
   scoped_ptr<FileAutoDeleter> path_deleter_;
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,7 +21,7 @@ namespace chromeos {
 // NetworkDropdownButton
 
 // static
-const int NetworkDropdownButton::kThrobDuration = 1000;
+const int NetworkDropdownButton::kThrobDuration = 750;
 
 NetworkDropdownButton::NetworkDropdownButton(bool browser_mode,
                                              gfx::NativeWindow parent_window)
@@ -34,7 +34,7 @@ NetworkDropdownButton::NetworkDropdownButton(bool browser_mode,
       ALLOW_THIS_IN_INITIALIZER_LIST(animation_connecting_(this)),
       parent_window_(parent_window) {
   animation_connecting_.SetThrobDuration(kThrobDuration);
-  animation_connecting_.SetTweenType(ui::Tween::EASE_IN_OUT);
+  animation_connecting_.SetTweenType(ui::Tween::LINEAR);
   CrosLibrary::Get()->GetNetworkLibrary()->AddNetworkManagerObserver(this);
   // The initial state will be updated on Refresh.
   // See network_selection_view.cc.
@@ -87,12 +87,12 @@ void NetworkDropdownButton::OnNetworkManagerChanged(NetworkLibrary* cros) {
         const WifiNetwork* wifi =
             static_cast<const WifiNetwork*>(active_network);
         SetIcon(*IconForNetworkStrength(wifi, true));
-        SetText(ASCIIToWide(wifi->name()));
+        SetText(UTF8ToWide(wifi->name()));
       } else if (active_network->type() == TYPE_CELLULAR) {
         const CellularNetwork* cellular =
             static_cast<const CellularNetwork*>(active_network);
         SetIcon(*IconForNetworkStrength(cellular, true));
-        SetText(ASCIIToWide(cellular->name()));
+        SetText(UTF8ToWide(cellular->name()));
       } else {
         NOTREACHED();
       }
@@ -103,9 +103,9 @@ void NetworkDropdownButton::OnNetworkManagerChanged(NetworkLibrary* cros) {
         SetIcon(*IconForNetworkConnecting(0, true));
       }
       if (cros->wifi_connecting())
-        SetText(ASCIIToWide(cros->wifi_network()->name()));
+        SetText(UTF8ToWide(cros->wifi_network()->name()));
       else if (cros->cellular_connecting())
-        SetText(ASCIIToWide(cros->cellular_network()->name()));
+        SetText(UTF8ToWide(cros->cellular_network()->name()));
     }
 
     if (!cros->Connected() && !cros->Connecting()) {

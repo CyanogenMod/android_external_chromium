@@ -9,7 +9,7 @@
 #include <map>
 #include <string>
 
-#include "base/linked_ptr.h"
+#include "base/memory/linked_ptr.h"
 #include "base/task.h"
 #include "chrome/browser/extensions/extension_toolbar_model.h"
 #include "chrome/browser/ui/gtk/custom_button.h"
@@ -27,7 +27,7 @@
 class Browser;
 class BrowserActionButton;
 class Extension;
-class GtkThemeProvider;
+class GtkThemeService;
 class Profile;
 
 typedef struct _GdkDragContext GdkDragContext;
@@ -170,7 +170,7 @@ class BrowserActionsToolbarGtk : public ExtensionToolbarModel::Observer,
   Browser* browser_;
 
   Profile* profile_;
-  GtkThemeProvider* theme_provider_;
+  GtkThemeService* theme_service_;
 
   ExtensionToolbarModel* model_;
 

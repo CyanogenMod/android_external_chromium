@@ -15,10 +15,10 @@
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_action.h"
 #include "chrome/common/extensions/extension_resource.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
-#include "chrome/common/notification_source.h"
-#include "chrome/common/notification_type.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
+#include "content/common/notification_source.h"
+#include "content/common/notification_type.h"
 #include "skia/ext/skia_utils_mac.h"
 #import "third_party/GTM/AppKit/GTMNSAnimation+Duration.h"
 #include "ui/gfx/canvas_skia_paint.h"
@@ -37,7 +37,6 @@ static const CGFloat kBrowserActionBadgeOriginYOffset = 5;
 
 namespace {
 const CGFloat kAnimationDuration = 0.2;
-const CGFloat kShadowOffset = 2.0;
 }  // anonymous namespace
 
 // A helper class to bridge the asynchronous Skia bitmap loading mechanism to
@@ -65,7 +64,8 @@ class ExtensionImageTrackerBridge : public NotificationObserver,
   ~ExtensionImageTrackerBridge() {}
 
   // ImageLoadingTracker::Observer implementation.
-  void OnImageLoaded(SkBitmap* image, ExtensionResource resource, int index) {
+  void OnImageLoaded(SkBitmap* image, const ExtensionResource& resource,
+                     int index) {
     if (image)
       [owner_ setDefaultIcon:gfx::SkBitmapToNSImage(*image)];
     [owner_ updateState];
@@ -94,12 +94,11 @@ class ExtensionImageTrackerBridge : public NotificationObserver,
   DISALLOW_COPY_AND_ASSIGN(ExtensionImageTrackerBridge);
 };
 
-@interface BrowserActionCell(Internals)
-- (void)setIconShadow;
+@interface BrowserActionCell (Internals)
 - (void)drawBadgeWithinFrame:(NSRect)frame;
 @end
 
-@interface BrowserActionButton(Private)
+@interface BrowserActionButton (Private)
 - (void)endDrag;
 @end
 
@@ -275,7 +274,6 @@ class ExtensionImageTrackerBridge : public NotificationObserver,
 
   [[NSColor clearColor] set];
   NSRectFill(bounds);
-  [[self cell] setIconShadow];
 
   NSImage* actionImage = [self image];
   const NSSize imageSize = [actionImage size];
@@ -289,8 +287,7 @@ class ExtensionImageTrackerBridge : public NotificationObserver,
                  fraction:1.0
              neverFlipped:YES];
 
-  bounds.origin.y += kShadowOffset - kBrowserActionBadgeOriginYOffset;
-  bounds.origin.x -= kShadowOffset;
+  bounds.origin.y += kBrowserActionBadgeOriginYOffset;
   [[self cell] drawBadgeWithinFrame:bounds];
 
   [image unlockFocus];
@@ -304,16 +301,6 @@ class ExtensionImageTrackerBridge : public NotificationObserver,
 @synthesize tabId = tabId_;
 @synthesize extensionAction = extensionAction_;
 
-- (void)setIconShadow {
-  // Create the shadow below and to the right of the drawn image.
-  scoped_nsobject<NSShadow> imgShadow([[NSShadow alloc] init]);
-  [imgShadow.get() setShadowOffset:NSMakeSize(kShadowOffset, -kShadowOffset)];
-  [imgShadow setShadowBlurRadius:2.0];
-  [imgShadow.get() setShadowColor:[[NSColor blackColor]
-          colorWithAlphaComponent:0.3]];
-  [imgShadow set];
-}
-
 - (void)drawBadgeWithinFrame:(NSRect)frame {
   gfx::CanvasSkiaPaint canvas(frame, false);
   canvas.set_composite_alpha(true);
@@ -323,7 +310,6 @@ class ExtensionImageTrackerBridge : public NotificationObserver,
 
 - (void)drawInteriorWithFrame:(NSRect)cellFrame inView:(NSView*)controlView {
   [NSGraphicsContext saveGraphicsState];
-  [self setIconShadow];
   [super drawInteriorWithFrame:cellFrame inView:controlView];
   cellFrame.origin.y += kBrowserActionBadgeOriginYOffset;
   [self drawBadgeWithinFrame:cellFrame];

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,9 @@
 
 #include <math.h>
 
+#include "base/message_loop.h"
 #include "base/metrics/histogram.h"
+#include "base/win/wrapped_window_proc.h"
 
 namespace base {
 
@@ -121,7 +123,7 @@ void MessagePumpForUI::ScheduleDelayedWork(const TimeTicks& delayed_work_time) {
   delayed_work_time_ = delayed_work_time;
 
   int delay_msec = GetCurrentDelay();
-  DCHECK(delay_msec >= 0);
+  DCHECK_GE(delay_msec, 0);
   if (delay_msec < USER_TIMER_MINIMUM)
     delay_msec = USER_TIMER_MINIMUM;
 
@@ -232,7 +234,7 @@ void MessagePumpForUI::InitMessageWnd() {
 
   WNDCLASSEX wc = {0};
   wc.cbSize = sizeof(wc);
-  wc.lpfnWndProc = WndProcThunk;
+  wc.lpfnWndProc = base::win::WrappedWindowProc<WndProcThunk>;
   wc.hInstance = hinst;
   wc.lpszClassName = kWndClass;
   RegisterClassEx(&wc);
@@ -370,8 +372,19 @@ bool MessagePumpForUI::ProcessPumpReplacementMessage() {
   // possibly be posted), and finally dispatches that peeked replacement.  Note
   // that the re-post of kMsgHaveWork may be asynchronous to this thread!!
 
+  bool have_message = false;
   MSG msg;
-  bool have_message = (0 != PeekMessage(&msg, NULL, 0, 0, PM_REMOVE));
+  // We should not process all window messages if we are in the context of an
+  // OS modal loop, i.e. in the context of a windows API call like MessageBox.
+  // This is to ensure that these messages are peeked out by the OS modal loop.
+  if (MessageLoop::current()->os_modal_loop()) {
+    // We only peek out WM_PAINT and WM_TIMER here for reasons mentioned above.
+    have_message = PeekMessage(&msg, NULL, WM_PAINT, WM_PAINT, PM_REMOVE) ||
+                   PeekMessage(&msg, NULL, WM_TIMER, WM_TIMER, PM_REMOVE);
+  } else {
+    have_message = (0 != PeekMessage(&msg, NULL, 0, 0, PM_REMOVE));
+  }
+
   DCHECK(!have_message || kMsgHaveWork != msg.message ||
          msg.hwnd != message_hwnd_);
 

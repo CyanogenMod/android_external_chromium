@@ -26,5 +26,17 @@ found in the LICENSE file.
   border: 1px solid #777;
   padding-right: 4px;
   padding-left: 4px;
+  text-align: top;
 }
 
+#info-view .feature-green {
+  color: rgb(0, 128, 0);
+}
+
+#info-view .feature-yellow {
+  color: rgb(128, 128, 0);
+}
+
+#info-view .feature-red {
+  color: rgb(255, 0, 0);
+}

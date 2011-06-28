@@ -7,13 +7,13 @@
 #pragma once
 
 #include "base/basictypes.h"
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
 #include "ui/base/gtk/gtk_signal.h"
 
 class ImporterHost;
 
-typedef struct _GtkWindow GtkWindow;
 typedef struct _GtkWidget GtkWidget;
+typedef struct _GtkWindow GtkWindow;
 
 // ImportLockDialogGtk presents the dialog which asks the user to shut down
 // Firefox before starting the profile import.

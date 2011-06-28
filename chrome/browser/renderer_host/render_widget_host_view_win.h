@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,15 +13,15 @@
 
 #include <vector>
 
-#include "base/scoped_comptr_win.h"
-#include "base/scoped_ptr.h"
-#include "base/scoped_vector.h"
+#include "base/memory/scoped_ptr.h"
+#include "base/memory/scoped_vector.h"
 #include "base/task.h"
+#include "base/win/scoped_comptr.h"
 #include "chrome/browser/accessibility/browser_accessibility_manager.h"
-#include "chrome/browser/ime_input.h"
 #include "content/browser/renderer_host/render_widget_host_view.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
+#include "ui/base/win/ime_input.h"
 #include "ui/gfx/native_widget_types.h"
 #include "webkit/glue/webcursor.h"
 
@@ -131,6 +131,7 @@ class RenderWidgetHostViewWin
   virtual void DidBecomeSelected();
   virtual void WasHidden();
   virtual void SetSize(const gfx::Size& size);
+  virtual void SetBounds(const gfx::Rect& rect);
   virtual gfx::NativeView GetNativeView();
   virtual void MovePluginWindows(
       const std::vector<webkit::npapi::WebPluginGeometry>& moves);
@@ -160,8 +161,7 @@ class RenderWidgetHostViewWin
   virtual bool ContainsNativeView(gfx::NativeView native_view) const;
   virtual void SetVisuallyDeemphasized(const SkColor* color, bool animate);
 
-  virtual gfx::PluginWindowHandle AcquireCompositingSurface();
-  virtual void ReleaseCompositingSurface(gfx::PluginWindowHandle surface);
+  virtual gfx::PluginWindowHandle GetCompositingSurface();
   virtual void ShowCompositorHostWindow(bool show);
 
   virtual void OnAccessibilityNotifications(
@@ -277,6 +277,10 @@ class RenderWidgetHostViewWin
   // When we are doing accelerated compositing
   HWND compositor_host_window_;
 
+  // true if the compositor host window must be hidden after the
+  // software renderered view is updated.
+  bool hide_compositor_window_at_next_paint_;
+
   // The cursor for the page. This is passed up from the renderer.
   WebCursor current_cursor_;
 
@@ -287,8 +291,8 @@ class RenderWidgetHostViewWin
   bool track_mouse_leave_;
 
   // Wrapper class for IME input.
-  // (See "chrome/browser/ime_input.h" for its details.)
-  ImeInput ime_input_;
+  // (See "ui/base/win/ime_input.h" for its details.)
+  ui::ImeInput ime_input_;
 
   // Represents whether or not this browser process is receiving status
   // messages about the focused edit control from a renderer process.

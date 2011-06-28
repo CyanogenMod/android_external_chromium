@@ -17,12 +17,12 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/common/devtools_messages.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
 #include "content/browser/browsing_instance.h"
 #include "content/browser/child_process_security_policy.h"
 #include "content/browser/renderer_host/render_view_host.h"
 #include "content/browser/site_instance.h"
+#include "content/common/notification_service.h"
 #include "googleurl/src/gurl.h"
 
 // static
@@ -43,6 +43,8 @@ DevToolsManager::DevToolsManager()
     : inspected_rvh_for_reopen_(NULL),
       in_initial_show_(false),
       last_orphan_cookie_(0) {
+  registrar_.Add(this, NotificationType::RENDER_VIEW_HOST_DELETED,
+                 NotificationService::AllSources());
 }
 
 DevToolsManager::~DevToolsManager() {
@@ -191,6 +193,13 @@ void DevToolsManager::ClientHostClosing(DevToolsClientHost* host) {
       Details<RenderViewHost>(inspected_rvh));
 
   UnbindClientHost(inspected_rvh, host);
+}
+
+void DevToolsManager::Observe(NotificationType type,
+                              const NotificationSource& source,
+                              const NotificationDetails& details) {
+  DCHECK(type == NotificationType::RENDER_VIEW_HOST_DELETED);
+  UnregisterDevToolsClientHostFor(Source<RenderViewHost>(source).ptr());
 }
 
 RenderViewHost* DevToolsManager::GetInspectedRenderViewHost(
@@ -358,6 +367,13 @@ void DevToolsManager::ToggleDevToolsWindow(
     DevToolsToggleAction action) {
   bool do_open = force_open;
   DevToolsClientHost* host = GetDevToolsClientHostFor(inspected_rvh);
+
+  if (host != NULL && host->AsDevToolsWindow() == NULL) {
+    // Break remote debugging / extension debugging session.
+    UnregisterDevToolsClientHostFor(inspected_rvh);
+    host = NULL;
+  }
+
   if (!host) {
     bool docked = inspected_rvh->process()->profile()->GetPrefs()->
         GetBoolean(prefs::kDevToolsOpenDocked);
@@ -368,10 +384,8 @@ void DevToolsManager::ToggleDevToolsWindow(
     RegisterDevToolsClientHostFor(inspected_rvh, host);
     do_open = true;
   }
-  DevToolsWindow* window = host->AsDevToolsWindow();
-  if (!window)
-    return;
 
+  DevToolsWindow* window = host->AsDevToolsWindow();
   // If window is docked and visible, we hide it on toggle. If window is
   // undocked, we show (activate) it.
   if (!window->is_docked() || do_open) {

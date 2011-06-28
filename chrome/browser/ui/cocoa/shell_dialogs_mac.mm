@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,7 +16,7 @@
 #import "base/mac/cocoa_protocols.h"
 #include "base/mac/mac_util.h"
 #include "base/mac/scoped_cftyperef.h"
-#import "base/scoped_nsobject.h"
+#import "base/memory/scoped_nsobject.h"
 #include "base/sys_string_conversions.h"
 #include "base/threading/thread_restrictions.h"
 #include "grit/generated_resources.h"
@@ -54,17 +54,6 @@ class SelectFileDialogImpl : public SelectFileDialog {
   virtual bool IsRunning(gfx::NativeWindow parent_window) const;
   virtual void ListenerDestroyed();
 
-  // SelectFileDialog implementation.
-  // |params| is user data we pass back via the Listener interface.
-  virtual void SelectFile(Type type,
-                          const string16& title,
-                          const FilePath& default_path,
-                          const FileTypeInfo* file_types,
-                          int file_type_index,
-                          const FilePath::StringType& default_extension,
-                          gfx::NativeWindow owning_window,
-                          void* params);
-
   // Callback from ObjC bridge.
   void FileWasSelected(NSSavePanel* dialog,
                        NSWindow* parent_window,
@@ -80,13 +69,22 @@ class SelectFileDialogImpl : public SelectFileDialog {
     NSWindow* owning_window;
   };
 
+ protected:
+  // SelectFileDialog implementation.
+  // |params| is user data we pass back via the Listener interface.
+  virtual void SelectFileImpl(Type type,
+                              const string16& title,
+                              const FilePath& default_path,
+                              const FileTypeInfo* file_types,
+                              int file_type_index,
+                              const FilePath::StringType& default_extension,
+                              gfx::NativeWindow owning_window,
+                              void* params);
+
  private:
   // Gets the accessory view for the save dialog.
   NSView* GetAccessoryView(const FileTypeInfo* file_types,
                            int file_type_index);
-
-  // The listener to be notified of selection completion.
-  Listener* listener_;
 
   // The bridge for results from Cocoa to return to us.
   scoped_nsobject<SelectFileDialogBridge> bridge_;
@@ -109,7 +107,7 @@ SelectFileDialog* SelectFileDialog::Create(Listener* listener) {
 }
 
 SelectFileDialogImpl::SelectFileDialogImpl(Listener* listener)
-    : listener_(listener),
+    : SelectFileDialog(listener),
       bridge_([[SelectFileDialogBridge alloc]
                initWithSelectFileDialogImpl:this]) {
 }
@@ -138,7 +136,7 @@ void SelectFileDialogImpl::ListenerDestroyed() {
   listener_ = NULL;
 }
 
-void SelectFileDialogImpl::SelectFile(
+void SelectFileDialogImpl::SelectFileImpl(
     Type type,
     const string16& title,
     const FilePath& default_path,

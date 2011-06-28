@@ -27,6 +27,7 @@ class RemoveUserDelegate {
   virtual void OnUserRemoved(const std::string& username) = 0;
 };
 
+// TODO(nkostylev): Extract interface, create a BaseLoginDisplay class.
 // An abstract class that defines login UI implementation.
 class LoginDisplay : public RemoveUserDelegate {
  public:
@@ -51,16 +52,21 @@ class LoginDisplay : public RemoveUserDelegate {
 
     // Called when existing user pod is selected in the UI.
     virtual void OnUserSelected(const std::string& username) = 0;
+
+    // Called when the user requests enterprise enrollment.
+    virtual void OnStartEnterpriseEnrollment() = 0;
+
    protected:
-    virtual ~Delegate() {}
+    virtual ~Delegate();
   };
 
   // |background_bounds| determines the bounds of login UI background.
-  LoginDisplay(Delegate* delegate, const gfx::Rect& background_bounds)
-      : delegate_(delegate),
-        parent_window_(NULL),
-        background_bounds_(background_bounds) {}
-  virtual ~LoginDisplay() {}
+  LoginDisplay(Delegate* delegate, const gfx::Rect& background_bounds);
+  virtual ~LoginDisplay();
+
+  // Call for destroying a pointer of type LoginDisplay, since some subclasses
+  // are Singletons
+  virtual void Destroy();
 
   // Initializes login UI with the user pods based on list of known users and
   // guest, new user pods if those are enabled.
@@ -88,6 +94,9 @@ class LoginDisplay : public RemoveUserDelegate {
                          HelpAppLauncher::HelpTopic help_topic_id) = 0;
 
   gfx::Rect background_bounds() const { return background_bounds_; }
+  void set_background_bounds(const gfx::Rect background_bounds){
+    background_bounds_ = background_bounds;
+  }
 
   Delegate* delegate() { return delegate_; }
   void set_delegate(Delegate* delegate) { delegate_ = delegate; }
@@ -105,7 +114,7 @@ class LoginDisplay : public RemoveUserDelegate {
   gfx::NativeWindow parent_window_;
 
   // Bounds of the login UI background.
-  const gfx::Rect background_bounds_;
+  gfx::Rect background_bounds_;
 
   DISALLOW_COPY_AND_ASSIGN(LoginDisplay);
 };

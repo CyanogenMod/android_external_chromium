@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,8 @@
 #define CHROME_BROWSER_CHROMEOS_LOGIN_HELP_APP_LAUNCHER_H_
 #pragma once
 
-#include "base/ref_counted.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/chromeos/login/login_html_dialog.h"
 #include "ui/gfx/native_widget_types.h"
 
@@ -22,25 +22,23 @@ class HelpAppLauncher : public LoginHtmlDialog::Delegate,
   // IDs of help topics available from HelpApp.
   enum HelpTopic {
     // Showed on basic connectivity issues.
-    HELP_CONNECTIVITY,
+    HELP_CONNECTIVITY = 188752,
     // Showed at EULA screen as "Learn more" about stats/crash reports.
-    HELP_STATS_USAGE,
+    HELP_STATS_USAGE = 183078,
     // Showed whenever there're troubles signing in (offline case).
-    HELP_CANT_ACCESS_ACCOUNT_OFFLINE,
+    HELP_CANT_ACCESS_ACCOUNT_OFFLINE = 188755,
     // Showed whenever there're troubles signing in (online case).
-    HELP_CANT_ACCESS_ACCOUNT,
+    HELP_CANT_ACCESS_ACCOUNT = 188036,
     // Showed in case when account was disabled.
-    HELP_ACCOUNT_DISABLED,
+    HELP_ACCOUNT_DISABLED = 188756,
     // Showed in case when hosted account is used.
-    HELP_HOSTED_ACCOUNT,
-    HELP_TOPIC_COUNT
+    HELP_HOSTED_ACCOUNT = 1054228,
   };
 
   // Parent window is used to show dialog.
   explicit HelpAppLauncher(gfx::NativeWindow parent_window);
 
   // Shows specified help topic.
-  // TODO: Pass topic ID.
   void ShowHelpTopic(HelpTopic help_topic_id);
 
   // Returns true if the dialog is currently open.
@@ -51,19 +49,11 @@ class HelpAppLauncher : public LoginHtmlDialog::Delegate,
   virtual void OnDialogClosed() {}
 
  private:
-  // Checks whether local help file with |filename| exists
-  // and opens it in a dialog if it does.
-  // Executed on a FILE thread.
-  void FindStaticHelpTopic(const std::string& filename);
-
   // Shows help topic dialog for specified GURL.
   void ShowHelpTopicDialog(const GURL& topic_url);
 
   // Dialog used to display help like "Can't access your account".
   scoped_ptr<LoginHtmlDialog> dialog_;
-
-  // Last requested help topic ID.
-  HelpTopic help_topic_id_;
 
   // Parent window which is passed to help dialog.
   gfx::NativeWindow parent_window_;

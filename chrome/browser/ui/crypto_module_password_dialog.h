@@ -10,9 +10,9 @@
 #include <vector>
 
 #include "base/callback.h"
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
 
-namespace base {
+namespace crypto {
 class CryptoModuleBlockingPasswordDelegate;
 }
 
@@ -48,7 +48,7 @@ void ShowCryptoModulePasswordDialog(const std::string& module_name,
 
 // Returns a CryptoModuleBlockingPasswordDelegate to open a dialog and block
 // until returning. Should only be used on a worker thread.
-base::CryptoModuleBlockingPasswordDelegate*
+crypto::CryptoModuleBlockingPasswordDelegate*
     NewCryptoModuleBlockingDialogDelegate(
         CryptoModulePasswordReason reason,
         const std::string& server);

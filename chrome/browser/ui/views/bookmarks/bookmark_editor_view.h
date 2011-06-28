@@ -14,6 +14,7 @@
 #include "ui/base/models/tree_node_model.h"
 #include "views/controls/button/button.h"
 #include "views/controls/textfield/textfield.h"
+#include "views/controls/textfield/textfield_controller.h"
 #include "views/controls/tree/tree_view.h"
 #include "views/window/dialog_delegate.h"
 
@@ -31,7 +32,7 @@ class Profile;
 
 // View that allows the user to edit a bookmark/starred URL. The user can
 // change the URL, title and where the bookmark appears as well as adding
-// new groups and changing the name of other groups. The editor is used for
+// new folders and changing the name of other folders. The editor is used for
 // both editing a url bookmark, as well as editing a folder bookmark when
 // created from 'Bookmark all tabs'.
 //
@@ -44,7 +45,7 @@ class BookmarkEditorView : public BookmarkEditor,
                            public views::ButtonListener,
                            public views::TreeViewController,
                            public views::DialogDelegate,
-                           public views::Textfield::Controller,
+                           public views::TextfieldController,
                            public views::ContextMenuController,
                            public ui::SimpleMenuModel::Delegate,
                            public BookmarkModelObserver {
@@ -86,17 +87,18 @@ class BookmarkEditorView : public BookmarkEditor,
   virtual bool AreAcceleratorsEnabled(MessageBoxFlags::DialogButton button);
   virtual views::View* GetContentsView();
 
-  // View methods.
+  // views::View.
   virtual void Layout();
   virtual gfx::Size GetPreferredSize();
-  virtual void ViewHierarchyChanged(bool is_add, views::View* parent,
+  virtual void ViewHierarchyChanged(bool is_add,
+                                    views::View* parent,
                                     views::View* child);
 
-  // TreeViewObserver methods.
+  // views::TreeViewObserver.
   virtual void OnTreeViewSelectionChanged(views::TreeView* tree_view);
   virtual bool CanEdit(views::TreeView* tree_view, ui::TreeModelNode* node);
 
-  // Textfield::Controller methods.
+  // views::TextfieldController:
   virtual void ContentsChanged(views::Textfield* sender,
                                const std::wstring& new_contents);
   virtual bool HandleKeyEvent(views::Textfield* sender,
@@ -104,10 +106,10 @@ class BookmarkEditorView : public BookmarkEditor,
     return false;
   }
 
-  // NativeButton.
+  // views::ButtonListener:
   virtual void ButtonPressed(views::Button* sender, const views::Event& event);
 
-  // ui::SimpleMenuModel::Delegate.
+  // ui::SimpleMenuModel::Delegate:
   virtual bool IsCommandIdChecked(int command_id) const;
   virtual bool IsCommandIdEnabled(int command_id) const;
   virtual bool GetAcceleratorForCommandId(int command_id,
@@ -152,7 +154,7 @@ class BookmarkEditorView : public BookmarkEditor,
                                    const BookmarkNode* node) {}
   virtual void BookmarkNodeChildrenReordered(BookmarkModel* model,
                                              const BookmarkNode* node);
-  virtual void BookmarkNodeFavIconLoaded(BookmarkModel* model,
+  virtual void BookmarkNodeFaviconLoaded(BookmarkModel* model,
                                          const BookmarkNode* node) {}
 
   // Resets the model of the tree and updates the various buttons appropriately.
@@ -168,7 +170,7 @@ class BookmarkEditorView : public BookmarkEditor,
   EditorNode* CreateRootNode();
 
   // Adds and creates a child node in b_node for all children of bb_node that
-  // are groups.
+  // are folders.
   void CreateNodes(const BookmarkNode* bb_node, EditorNode* b_node);
 
   // Returns the node with the specified id, or NULL if one can't be found.
@@ -181,7 +183,7 @@ class BookmarkEditorView : public BookmarkEditor,
   // being edited.
   void ApplyEdits(EditorNode* parent);
 
-  // Recursively adds newly created groups and sets the title of nodes to
+  // Recursively adds newly created folders and sets the title of nodes to
   // match the user edited title.
   //
   // bb_node gives the BookmarkNode the edits are to be applied to, with b_node
@@ -190,7 +192,7 @@ class BookmarkEditorView : public BookmarkEditor,
   // If b_node == parent_b_node, parent_bb_node is set to bb_node. This is
   // used to determine the new BookmarkNode parent based on the EditorNode
   // parent.
-  void ApplyNameChangesAndCreateNewGroups(
+  void ApplyNameChangesAndCreateNewFolders(
       const BookmarkNode* bb_node,
       BookmarkEditorView::EditorNode* b_node,
       BookmarkEditorView::EditorNode* parent_b_node,
@@ -206,15 +208,15 @@ class BookmarkEditorView : public BookmarkEditor,
   // of Textfields and ok button appropriately.
   void UserInputChanged();
 
-  // Creates a new group as a child of the selected node. If no node is
-  // selected, the new group is added as a child of the bookmark node. Starts
+  // Creates a new folder as a child of the selected node. If no node is
+  // selected, the new folder is added as a child of the bookmark node. Starts
   // editing on the new gorup as well.
-  void NewGroup();
+  void NewFolder();
 
   // Creates a new EditorNode as the last child of parent. The new node is
   // added to the model and returned. This does NOT start editing. This is used
-  // internally by NewGroup and broken into a separate method for testing.
-  EditorNode* AddNewGroup(EditorNode* parent);
+  // internally by NewFolder and broken into a separate method for testing.
+  EditorNode* AddNewFolder(EditorNode* parent);
 
   // Profile the entry is from.
   Profile* profile_;
@@ -222,11 +224,11 @@ class BookmarkEditorView : public BookmarkEditor,
   // Model driving the TreeView.
   scoped_ptr<EditorTreeModel> tree_model_;
 
-  // Displays star groups.
+  // Displays star folder.
   views::TreeView* tree_view_;
 
-  // Used to create a new group.
-  scoped_ptr<views::NativeButton> new_group_button_;
+  // Used to create a new folder.
+  scoped_ptr<views::NativeButton> new_folder_button_;
 
   // The label for the url text field.
   views::Label* url_label_;

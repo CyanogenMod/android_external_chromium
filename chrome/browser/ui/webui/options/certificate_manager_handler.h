@@ -8,7 +8,7 @@
 
 #include <string>
 
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/ui/shell_dialogs.h"
 #include "chrome/browser/ui/webui/options/options_ui.h"
 #include "content/browser/cancelable_request.h"
@@ -136,6 +136,11 @@ class CertificateManagerHandler : public OptionsPageUIHandler,
       const std::string& title,
       const net::CertDatabase::ImportCertFailureList& not_imported) const;
 
+#if defined(OS_CHROMEOS)
+  // Check whether Tpm token is ready and notifiy JS side.
+  void CheckTpmTokenReady(const ListValue* args);
+#endif
+
   gfx::NativeWindow GetParentWindow() const;
 
   // The Certificates Manager model
@@ -146,6 +151,7 @@ class CertificateManagerHandler : public OptionsPageUIHandler,
   // wait for file to be read, etc.
   FilePath file_path_;
   string16 password_;
+  bool use_hardware_backed_;
   std::string file_data_;
   net::CertificateList selected_cert_list_;
   scoped_refptr<SelectFileDialog> select_file_dialog_;

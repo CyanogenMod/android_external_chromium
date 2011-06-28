@@ -12,23 +12,23 @@
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/autocomplete/autocomplete.h"
 #include "chrome/browser/autocomplete/autocomplete_edit.h"
+#include "chrome/browser/autocomplete/autocomplete_edit_view.h"
 #include "chrome/browser/autocomplete/autocomplete_match.h"
 #include "chrome/browser/autocomplete/autocomplete_popup_model.h"
-#include "chrome/browser/autocomplete/autocomplete_edit_view.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
-#include "chrome/browser/browser_window.h"
 #include "chrome/browser/history/history.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/omnibox/location_bar.h"
 #include "chrome/common/chrome_paths.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/in_process_browser_test.h"
 #include "chrome/test/ui_test_utils.h"
 #include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/notification_service.h"
 #include "net/base/mock_host_resolver.h"
 #include "ui/base/events.h"
 #include "ui/base/keycodes/keyboard_codes.h"
@@ -369,13 +369,13 @@ class AutocompleteEditViewTest : public InProcessBrowserTest,
 
     // Select the first Tab.
     ASSERT_NO_FATAL_FAILURE(SendKey(ui::VKEY_1, kCtrlOrCmdMask));
-    ASSERT_EQ(0, browser()->selected_index());
+    ASSERT_EQ(0, browser()->active_index());
 
     browser()->FocusLocationBar();
 
     // Select the second Tab.
     ASSERT_NO_FATAL_FAILURE(SendKey(ui::VKEY_2, kCtrlOrCmdMask));
-    ASSERT_EQ(1, browser()->selected_index());
+    ASSERT_EQ(1, browser()->active_index());
 
     browser()->FocusLocationBar();
 
@@ -769,13 +769,22 @@ class AutocompleteEditViewTest : public InProcessBrowserTest,
     ASSERT_EQ(text, edit_view->model()->keyword());
     ASSERT_EQ(text + char16(' '), edit_view->GetText());
 
-    // Keyword shouldn't be accepted by pressing space in the middle
-    // of content.
+    // Keyword shouldn't be accepted by pressing space before a trailing space.
     ASSERT_NO_FATAL_FAILURE(SendKey(ui::VKEY_LEFT, 0));
     ASSERT_NO_FATAL_FAILURE(SendKey(ui::VKEY_SPACE, 0));
     ASSERT_TRUE(edit_view->model()->is_keyword_hint());
     ASSERT_EQ(text, edit_view->model()->keyword());
     ASSERT_EQ(text + ASCIIToUTF16("  "), edit_view->GetText());
+
+    // Keyword should be accepted by pressing space in the middle of context and
+    // just after the keyword.
+    ASSERT_NO_FATAL_FAILURE(SendKey(ui::VKEY_BACK, 0));
+    ASSERT_NO_FATAL_FAILURE(SendKey(ui::VKEY_A, 0));
+    ASSERT_NO_FATAL_FAILURE(SendKey(ui::VKEY_LEFT, 0));
+    ASSERT_NO_FATAL_FAILURE(SendKey(ui::VKEY_SPACE, 0));
+    ASSERT_FALSE(edit_view->model()->is_keyword_hint());
+    ASSERT_EQ(text, edit_view->model()->keyword());
+    ASSERT_EQ(ASCIIToUTF16("a "), edit_view->GetText());
 
     // Keyword shouldn't be accepted by pasting "foo bar".
     edit_view->SetUserText(string16());
@@ -790,6 +799,14 @@ class AutocompleteEditViewTest : public InProcessBrowserTest,
     ASSERT_FALSE(edit_view->model()->is_keyword_hint());
     ASSERT_TRUE(edit_view->model()->keyword().empty());
     ASSERT_EQ(text + ASCIIToUTF16(" bar"), edit_view->GetText());
+
+    // Keyword shouldn't be accepted for case like: "foo b|ar" -> "foo b |ar".
+    ASSERT_NO_FATAL_FAILURE(SendKey(ui::VKEY_LEFT, 0));
+    ASSERT_NO_FATAL_FAILURE(SendKey(ui::VKEY_LEFT, 0));
+    ASSERT_NO_FATAL_FAILURE(SendKey(ui::VKEY_SPACE, 0));
+    ASSERT_FALSE(edit_view->model()->is_keyword_hint());
+    ASSERT_TRUE(edit_view->model()->keyword().empty());
+    ASSERT_EQ(text + ASCIIToUTF16(" b ar"), edit_view->GetText());
 
     // Keyword could be accepted by pressing space with a selected range at the
     // end of text.
@@ -1060,7 +1077,7 @@ class AutocompleteEditViewTest : public InProcessBrowserTest,
     browser()->NewTab();
 
     // Switch back to the first tab.
-    browser()->SelectTabContentsAt(0, true);
+    browser()->ActivateTabAt(0, true);
 
     // Make sure we're still in keyword mode.
     ASSERT_EQ(kSearchKeyword, UTF16ToUTF8(edit_view->model()->keyword()));

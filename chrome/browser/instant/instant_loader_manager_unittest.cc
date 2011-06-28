@@ -1,8 +1,8 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/instant/instant_loader.h"
 #include "chrome/browser/instant/instant_loader_delegate.h"
 #include "chrome/browser/instant/instant_loader_manager.h"
@@ -14,26 +14,29 @@ class InstantLoaderDelegateImpl : public InstantLoaderDelegate {
  public:
   InstantLoaderDelegateImpl() {}
 
-  virtual void ShowInstantLoader(InstantLoader* loader) {}
+  virtual void InstantStatusChanged(InstantLoader* loader) OVERRIDE {}
 
   virtual void SetSuggestedTextFor(InstantLoader* loader,
-                                   const string16& text) {}
+                                   const string16& text,
+                                   InstantCompleteBehavior behavior) OVERRIDE {}
 
-  virtual gfx::Rect GetInstantBounds() {
+  virtual gfx::Rect GetInstantBounds() OVERRIDE {
     return gfx::Rect();
   }
 
-  virtual bool ShouldCommitInstantOnMouseUp() {
+  virtual bool ShouldCommitInstantOnMouseUp() OVERRIDE {
     return false;
   }
 
-  virtual void CommitInstantLoader(InstantLoader* loader) {
+  virtual void CommitInstantLoader(InstantLoader* loader) OVERRIDE {
   }
 
-  virtual void InstantLoaderDoesntSupportInstant(InstantLoader* loader) {
+  virtual void InstantLoaderDoesntSupportInstant(
+      InstantLoader* loader) OVERRIDE {
   }
 
-  virtual void AddToBlacklist(InstantLoader* loader, const GURL& url) {
+  virtual void AddToBlacklist(InstantLoader* loader,
+                              const GURL& url) OVERRIDE {
   }
 
  private:
@@ -275,3 +278,31 @@ TEST_F(InstantLoaderManagerTest, WillUpateChangeActiveLoader) {
   EXPECT_FALSE(manager.WillUpateChangeActiveLoader(1));
 }
 
+// Makes sure UpdateLoader doesn't schedule a loader for deletion when asked
+// to update and the pending loader is ready.
+TEST_F(InstantLoaderManagerTest, UpdateWithReadyPending) {
+  InstantLoaderDelegateImpl delegate;
+  InstantLoaderManager manager(&delegate);
+
+  {
+    scoped_ptr<InstantLoader> loader;
+    manager.UpdateLoader(1, &loader);
+  }
+  InstantLoader* instant_loader = manager.current_loader();
+  ASSERT_TRUE(instant_loader);
+  MarkReady(instant_loader);
+
+  {
+    scoped_ptr<InstantLoader> loader;
+    manager.UpdateLoader(0, &loader);
+  }
+  InstantLoader* non_instant_loader = manager.active_loader();
+  ASSERT_TRUE(non_instant_loader);
+  ASSERT_NE(instant_loader, non_instant_loader);
+  MarkReady(non_instant_loader);
+
+  // This makes the non_instant_loader the current loader since it was ready.
+  scoped_ptr<InstantLoader> loader;
+  manager.UpdateLoader(0, &loader);
+  ASSERT_NE(loader.get(), non_instant_loader);
+}

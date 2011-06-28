@@ -9,18 +9,21 @@
 #include "base/command_line.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/browser/ui/view_ids.h"
 #include "chrome/browser/ui/views/tabs/tab_controller.h"
-#include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/common/chrome_switches.h"
 #include "content/browser/tab_contents/tab_contents.h"
 #include "grit/app_resources.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
+#include "ui/base/accessibility/accessible_view_state.h"
+#include "ui/base/animation/animation_container.h"
 #include "ui/base/animation/slide_animation.h"
 #include "ui/base/animation/throb_animation.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/base/text/text_elider.h"
 #include "ui/base/theme_provider.h"
 #include "ui/gfx/canvas_skia.h"
 #include "ui/gfx/favicon_size.h"
@@ -47,7 +50,7 @@ class TabCloseButton : public views::ImageButton {
   }
   virtual ~TabCloseButton() {}
 
-  virtual bool OnMousePressed(const views::MouseEvent& event) {
+  virtual bool OnMousePressed(const views::MouseEvent& event) OVERRIDE {
     bool handled = ImageButton::OnMousePressed(event);
     // Explicitly mark midle-mouse clicks as non-handled to ensure the tab
     // sees them.
@@ -57,12 +60,12 @@ class TabCloseButton : public views::ImageButton {
   // We need to let the parent know about mouse state so that it
   // can highlight itself appropriately. Note that Exit events
   // fire before Enter events, so this works.
-  virtual void OnMouseEntered(const views::MouseEvent& event) {
+  virtual void OnMouseEntered(const views::MouseEvent& event) OVERRIDE {
     CustomButton::OnMouseEntered(event);
     parent()->OnMouseEntered(event);
   }
 
-  virtual void OnMouseExited(const views::MouseEvent& event) {
+  virtual void OnMouseExited(const views::MouseEvent& event) OVERRIDE {
     CustomButton::OnMouseExited(event);
     parent()->OnMouseExited(event);
   }
@@ -103,25 +106,25 @@ int BaseTab::font_height_ = 0;
 // FaviconCrashAnimation
 //
 //  A custom animation subclass to manage the favicon crash animation.
-class BaseTab::FavIconCrashAnimation : public ui::LinearAnimation,
+class BaseTab::FaviconCrashAnimation : public ui::LinearAnimation,
                                        public ui::AnimationDelegate {
  public:
-  explicit FavIconCrashAnimation(BaseTab* target)
+  explicit FaviconCrashAnimation(BaseTab* target)
       : ALLOW_THIS_IN_INITIALIZER_LIST(ui::LinearAnimation(1000, 25, this)),
         target_(target) {
   }
-  virtual ~FavIconCrashAnimation() {}
+  virtual ~FaviconCrashAnimation() {}
 
   // ui::Animation overrides:
   virtual void AnimateToState(double state) {
     const double kHidingOffset = 27;
 
     if (state < .5) {
-      target_->SetFavIconHidingOffset(
+      target_->SetFaviconHidingOffset(
           static_cast<int>(floor(kHidingOffset * 2.0 * state)));
     } else {
-      target_->DisplayCrashedFavIcon();
-      target_->SetFavIconHidingOffset(
+      target_->DisplayCrashedFavicon();
+      target_->SetFaviconHidingOffset(
           static_cast<int>(
               floor(kHidingOffset - ((state - .5) * 2.0 * kHidingOffset))));
     }
@@ -129,20 +132,20 @@ class BaseTab::FavIconCrashAnimation : public ui::LinearAnimation,
 
   // ui::AnimationDelegate overrides:
   virtual void AnimationCanceled(const ui::Animation* animation) {
-    target_->SetFavIconHidingOffset(0);
+    target_->SetFaviconHidingOffset(0);
   }
 
  private:
   BaseTab* target_;
 
-  DISALLOW_COPY_AND_ASSIGN(FavIconCrashAnimation);
+  DISALLOW_COPY_AND_ASSIGN(FaviconCrashAnimation);
 };
 
 BaseTab::BaseTab(TabController* controller)
     : controller_(controller),
       closing_(false),
       dragging_(false),
-      fav_icon_hiding_offset_(0),
+      favicon_hiding_offset_(0),
       loading_animation_frame_(0),
       should_display_crashed_favicon_(false),
       throbber_disabled_(false),
@@ -209,11 +212,8 @@ void BaseTab::SetData(const TabRendererData& data) {
   } else {
     if (IsPerformingCrashAnimation())
       StopCrashAnimation();
-    ResetCrashedFavIcon();
+    ResetCrashedFavicon();
   }
-
-  // Sets the accessible name for the tab.
-  SetAccessibleName(data_.title);
 
   DataChanged(old);
 
@@ -261,27 +261,25 @@ void BaseTab::StopPulse() {
   pulse_animation_.reset(NULL);
 }
 
-bool BaseTab::IsSelected() const {
-  return controller() ? controller()->IsTabSelected(this) : true;
+void BaseTab::set_animation_container(ui::AnimationContainer* container) {
+  animation_container_ = container;
 }
 
 bool BaseTab::IsCloseable() const {
   return controller() ? controller()->IsTabCloseable(this) : true;
 }
 
-void BaseTab::OnMouseEntered(const views::MouseEvent& e) {
-  if (!hover_animation_.get()) {
-    hover_animation_.reset(new ui::SlideAnimation(this));
-    hover_animation_->SetContainer(animation_container_.get());
-    hover_animation_->SetSlideDuration(kHoverDurationMs);
-  }
-  hover_animation_->SetTweenType(ui::Tween::EASE_OUT);
-  hover_animation_->Show();
+bool BaseTab::IsActive() const {
+  return controller() ? controller()->IsActiveTab(this) : true;
 }
 
-void BaseTab::OnMouseExited(const views::MouseEvent& e) {
-  hover_animation_->SetTweenType(ui::Tween::EASE_IN);
-  hover_animation_->Hide();
+bool BaseTab::IsSelected() const {
+  return controller() ? controller()->IsTabSelected(this) : true;
+}
+
+ui::ThemeProvider* BaseTab::GetThemeProvider() const {
+  ui::ThemeProvider* tp = View::GetThemeProvider();
+  return tp ? tp : theme_provider_;
 }
 
 bool BaseTab::OnMousePressed(const views::MouseEvent& event) {
@@ -289,12 +287,19 @@ bool BaseTab::OnMousePressed(const views::MouseEvent& event) {
     return false;
 
   if (event.IsOnlyLeftMouseButton()) {
-    // Store whether or not we were selected just now... we only want to be
-    // able to drag foreground tabs, so we don't start dragging the tab if
-    // it was in the background.
-    bool just_selected = !IsSelected();
-    if (just_selected)
+    if (event.IsShiftDown() && event.IsControlDown()) {
+      controller()->AddSelectionFromAnchorTo(this);
+    } else if (event.IsShiftDown()) {
+      controller()->ExtendSelectionTo(this);
+    } else if (event.IsControlDown()) {
+      controller()->ToggleSelected(this);
+      if (!IsSelected()) {
+        // Don't allow dragging non-selected tabs.
+        return false;
+      }
+    } else if (!IsSelected()) {
       controller()->SelectTab(this);
+    }
     controller()->MaybeStartDrag(this, event);
   }
   return true;
@@ -306,7 +311,7 @@ bool BaseTab::OnMouseDragged(const views::MouseEvent& event) {
   return true;
 }
 
-void BaseTab::OnMouseReleased(const views::MouseEvent& event, bool canceled) {
+void BaseTab::OnMouseReleased(const views::MouseEvent& event) {
   if (!controller())
     return;
 
@@ -315,7 +320,7 @@ void BaseTab::OnMouseReleased(const views::MouseEvent& event, bool canceled) {
   // In some cases, ending the drag will schedule the tab for destruction; if
   // so, bail immediately, since our members are already dead and we shouldn't
   // do anything else except drop the tab where it is.
-  if (controller()->EndDrag(canceled))
+  if (controller()->EndDrag(false))
     return;
 
   // Close tab on middle click, but only if the button is released over the tab
@@ -333,7 +338,33 @@ void BaseTab::OnMouseReleased(const views::MouseEvent& event, bool canceled) {
       if (closest_tab)
         controller()->CloseTab(closest_tab);
     }
+  } else if (event.IsOnlyLeftMouseButton() && !event.IsShiftDown() &&
+             !event.IsControlDown()) {
+    // If the tab was already selected mouse pressed doesn't change the
+    // selection. Reset it now to handle the case where multiple tabs were
+    // selected.
+    controller()->SelectTab(this);
   }
+}
+
+void BaseTab::OnMouseCaptureLost() {
+  if (controller())
+    controller()->EndDrag(true);
+}
+
+void BaseTab::OnMouseEntered(const views::MouseEvent& event) {
+  if (!hover_animation_.get()) {
+    hover_animation_.reset(new ui::SlideAnimation(this));
+    hover_animation_->SetContainer(animation_container_.get());
+    hover_animation_->SetSlideDuration(kHoverDurationMs);
+  }
+  hover_animation_->SetTweenType(ui::Tween::EASE_OUT);
+  hover_animation_->Show();
+}
+
+void BaseTab::OnMouseExited(const views::MouseEvent& event) {
+  hover_animation_->SetTweenType(ui::Tween::EASE_IN);
+  hover_animation_->Hide();
 }
 
 bool BaseTab::GetTooltipText(const gfx::Point& p, std::wstring* tooltip) {
@@ -348,13 +379,9 @@ bool BaseTab::GetTooltipText(const gfx::Point& p, std::wstring* tooltip) {
   return false;
 }
 
-AccessibilityTypes::Role BaseTab::GetAccessibleRole() {
-  return AccessibilityTypes::ROLE_PAGETAB;
-}
-
-ui::ThemeProvider* BaseTab::GetThemeProvider() {
-  ui::ThemeProvider* tp = View::GetThemeProvider();
-  return tp ? tp : theme_provider_;
+void BaseTab::GetAccessibleState(ui::AccessibleViewState* state) {
+  state->role = ui::AccessibilityTypes::ROLE_PAGETAB;
+  state->name = data_.title;
 }
 
 void BaseTab::AdvanceLoadingAnimation(TabRendererData::NetworkState old_state,
@@ -400,9 +427,9 @@ void BaseTab::PaintIcon(gfx::Canvas* canvas) {
   if (bounds.IsEmpty())
     return;
 
-  // The size of bounds has to be kFavIconSize x kFavIconSize.
-  DCHECK_EQ(kFavIconSize, bounds.width());
-  DCHECK_EQ(kFavIconSize, bounds.height());
+  // The size of bounds has to be kFaviconSize x kFaviconSize.
+  DCHECK_EQ(kFaviconSize, bounds.width());
+  DCHECK_EQ(kFaviconSize, bounds.height());
 
   bounds.set_x(GetMirroredXForRect(bounds));
 
@@ -421,11 +448,11 @@ void BaseTab::PaintIcon(gfx::Canvas* canvas) {
     canvas->ClipRectInt(0, 0, width(), height());
     if (should_display_crashed_favicon_) {
       ResourceBundle& rb = ResourceBundle::GetSharedInstance();
-      SkBitmap crashed_fav_icon(*rb.GetBitmapNamed(IDR_SAD_FAVICON));
-      bounds.set_y(bounds.y() + fav_icon_hiding_offset_);
-      DrawIconCenter(canvas, crashed_fav_icon, 0,
-                     crashed_fav_icon.width(),
-                     crashed_fav_icon.height(), bounds, true);
+      SkBitmap crashed_favicon(*rb.GetBitmapNamed(IDR_SAD_FAVICON));
+      bounds.set_y(bounds.y() + favicon_hiding_offset_);
+      DrawIconCenter(canvas, crashed_favicon, 0,
+                     crashed_favicon.width(),
+                     crashed_favicon.height(), bounds, true);
     } else {
       if (!data().favicon.isNull()) {
         // TODO(pkasting): Use code in tab_icon_view.cc:PaintIcon() (or switch
@@ -442,7 +469,9 @@ void BaseTab::PaintIcon(gfx::Canvas* canvas) {
 
 void BaseTab::PaintTitle(gfx::Canvas* canvas, SkColor title_color) {
   // Paint the Title.
+  const gfx::Rect& title_bounds = GetTitleBounds();
   string16 title = data().title;
+
   if (title.empty()) {
     title = data().loading ?
         l10n_util::GetStringUTF16(IDS_TAB_LOADING_TITLE) :
@@ -450,10 +479,15 @@ void BaseTab::PaintTitle(gfx::Canvas* canvas, SkColor title_color) {
   } else {
     Browser::FormatTitleForDisplay(&title);
   }
-  const gfx::Rect& title_bounds = GetTitleBounds();
+
+#if defined(OS_WIN)
+  canvas->AsCanvasSkia()->DrawFadeTruncatingString(title,
+      gfx::CanvasSkia::TruncateFadeTail, 0, *font_, title_color, title_bounds);
+#else
   canvas->DrawStringInt(title, *font_, title_color,
                         title_bounds.x(), title_bounds.y(),
                         title_bounds.width(), title_bounds.height());
+#endif
 }
 
 void BaseTab::AnimationProgressed(const ui::Animation* animation) {
@@ -488,26 +522,26 @@ bool BaseTab::should_display_crashed_favicon() const {
   return should_display_crashed_favicon_;
 }
 
-int BaseTab::fav_icon_hiding_offset() const {
-  return fav_icon_hiding_offset_;
+int BaseTab::favicon_hiding_offset() const {
+  return favicon_hiding_offset_;
 }
 
-void BaseTab::SetFavIconHidingOffset(int offset) {
-  fav_icon_hiding_offset_ = offset;
+void BaseTab::SetFaviconHidingOffset(int offset) {
+  favicon_hiding_offset_ = offset;
   ScheduleIconPaint();
 }
 
-void BaseTab::DisplayCrashedFavIcon() {
+void BaseTab::DisplayCrashedFavicon() {
   should_display_crashed_favicon_ = true;
 }
 
-void BaseTab::ResetCrashedFavIcon() {
+void BaseTab::ResetCrashedFavicon() {
   should_display_crashed_favicon_ = false;
 }
 
 void BaseTab::StartCrashAnimation() {
   if (!crash_animation_.get())
-    crash_animation_.reset(new FavIconCrashAnimation(this));
+    crash_animation_.reset(new FaviconCrashAnimation(this));
   crash_animation_->Stop();
   crash_animation_->Start();
 }

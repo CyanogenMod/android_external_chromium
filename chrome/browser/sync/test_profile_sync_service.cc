@@ -24,41 +24,20 @@ using syncable::ModelType;
 using syncable::ScopedDirLookup;
 using sync_api::UserShare;
 
-ACTION_P(CallOnPaused, core) {
-  core->OnPaused();
-};
-
-ACTION_P(CallOnResumed, core) {
-  core->OnResumed();
-}
-
 namespace browser_sync {
 
+using ::testing::_;
 SyncBackendHostForProfileSyncTest::SyncBackendHostForProfileSyncTest(
     Profile* profile,
-    int num_expected_resumes,
-    int num_expected_pauses,
     bool set_initial_sync_ended_on_init,
     bool synchronous_init)
     : browser_sync::SyncBackendHost(profile),
       synchronous_init_(synchronous_init) {
-  // By default, the RequestPause and RequestResume methods will
-  // send the confirmation notification and return true.
-  ON_CALL(*this, RequestPause()).
-      WillByDefault(testing::DoAll(CallOnPaused(core_),
-                                   testing::Return(true)));
-  ON_CALL(*this, RequestResume()).
-      WillByDefault(testing::DoAll(CallOnResumed(core_),
-                                   testing::Return(true)));
-  ON_CALL(*this, RequestNudge()).WillByDefault(
+  ON_CALL(*this, RequestNudge(_)).WillByDefault(
       testing::Invoke(this,
                       &SyncBackendHostForProfileSyncTest::
                       SimulateSyncCycleCompletedInitialSyncEnded));
-
-  EXPECT_CALL(*this, RequestPause()).Times(num_expected_pauses);
-  EXPECT_CALL(*this, RequestResume()).Times(num_expected_resumes);
-  EXPECT_CALL(*this,
-              RequestNudge()).Times(set_initial_sync_ended_on_init ? 0 : 1);
+  EXPECT_CALL(*this, RequestNudge(_)).Times(testing::AnyNumber());
 }
 
 SyncBackendHostForProfileSyncTest::~SyncBackendHostForProfileSyncTest() {}
@@ -73,7 +52,8 @@ void SyncBackendHostForProfileSyncTest::ConfigureDataTypes(
 }
 
 void SyncBackendHostForProfileSyncTest::
-    SimulateSyncCycleCompletedInitialSyncEnded() {
+    SimulateSyncCycleCompletedInitialSyncEnded(
+    const tracked_objects::Location& location) {
   syncable::ModelTypeBitSet sync_ended;
   ModelSafeRoutingInfo enabled_types;
   GetModelSafeRoutingInfo(&enabled_types);
@@ -90,13 +70,13 @@ void SyncBackendHostForProfileSyncTest::
 
 sync_api::HttpPostProviderFactory*
     SyncBackendHostForProfileSyncTest::MakeHttpBridgeFactory(
-        URLRequestContextGetter* getter) {
+        net::URLRequestContextGetter* getter) {
   return new browser_sync::TestHttpBridgeFactory;
 }
 
 void SyncBackendHostForProfileSyncTest::InitCore(
     const Core::DoInitializeOptions& options) {
-  std::wstring user = L"testuser";
+  std::wstring user = L"testuser@gmail.com";
   core_loop()->PostTask(
       FROM_HERE,
       NewRunnableMethod(core_.get(),
@@ -147,6 +127,10 @@ void SyncBackendHostForProfileSyncTest::ProcessMessage(
   }
 }
 
+void SyncBackendHostForProfileSyncTest::StartConfiguration(Callback0::Type*) {
+  SyncBackendHost::FinishConfigureDataTypesOnFrontendLoop();
+}
+
 void SyncBackendHostForProfileSyncTest::
     SetDefaultExpectationsForWorkerCreation(ProfileMock* profile) {
   EXPECT_CALL(*profile, GetPasswordStore(testing::_)).
@@ -181,8 +165,6 @@ TestProfileSyncService::TestProfileSyncService(
       synchronous_backend_initialization_(
           synchronous_backend_initialization),
       synchronous_sync_configuration_(false),
-      num_expected_resumes_(1),
-      num_expected_pauses_(1),
       initial_condition_setup_task_(initial_condition_setup_task),
       set_initial_sync_ended_on_init_(true) {
   RegisterPreferences();
@@ -219,6 +201,7 @@ void TestProfileSyncService::OnBackendInitialized() {
 
   // Pretend we downloaded initial updates and set initial sync ended bits
   // if we were asked to.
+  bool send_passphrase_required = false;
   if (set_initial_sync_ended_on_init_) {
     UserShare* user_share = GetUserShare();
     DirectoryManager* dir_manager = user_share->dir_manager.get();
@@ -231,12 +214,18 @@ void TestProfileSyncService::OnBackendInitialized() {
       ProfileSyncServiceTestHelper::CreateRoot(
           syncable::NIGORI, GetUserShare(),
           id_factory());
+
+      // A side effect of adding the NIGORI mode (normally done by the syncer)
+      // is a decryption attempt, which will fail the first time.
+      send_passphrase_required = true;
     }
 
     SetInitialSyncEndedForEnabledTypes();
   }
 
   ProfileSyncService::OnBackendInitialized();
+  if (send_passphrase_required)
+    OnPassphraseRequired(true);
 
   // TODO(akalin): Figure out a better way to do this.
   if (synchronous_backend_initialization_) {
@@ -254,12 +243,6 @@ void TestProfileSyncService::Observe(NotificationType type,
   }
 }
 
-void TestProfileSyncService::set_num_expected_resumes(int times) {
-  num_expected_resumes_ = times;
-}
-void TestProfileSyncService::set_num_expected_pauses(int num) {
-  num_expected_pauses_ = num;
-}
 void TestProfileSyncService::dont_set_initial_sync_ended_on_init() {
   set_initial_sync_ended_on_init_ = false;
 }
@@ -270,7 +253,6 @@ void TestProfileSyncService::set_synchronous_sync_configuration() {
 void TestProfileSyncService::CreateBackend() {
   backend_.reset(new browser_sync::SyncBackendHostForProfileSyncTest(
       profile(),
-      num_expected_resumes_, num_expected_pauses_,
       set_initial_sync_ended_on_init_,
       synchronous_backend_initialization_));
 }

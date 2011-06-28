@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,7 @@
 
 #include "base/basictypes.h"
 #include "base/gtest_prod_util.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/cros/cryptohome_library.h"
 #include "chrome/browser/chromeos/login/authenticator.h"
@@ -65,7 +65,7 @@ class GoogleAuthenticator : public Authenticator, public GaiaAuthConsumer {
   bool AuthenticateToUnlock(const std::string& username,
                             const std::string& password);
 
-  // Initiates off the record ("browse without signing in") login.
+  // Initiates incognito ("browse without signing in") login.
   // Mounts tmpfs and notifies consumer on the success/failure.
   void LoginOffTheRecord();
 

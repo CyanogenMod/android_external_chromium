@@ -7,15 +7,17 @@
 #include <string>
 
 #include "base/logging.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/extensions/extension_install_ui.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_updater.h"
 #if defined(TOOLKIT_USES_GTK)
-#include "chrome/browser/ui/gtk/gtk_theme_provider.h"
+#include "chrome/browser/ui/gtk/gtk_theme_service.h"
 #endif
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/protocol/theme_specifics.pb.h"
+#include "chrome/browser/themes/theme_service.h"
+#include "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "googleurl/src/gurl.h"
@@ -36,7 +38,7 @@ bool IsSystemThemeDistinctFromDefaultTheme() {
 
 bool UseSystemTheme(Profile* profile) {
 #if defined(TOOLKIT_USES_GTK)
-  return GtkThemeProvider::GetFrom(profile)->UseGtkTheme();
+  return GtkThemeService::GetFrom(profile)->UseGtkTheme();
 #else
   return false;
 #endif
@@ -91,7 +93,8 @@ void SetCurrentThemeFromThemeSpecifics(
     std::string id(theme_specifics.custom_theme_id());
     GURL update_url(theme_specifics.custom_theme_update_url());
     VLOG(1) << "Applying theme " << id << " with update_url " << update_url;
-    ExtensionService* extensions_service = profile->GetExtensionService();
+    ExtensionServiceInterface* extensions_service =
+        profile->GetExtensionService();
     CHECK(extensions_service);
     const Extension* extension = extensions_service->GetExtensionById(id, true);
     if (extension) {
@@ -99,21 +102,15 @@ void SetCurrentThemeFromThemeSpecifics(
         VLOG(1) << "Extension " << id << " is not a theme; aborting";
         return;
       }
-      ExtensionPrefs* extension_prefs = extensions_service->extension_prefs();
-      CHECK(extension_prefs);
-      // TODO(akalin): GetExtensionState() isn't very safe as it
-      // returns Extension::ENABLED by default; either change it to
-      // return something else by default or create a separate
-      // function that does so.
-      if (extension_prefs->GetExtensionState(extension->id()) !=
-          Extension::ENABLED) {
+      if (!extensions_service->IsExtensionEnabled(id)) {
         VLOG(1) << "Theme " << id << " is not enabled; aborting";
         return;
       }
       // Get previous theme info before we set the new theme.
       std::string previous_theme_id;
       {
-        const Extension* current_theme = profile->GetTheme();
+        const Extension* current_theme =
+            ThemeServiceFactory::GetThemeForProfile(profile);
         if (current_theme) {
           DCHECK(current_theme->is_theme());
           previous_theme_id = current_theme->id();
@@ -122,7 +119,7 @@ void SetCurrentThemeFromThemeSpecifics(
       bool previous_use_system_theme = UseSystemTheme(profile);
       // An enabled theme extension with the given id was found, so
       // just set the current theme to it.
-      profile->SetTheme(extension);
+      ThemeServiceFactory::GetForProfile(profile)->SetTheme(extension);
       // Pretend the theme was just installed.
       ExtensionInstallUI::ShowThemeInfoBar(
           previous_theme_id, previous_use_system_theme,
@@ -137,31 +134,24 @@ void SetCurrentThemeFromThemeSpecifics(
       const bool kInstallSilently = false;
       const bool kEnableOnInstall = true;
       const bool kEnableIncognitoOnInstall = false;
-      extensions_service->AddPendingExtensionFromSync(
+      extensions_service->pending_extension_manager()->AddFromSync(
           id, update_url, &IsTheme,
           kInstallSilently, kEnableOnInstall, kEnableIncognitoOnInstall);
-      ExtensionUpdater* extension_updater = extensions_service->updater();
-      // Auto-updates should now be on always (see the construction of
-      // the ExtensionService in ProfileImpl::InitExtensions()).
-      if (!extension_updater) {
-        LOG(DFATAL) << "Extension updater unexpectedly NULL; "
-                    << "auto-updates may be turned off";
-        return;
-      }
-      extension_updater->CheckNow();
+      extensions_service->CheckForUpdatesSoon();
     }
   } else if (theme_specifics.use_system_theme_by_default()) {
-    profile->SetNativeTheme();
+    ThemeServiceFactory::GetForProfile(profile)->SetNativeTheme();
   } else {
-    profile->ClearTheme();
+    ThemeServiceFactory::GetForProfile(profile)->UseDefaultTheme();
   }
 }
 
 bool UpdateThemeSpecificsOrSetCurrentThemeIfNecessary(
     Profile* profile, sync_pb::ThemeSpecifics* theme_specifics) {
   if (!theme_specifics->use_custom_theme() &&
-      (profile->GetTheme() || (UseSystemTheme(profile) &&
-                               IsSystemThemeDistinctFromDefaultTheme()))) {
+      (ThemeServiceFactory::GetThemeForProfile(profile) ||
+       (UseSystemTheme(profile) &&
+        IsSystemThemeDistinctFromDefaultTheme()))) {
     GetThemeSpecificsFromCurrentTheme(profile, theme_specifics);
     return true;
   } else {
@@ -174,7 +164,8 @@ void GetThemeSpecificsFromCurrentTheme(
     Profile* profile,
     sync_pb::ThemeSpecifics* theme_specifics) {
   DCHECK(profile);
-  const Extension* current_theme = profile->GetTheme();
+  const Extension* current_theme =
+      ThemeServiceFactory::GetThemeForProfile(profile);
   if (current_theme) {
     DCHECK(current_theme->is_theme());
   }

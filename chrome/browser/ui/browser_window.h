@@ -17,6 +17,7 @@ class FindBar;
 class GURL;
 class HtmlDialogUIDelegate;
 class LocationBar;
+class Panel;
 class Profile;
 class StatusBubble;
 class TabContents;
@@ -45,8 +46,14 @@ class Extension;
 // NOTE: All getters may return NULL.
 class BrowserWindow {
  public:
+  virtual ~BrowserWindow() {}
+
   // Show the window, or activates it if it's already visible.
   virtual void Show() = 0;
+
+  // Show the window, but do not activate it. Does nothing if window
+  // is already visible.
+  virtual void ShowInactive() = 0;
 
   // Sets the window's size and position to the specified values.
   virtual void SetBounds(const gfx::Rect& bounds) = 0;
@@ -89,7 +96,7 @@ class BrowserWindow {
   // selected tab.
   // TODO(beng): Remove. Infobars/Boomarks bars should talk directly to
   //             BrowserView.
-  virtual void SelectedTabToolbarSizeChanged(bool is_animating) = 0;
+  virtual void ToolbarSizeChanged(bool is_animating) = 0;
 
   // Inform the frame that the selected tab favicon or title has changed. Some
   // frames may need to refresh their title bar.
@@ -225,32 +232,11 @@ class BrowserWindow {
   // Returns the DownloadShelf.
   virtual DownloadShelf* GetDownloadShelf() = 0;
 
-  // Shows the Clear Browsing Data dialog box.
-  virtual void ShowClearBrowsingDataDialog() = 0;
-
-  // Shows the Import Bookmarks & Settings dialog box.
-  virtual void ShowImportDialog() = 0;
-
-  // Shows the Search Engines dialog box.
-  virtual void ShowSearchEnginesDialog() = 0;
-
-  // Shows the Password Manager dialog box.
-  virtual void ShowPasswordManager() = 0;
-
   // Shows the repost form confirmation dialog box.
   virtual void ShowRepostFormWarningDialog(TabContents* tab_contents) = 0;
 
-  // Shows the Content Settings dialog box.
-  virtual void ShowContentSettingsWindow(ContentSettingsType content_type,
-                                         Profile* profile) = 0;
-
   // Shows the collected cookies dialog box.
   virtual void ShowCollectedCookiesDialog(TabContents* tab_contents) = 0;
-
-  // Shows a dialog to the user that something is wrong with the profile.
-  // |message_id| is the ID for a string in the string table which will be
-  // displayed in the dialog.
-  virtual void ShowProfileErrorDialog(int message_id) = 0;
 
   // Show the bubble that indicates to the user that a theme is being installed.
   virtual void ShowThemeInstallBubble() = 0;
@@ -261,13 +247,12 @@ class BrowserWindow {
   // has confirmed.
   virtual void ConfirmBrowserCloseWithPendingDownloads() = 0;
 
-  // Shows a dialog box with HTML content, e.g. for Gears. |parent_window| is
-  // the window the dialog should be opened modal to and is a native window
-  // handle.
+  // Shows a dialog box with HTML content. |parent_window| is the window the
+  // dialog should be opened modal to and is a native window handle.
   virtual void ShowHTMLDialog(HtmlDialogUIDelegate* delegate,
                               gfx::NativeWindow parent_window) = 0;
 
-  // BrowserThemeProvider calls this when a user has changed his or her theme,
+  // ThemeService calls this when a user has changed his or her theme,
   // indicating that it's time to redraw everything.
   virtual void UserChangedTheme() = 0;
 
@@ -306,7 +291,8 @@ class BrowserWindow {
   virtual void HandleKeyboardEvent(const NativeWebKeyboardEvent& event) = 0;
 
   // Shows the create web app shortcut dialog box.
-  virtual void ShowCreateWebAppShortcutsDialog(TabContents* tab_contents) = 0;
+  virtual void ShowCreateWebAppShortcutsDialog(
+      TabContentsWrapper* tab_contents) = 0;
 
   // Shows the create chrome app shortcut dialog box.
   virtual void ShowCreateChromeAppShortcutsDialog(Profile* profile,
@@ -329,7 +315,7 @@ class BrowserWindow {
   virtual void PrepareForInstant() = 0;
 
   // Invoked when instant's tab contents should be shown.
-  virtual void ShowInstant(TabContents* preview_contents) = 0;
+  virtual void ShowInstant(TabContentsWrapper* preview) = 0;
 
   // Invoked when the instant's tab contents should be hidden.
   // |instant_is_active| indicates if instant is still active.
@@ -355,8 +341,6 @@ class BrowserWindow {
   friend class BrowserList;
   friend class BrowserView;
   virtual void DestroyBrowser() = 0;
-
-  virtual ~BrowserWindow() {}
 };
 
 #if defined(OS_WIN) || defined(TOOLKIT_VIEWS)

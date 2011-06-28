@@ -12,8 +12,8 @@
 #include "net/test/test_server.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_test_job.h"
-#include "testing/gtest/include/gtest/gtest.h"
 #include "testing/gmock/include/gmock/gmock.h"
+#include "testing/gtest/include/gtest/gtest.h"
 
 using testing::_;
 using testing::DoAll;
@@ -165,10 +165,9 @@ IN_PROC_BROWSER_TEST_F(DeviceManagementServiceIntegrationTest,
     EXPECT_CALL(delegate, HandlePolicyResponse(_))
         .WillOnce(InvokeWithoutArgs(QuitMessageLoop));
     em::DevicePolicyRequest request;
-    request.set_policy_scope(kChromePolicyScope);
-    em::DevicePolicySettingRequest* setting_request =
-        request.add_setting_request();
-    setting_request->set_key(kChromeDevicePolicySettingKey);
+    em::PolicyFetchRequest* fetch_request = request.add_request();
+    fetch_request->set_signature_type(em::PolicyFetchRequest::SHA1_RSA);
+    fetch_request->set_policy_type(kChromeUserPolicyType);
     backend->ProcessPolicyRequest(token_, "testid", request, &delegate);
 
     MessageLoop::current()->Run();

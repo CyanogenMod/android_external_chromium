@@ -11,7 +11,7 @@
 #define NET_URL_REQUEST_URL_REQUEST_CONTEXT_H_
 #pragma once
 
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
 #include "base/threading/non_thread_safe.h"
 #include "net/base/net_log.h"
 #include "net/base/ssl_config_service.h"
@@ -43,6 +43,9 @@ class URLRequestContext
       public base::NonThreadSafe {
  public:
   URLRequestContext();
+
+  // Copies the state from |other| into this context.
+  void CopyFrom(URLRequestContext* other);
 
   NetLog* net_log() const {
     return net_log_;
@@ -79,7 +82,7 @@ class URLRequestContext
   DnsCertProvenanceChecker* dns_cert_checker() const {
     return dns_cert_checker_;
   }
-  void set_dns_cert_checker(net::DnsCertProvenanceChecker* dns_cert_checker) {
+  void set_dns_cert_checker(DnsCertProvenanceChecker* dns_cert_checker) {
     dns_cert_checker_ = dns_cert_checker;
   }
 
@@ -91,7 +94,7 @@ class URLRequestContext
 
   // Get the ssl config service for this context.
   SSLConfigService* ssl_config_service() const { return ssl_config_service_; }
-  void set_ssl_config_service(net::SSLConfigService* service) {
+  void set_ssl_config_service(SSLConfigService* service) {
     ssl_config_service_ = service;
   }
 
@@ -116,7 +119,7 @@ class URLRequestContext
   FtpTransactionFactory* ftp_transaction_factory() {
     return ftp_transaction_factory_;
   }
-  void set_ftp_transaction_factory(net::FtpTransactionFactory* factory) {
+  void set_ftp_transaction_factory(FtpTransactionFactory* factory) {
     ftp_transaction_factory_ = factory;
   }
 
@@ -141,7 +144,7 @@ class URLRequestContext
       return transport_security_state_;
   }
   void set_transport_security_state(
-      net::TransportSecurityState* state) {
+      TransportSecurityState* state) {
     transport_security_state_ = state;
   }
 
@@ -181,12 +184,20 @@ class URLRequestContext
   bool is_main() const { return is_main_; }
   void set_is_main(bool is_main) { is_main_ = is_main; }
 
+  // Is SNI available in this request context?
+  bool IsSNIAvailable() const;
+
  protected:
   friend class base::RefCountedThreadSafe<URLRequestContext>;
 
   virtual ~URLRequestContext();
 
  private:
+  // ---------------------------------------------------------------------------
+  // Important: When adding any new members below, consider whether they need to
+  // be added to CopyFrom.
+  // ---------------------------------------------------------------------------
+
   // Indicates whether or not this is the main URLRequestContext.
   bool is_main_;
 
@@ -214,6 +225,11 @@ class URLRequestContext
 
   HttpTransactionFactory* http_transaction_factory_;
   FtpTransactionFactory* ftp_transaction_factory_;
+
+  // ---------------------------------------------------------------------------
+  // Important: When adding any new members below, consider whether they need to
+  // be added to CopyFrom.
+  // ---------------------------------------------------------------------------
 
   DISALLOW_COPY_AND_ASSIGN(URLRequestContext);
 };

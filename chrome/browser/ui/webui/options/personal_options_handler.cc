@@ -8,26 +8,30 @@
 
 #include "base/basictypes.h"
 #include "base/callback.h"
+#include "base/command_line.h"
 #include "base/path_service.h"
 #include "base/stl_util-inl.h"
+#include "base/stringprintf.h"
+#include "base/time.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "build/build_config.h"
-#include "chrome/browser/browser_list.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/sync_setup_flow.h"
 #include "chrome/browser/sync/sync_ui_util.h"
-#include "chrome/browser/themes/browser_theme_provider.h"
+#include "chrome/browser/themes/theme_service.h"
+#include "chrome/browser/themes/theme_service_factory.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/options/options_page_base.h"
 #include "chrome/browser/ui/options/options_window.h"
-#include "chrome/browser/ui/webui/options/dom_options_util.h"
 #include "chrome/browser/ui/webui/options/options_managed_banner_handler.h"
 #include "chrome/common/chrome_paths.h"
+#include "chrome/common/chrome_switches.h"
 #include "chrome/common/net/gaia/google_service_auth_error.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/url_constants.h"
+#include "content/common/notification_service.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
@@ -36,14 +40,24 @@
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/login/user_manager.h"
-#include "content/browser/webui/web_ui_util.h"
+#include "chrome/browser/chromeos/options/take_photo_dialog.h"
+#include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/views/window.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "views/window/window.h"
 #endif  // defined(OS_CHROMEOS)
 #if defined(TOOLKIT_GTK)
-#include "chrome/browser/ui/gtk/gtk_theme_provider.h"
+#include "chrome/browser/ui/gtk/gtk_theme_service.h"
 #endif  // defined(TOOLKIT_GTK)
 
 PersonalOptionsHandler::PersonalOptionsHandler() {
+  const CommandLine& browser_command_line = *CommandLine::ForCurrentProcess();
+  multiprofile_ = browser_command_line.HasSwitch(switches::kMultiProfiles);
+#if defined(OS_CHROMEOS)
+  registrar_.Add(this,
+                 NotificationType::LOGIN_USER_IMAGE_CHANGED,
+                 NotificationService::AllSources());
+#endif
 }
 
 PersonalOptionsHandler::~PersonalOptionsHandler() {
@@ -60,17 +74,31 @@ void PersonalOptionsHandler::GetLocalizedValues(
   RegisterTitle(localized_strings, "personalPage",
                 IDS_OPTIONS_CONTENT_TAB_LABEL);
 
+
+  localized_strings->SetString(
+      "syncOverview",
+      l10n_util::GetStringFUTF16(IDS_SYNC_OVERVIEW,
+                                 l10n_util::GetStringUTF16(IDS_PRODUCT_NAME)));
+  localized_strings->SetString(
+      "syncFurtherOverview",
+      l10n_util::GetStringUTF16(IDS_SYNC_FURTHER_OVERVIEW));
   localized_strings->SetString("syncSection",
-      dom_options_util::StripColon(
-          l10n_util::GetStringUTF16(IDS_SYNC_OPTIONS_GROUP_NAME)));
+      multiprofile_ ?
+          l10n_util::GetStringUTF16(IDS_PROFILES_OPTIONS_GROUP_NAME) :
+          l10n_util::GetStringUTF16(IDS_SYNC_OPTIONS_GROUP_NAME));
   localized_strings->SetString("customizeSync",
-      l10n_util::GetStringUTF16(IDS_SYNC_CUSTOMIZE_BUTTON_LABEL));
-  localized_strings->SetString("privacyDashboardLink",
-      l10n_util::GetStringUTF16(IDS_SYNC_PRIVACY_DASHBOARD_LINK_LABEL));
+      multiprofile_ ?
+          l10n_util::GetStringUTF16(IDS_PROFILES_SYNC_CUSTOMIZE_BUTTON_LABEL) :
+          l10n_util::GetStringUTF16(IDS_SYNC_CUSTOMIZE_BUTTON_LABEL));
+  if (multiprofile_) {
+    localized_strings->SetString("createNewProfile",
+        l10n_util::GetStringUTF16(IDS_PROFILES_CREATE_INFO));
+    localized_strings->SetString("createProfileButton",
+        l10n_util::GetStringUTF16(IDS_PROFILES_CREATE_BUTTON_LABEL));
+  }
 
   localized_strings->SetString("passwords",
-      dom_options_util::StripColon(
-          l10n_util::GetStringUTF16(IDS_OPTIONS_PASSWORDS_GROUP_NAME)));
+      l10n_util::GetStringUTF16(IDS_OPTIONS_PASSWORDS_GROUP_NAME));
   localized_strings->SetString("passwordsAskToSave",
       l10n_util::GetStringUTF16(IDS_OPTIONS_PASSWORDS_ASKTOSAVE));
   localized_strings->SetString("passwordsNeverSave",
@@ -79,16 +107,14 @@ void PersonalOptionsHandler::GetLocalizedValues(
       l10n_util::GetStringUTF16(IDS_OPTIONS_PASSWORDS_MANAGE_PASSWORDS));
 
   localized_strings->SetString("autofill",
-      dom_options_util::StripColon(
-          l10n_util::GetStringUTF16(IDS_AUTOFILL_SETTING_WINDOWS_GROUP_NAME)));
-  localized_strings->SetString("autoFillEnabled",
+      l10n_util::GetStringUTF16(IDS_AUTOFILL_SETTING_WINDOWS_GROUP_NAME));
+  localized_strings->SetString("autofillEnabled",
       l10n_util::GetStringUTF16(IDS_OPTIONS_AUTOFILL_ENABLE));
   localized_strings->SetString("manageAutofillSettings",
       l10n_util::GetStringUTF16(IDS_OPTIONS_MANAGE_AUTOFILL_SETTINGS));
 
   localized_strings->SetString("browsingData",
-      dom_options_util::StripColon(
-          l10n_util::GetStringUTF16(IDS_OPTIONS_BROWSING_DATA_GROUP_NAME)));
+      l10n_util::GetStringUTF16(IDS_OPTIONS_BROWSING_DATA_GROUP_NAME));
   localized_strings->SetString("importData",
       l10n_util::GetStringUTF16(IDS_OPTIONS_IMPORT_DATA_BUTTON));
 
@@ -99,8 +125,7 @@ void PersonalOptionsHandler::GetLocalizedValues(
 
 #if defined(TOOLKIT_GTK)
   localized_strings->SetString("appearance",
-      dom_options_util::StripColon(
-          l10n_util::GetStringUTF16(IDS_APPEARANCE_GROUP_NAME)));
+      l10n_util::GetStringUTF16(IDS_APPEARANCE_GROUP_NAME));
   localized_strings->SetString("themesGTKButton",
       l10n_util::GetStringUTF16(IDS_THEMES_GTK_BUTTON));
   localized_strings->SetString("themesSetClassic",
@@ -111,8 +136,7 @@ void PersonalOptionsHandler::GetLocalizedValues(
       l10n_util::GetStringUTF16(IDS_HIDE_WINDOW_DECORATIONS_RADIO));
 #else
   localized_strings->SetString("themes",
-      dom_options_util::StripColon(
-          l10n_util::GetStringUTF16(IDS_THEMES_GROUP_NAME)));
+      l10n_util::GetStringUTF16(IDS_THEMES_GROUP_NAME));
   localized_strings->SetString("themesReset",
       l10n_util::GetStringUTF16(IDS_THEMES_RESET_BUTTON));
 #endif
@@ -162,6 +186,8 @@ void PersonalOptionsHandler::GetLocalizedValues(
       l10n_util::GetStringUTF16(IDS_OPTIONS_PERSONAL_ACCOUNT_GROUP_NAME));
   localized_strings->SetString("enableScreenlock",
       l10n_util::GetStringUTF16(IDS_OPTIONS_ENABLE_SCREENLOCKER_CHECKBOX));
+  localized_strings->SetString("changePicture",
+      l10n_util::GetStringUTF16(IDS_OPTIONS_CHANGE_PICTURE));
 #endif
 }
 
@@ -196,10 +222,15 @@ void PersonalOptionsHandler::RegisterMessages() {
 void PersonalOptionsHandler::Observe(NotificationType type,
                                      const NotificationSource& source,
                                      const NotificationDetails& details) {
-  if (type == NotificationType::BROWSER_THEME_CHANGED)
+  if (type == NotificationType::BROWSER_THEME_CHANGED) {
     ObserveThemeChanged();
-  else
+#if defined(OS_CHROMEOS)
+  } else if (type == NotificationType::LOGIN_USER_IMAGE_CHANGED) {
+    LoadAccountPicture(NULL);
+#endif
+  } else {
     OptionsPageUIHandler::Observe(type, source, details);
+  }
 }
 
 void PersonalOptionsHandler::OnStateChanged() {
@@ -216,7 +247,8 @@ void PersonalOptionsHandler::OnStateChanged() {
   bool is_start_stop_button_visible = false;
   bool is_start_stop_button_enabled = false;
   if (sync_setup_completed) {
-    start_stop_button_label =
+    start_stop_button_label = multiprofile_ ?
+        l10n_util::GetStringUTF16(IDS_PROFILES_DISCONNECT_BUTTON_LABEL) :
         l10n_util::GetStringUTF16(IDS_SYNC_STOP_SYNCING_BUTTON_LABEL);
 #if defined(OS_CHROMEOS)
     is_start_stop_button_visible = false;
@@ -231,44 +263,61 @@ void PersonalOptionsHandler::OnStateChanged() {
     is_start_stop_button_enabled = false;
   } else {
     start_stop_button_label =
-        l10n_util::GetStringUTF16(IDS_SYNC_START_SYNC_BUTTON_LABEL);
+        multiprofile_ ?
+            l10n_util::GetStringUTF16(IDS_PROFILES_CONNECT_BUTTON_LABEL) :
+            l10n_util::GetStringUTF16(IDS_SYNC_START_SYNC_BUTTON_LABEL);
     is_start_stop_button_visible = true;
     is_start_stop_button_enabled = !managed;
   }
 
   scoped_ptr<Value> completed(Value::CreateBooleanValue(sync_setup_completed));
-  web_ui_->CallJavascriptFunction(L"PersonalOptions.setSyncSetupCompleted",
+  web_ui_->CallJavascriptFunction("PersonalOptions.setSyncSetupCompleted",
                                   *completed);
 
   scoped_ptr<Value> label(Value::CreateStringValue(status_label));
-  web_ui_->CallJavascriptFunction(L"PersonalOptions.setSyncStatus",
-                                  *label);
+  web_ui_->CallJavascriptFunction("PersonalOptions.setSyncStatus", *label);
 
   scoped_ptr<Value> enabled(
       Value::CreateBooleanValue(is_start_stop_button_enabled));
-  web_ui_->CallJavascriptFunction(L"PersonalOptions.setStartStopButtonEnabled",
+  web_ui_->CallJavascriptFunction("PersonalOptions.setStartStopButtonEnabled",
                                   *enabled);
 
   scoped_ptr<Value> visible(
       Value::CreateBooleanValue(is_start_stop_button_visible));
-  web_ui_->CallJavascriptFunction(L"PersonalOptions.setStartStopButtonVisible",
+  web_ui_->CallJavascriptFunction("PersonalOptions.setStartStopButtonVisible",
                                   *visible);
 
   label.reset(Value::CreateStringValue(start_stop_button_label));
-  web_ui_->CallJavascriptFunction(L"PersonalOptions.setStartStopButtonLabel",
+  web_ui_->CallJavascriptFunction("PersonalOptions.setStartStopButtonLabel",
                                   *label);
 
   label.reset(Value::CreateStringValue(link_label));
-  web_ui_->CallJavascriptFunction(L"PersonalOptions.setSyncActionLinkLabel",
+  web_ui_->CallJavascriptFunction("PersonalOptions.setSyncActionLinkLabel",
                                   *label);
 
   enabled.reset(Value::CreateBooleanValue(!managed));
-  web_ui_->CallJavascriptFunction(L"PersonalOptions.setSyncActionLinkEnabled",
+  web_ui_->CallJavascriptFunction("PersonalOptions.setSyncActionLinkEnabled",
                                   *enabled);
 
   visible.reset(Value::CreateBooleanValue(status_has_error));
-  web_ui_->CallJavascriptFunction(
-    L"PersonalOptions.setSyncStatusErrorVisible", *visible);
+  web_ui_->CallJavascriptFunction("PersonalOptions.setSyncStatusErrorVisible",
+                                  *visible);
+
+  // Set profile creation text and button if multi-profiles switch is on.
+  if (multiprofile_) {
+    visible.reset(Value::CreateBooleanValue(true));
+    web_ui_->CallJavascriptFunction("PersonalOptions.setProfilesSectionVisible",
+                                    *visible);
+
+    // TODO(mirandac): enable when back end is ready.
+    enabled.reset(Value::CreateBooleanValue(false));
+    web_ui_->CallJavascriptFunction(
+        "PersonalOptions.setNewProfileButtonEnabled", *enabled);
+  } else {
+    visible.reset(Value::CreateBooleanValue(false));
+    web_ui_->CallJavascriptFunction("PersonalOptions.setProfilesSectionVisible",
+                                    *visible);
+  }
 }
 
 void PersonalOptionsHandler::OnLoginSuccess() {
@@ -283,21 +332,20 @@ void PersonalOptionsHandler::OnLoginFailure(
 void PersonalOptionsHandler::ObserveThemeChanged() {
   Profile* profile = web_ui_->GetProfile();
 #if defined(TOOLKIT_GTK)
-  GtkThemeProvider* provider = GtkThemeProvider::GetFrom(profile);
+  GtkThemeService* provider = GtkThemeService::GetFrom(profile);
   bool is_gtk_theme = provider->UseGtkTheme();
   FundamentalValue gtk_enabled(!is_gtk_theme);
   web_ui_->CallJavascriptFunction(
-      L"options.PersonalOptions.setGtkThemeButtonEnabled", gtk_enabled);
+      "options.PersonalOptions.setGtkThemeButtonEnabled", gtk_enabled);
 #else
-  BrowserThemeProvider* provider =
-      reinterpret_cast<BrowserThemeProvider*>(profile->GetThemeProvider());
+  ThemeService* provider = ThemeServiceFactory::GetForProfile(profile);
   bool is_gtk_theme = false;
 #endif
 
   bool is_classic_theme = !is_gtk_theme && provider->UsingDefaultTheme();
   FundamentalValue enabled(!is_classic_theme);
   web_ui_->CallJavascriptFunction(
-      L"options.PersonalOptions.setThemesResetButtonEnabled", enabled);
+      "options.PersonalOptions.setThemesResetButtonEnabled", enabled);
 }
 
 void PersonalOptionsHandler::Initialize() {
@@ -320,64 +368,41 @@ void PersonalOptionsHandler::Initialize() {
     DictionaryValue args;
     SyncSetupFlow::GetArgsForConfigure(sync_service, &args);
 
-    web_ui_->CallJavascriptFunction(
-        L"PersonalOptions.setRegisteredDataTypes", args);
+    web_ui_->CallJavascriptFunction("PersonalOptions.setRegisteredDataTypes",
+                                    args);
   } else {
-    web_ui_->CallJavascriptFunction(L"options.PersonalOptions.hideSyncSection");
+    web_ui_->CallJavascriptFunction("options.PersonalOptions.hideSyncSection");
   }
 }
 
 void PersonalOptionsHandler::ShowSyncActionDialog(const ListValue* args) {
   ProfileSyncService* service = web_ui_->GetProfile()->GetProfileSyncService();
   DCHECK(service);
-#if defined(OS_CHROMEOS)
-  // ProfileSyncService calls ProfileSyncService::ShowLoginDialog()
-  // for these errors, which currently does not work on ChromeOS.
-  // TODO(stevenjb + jhawkins): This code path should go away for R11 when
-  // we switch to DOM based sync setup UI.
-  const GoogleServiceAuthError& error = service->GetAuthError();
-  if (error.state() == GoogleServiceAuthError::INVALID_GAIA_CREDENTIALS ||
-      error.state() == GoogleServiceAuthError::CAPTCHA_REQUIRED ||
-      error.state() == GoogleServiceAuthError::ACCOUNT_DELETED ||
-      error.state() == GoogleServiceAuthError::ACCOUNT_DISABLED ||
-      error.state() == GoogleServiceAuthError::SERVICE_UNAVAILABLE) {
-    ShowSyncLoginDialog(args);
-  }
-#endif
   service->ShowErrorUI(NULL);
 }
 
 void PersonalOptionsHandler::ShowSyncLoginDialog(const ListValue* args) {
-#if defined(OS_CHROMEOS)
-  std::string email = chromeos::UserManager::Get()->logged_in_user().email();
-  string16 message = l10n_util::GetStringFUTF16(
-      IDS_SYNC_LOGIN_INTRODUCTION,
-      l10n_util::GetStringUTF16(IDS_PRODUCT_NAME));
-  web_ui_->GetProfile()->GetBrowserSignin()->RequestSignin(
-      web_ui_->tab_contents(), UTF8ToUTF16(email), message, this);
-#else
   ProfileSyncService* service = web_ui_->GetProfile()->GetProfileSyncService();
   DCHECK(service);
   service->ShowLoginDialog(NULL);
   ProfileSyncService::SyncEvent(ProfileSyncService::START_FROM_OPTIONS);
-#endif
 }
 
 void PersonalOptionsHandler::ShowCustomizeSyncDialog(const ListValue* args) {
   ProfileSyncService* service = web_ui_->GetProfile()->GetProfileSyncService();
   DCHECK(service);
-  service->ShowConfigure(NULL);
+  service->ShowConfigure(NULL, false);
 }
 
 void PersonalOptionsHandler::ThemesReset(const ListValue* args) {
   UserMetricsRecordAction(UserMetricsAction("Options_ThemesReset"));
-  web_ui_->GetProfile()->ClearTheme();
+  ThemeServiceFactory::GetForProfile(web_ui_->GetProfile())->UseDefaultTheme();
 }
 
 #if defined(TOOLKIT_GTK)
 void PersonalOptionsHandler::ThemesSetGTK(const ListValue* args) {
   UserMetricsRecordAction(UserMetricsAction("Options_GtkThemeSet"));
-  web_ui_->GetProfile()->SetNativeTheme();
+  ThemeServiceFactory::GetForProfile(web_ui_->GetProfile())->SetNativeTheme();
 }
 #endif
 
@@ -391,11 +416,21 @@ void PersonalOptionsHandler::OnPreferredDataTypesUpdated(
 
 #if defined(OS_CHROMEOS)
 void PersonalOptionsHandler::LoadAccountPicture(const ListValue* args) {
-  std::string email = chromeos::UserManager::Get()->logged_in_user().email();
+  const chromeos::UserManager::User& user =
+      chromeos::UserManager::Get()->logged_in_user();
+  std::string email = user.email();
   if (!email.empty()) {
-    StringValue image_url(chrome::kChromeUIUserImageURL + email);
-    web_ui_->CallJavascriptFunction(L"PersonalOptions.setAccountPicture",
-        image_url);
+    // int64 is either long or long long, but we need a certain format
+    // specifier.
+    long long timestamp = base::TimeTicks::Now().ToInternalValue();
+    StringValue image_url(
+        StringPrintf("%s%s?id=%lld",
+                     chrome::kChromeUIUserImageURL,
+                     email.c_str(),
+                     timestamp));
+    web_ui_->CallJavascriptFunction("PersonalOptions.setAccountPicture",
+                                    image_url);
   }
 }
+
 #endif

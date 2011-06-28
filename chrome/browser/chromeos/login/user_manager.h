@@ -11,7 +11,8 @@
 
 #include "base/basictypes.h"
 #include "base/hash_tables.h"
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
+#include "base/synchronization/lock.h"
 #include "chrome/browser/chromeos/login/user_image_loader.h"
 #include "content/common/notification_observer.h"
 #include "content/common/notification_registrar.h"
@@ -19,6 +20,10 @@
 
 class FilePath;
 class PrefService;
+
+namespace base {
+template<typename> struct DefaultLazyInstanceTraits;
+}
 
 namespace chromeos {
 class RemoveUserDelegate;
@@ -65,7 +70,7 @@ class UserManager : public UserImageLoader::Delegate,
   // It is sorted in order of recency, with most recent at the beginning.
   virtual std::vector<User> GetUsers() const;
 
-  // Indicates that user just started off the record session.
+  // Indicates that user just started incognito session.
   virtual void OffTheRecordUserLoggedIn();
 
   // Indicates that a user with the given email has just logged in.
@@ -92,13 +97,25 @@ class UserManager : public UserImageLoader::Delegate,
   // notification about the image changed via NotificationService.
   void SetLoggedInUserImage(const SkBitmap& image);
 
+  // Tries to load logged-in user image from disk and sets it for the user.
+  void LoadLoggedInUserImage(const FilePath& path);
+
   // Saves image to file and saves image path in local state preferences.
   void SaveUserImage(const std::string& username,
                      const SkBitmap& image);
 
+  // Saves user image path for the user. Can be used to set default images.
+  void SaveUserImagePath(const std::string& username,
+                         const std::string& image_path);
+
+  // Returns the index of user's default image or -1 if the image is not
+  // default.
+  int GetUserDefaultImageIndex(const std::string& username);
+
   // chromeos::UserImageLoader::Delegate implementation.
   virtual void OnImageLoaded(const std::string& username,
-                             const SkBitmap& image);
+                             const SkBitmap& image,
+                             bool save_image);
 
   // NotificationObserver implementation.
   virtual void Observe(NotificationType type,
@@ -145,7 +162,9 @@ class UserManager : public UserImageLoader::Delegate,
   User logged_in_user_;
 
   // Cached flag of whether currently logged-in user is owner or not.
+  // May be accessed on different threads, requires locking.
   bool current_user_is_owner_;
+  mutable base::Lock current_user_is_owner_lock_;
 
   // Cached flag of whether the currently logged-in user existed before this
   // login.
@@ -155,6 +174,8 @@ class UserManager : public UserImageLoader::Delegate,
   bool user_is_logged_in_;
 
   NotificationRegistrar registrar_;
+
+  friend struct base::DefaultLazyInstanceTraits<UserManager>;
 
   DISALLOW_COPY_AND_ASSIGN(UserManager);
 };

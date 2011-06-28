@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,13 +10,16 @@
 #include <string>
 
 #include "app/mac/nsimage_cache.h"
+#include "base/command_line.h"
 #include "base/mac/mac_util.h"
 #include "base/sys_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/autocomplete/autocomplete.h"
 #include "chrome/browser/autocomplete/autocomplete_classifier.h"
 #include "chrome/browser/autocomplete/autocomplete_match.h"
+#include "chrome/browser/extensions/extension_tab_helper.h"
 #include "chrome/browser/metrics/user_metrics.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/debugger/devtools_window.h"
 #include "chrome/browser/net/url_fixer_upper.h"
@@ -29,6 +32,8 @@
 #import "chrome/browser/ui/cocoa/browser_window_controller.h"
 #import "chrome/browser/ui/cocoa/constrained_window_mac.h"
 #import "chrome/browser/ui/cocoa/new_tab_button.h"
+#import "chrome/browser/ui/cocoa/profile_menu_button.h"
+#import "chrome/browser/ui/cocoa/tab_contents/favicon_util.h"
 #import "chrome/browser/ui/cocoa/tabs/tab_controller.h"
 #import "chrome/browser/ui/cocoa/tabs/tab_strip_model_observer_bridge.h"
 #import "chrome/browser/ui/cocoa/tabs/tab_strip_view.h"
@@ -38,10 +43,13 @@
 #include "chrome/browser/ui/find_bar/find_bar.h"
 #include "chrome/browser/ui/find_bar/find_bar_controller.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
+#include "chrome/common/chrome_switches.h"
+#include "chrome/common/pref_names.h"
 #include "content/browser/tab_contents/navigation_controller.h"
 #include "content/browser/tab_contents/navigation_entry.h"
 #include "content/browser/tab_contents/tab_contents.h"
 #include "content/browser/tab_contents/tab_contents_view.h"
+#include "content/common/notification_service.h"
 #include "grit/app_resources.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
@@ -52,6 +60,21 @@
 #include "ui/gfx/image.h"
 
 NSString* const kTabStripNumberOfTabsChanged = @"kTabStripNumberOfTabsChanged";
+
+// 10.7 adds public APIs for full-screen support. Provide the declaration so it
+// can be called below when building with the 10.5 SDK.
+#if !defined(MAC_OS_X_VERSION_10_7) || \
+MAC_OS_X_VERSION_MAX_ALLOWED < MAC_OS_X_VERSION_10_7
+
+@interface NSWindow (LionSDKDeclarations)
+- (void)toggleFullScreen:(id)sender;
+@end
+
+enum {
+  NSWindowFullScreenButton = 7
+};
+
+#endif  // MAC_OS_X_VERSION_10_7
 
 namespace {
 
@@ -79,6 +102,10 @@ const CGFloat kIncognitoBadgeTabStripShrink = 18;
 
 // Time (in seconds) in which tabs animate to their final position.
 const NSTimeInterval kAnimationDuration = 0.125;
+
+// The amount by wich the profile menu button is offset (from tab tabs or new
+// tab button).
+const CGFloat kProfileMenuButtonOffset = 6.0;
 
 // Helper class for doing NSAnimationContext calls that takes a bool to disable
 // all the work.  Useful for code that wants to conditionally animate.
@@ -127,7 +154,7 @@ private:
 - (void)addSubviewToPermanentList:(NSView*)aView;
 - (void)regenerateSubviewList;
 - (NSInteger)indexForContentsView:(NSView*)view;
-- (void)updateFavIconForContents:(TabContents*)contents
+- (void)updateFaviconForContents:(TabContents*)contents
                          atIndex:(NSInteger)modelIndex;
 - (void)layoutTabsWithAnimation:(BOOL)animate
              regenerateSubviews:(BOOL)doUpdate;
@@ -143,6 +170,8 @@ private:
             givesIndex:(NSInteger*)index
            disposition:(WindowOpenDisposition*)disposition;
 - (void)setNewTabButtonHoverState:(BOOL)showHover;
+- (BOOL)shouldShowProfileMenuButton;
+- (void)updateProfileMenuButton;
 @end
 
 // A simple view class that prevents the Window Server from dragging the area
@@ -241,6 +270,39 @@ private:
 
 @end
 
+namespace TabStripControllerInternal {
+
+// Bridges C++ notifications back to the TabStripController.
+class NotificationBridge : public NotificationObserver {
+ public:
+  explicit NotificationBridge(TabStripController* controller,
+                              PrefService* prefService)
+      : controller_(controller) {
+    DCHECK(prefService);
+    usernamePref_.Init(prefs::kGoogleServicesUsername, prefService, this);
+  }
+
+  // Overridden from NotificationObserver:
+  virtual void Observe(NotificationType type,
+                       const NotificationSource& source,
+                       const NotificationDetails& details) {
+    DCHECK_EQ(NotificationType::PREF_CHANGED, type.value);
+    std::string* name = Details<std::string>(details).ptr();
+    if (prefs::kGoogleServicesUsername == *name) {
+      [controller_ updateProfileMenuButton];
+      [controller_ layoutTabsWithAnimation:NO regenerateSubviews:NO];
+    }
+  }
+
+ private:
+  TabStripController* controller_;  // weak, owns us
+
+  // The Google services user name associated with this BrowserView's profile.
+  StringPrefMember usernamePref_;
+};
+
+} // namespace TabStripControllerInternal
+
 #pragma mark -
 
 // In general, there is a one-to-one correspondence between TabControllers,
@@ -303,8 +365,8 @@ private:
     // (see |-addSubviewToPermanentList:|) will be wiped out.
     permanentSubviews_.reset([[NSMutableArray alloc] init]);
 
-    ResourceBundle& rb = ResourceBundle::GetSharedInstance();
-    defaultFavIcon_.reset([rb.GetNativeImageNamed(IDR_DEFAULT_FAVICON) retain]);
+    defaultFavicon_.reset(
+        [app::mac::GetCachedImageWithName(@"nav.pdf") retain]);
 
     [self setIndentForControls:[[self class] defaultIndentForControls]];
 
@@ -316,6 +378,15 @@ private:
     [newTabButton_ setTarget:nil];
     [newTabButton_ setAction:@selector(commandDispatch:)];
     [newTabButton_ setTag:IDC_NEW_TAB];
+
+    profileMenuButton_ = [view profileMenuButton];
+    [self addSubviewToPermanentList:profileMenuButton_];
+    [self updateProfileMenuButton];
+    // Register pref observers for profile name.
+    notificationBridge_.reset(
+        new TabStripControllerInternal::NotificationBridge(
+            self, browser_->profile()->GetPrefs()));
+
     // Set the images from code because Cocoa fails to find them in our sub
     // bundle during tests.
     [newTabButton_ setImage:app::mac::GetCachedImageWithName(kNewTabImage)];
@@ -483,6 +554,11 @@ private:
   // It also restores content autoresizing properties.
   [controller ensureContentsVisible];
 
+  // Tell per-tab sheet manager about currently selected tab.
+  if (sheetController_.get()) {
+    [sheetController_ setActiveView:newView];
+  }
+
   // Make sure the new tabs's sheets are visible (necessary when a background
   // tab opened a sheet while it was in the background and now becomes active).
   TabContentsWrapper* newTab = tabStripModel_->GetTabContentsAt(modelIndex);
@@ -500,11 +576,6 @@ private:
       static_cast<ConstrainedWindowMac*>(constrainedWindow)->Realize(
           static_cast<BrowserWindowController*>(controller));
     }
-  }
-
-  // Tell per-tab sheet manager about currently selected tab.
-  if (sheetController_.get()) {
-    [sheetController_ setActiveView:newView];
   }
 }
 
@@ -625,7 +696,7 @@ private:
   DCHECK([sender isKindOfClass:[NSView class]]);
   int index = [self modelIndexForTabView:sender];
   if (tabStripModel_->ContainsIndex(index))
-    tabStripModel_->SelectTabContentsAt(index, true);
+    tabStripModel_->ActivateTabAt(index, true);
 }
 
 // Called when the user closes a tab. Asks the model to close the tab. |sender|
@@ -761,10 +832,19 @@ private:
       availableSpace = availableResizeWidth_;
     } else {
       availableSpace = NSWidth([tabStripView_ frame]);
-      // Account for the new tab button and the incognito badge.
+
+      // Account for the widths of the new tab button, the incognito badge, and
+      // the fullscreen button if any/all are present.
       availableSpace -= NSWidth([newTabButton_ frame]) + kNewTabButtonOffset;
       if (browser_->profile()->IsOffTheRecord())
         availableSpace -= kIncognitoBadgeTabStripShrink;
+      if ([[tabStripView_ window]
+          respondsToSelector:@selector(toggleFullScreen:)]) {
+        NSButton* fullscreenButton = [[tabStripView_ window]
+            standardWindowButton:NSWindowFullScreenButton];
+        if (fullscreenButton)
+          availableSpace -= [fullscreenButton frame].size.width;
+      }
     }
     availableSpace -= [self indentForControls];
   }
@@ -946,6 +1026,49 @@ private:
     }
   }
 
+  if (profileMenuButton_ && ![profileMenuButton_ isHidden]) {
+    CGFloat maxX;
+    if ([newTabButton_ isHidden]) {
+      maxX = std::max(offset, NSMaxX(placeholderFrame_) - kTabOverlap);
+    } else {
+      maxX = NSMaxX(newTabTargetFrame_);
+    }
+    NSRect profileMenuButtonFrame = [profileMenuButton_ frame];
+    NSSize minSize = [profileMenuButton_ minControlSize];
+
+    // Make room for the full screen button if necessary.
+    if (!hasUpdatedProfileMenuButtonXOffset_) {
+      hasUpdatedProfileMenuButtonXOffset_ = YES;
+      if ([[profileMenuButton_ window]
+          respondsToSelector:@selector(toggleFullScreen:)]) {
+        NSButton* fullscreenButton = [[profileMenuButton_ window]
+            standardWindowButton:NSWindowFullScreenButton];
+        if (fullscreenButton) {
+          profileMenuButtonFrame.origin.x = NSMinX([fullscreenButton frame]) -
+              NSWidth(profileMenuButtonFrame) - kProfileMenuButtonOffset;
+        }
+      }
+    }
+
+    // TODO(sail): Animate this.
+    CGFloat availableWidth = NSMaxX(profileMenuButtonFrame) - maxX -
+                             kProfileMenuButtonOffset;
+    if (availableWidth > minSize.width) {
+      [profileMenuButton_ setShouldShowProfileDisplayName:YES];
+    } else {
+      [profileMenuButton_ setShouldShowProfileDisplayName:NO];
+    }
+
+    NSSize desiredSize = [profileMenuButton_ desiredControlSize];
+    NSRect rect;
+    rect.size.width = std::min(desiredSize.width,
+                               std::max(availableWidth, minSize.width));
+    rect.size.height = desiredSize.height;
+    rect.origin.y = NSMaxY(profileMenuButtonFrame) - rect.size.height;
+    rect.origin.x = NSMaxX(profileMenuButtonFrame) - rect.size.width;
+    [profileMenuButton_ setFrame:rect];
+  }
+
   [dragBlockingView_ setFrame:enclosingRect];
 
   // Mark that we've successfully completed layout of at least one tab.
@@ -994,6 +1117,7 @@ private:
   [newController setMini:tabStripModel_->IsMiniTab(modelIndex)];
   [newController setPinned:tabStripModel_->IsTabPinned(modelIndex)];
   [newController setApp:tabStripModel_->IsAppTab(modelIndex)];
+  [newController setUrl:contents->tab_contents()->GetURL()];
   [tabArray_ insertObject:newController atIndex:index];
   NSView* newView = [newController view];
 
@@ -1021,7 +1145,7 @@ private:
   // dragging a tab out into a new window, we have to put the tab's favicon
   // into the right state up front as we won't be told to do it from anywhere
   // else.
-  [self updateFavIconForContents:contents->tab_contents() atIndex:modelIndex];
+  [self updateFaviconForContents:contents->tab_contents() atIndex:modelIndex];
 
   // Send a broadcast that the number of tabs have changed.
   [[NSNotificationCenter defaultCenter]
@@ -1211,27 +1335,28 @@ private:
   [delegate_ onTabDetachedWithContents:contents->tab_contents()];
 }
 
-// A helper routine for creating an NSImageView to hold the fav icon or app icon
+// A helper routine for creating an NSImageView to hold the favicon or app icon
 // for |contents|.
 - (NSImageView*)iconImageViewForContents:(TabContents*)contents {
-  BOOL isApp = contents->is_app();
+  TabContentsWrapper* wrapper =
+      TabContentsWrapper::GetCurrentWrapperForContents(contents);
+  BOOL isApp = wrapper->extension_tab_helper()->is_app();
   NSImage* image = nil;
   // Favicons come from the renderer, and the renderer draws everything in the
   // system color space.
   CGColorSpaceRef colorSpace = base::mac::GetSystemColorSpace();
   if (isApp) {
-    SkBitmap* icon = contents->GetExtensionAppIcon();
+    SkBitmap* icon = wrapper->extension_tab_helper()->GetExtensionAppIcon();
     if (icon)
       image = gfx::SkBitmapToNSImageWithColorSpace(*icon, colorSpace);
   } else {
-    image = gfx::SkBitmapToNSImageWithColorSpace(contents->GetFavIcon(),
-                                                 colorSpace);
+    image = mac::FaviconForTabContents(contents);
   }
 
   // Either we don't have a valid favicon or there was some issue converting it
   // from an SkBitmap. Either way, just show the default.
   if (!image)
-    image = defaultFavIcon_.get();
+    image = defaultFavicon_.get();
   NSRect frame = NSMakeRect(0, 0, kIconWidthAndHeight, kIconWidthAndHeight);
   NSImageView* view = [[[NSImageView alloc] initWithFrame:frame] autorelease];
   [view setImage:image];
@@ -1240,7 +1365,7 @@ private:
 
 // Updates the current loading state, replacing the icon view with a favicon,
 // a throbber, the default icon, or nothing at all.
-- (void)updateFavIconForContents:(TabContents*)contents
+- (void)updateFaviconForContents:(TabContents*)contents
                          atIndex:(NSInteger)modelIndex {
   if (!contents)
     return;
@@ -1260,7 +1385,7 @@ private:
   TabController* tabController = [tabArray_ objectAtIndex:index];
 
   bool oldHasIcon = [tabController iconView] != nil;
-  bool newHasIcon = contents->ShouldDisplayFavIcon() ||
+  bool newHasIcon = contents->ShouldDisplayFavicon() ||
       tabStripModel_->IsMiniTab(modelIndex);  // Always show icon if mini.
 
   TabLoadingState oldState = [tabController loadingState];
@@ -1318,7 +1443,7 @@ private:
   // Take closing tabs into account.
   NSInteger index = [self indexFromModelIndex:modelIndex];
 
-  if (modelIndex == tabStripModel_->selected_index())
+  if (modelIndex == tabStripModel_->active_index())
     [delegate_ onSelectedTabChange:change];
 
   if (change == TabStripModelObserver::TITLE_NOT_LOADING) {
@@ -1332,7 +1457,7 @@ private:
   if (change != TabStripModelObserver::LOADING_ONLY)
     [self setTabTitle:tabController withContents:contents->tab_contents()];
 
-  [self updateFavIconForContents:contents->tab_contents() atIndex:modelIndex];
+  [self updateFaviconForContents:contents->tab_contents() atIndex:modelIndex];
 
   TabContentsController* updatedController =
       [tabContentsArray_ objectAtIndex:index];
@@ -1383,7 +1508,8 @@ private:
   [tabController setMini:tabStripModel_->IsMiniTab(modelIndex)];
   [tabController setPinned:tabStripModel_->IsTabPinned(modelIndex)];
   [tabController setApp:tabStripModel_->IsAppTab(modelIndex)];
-  [self updateFavIconForContents:contents->tab_contents() atIndex:modelIndex];
+  [tabController setUrl:contents->tab_contents()->GetURL()];
+  [self updateFaviconForContents:contents->tab_contents() atIndex:modelIndex];
   // If the tab is being restored and it's pinned, the mini state is set after
   // the tab has already been rendered, so re-layout the tabstrip. In all other
   // cases, the state is set before the tab is rendered so this isn't needed.
@@ -1399,7 +1525,7 @@ private:
 }
 
 - (NSView*)selectedTabView {
-  int selectedIndex = tabStripModel_->selected_index();
+  int selectedIndex = tabStripModel_->active_index();
   // Take closing tabs into account. They can't ever be selected.
   selectedIndex = [self indexFromModelIndex:selectedIndex];
   return [self viewAtIndex:selectedIndex];
@@ -1470,7 +1596,7 @@ private:
   // inherit the current tab's group.
   tabStripModel_->InsertTabContentsAt(
       modelIndex, contents,
-      TabStripModel::ADD_SELECTED | (pinned ? TabStripModel::ADD_PINNED : 0));
+      TabStripModel::ADD_ACTIVE | (pinned ? TabStripModel::ADD_PINNED : 0));
 }
 
 // Called when the tab strip view changes size. As we only registered for
@@ -1716,7 +1842,7 @@ private:
       params.disposition = disposition;
       params.tabstrip_index = index;
       params.tabstrip_add_types =
-          TabStripModel::ADD_SELECTED | TabStripModel::ADD_FORCE_INDEX;
+          TabStripModel::ADD_ACTIVE | TabStripModel::ADD_FORCE_INDEX;
       browser::Navigate(&params);
       break;
     }
@@ -1726,7 +1852,7 @@ private:
       tabStripModel_->GetTabContentsAt(index)
           ->tab_contents()->OpenURL(*url, GURL(), CURRENT_TAB,
                                     PageTransition::TYPED);
-      tabStripModel_->SelectTabContentsAt(index, true);
+      tabStripModel_->ActivateTabAt(index, true);
       break;
     default:
       NOTIMPLEMENTED();
@@ -1839,7 +1965,7 @@ private:
 }
 
 - (TabContentsController*)activeTabContentsController {
-  int modelIndex = tabStripModel_->selected_index();
+  int modelIndex = tabStripModel_->active_index();
   if (modelIndex < 0)
     return nil;
   NSInteger index = [self indexFromModelIndex:modelIndex];
@@ -1859,7 +1985,7 @@ private:
   NSInteger index = [self modelIndexForContentsView:view];
   DCHECK(index >= 0);
   if (index >= 0)
-    tabStripModel_->SelectTabContentsAt(index, false /* not a user gesture */);
+    tabStripModel_->ActivateTabAt(index, false /* not a user gesture */);
 }
 
 - (void)attachConstrainedWindow:(ConstrainedWindowMac*)window {
@@ -1904,6 +2030,39 @@ private:
   if (index >= 0) {
     [controller setTab:[self viewAtIndex:index] isDraggable:YES];
   }
+}
+
+- (BOOL)shouldShowProfileMenuButton {
+  if (!CommandLine::ForCurrentProcess()->HasSwitch(switches::kMultiProfiles))
+    return NO;
+  if (browser_->profile()->IsOffTheRecord())
+    return NO;
+  return (!browser_->profile()->GetPrefs()->GetString(
+        prefs::kGoogleServicesUsername).empty());
+}
+
+- (void)updateProfileMenuButton {
+  if (![self shouldShowProfileMenuButton]) {
+    [profileMenuButton_ setHidden:YES];
+    return;
+  }
+
+  std::string profileName = browser_->profile()->GetPrefs()->GetString(
+      prefs::kGoogleServicesUsername);
+  [profileMenuButton_ setProfileDisplayName:
+      [NSString stringWithUTF8String:profileName.c_str()]];
+  [profileMenuButton_ setHidden:NO];
+
+  NSMenu* menu = [profileMenuButton_ menu];
+  while ([menu numberOfItems] > 0) {
+    [menu removeItemAtIndex:0];
+  }
+
+  NSString* menuTitle =
+      l10n_util::GetNSStringWithFixup(IDS_PROFILES_CREATE_NEW_PROFILE_OPTION);
+  [menu addItemWithTitle:menuTitle
+                  action:NULL
+           keyEquivalent:@""];
 }
 
 @end

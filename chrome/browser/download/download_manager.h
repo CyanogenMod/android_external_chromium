@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -35,11 +35,12 @@
 
 #include "base/basictypes.h"
 #include "base/file_path.h"
+#include "base/gtest_prod_util.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
-#include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
 #include "base/time.h"
-#include "base/weak_ptr.h"
 #include "chrome/browser/download/download_status_updater_delegate.h"
 #include "chrome/browser/ui/shell_dialogs.h"
 #include "content/browser/browser_thread.h"
@@ -52,10 +53,13 @@ class DownloadStatusUpdater;
 class GURL;
 class Profile;
 class ResourceDispatcherHost;
-class URLRequestContextGetter;
 class TabContents;
 struct DownloadCreateInfo;
 struct DownloadSaveInfo;
+
+namespace net {
+class URLRequestContextGetter;
+}
 
 // Browser's download manager: manages all downloads and destination view.
 class DownloadManager
@@ -83,7 +87,8 @@ class DownloadManager
 
     // Called immediately after the DownloadManager puts up a select file
     // dialog.
-    virtual void SelectFileDialogDisplayed() {}
+    // |id| indicates which download opened the dialog.
+    virtual void SelectFileDialogDisplayed(int32 id) {}
 
    protected:
     virtual ~Observer() {}
@@ -94,12 +99,12 @@ class DownloadManager
                              std::vector<DownloadItem*>* result);
 
   // Return all non-temporary downloads in the specified directory that are
-  // are in progress or have finished.
+  // are in progress or have completed.
   void GetAllDownloads(const FilePath& dir_path,
                        std::vector<DownloadItem*>* result);
 
   // Return all non-temporary downloads in the specified directory that are
-  // either in-progress or finished but still waiting for user confirmation.
+  // in-progress (including dangerous downloads waiting for user confirmation).
   void GetCurrentDownloads(const FilePath& dir_path,
                            std::vector<DownloadItem*>* result);
 
@@ -114,7 +119,10 @@ class DownloadManager
   // Notifications sent from the download thread to the UI thread
   void StartDownload(DownloadCreateInfo* info);
   void UpdateDownload(int32 download_id, int64 size);
-  void OnAllDataSaved(int32 download_id, int64 size);
+  // |hash| is sha256 hash for the downloaded file. It is empty when the hash
+  // is not available.
+  void OnResponseCompleted(int32 download_id, int64 size, int os_error,
+                           const std::string& hash);
 
   // Called from a view when a user clicks a UI button or link.
   void DownloadCancelled(int32 download_id);
@@ -122,7 +130,7 @@ class DownloadManager
   void RemoveDownload(int64 download_handle);
 
   // Determine if the download is ready for completion, i.e. has had
-  // all data received, and completed the filename determination and
+  // all data saved, and completed the filename determination and
   // history insertion.
   bool IsDownloadReadyForCompletion(DownloadItem* download);
 
@@ -133,7 +141,11 @@ class DownloadManager
   void MaybeCompleteDownload(DownloadItem* download);
 
   // Called when the download is renamed to its final name.
-  void DownloadRenamedToFinalName(int download_id, const FilePath& full_path);
+  // |uniquifier| is a number used to make unique names for the file.  It is
+  // only valid for the DANGEROUS_BUT_VALIDATED state of the download item.
+  void OnDownloadRenamedToFinalName(int download_id,
+                                    const FilePath& full_path,
+                                    int uniquifier);
 
   // Remove downloads after remove_begin (inclusive) and before remove_end
   // (exclusive). You may pass in null Time values to do an unbounded delete
@@ -150,12 +162,9 @@ class DownloadManager
   // deleted is returned back to the caller.
   int RemoveAllDownloads();
 
-  // Remove the download with id |download_id| from |active_downloads_|.
-  void RemoveFromActiveList(int32 download_id);
-
-  // Add DownloadItem to history, validate |db_handle| and store
-  // it in the DownloadItem.
-  void AddDownloadItemToHistory(DownloadItem* item, int64 db_handle);
+  // Final download manager transition for download: Update the download
+  // history and remove the download from |active_downloads_|.
+  void DownloadCompleted(int32 download_id);
 
   // Called when a Save Page As download is started. Transfers ownership
   // of |download_item| to the DownloadManager.
@@ -228,6 +237,10 @@ class DownloadManager
   // Callback function after url is checked with safebrowsing service.
   void CheckDownloadUrlDone(DownloadCreateInfo* info, bool is_dangerous_url);
 
+  // Callback function after download file hash is checked with safebrowsing
+  // service.
+  void CheckDownloadHashDone(int32 download_id, bool is_dangerous_hash);
+
  private:
   // For testing.
   friend class DownloadManagerTest;
@@ -280,25 +293,16 @@ class DownloadManager
                                  int render_process_id,
                                  int request_id);
 
-  // Renames a finished dangerous download from its temporary file name to its
-  // real file name.
-  // Invoked on the file thread.
-  void ProceedWithFinishedDangerousDownload(int64 download_handle,
-                                            const FilePath& path,
-                                            const FilePath& original_name);
+  // All data has been downloaded.
+  // |hash| is sha256 hash for the downloaded file. It is empty when the hash
+  // is not available.
+  void OnAllDataSaved(int32 download_id, int64 size, const std::string& hash);
 
-  // Invoked on the UI thread when a dangerous downloaded file has been renamed.
-  void DangerousDownloadRenamed(int64 download_handle,
-                                bool success,
-                                const FilePath& new_path,
-                                int new_path_uniquifier);
+  // An error occurred in the download.
+  void OnDownloadError(int32 download_id, int64 size, int os_error);
 
   // Updates the app icon about the overall download progress.
   void UpdateAppIcon();
-
-  // Changes the paths and file name of the specified |download|, propagating
-  // the change to the history system.
-  void RenameDownload(DownloadItem* download, const FilePath& new_path);
 
   // Makes the ResourceDispatcherHost pause/un-pause a download request.
   // Called on the IO thread.
@@ -344,13 +348,14 @@ class DownloadManager
   //
   // When a download is created through a user action, the corresponding
   // DownloadItem* is placed in |active_downloads_| and remains there until the
-  // download has finished.  It is also placed in |in_progress_| and remains
-  // there until it has received a valid handle from the history system. Once
-  // it has a valid handle, the DownloadItem* is placed in the
-  // |history_downloads_| map.  When the download is complete, it is removed
-  // from |in_progress_|.  Downloads from past sessions read from a
-  // persisted state from the history system are placed directly into
-  // |history_downloads_| since they have valid handles in the history system.
+  // download is in a terminal state (COMPLETE or CANCELLED).  It is also
+  // placed in |in_progress_| and remains there until it has received a
+  // valid handle from the history system. Once it has a valid handle, the
+  // DownloadItem* is placed in the |history_downloads_| map.  When the
+  // download reaches a terminal state, it is removed from |in_progress_|.
+  // Downloads from past sessions read from a persisted state from the
+  // history system are placed directly into |history_downloads_| since
+  // they have valid handles in the history system.
   typedef std::set<DownloadItem*> DownloadSet;
   typedef base::hash_map<int64, DownloadItem*> DownloadMap;
 
@@ -370,7 +375,7 @@ class DownloadManager
 
   // The current active profile.
   Profile* profile_;
-  scoped_refptr<URLRequestContextGetter> request_context_getter_;
+  scoped_refptr<net::URLRequestContextGetter> request_context_getter_;
 
   scoped_ptr<DownloadHistory> download_history_;
 

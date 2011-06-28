@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,10 @@
 #define CHROME_BROWSER_UI_TOOLBAR_WRENCH_MENU_MODEL_H_
 #pragma once
 
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/tabs/tab_strip_model_observer.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
 #include "ui/base/models/accelerator.h"
 #include "ui/base/models/button_menu_item_model.h"
 #include "ui/base/models/simple_menu_model.h"
@@ -29,11 +29,12 @@ class EncodingMenuModel : public ui::SimpleMenuModel,
   virtual ~EncodingMenuModel();
 
   // Overridden from ui::SimpleMenuModel::Delegate:
-  virtual bool IsCommandIdChecked(int command_id) const;
-  virtual bool IsCommandIdEnabled(int command_id) const;
-  virtual bool GetAcceleratorForCommandId(int command_id,
-                                          ui::Accelerator* accelerator);
-  virtual void ExecuteCommand(int command_id);
+  virtual bool IsCommandIdChecked(int command_id) const OVERRIDE;
+  virtual bool IsCommandIdEnabled(int command_id) const OVERRIDE;
+  virtual bool GetAcceleratorForCommandId(
+      int command_id,
+      ui::Accelerator* accelerator) OVERRIDE;
+  virtual void ExecuteCommand(int command_id) OVERRIDE;
 
  private:
   void Build();
@@ -79,34 +80,36 @@ class WrenchMenuModel : public ui::SimpleMenuModel,
   virtual ~WrenchMenuModel();
 
   // Overridden for ButtonMenuItemModel::Delegate:
-  virtual bool DoesCommandIdDismissMenu(int command_id) const;
+  virtual bool DoesCommandIdDismissMenu(int command_id) const OVERRIDE;
 
   // Overridden for both ButtonMenuItemModel::Delegate and SimpleMenuModel:
-  virtual bool IsItemForCommandIdDynamic(int command_id) const;
-  virtual string16 GetLabelForCommandId(int command_id) const;
-  virtual void ExecuteCommand(int command_id);
-  virtual bool IsCommandIdChecked(int command_id) const;
-  virtual bool IsCommandIdEnabled(int command_id) const;
-  virtual bool IsCommandIdVisible(int command_id) const;
+  virtual bool IsItemForCommandIdDynamic(int command_id) const OVERRIDE;
+  virtual string16 GetLabelForCommandId(int command_id) const OVERRIDE;
+  virtual bool GetIconForCommandId(int command_id,
+                                   SkBitmap* icon) const OVERRIDE;
+  virtual void ExecuteCommand(int command_id) OVERRIDE;
+  virtual bool IsCommandIdChecked(int command_id) const OVERRIDE;
+  virtual bool IsCommandIdEnabled(int command_id) const OVERRIDE;
+  virtual bool IsCommandIdVisible(int command_id) const OVERRIDE;
   virtual bool GetAcceleratorForCommandId(
       int command_id,
-      ui::Accelerator* accelerator);
+      ui::Accelerator* accelerator) OVERRIDE;
 
   // Overridden from TabStripModelObserver:
   virtual void TabSelectedAt(TabContentsWrapper* old_contents,
                              TabContentsWrapper* new_contents,
                              int index,
-                             bool user_gesture);
+                             bool user_gesture) OVERRIDE;
   virtual void TabReplacedAt(TabStripModel* tab_strip_model,
                              TabContentsWrapper* old_contents,
                              TabContentsWrapper* new_contents,
-                             int index);
-  virtual void TabStripModelDeleted();
+                             int index) OVERRIDE;
+  virtual void TabStripModelDeleted() OVERRIDE;
 
   // Overridden from NotificationObserver:
   virtual void Observe(NotificationType type,
                        const NotificationSource& source,
-                       const NotificationDetails& details);
+                       const NotificationDetails& details) OVERRIDE;
 
   // Getters.
   Browser* browser() const { return browser_; }

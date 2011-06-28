@@ -1,10 +1,10 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import <Cocoa/Cocoa.h>
 
-#include "base/scoped_nsobject.h"
+#include "base/memory/scoped_nsobject.h"
 #include "base/sys_string_conversions.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
@@ -38,22 +38,22 @@ class BookmarkAllTabsControllerTest : public CocoaTest {
   BrowserTestHelper helper_;
   const BookmarkNode* parent_node_;
   BookmarkAllTabsControllerOverride* controller_;
-  const BookmarkNode* group_a_;
+  const BookmarkNode* folder_a_;
 
   BookmarkAllTabsControllerTest() {
     BookmarkModel& model(*(helper_.profile()->GetBookmarkModel()));
     const BookmarkNode* root = model.GetBookmarkBarNode();
-    group_a_ = model.AddGroup(root, 0, ASCIIToUTF16("a"));
-    model.AddURL(group_a_, 0, ASCIIToUTF16("a-0"), GURL("http://a-0.com"));
-    model.AddURL(group_a_, 1, ASCIIToUTF16("a-1"), GURL("http://a-1.com"));
-    model.AddURL(group_a_, 2, ASCIIToUTF16("a-2"), GURL("http://a-2.com"));
+    folder_a_ = model.AddFolder(root, 0, ASCIIToUTF16("a"));
+    model.AddURL(folder_a_, 0, ASCIIToUTF16("a-0"), GURL("http://a-0.com"));
+    model.AddURL(folder_a_, 1, ASCIIToUTF16("a-1"), GURL("http://a-1.com"));
+    model.AddURL(folder_a_, 2, ASCIIToUTF16("a-2"), GURL("http://a-2.com"));
   }
 
   virtual BookmarkAllTabsControllerOverride* CreateController() {
     return [[BookmarkAllTabsControllerOverride alloc]
             initWithParentWindow:test_window()
                          profile:helper_.profile()
-                          parent:group_a_
+                          parent:folder_a_
                    configuration:BookmarkEditor::SHOW_TREE];
   }
 
@@ -72,11 +72,11 @@ class BookmarkAllTabsControllerTest : public CocoaTest {
 TEST_F(BookmarkAllTabsControllerTest, BookmarkAllTabs) {
   // OK button should always be enabled.
   EXPECT_TRUE([controller_ okButtonEnabled]);
-  [controller_ selectTestNodeInBrowser:group_a_];
+  [controller_ selectTestNodeInBrowser:folder_a_];
   [controller_ setDisplayName:@"ALL MY TABS"];
   [controller_ ok:nil];
-  EXPECT_EQ(4, group_a_->GetChildCount());
-  const BookmarkNode* folderChild = group_a_->GetChild(3);
+  EXPECT_EQ(4, folder_a_->child_count());
+  const BookmarkNode* folderChild = folder_a_->GetChild(3);
   EXPECT_EQ(folderChild->GetTitle(), ASCIIToUTF16("ALL MY TABS"));
-  EXPECT_EQ(3, folderChild->GetChildCount());
+  EXPECT_EQ(3, folderChild->child_count());
 }

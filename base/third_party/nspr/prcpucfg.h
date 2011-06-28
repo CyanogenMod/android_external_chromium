@@ -34,7 +34,13 @@
 #include "base/third_party/nspr/prcpucfg_win.h"
 #elif defined(__APPLE__)
 #include "base/third_party/nspr/prcpucfg_mac.h"
+<<<<<<< HEAD
 #elif defined(__linux__) || defined(__native_client__) || defined(ANDROID)
+=======
+#elif defined(__native_client__)
+#include "base/third_party/nspr/prcpucfg_nacl.h"
+#elif defined(__linux__)
+>>>>>>> chromium.org at r12.0.742.93
 #include "base/third_party/nspr/prcpucfg_linux.h"
 #elif defined(__FreeBSD__)
 #include "base/third_party/nspr/prcpucfg_freebsd.h"

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #pragma once
 
 #include "base/basictypes.h"
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
 #include "chrome/browser/chromeos/login/login_status_consumer.h"
 #include "chrome/common/net/gaia/gaia_auth_consumer.h"
 
@@ -47,7 +47,7 @@ class Authenticator : public base::RefCountedThreadSafe<Authenticator> {
   virtual bool AuthenticateToUnlock(const std::string& username,
                                     const std::string& password) = 0;
 
-  // Initiates off the record ("browse without signing in") login.
+  // Initiates incognito ("browse without signing in") login.
   virtual void LoginOffTheRecord() = 0;
 
   // |credentials| are the tokens that we get back from the ClientLogin API.

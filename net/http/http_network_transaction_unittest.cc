@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,7 @@
 #include "base/compiler_specific.h"
 #include "base/file_path.h"
 #include "base/file_util.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/utf_string_conversions.h"
 #include "net/base/auth.h"
 #include "net/base/capturing_net_log.h"
@@ -295,8 +295,8 @@ class CaptureGroupNameSocketPool : public ParentPool {
   std::string last_group_name_;
 };
 
-typedef CaptureGroupNameSocketPool<TCPClientSocketPool>
-CaptureGroupNameTCPSocketPool;
+typedef CaptureGroupNameSocketPool<TransportClientSocketPool>
+CaptureGroupNameTransportSocketPool;
 typedef CaptureGroupNameSocketPool<HttpProxyClientSocketPool>
 CaptureGroupNameHttpProxySocketPool;
 typedef CaptureGroupNameSocketPool<SOCKSClientSocketPool>
@@ -1192,9 +1192,18 @@ TEST_F(HttpNetworkTransactionTest, BasicAuthKeepAlive) {
     MockRead("Hello"),
   };
 
+  // If there is a regression where we disconnect a Keep-Alive
+  // connection during an auth roundtrip, we'll end up reading this.
+  MockRead data_reads2[] = {
+    MockRead(false, ERR_FAILED),
+  };
+
   StaticSocketDataProvider data1(data_reads1, arraysize(data_reads1),
                                  data_writes1, arraysize(data_writes1));
+  StaticSocketDataProvider data2(data_reads2, arraysize(data_reads2),
+                                 NULL, 0);
   session_deps.socket_factory.AddSocketDataProvider(&data1);
+  session_deps.socket_factory.AddSocketDataProvider(&data2);
 
   TestCompletionCallback callback1;
 
@@ -1224,7 +1233,7 @@ TEST_F(HttpNetworkTransactionTest, BasicAuthKeepAlive) {
   EXPECT_EQ(OK, rv);
 
   response = trans->GetResponseInfo();
-  EXPECT_FALSE(response == NULL);
+  ASSERT_FALSE(response == NULL);
   EXPECT_TRUE(response->auth_challenge.get() == NULL);
   EXPECT_EQ(5, response->headers->GetContentLength());
 }
@@ -1265,9 +1274,17 @@ TEST_F(HttpNetworkTransactionTest, BasicAuthKeepAliveNoBody) {
     MockRead("hello"),
   };
 
+  // An incorrect reconnect would cause this to be read.
+  MockRead data_reads2[] = {
+    MockRead(false, ERR_FAILED),
+  };
+
   StaticSocketDataProvider data1(data_reads1, arraysize(data_reads1),
                                  data_writes1, arraysize(data_writes1));
+  StaticSocketDataProvider data2(data_reads2, arraysize(data_reads2),
+                                 NULL, 0);
   session_deps.socket_factory.AddSocketDataProvider(&data1);
+  session_deps.socket_factory.AddSocketDataProvider(&data2);
 
   TestCompletionCallback callback1;
 
@@ -1297,7 +1314,7 @@ TEST_F(HttpNetworkTransactionTest, BasicAuthKeepAliveNoBody) {
   EXPECT_EQ(OK, rv);
 
   response = trans->GetResponseInfo();
-  EXPECT_FALSE(response == NULL);
+  ASSERT_FALSE(response == NULL);
   EXPECT_TRUE(response->auth_challenge.get() == NULL);
   EXPECT_EQ(5, response->headers->GetContentLength());
 }
@@ -1346,9 +1363,17 @@ TEST_F(HttpNetworkTransactionTest, BasicAuthKeepAliveLargeBody) {
     MockRead("hello"),
   };
 
+  // An incorrect reconnect would cause this to be read.
+  MockRead data_reads2[] = {
+    MockRead(false, ERR_FAILED),
+  };
+
   StaticSocketDataProvider data1(data_reads1, arraysize(data_reads1),
                                  data_writes1, arraysize(data_writes1));
+  StaticSocketDataProvider data2(data_reads2, arraysize(data_reads2),
+                                 NULL, 0);
   session_deps.socket_factory.AddSocketDataProvider(&data1);
+  session_deps.socket_factory.AddSocketDataProvider(&data2);
 
   TestCompletionCallback callback1;
 
@@ -1378,7 +1403,7 @@ TEST_F(HttpNetworkTransactionTest, BasicAuthKeepAliveLargeBody) {
   EXPECT_EQ(OK, rv);
 
   response = trans->GetResponseInfo();
-  EXPECT_FALSE(response == NULL);
+  ASSERT_FALSE(response == NULL);
   EXPECT_TRUE(response->auth_challenge.get() == NULL);
   EXPECT_EQ(5, response->headers->GetContentLength());
 }
@@ -3120,7 +3145,7 @@ TEST_F(HttpNetworkTransactionTest, LargeHeadersNoBody) {
 // Make sure that we don't try to reuse a TCPClientSocket when failing to
 // establish tunnel.
 // http://code.google.com/p/chromium/issues/detail?id=3772
-TEST_F(HttpNetworkTransactionTest, DontRecycleTCPSocketForSSLTunnel) {
+TEST_F(HttpNetworkTransactionTest, DontRecycleTransportSocketForSSLTunnel) {
   HttpRequestInfo request;
   request.method = "GET";
   request.url = GURL("https://www.google.com/");
@@ -3170,11 +3195,11 @@ TEST_F(HttpNetworkTransactionTest, DontRecycleTCPSocketForSSLTunnel) {
 
   // We now check to make sure the TCPClientSocket was not added back to
   // the pool.
-  EXPECT_EQ(0, session->tcp_socket_pool()->IdleSocketCount());
+  EXPECT_EQ(0, session->transport_socket_pool()->IdleSocketCount());
   trans.reset();
   MessageLoop::current()->RunAllPending();
   // Make sure that the socket didn't get recycled after calling the destructor.
-  EXPECT_EQ(0, session->tcp_socket_pool()->IdleSocketCount());
+  EXPECT_EQ(0, session->transport_socket_pool()->IdleSocketCount());
 }
 
 // Make sure that we recycle a socket after reading all of the response body.
@@ -3217,7 +3242,7 @@ TEST_F(HttpNetworkTransactionTest, RecycleSocket) {
   std::string status_line = response->headers->GetStatusLine();
   EXPECT_EQ("HTTP/1.1 200 OK", status_line);
 
-  EXPECT_EQ(0, session->tcp_socket_pool()->IdleSocketCount());
+  EXPECT_EQ(0, session->transport_socket_pool()->IdleSocketCount());
 
   std::string response_data;
   rv = ReadTransaction(trans.get(), &response_data);
@@ -3229,7 +3254,7 @@ TEST_F(HttpNetworkTransactionTest, RecycleSocket) {
   MessageLoop::current()->RunAllPending();
 
   // We now check to make sure the socket was added back to the pool.
-  EXPECT_EQ(1, session->tcp_socket_pool()->IdleSocketCount());
+  EXPECT_EQ(1, session->transport_socket_pool()->IdleSocketCount());
 }
 
 // Make sure that we recycle a SSL socket after reading all of the response
@@ -3276,7 +3301,7 @@ TEST_F(HttpNetworkTransactionTest, RecycleSSLSocket) {
   ASSERT_TRUE(response->headers != NULL);
   EXPECT_EQ("HTTP/1.1 200 OK", response->headers->GetStatusLine());
 
-  EXPECT_EQ(0, session->tcp_socket_pool()->IdleSocketCount());
+  EXPECT_EQ(0, session->transport_socket_pool()->IdleSocketCount());
 
   std::string response_data;
   rv = ReadTransaction(trans.get(), &response_data);
@@ -3344,7 +3369,7 @@ TEST_F(HttpNetworkTransactionTest, RecycleDeadSSLSocket) {
   ASSERT_TRUE(response->headers != NULL);
   EXPECT_EQ("HTTP/1.1 200 OK", response->headers->GetStatusLine());
 
-  EXPECT_EQ(0, session->tcp_socket_pool()->IdleSocketCount());
+  EXPECT_EQ(0, session->transport_socket_pool()->IdleSocketCount());
 
   std::string response_data;
   rv = ReadTransaction(trans.get(), &response_data);
@@ -3372,7 +3397,7 @@ TEST_F(HttpNetworkTransactionTest, RecycleDeadSSLSocket) {
   ASSERT_TRUE(response->headers != NULL);
   EXPECT_EQ("HTTP/1.1 200 OK", response->headers->GetStatusLine());
 
-  EXPECT_EQ(0, session->tcp_socket_pool()->IdleSocketCount());
+  EXPECT_EQ(0, session->transport_socket_pool()->IdleSocketCount());
 
   rv = ReadTransaction(trans.get(), &response_data);
   EXPECT_EQ(OK, rv);
@@ -3428,7 +3453,7 @@ TEST_F(HttpNetworkTransactionTest, RecycleSocketAfterZeroContentLength) {
   std::string status_line = response->headers->GetStatusLine();
   EXPECT_EQ("HTTP/1.1 204 No Content", status_line);
 
-  EXPECT_EQ(0, session->tcp_socket_pool()->IdleSocketCount());
+  EXPECT_EQ(0, session->transport_socket_pool()->IdleSocketCount());
 
   std::string response_data;
   rv = ReadTransaction(trans.get(), &response_data);
@@ -3440,7 +3465,7 @@ TEST_F(HttpNetworkTransactionTest, RecycleSocketAfterZeroContentLength) {
   MessageLoop::current()->RunAllPending();
 
   // We now check to make sure the socket was added back to the pool.
-  EXPECT_EQ(1, session->tcp_socket_pool()->IdleSocketCount());
+  EXPECT_EQ(1, session->transport_socket_pool()->IdleSocketCount());
 }
 
 TEST_F(HttpNetworkTransactionTest, ResendRequestOnWriteBodyError) {
@@ -5439,9 +5464,8 @@ struct GroupNameTest {
 };
 
 scoped_refptr<HttpNetworkSession> SetupSessionForGroupNameTests(
-    const std::string& proxy_server) {
-  SessionDependencies session_deps(ProxyService::CreateFixed(proxy_server));
-  scoped_refptr<HttpNetworkSession> session(CreateSession(&session_deps));
+    SessionDependencies* session_deps) {
+  scoped_refptr<HttpNetworkSession> session(CreateSession(session_deps));
 
   HttpAlternateProtocols* alternate_protocols =
       session->mutable_alternate_protocols();
@@ -5507,13 +5531,15 @@ TEST_F(HttpNetworkTransactionTest, GroupNameForDirectConnections) {
   HttpStreamFactory::set_use_alternate_protocols(true);
 
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(tests); ++i) {
+    SessionDependencies session_deps(
+        ProxyService::CreateFixed(tests[i].proxy_server));
     scoped_refptr<HttpNetworkSession> session(
-        SetupSessionForGroupNameTests(tests[i].proxy_server));
+        SetupSessionForGroupNameTests(&session_deps));
 
     HttpNetworkSessionPeer peer(session);
-    CaptureGroupNameTCPSocketPool* tcp_conn_pool =
-        new CaptureGroupNameTCPSocketPool(NULL, NULL);
-    peer.SetTCPSocketPool(tcp_conn_pool);
+    CaptureGroupNameTransportSocketPool* transport_conn_pool =
+        new CaptureGroupNameTransportSocketPool(NULL, NULL);
+    peer.SetTransportSocketPool(transport_conn_pool);
     CaptureGroupNameSSLSocketPool* ssl_conn_pool =
         new CaptureGroupNameSSLSocketPool(NULL, NULL);
     peer.SetSSLSocketPool(ssl_conn_pool);
@@ -5525,7 +5551,7 @@ TEST_F(HttpNetworkTransactionTest, GroupNameForDirectConnections) {
                 ssl_conn_pool->last_group_name_received());
     else
       EXPECT_EQ(tests[i].expected_group_name,
-                tcp_conn_pool->last_group_name_received());
+                transport_conn_pool->last_group_name_received());
   }
 
   HttpStreamFactory::set_use_alternate_protocols(false);
@@ -5559,8 +5585,10 @@ TEST_F(HttpNetworkTransactionTest, GroupNameForHTTPProxyConnections) {
   HttpStreamFactory::set_use_alternate_protocols(true);
 
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(tests); ++i) {
+    SessionDependencies session_deps(
+        ProxyService::CreateFixed(tests[i].proxy_server));
     scoped_refptr<HttpNetworkSession> session(
-        SetupSessionForGroupNameTests(tests[i].proxy_server));
+        SetupSessionForGroupNameTests(&session_deps));
 
     HttpNetworkSessionPeer peer(session);
 
@@ -5625,8 +5653,11 @@ TEST_F(HttpNetworkTransactionTest, GroupNameForSOCKSConnections) {
   HttpStreamFactory::set_use_alternate_protocols(true);
 
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(tests); ++i) {
+    SessionDependencies session_deps(
+        ProxyService::CreateFixed(tests[i].proxy_server));
     scoped_refptr<HttpNetworkSession> session(
-        SetupSessionForGroupNameTests(tests[i].proxy_server));
+        SetupSessionForGroupNameTests(&session_deps));
+
     HttpNetworkSessionPeer peer(session);
 
     HostPortPair proxy_host("socks_proxy", 1080);
@@ -6437,7 +6468,6 @@ TEST_F(HttpNetworkTransactionTest, HonorAlternateProtocolHeader) {
   EXPECT_EQ("HTTP/1.1 200 OK", response->headers->GetStatusLine());
   EXPECT_FALSE(response->was_fetched_via_spdy);
   EXPECT_FALSE(response->was_npn_negotiated);
-  EXPECT_FALSE(response->was_alternate_protocol_available);
 
   std::string response_data;
   ASSERT_EQ(OK, ReadTransaction(trans.get(), &response_data));
@@ -6455,7 +6485,7 @@ TEST_F(HttpNetworkTransactionTest, HonorAlternateProtocolHeader) {
   HttpStreamFactory::set_next_protos("");
 }
 
-TEST_F(HttpNetworkTransactionTest, MarkBrokenAlternateProtocol) {
+TEST_F(HttpNetworkTransactionTest, MarkBrokenAlternateProtocolAndFallback) {
   HttpStreamFactory::set_use_alternate_protocols(true);
   SessionDependencies session_deps;
 
@@ -6476,11 +6506,6 @@ TEST_F(HttpNetworkTransactionTest, MarkBrokenAlternateProtocol) {
   };
   StaticSocketDataProvider second_data(
       data_reads, arraysize(data_reads), NULL, 0);
-  session_deps.socket_factory.AddSocketDataProvider(&second_data);
-
-  // TODO(willchan): Delete this extra data provider.  It's necessary due to a
-  // ClientSocketPoolBaseHelper bug that starts up too many ConnectJobs:
-  // http://crbug.com/37454.
   session_deps.socket_factory.AddSocketDataProvider(&second_data);
 
   TestCompletionCallback callback;
@@ -6514,113 +6539,6 @@ TEST_F(HttpNetworkTransactionTest, MarkBrokenAlternateProtocol) {
   const HttpAlternateProtocols::PortProtocolPair alternate =
       alternate_protocols->GetAlternateProtocolFor(http_host_port_pair);
   EXPECT_EQ(HttpAlternateProtocols::BROKEN, alternate.protocol);
-  HttpStreamFactory::set_use_alternate_protocols(false);
-}
-
-// TODO(willchan): Redo this test to use TLS/NPN=>SPDY.  Currently, the code
-// says that it does SPDY, but it just does the TLS handshake, but the NPN
-// response does not indicate SPDY, so we just do standard HTTPS over the port.
-// We should add code such that we don't fallback to HTTPS, but fallback to HTTP
-// on the original port.
-//  TEST_F(HttpNetworkTransactionTest, UseAlternateProtocol) {
-//    SessionDependencies session_deps;
-//
-//    HttpRequestInfo request;
-//    request.method = "GET";
-//    request.url = GURL("http://www.google.com/");
-//    request.load_flags = 0;
-//
-//    MockRead data_reads[] = {
-//      MockRead("HTTP/1.1 200 OK\r\n\r\n"),
-//      MockRead("hello world"),
-//      MockRead(true, OK),
-//    };
-//    StaticSocketDataProvider data(data_reads, arraysize(data_reads), NULL, 0);
-//    session_deps.socket_factory.AddSocketDataProvider(&data);
-//
-//    SSLSocketDataProvider ssl(true, OK);
-//    session_deps.socket_factory.AddSSLSocketDataProvider(&ssl);
-//
-//    TestCompletionCallback callback;
-//
-//    scoped_refptr<HttpNetworkSession> session(CreateSession(&session_deps));
-//
-//    HostPortPair http_host_port_pair;
-//    http_host_port_pair.host = "www.google.com";
-//    http_host_port_pair.port = 80;
-//    HttpAlternateProtocols* alternate_protocols =
-//        session->mutable_alternate_protocols();
-//    alternate_protocols->SetAlternateProtocolFor(
-//        http_host_port_pair, 1234 /* port is ignored */,
-//        HttpAlternateProtocols::NPN_SPDY_1);
-//
-//    scoped_ptr<HttpTransaction> trans(new HttpNetworkTransaction(session));
-//
-//    int rv = trans->Start(&request, &callback, BoundNetLog());
-//    EXPECT_EQ(ERR_IO_PENDING, rv);
-//    EXPECT_EQ(OK, callback.WaitForResult());
-//
-//    const HttpResponseInfo* response = trans->GetResponseInfo();
-//    ASSERT_TRUE(response != NULL);
-//    ASSERT_TRUE(response->headers != NULL);
-//    EXPECT_EQ("HTTP/1.1 200 OK", response->headers->GetStatusLine());
-//
-//    std::string response_data;
-//    ASSERT_EQ(OK, ReadTransaction(trans.get(), &response_data));
-//    EXPECT_EQ("hello world", response_data);
-//  }
-
-TEST_F(HttpNetworkTransactionTest, FailNpnSpdyAndFallback) {
-  HttpStreamFactory::set_use_alternate_protocols(true);
-  HttpStreamFactory::set_next_protos(kExpectedNPNString);
-  SessionDependencies session_deps;
-
-  HttpRequestInfo request;
-  request.method = "GET";
-  request.url = GURL("http://www.google.com/");
-  request.load_flags = 0;
-
-  StaticSocketDataProvider first_tcp_connect;
-  session_deps.socket_factory.AddSocketDataProvider(&first_tcp_connect);
-
-  SSLSocketDataProvider ssl(true, OK);
-  session_deps.socket_factory.AddSSLSocketDataProvider(&ssl);
-
-  MockRead data_reads[] = {
-    MockRead("HTTP/1.1 200 OK\r\n\r\n"),
-    MockRead("hello world"),
-    MockRead(true, OK),
-  };
-  StaticSocketDataProvider fallback_data(
-      data_reads, arraysize(data_reads), NULL, 0);
-  session_deps.socket_factory.AddSocketDataProvider(&fallback_data);
-
-  TestCompletionCallback callback;
-
-  scoped_refptr<HttpNetworkSession> session(CreateSession(&session_deps));
-
-  HostPortPair http_host_port_pair("www.google.com", 80);
-  HttpAlternateProtocols* alternate_protocols =
-      session->mutable_alternate_protocols();
-  alternate_protocols->SetAlternateProtocolFor(
-      http_host_port_pair, 1234 /* port is ignored */,
-      HttpAlternateProtocols::NPN_SPDY_2);
-
-  scoped_ptr<HttpTransaction> trans(new HttpNetworkTransaction(session));
-
-  int rv = trans->Start(&request, &callback, BoundNetLog());
-  EXPECT_EQ(ERR_IO_PENDING, rv);
-  EXPECT_EQ(OK, callback.WaitForResult());
-
-  const HttpResponseInfo* response = trans->GetResponseInfo();
-  ASSERT_TRUE(response != NULL);
-  ASSERT_TRUE(response->headers != NULL);
-  EXPECT_EQ("HTTP/1.1 200 OK", response->headers->GetStatusLine());
-
-  std::string response_data;
-  ASSERT_EQ(OK, ReadTransaction(trans.get(), &response_data));
-  EXPECT_EQ("hello world", response_data);
-  HttpStreamFactory::set_next_protos("");
   HttpStreamFactory::set_use_alternate_protocols(false);
 }
 
@@ -6669,6 +6587,14 @@ TEST_F(HttpNetworkTransactionTest, UseAlternateProtocolForNpnSpdy) {
           spdy_writes, arraysize(spdy_writes)));
   session_deps.socket_factory.AddSocketDataProvider(spdy_data);
 
+  MockConnect never_finishing_connect(false, ERR_IO_PENDING);
+  StaticSocketDataProvider hanging_non_alternate_protocol_socket(
+      NULL, 0, NULL, 0);
+  hanging_non_alternate_protocol_socket.set_connect_data(
+      never_finishing_connect);
+  session_deps.socket_factory.AddSocketDataProvider(
+      &hanging_non_alternate_protocol_socket);
+
   TestCompletionCallback callback;
 
   scoped_refptr<HttpNetworkSession> session(CreateSession(&session_deps));
@@ -6699,10 +6625,203 @@ TEST_F(HttpNetworkTransactionTest, UseAlternateProtocolForNpnSpdy) {
   EXPECT_EQ("HTTP/1.1 200 OK", response->headers->GetStatusLine());
   EXPECT_TRUE(response->was_fetched_via_spdy);
   EXPECT_TRUE(response->was_npn_negotiated);
-  EXPECT_TRUE(response->was_alternate_protocol_available);
 
   ASSERT_EQ(OK, ReadTransaction(trans.get(), &response_data));
   EXPECT_EQ("hello!", response_data);
+
+  HttpStreamFactory::set_next_protos("");
+  HttpStreamFactory::set_use_alternate_protocols(false);
+}
+
+TEST_F(HttpNetworkTransactionTest, AlternateProtocolWithSpdyLateBinding) {
+  HttpStreamFactory::set_use_alternate_protocols(true);
+  HttpStreamFactory::set_next_protos(kExpectedNPNString);
+  SessionDependencies session_deps;
+
+  HttpRequestInfo request;
+  request.method = "GET";
+  request.url = GURL("http://www.google.com/");
+  request.load_flags = 0;
+
+  MockRead data_reads[] = {
+    MockRead("HTTP/1.1 200 OK\r\n"),
+    MockRead(kAlternateProtocolHttpHeader),
+    MockRead("hello world"),
+    MockRead(true, OK),
+  };
+
+  StaticSocketDataProvider first_transaction(
+      data_reads, arraysize(data_reads), NULL, 0);
+  // Socket 1 is the HTTP transaction with the Alternate-Protocol header.
+  session_deps.socket_factory.AddSocketDataProvider(&first_transaction);
+
+  MockConnect never_finishing_connect(false, ERR_IO_PENDING);
+  StaticSocketDataProvider hanging_socket(
+      NULL, 0, NULL, 0);
+  hanging_socket.set_connect_data(never_finishing_connect);
+  // Socket 2 and 3 are the hanging Alternate-Protocol and
+  // non-Alternate-Protocol jobs from the 2nd transaction.
+  session_deps.socket_factory.AddSocketDataProvider(&hanging_socket);
+  session_deps.socket_factory.AddSocketDataProvider(&hanging_socket);
+
+  SSLSocketDataProvider ssl(true, OK);
+  ssl.next_proto_status = SSLClientSocket::kNextProtoNegotiated;
+  ssl.next_proto = "spdy/2";
+  ssl.was_npn_negotiated = true;
+  session_deps.socket_factory.AddSSLSocketDataProvider(&ssl);
+
+  scoped_ptr<spdy::SpdyFrame> req1(ConstructSpdyGet(NULL, 0, false, 1, LOWEST));
+  scoped_ptr<spdy::SpdyFrame> req2(ConstructSpdyGet(NULL, 0, false, 3, LOWEST));
+  MockWrite spdy_writes[] = {
+    CreateMockWrite(*req1),
+    CreateMockWrite(*req2),
+  };
+  scoped_ptr<spdy::SpdyFrame> resp1(ConstructSpdyGetSynReply(NULL, 0, 1));
+  scoped_ptr<spdy::SpdyFrame> data1(ConstructSpdyBodyFrame(1, true));
+  scoped_ptr<spdy::SpdyFrame> resp2(ConstructSpdyGetSynReply(NULL, 0, 3));
+  scoped_ptr<spdy::SpdyFrame> data2(ConstructSpdyBodyFrame(3, true));
+  MockRead spdy_reads[] = {
+    CreateMockRead(*resp1),
+    CreateMockRead(*data1),
+    CreateMockRead(*resp2),
+    CreateMockRead(*data2),
+    MockRead(true, 0, 0),
+  };
+
+  scoped_refptr<DelayedSocketData> spdy_data(
+      new DelayedSocketData(
+          2,  // wait for writes to finish before reading.
+          spdy_reads, arraysize(spdy_reads),
+          spdy_writes, arraysize(spdy_writes)));
+  // Socket 4 is the successful Alternate-Protocol for transaction 3.
+  session_deps.socket_factory.AddSocketDataProvider(spdy_data);
+
+  // Socket 5 is the unsuccessful non-Alternate-Protocol for transaction 3.
+  session_deps.socket_factory.AddSocketDataProvider(&hanging_socket);
+
+  scoped_refptr<HttpNetworkSession> session(CreateSession(&session_deps));
+  TestCompletionCallback callback1;
+  HttpNetworkTransaction trans1(session);
+
+  int rv = trans1.Start(&request, &callback1, BoundNetLog());
+  EXPECT_EQ(ERR_IO_PENDING, rv);
+  EXPECT_EQ(OK, callback1.WaitForResult());
+
+  const HttpResponseInfo* response = trans1.GetResponseInfo();
+  ASSERT_TRUE(response != NULL);
+  ASSERT_TRUE(response->headers != NULL);
+  EXPECT_EQ("HTTP/1.1 200 OK", response->headers->GetStatusLine());
+
+  std::string response_data;
+  ASSERT_EQ(OK, ReadTransaction(&trans1, &response_data));
+  EXPECT_EQ("hello world", response_data);
+
+  TestCompletionCallback callback2;
+  HttpNetworkTransaction trans2(session);
+  rv = trans2.Start(&request, &callback2, BoundNetLog());
+  EXPECT_EQ(ERR_IO_PENDING, rv);
+
+  TestCompletionCallback callback3;
+  HttpNetworkTransaction trans3(session);
+  rv = trans3.Start(&request, &callback3, BoundNetLog());
+  EXPECT_EQ(ERR_IO_PENDING, rv);
+
+  EXPECT_EQ(OK, callback2.WaitForResult());
+  EXPECT_EQ(OK, callback3.WaitForResult());
+
+  response = trans2.GetResponseInfo();
+  ASSERT_TRUE(response != NULL);
+  ASSERT_TRUE(response->headers != NULL);
+  EXPECT_EQ("HTTP/1.1 200 OK", response->headers->GetStatusLine());
+  EXPECT_TRUE(response->was_fetched_via_spdy);
+  EXPECT_TRUE(response->was_npn_negotiated);
+  ASSERT_EQ(OK, ReadTransaction(&trans2, &response_data));
+  EXPECT_EQ("hello!", response_data);
+
+  response = trans3.GetResponseInfo();
+  ASSERT_TRUE(response != NULL);
+  ASSERT_TRUE(response->headers != NULL);
+  EXPECT_EQ("HTTP/1.1 200 OK", response->headers->GetStatusLine());
+  EXPECT_TRUE(response->was_fetched_via_spdy);
+  EXPECT_TRUE(response->was_npn_negotiated);
+  ASSERT_EQ(OK, ReadTransaction(&trans3, &response_data));
+  EXPECT_EQ("hello!", response_data);
+
+  HttpStreamFactory::set_next_protos("");
+  HttpStreamFactory::set_use_alternate_protocols(false);
+}
+
+TEST_F(HttpNetworkTransactionTest, StallAlternateProtocolForNpnSpdy) {
+  HttpStreamFactory::set_use_alternate_protocols(true);
+  HttpStreamFactory::set_next_protos(kExpectedNPNString);
+  SessionDependencies session_deps;
+
+  HttpRequestInfo request;
+  request.method = "GET";
+  request.url = GURL("http://www.google.com/");
+  request.load_flags = 0;
+
+  MockRead data_reads[] = {
+    MockRead("HTTP/1.1 200 OK\r\n"),
+    MockRead(kAlternateProtocolHttpHeader),
+    MockRead("hello world"),
+    MockRead(true, OK),
+  };
+
+  StaticSocketDataProvider first_transaction(
+      data_reads, arraysize(data_reads), NULL, 0);
+  session_deps.socket_factory.AddSocketDataProvider(&first_transaction);
+
+  SSLSocketDataProvider ssl(true, OK);
+  ssl.next_proto_status = SSLClientSocket::kNextProtoNegotiated;
+  ssl.next_proto = "spdy/2";
+  ssl.was_npn_negotiated = true;
+  session_deps.socket_factory.AddSSLSocketDataProvider(&ssl);
+
+  MockConnect never_finishing_connect(false, ERR_IO_PENDING);
+  StaticSocketDataProvider hanging_alternate_protocol_socket(
+      NULL, 0, NULL, 0);
+  hanging_alternate_protocol_socket.set_connect_data(
+      never_finishing_connect);
+  session_deps.socket_factory.AddSocketDataProvider(
+      &hanging_alternate_protocol_socket);
+
+  // 2nd request is just a copy of the first one, over HTTP again.
+  session_deps.socket_factory.AddSocketDataProvider(&first_transaction);
+
+  TestCompletionCallback callback;
+
+  scoped_refptr<HttpNetworkSession> session(CreateSession(&session_deps));
+  scoped_ptr<HttpNetworkTransaction> trans(new HttpNetworkTransaction(session));
+
+  int rv = trans->Start(&request, &callback, BoundNetLog());
+  EXPECT_EQ(ERR_IO_PENDING, rv);
+  EXPECT_EQ(OK, callback.WaitForResult());
+
+  const HttpResponseInfo* response = trans->GetResponseInfo();
+  ASSERT_TRUE(response != NULL);
+  ASSERT_TRUE(response->headers != NULL);
+  EXPECT_EQ("HTTP/1.1 200 OK", response->headers->GetStatusLine());
+
+  std::string response_data;
+  ASSERT_EQ(OK, ReadTransaction(trans.get(), &response_data));
+  EXPECT_EQ("hello world", response_data);
+
+  trans.reset(new HttpNetworkTransaction(session));
+
+  rv = trans->Start(&request, &callback, BoundNetLog());
+  EXPECT_EQ(ERR_IO_PENDING, rv);
+  EXPECT_EQ(OK, callback.WaitForResult());
+
+  response = trans->GetResponseInfo();
+  ASSERT_TRUE(response != NULL);
+  ASSERT_TRUE(response->headers != NULL);
+  EXPECT_EQ("HTTP/1.1 200 OK", response->headers->GetStatusLine());
+  EXPECT_FALSE(response->was_fetched_via_spdy);
+  EXPECT_FALSE(response->was_npn_negotiated);
+
+  ASSERT_EQ(OK, ReadTransaction(trans.get(), &response_data));
+  EXPECT_EQ("hello world", response_data);
 
   HttpStreamFactory::set_next_protos("");
   HttpStreamFactory::set_use_alternate_protocols(false);
@@ -6807,6 +6926,14 @@ TEST_F(HttpNetworkTransactionTest, UseAlternateProtocolForTunneledNpnSpdy) {
           spdy_writes, arraysize(spdy_writes)));
   session_deps.socket_factory.AddSocketDataProvider(spdy_data);
 
+  MockConnect never_finishing_connect(false, ERR_IO_PENDING);
+  StaticSocketDataProvider hanging_non_alternate_protocol_socket(
+      NULL, 0, NULL, 0);
+  hanging_non_alternate_protocol_socket.set_connect_data(
+      never_finishing_connect);
+  session_deps.socket_factory.AddSocketDataProvider(
+      &hanging_non_alternate_protocol_socket);
+
   TestCompletionCallback callback;
 
   scoped_refptr<HttpNetworkSession> session(CreateSession(&session_deps));
@@ -6842,7 +6969,7 @@ TEST_F(HttpNetworkTransactionTest, UseAlternateProtocolForTunneledNpnSpdy) {
 
   ASSERT_EQ(OK, ReadTransaction(trans.get(), &response_data));
   EXPECT_EQ("hello!", response_data);
-  ASSERT_EQ(2u, capturing_proxy_resolver->resolved().size());
+  ASSERT_EQ(3u, capturing_proxy_resolver->resolved().size());
   EXPECT_EQ("http://www.google.com/",
             capturing_proxy_resolver->resolved()[0].spec());
   EXPECT_EQ("https://www.google.com/",
@@ -6924,13 +7051,16 @@ TEST_F(HttpNetworkTransactionTest,
   HostPortProxyPair pair(host_port_pair, ProxyServer::Direct());
   scoped_refptr<SpdySession> spdy_session =
       session->spdy_session_pool()->Get(pair, BoundNetLog());
-  scoped_refptr<TCPSocketParams> tcp_params(
-      new TCPSocketParams("www.google.com", 443, MEDIUM, GURL(), false));
+  scoped_refptr<TransportSocketParams> transport_params(
+      new TransportSocketParams(host_port_pair, MEDIUM, GURL(), false, false));
 
   scoped_ptr<ClientSocketHandle> connection(new ClientSocketHandle);
   EXPECT_EQ(ERR_IO_PENDING,
-            connection->Init(host_port_pair.ToString(),tcp_params, LOWEST,
-                             &callback, session->tcp_socket_pool(),
+            connection->Init(host_port_pair.ToString(),
+                             transport_params,
+                             LOWEST,
+                             &callback,
+                             session->transport_socket_pool(),
                              BoundNetLog()));
   EXPECT_EQ(OK, callback.WaitForResult());
 
@@ -6958,7 +7088,6 @@ TEST_F(HttpNetworkTransactionTest,
   EXPECT_EQ("HTTP/1.1 200 OK", response->headers->GetStatusLine());
   EXPECT_TRUE(response->was_fetched_via_spdy);
   EXPECT_TRUE(response->was_npn_negotiated);
-  EXPECT_TRUE(response->was_alternate_protocol_available);
 
   ASSERT_EQ(OK, ReadTransaction(trans.get(), &response_data));
   EXPECT_EQ("hello!", response_data);
@@ -7412,15 +7541,15 @@ TEST_F(HttpNetworkTransactionTest, MultiRoundAuth) {
   // to validate that the TCP socket is not released to the pool between
   // each round of multi-round authentication.
   HttpNetworkSessionPeer session_peer(session);
-  ClientSocketPoolHistograms tcp_pool_histograms("SmallTCP");
-  TCPClientSocketPool* tcp_pool = new TCPClientSocketPool(
+  ClientSocketPoolHistograms transport_pool_histograms("SmallTCP");
+  TransportClientSocketPool* transport_pool = new TransportClientSocketPool(
       50,  // Max sockets for pool
       1,   // Max sockets per group
-      &tcp_pool_histograms,
+      &transport_pool_histograms,
       session_deps.host_resolver.get(),
       &session_deps.socket_factory,
       session_deps.net_log);
-  session_peer.SetTCPSocketPool(tcp_pool);
+  session_peer.SetTransportSocketPool(transport_pool);
 
   scoped_ptr<HttpTransaction> trans(new HttpNetworkTransaction(session));
   TestCompletionCallback callback;
@@ -7486,7 +7615,7 @@ TEST_F(HttpNetworkTransactionTest, MultiRoundAuth) {
   response = trans->GetResponseInfo();
   ASSERT_FALSE(response == NULL);
   EXPECT_FALSE(response->auth_challenge.get() == NULL);
-  EXPECT_EQ(0, tcp_pool->IdleSocketCountInGroup(kSocketGroup));
+  EXPECT_EQ(0, transport_pool->IdleSocketCountInGroup(kSocketGroup));
 
   // In between rounds, another request comes in for the same domain.
   // It should not be able to grab the TCP socket that trans has already
@@ -7509,7 +7638,7 @@ TEST_F(HttpNetworkTransactionTest, MultiRoundAuth) {
   response = trans->GetResponseInfo();
   ASSERT_FALSE(response == NULL);
   EXPECT_TRUE(response->auth_challenge.get() == NULL);
-  EXPECT_EQ(0, tcp_pool->IdleSocketCountInGroup(kSocketGroup));
+  EXPECT_EQ(0, transport_pool->IdleSocketCountInGroup(kSocketGroup));
 
   // Third round of authentication.
   auth_handler->SetGenerateExpectation(false, OK);
@@ -7520,7 +7649,7 @@ TEST_F(HttpNetworkTransactionTest, MultiRoundAuth) {
   response = trans->GetResponseInfo();
   ASSERT_FALSE(response == NULL);
   EXPECT_TRUE(response->auth_challenge.get() == NULL);
-  EXPECT_EQ(0, tcp_pool->IdleSocketCountInGroup(kSocketGroup));
+  EXPECT_EQ(0, transport_pool->IdleSocketCountInGroup(kSocketGroup));
 
   // Fourth round of authentication, which completes successfully.
   auth_handler->SetGenerateExpectation(false, OK);
@@ -7531,7 +7660,7 @@ TEST_F(HttpNetworkTransactionTest, MultiRoundAuth) {
   response = trans->GetResponseInfo();
   ASSERT_FALSE(response == NULL);
   EXPECT_TRUE(response->auth_challenge.get() == NULL);
-  EXPECT_EQ(0, tcp_pool->IdleSocketCountInGroup(kSocketGroup));
+  EXPECT_EQ(0, transport_pool->IdleSocketCountInGroup(kSocketGroup));
 
   // Read the body since the fourth round was successful. This will also
   // release the socket back to the pool.
@@ -7544,7 +7673,7 @@ TEST_F(HttpNetworkTransactionTest, MultiRoundAuth) {
   EXPECT_EQ(0, rv);
   // There are still 0 idle sockets, since the trans_compete transaction
   // will be handed it immediately after trans releases it to the group.
-  EXPECT_EQ(0, tcp_pool->IdleSocketCountInGroup(kSocketGroup));
+  EXPECT_EQ(0, transport_pool->IdleSocketCountInGroup(kSocketGroup));
 
   // The competing request can now finish. Wait for the headers and then
   // read the body.
@@ -7558,7 +7687,7 @@ TEST_F(HttpNetworkTransactionTest, MultiRoundAuth) {
   EXPECT_EQ(0, rv);
 
   // Finally, the socket is released to the group.
-  EXPECT_EQ(1, tcp_pool->IdleSocketCountInGroup(kSocketGroup));
+  EXPECT_EQ(1, transport_pool->IdleSocketCountInGroup(kSocketGroup));
 }
 
 class TLSDecompressionFailureSocketDataProvider : public SocketDataProvider {
@@ -7729,7 +7858,6 @@ TEST_F(HttpNetworkTransactionTest, NpnWithHttpOverSSL) {
 
   EXPECT_FALSE(response->was_fetched_via_spdy);
   EXPECT_TRUE(response->was_npn_negotiated);
-  EXPECT_FALSE(response->was_alternate_protocol_available);
 
   HttpStreamFactory::set_next_protos("");
   HttpStreamFactory::set_use_alternate_protocols(false);
@@ -7885,9 +8013,17 @@ TEST_F(HttpNetworkTransactionTest, SpdyAlternateProtocolThroughProxy) {
   ssl.next_proto = "spdy/2";
   ssl.was_npn_negotiated = true;
 
+  MockConnect never_finishing_connect(false, ERR_IO_PENDING);
+  StaticSocketDataProvider hanging_non_alternate_protocol_socket(
+      NULL, 0, NULL, 0);
+  hanging_non_alternate_protocol_socket.set_connect_data(
+      never_finishing_connect);
+
   session_deps.socket_factory.AddSocketDataProvider(&data_1);
   session_deps.socket_factory.AddSocketDataProvider(data_2.get());
   session_deps.socket_factory.AddSSLSocketDataProvider(&ssl);
+  session_deps.socket_factory.AddSocketDataProvider(
+      &hanging_non_alternate_protocol_socket);
   scoped_refptr<HttpNetworkSession> session(CreateSession(&session_deps));
 
   // First round should work and provide the Alternate-Protocol state.
@@ -8167,15 +8303,15 @@ TEST_F(HttpNetworkTransactionTest, PreconnectWithExistingSpdySession) {
   HostPortProxyPair pair(host_port_pair, ProxyServer::Direct());
   scoped_refptr<SpdySession> spdy_session =
       session->spdy_session_pool()->Get(pair, BoundNetLog());
-  scoped_refptr<TCPSocketParams> tcp_params(
-      new TCPSocketParams("www.google.com", 443, MEDIUM, GURL(), false));
+  scoped_refptr<TransportSocketParams> transport_params(
+      new TransportSocketParams(host_port_pair, MEDIUM, GURL(), false, false));
   TestCompletionCallback callback;
 
   scoped_ptr<ClientSocketHandle> connection(new ClientSocketHandle);
   EXPECT_EQ(ERR_IO_PENDING,
-            connection->Init(host_port_pair.ToString(), tcp_params, LOWEST,
-                             &callback, session->tcp_socket_pool(),
-                             BoundNetLog()));
+            connection->Init(host_port_pair.ToString(), transport_params,
+                             LOWEST, &callback,
+                             session->transport_socket_pool(), BoundNetLog()));
   EXPECT_EQ(OK, callback.WaitForResult());
   spdy_session->InitializeWithSocket(connection.release(), false, OK);
 
@@ -8234,56 +8370,6 @@ TEST_F(HttpNetworkTransactionTest, SSLWriteCertError) {
     CheckErrorIsPassedBack(kErrors[i], false /* not async */);
     CheckErrorIsPassedBack(kErrors[i], true /* async */);
   }
-}
-
-// Test that the transaction is restarted in the event of an NPN misprediction.
-TEST_F(HttpNetworkTransactionTest, NPNMispredict) {
-  net::HttpRequestInfo request_info;
-  request_info.url = GURL("https://www.example.com/");
-  request_info.method = "GET";
-  request_info.load_flags = net::LOAD_NORMAL;
-
-  SessionDependencies session_deps;
-
-  SSLSocketDataProvider ssl_data1(true /* async */, OK);
-  SSLSocketDataProvider ssl_data2(true /* async */, OK);
-
-  net::MockWrite data1_writes[] = {
-    net::MockWrite(true /* async */, ERR_SSL_SNAP_START_NPN_MISPREDICTION),
-  };
-  net::MockRead data2_reads[] = {
-    net::MockRead("HTTP/1.0 200 OK\r\n\r\n"),
-    net::MockRead("hello world"),
-    net::MockRead(false, net::OK),
-  };
-  net::MockWrite data2_writes[] = {
-    net::MockWrite("GET / HTTP/1.1\r\n"
-                   "Host: www.example.com\r\n"
-                   "Connection: keep-alive\r\n\r\n"),
-  };
-  net::StaticSocketDataProvider data1(
-      NULL, 0, data1_writes, arraysize(data1_writes));
-  net::StaticSocketDataProvider data2(data2_reads, arraysize(data2_reads),
-                                      data2_writes, arraysize(data2_writes));
-
-  session_deps.socket_factory.AddSocketDataProvider(&data1);
-  session_deps.socket_factory.AddSocketDataProvider(&data2);
-  session_deps.socket_factory.AddSSLSocketDataProvider(&ssl_data1);
-  session_deps.socket_factory.AddSSLSocketDataProvider(&ssl_data2);
-
-  scoped_refptr<HttpNetworkSession> session(CreateSession(&session_deps));
-  scoped_ptr<HttpNetworkTransaction> trans(new HttpNetworkTransaction(session));
-
-  TestCompletionCallback callback;
-  int rv = trans->Start(&request_info, &callback, net::BoundNetLog());
-  if (rv == net::ERR_IO_PENDING)
-    rv = callback.WaitForResult();
-  ASSERT_EQ(OK, rv);
-
-  std::string contents;
-  rv = ReadTransaction(trans.get(), &contents);
-  EXPECT_EQ(net::OK, rv);
-  EXPECT_EQ("hello world", contents);
 }
 
 // Ensure that a client certificate is removed from the SSL client auth

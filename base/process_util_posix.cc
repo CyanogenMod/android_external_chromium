@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,9 +21,10 @@
 #include "base/debug/stack_trace.h"
 #include "base/dir_reader_posix.h"
 #include "base/eintr_wrapper.h"
+#include "base/file_util.h"
 #include "base/logging.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/process_util.h"
-#include "base/scoped_ptr.h"
 #include "base/stringprintf.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/threading/platform_thread.h"
@@ -160,10 +161,17 @@ void StackDumpSignalHandler(int signal, siginfo_t* info, ucontext_t* context) {
 void ResetChildSignalHandlersToDefaults() {
   // The previous signal handlers are likely to be meaningless in the child's
   // context so we reset them to the defaults for now. http://crbug.com/44953
-  // These signal handlers are setup in browser_main.cc:BrowserMain
-  signal(SIGTERM, SIG_DFL);
+  // These signal handlers are set up at least in browser_main.cc:BrowserMain
+  // and process_util_posix.cc:EnableInProcessStackDumping.
   signal(SIGHUP, SIG_DFL);
   signal(SIGINT, SIG_DFL);
+  signal(SIGILL, SIG_DFL);
+  signal(SIGABRT, SIG_DFL);
+  signal(SIGFPE, SIG_DFL);
+  signal(SIGBUS, SIG_DFL);
+  signal(SIGSEGV, SIG_DFL);
+  signal(SIGSYS, SIG_DFL);
+  signal(SIGTERM, SIG_DFL);
 }
 
 }  // anonymous namespace
@@ -300,7 +308,7 @@ void CloseSuperfluousFds(const base::InjectiveMultimap& saved_mapping) {
   if (getrlimit(RLIMIT_NOFILE, &nofile)) {
     // getrlimit failed. Take a best guess.
     max_fds = kSystemDefaultMaxFds;
-    DLOG(ERROR) << "getrlimit(RLIMIT_NOFILE) failed: " << errno;
+    RAW_LOG(ERROR, "getrlimit(RLIMIT_NOFILE) failed");
   } else {
     max_fds = nofile.rlim_cur;
   }
@@ -326,7 +334,7 @@ void CloseSuperfluousFds(const base::InjectiveMultimap& saved_mapping) {
 
       // Since we're just trying to close anything we can find,
       // ignore any error return values of close().
-      int unused ALLOW_UNUSED = HANDLE_EINTR(close(fd));
+      ignore_result(HANDLE_EINTR(close(fd)));
     }
     return;
   }
@@ -509,12 +517,34 @@ bool LaunchAppImpl(
   if (pid == 0) {
     // Child process
 
+    // DANGER: fork() rule: in the child, if you don't end up doing exec*(),
+    // you call _exit() instead of exit(). This is because _exit() does not
+    // call any previously-registered (in the parent) exit handlers, which
+    // might do things like block waiting for threads that don't even exist
+    // in the child.
+
+    // If a child process uses the readline library, the process block forever.
+    // In BSD like OSes including OS X it is safe to assign /dev/null as stdin.
+    // See http://crbug.com/56596.
+    int null_fd = HANDLE_EINTR(open("/dev/null", O_RDONLY));
+    if (null_fd < 0) {
+      RAW_LOG(ERROR, "Failed to open /dev/null");
+      _exit(127);
+    }
+
+    file_util::ScopedFD null_fd_closer(&null_fd);
+    int new_fd = HANDLE_EINTR(dup2(null_fd, STDIN_FILENO));
+    if (new_fd != STDIN_FILENO) {
+      RAW_LOG(ERROR, "Failed to dup /dev/null for stdin");
+      _exit(127);
+    }
+
     if (start_new_process_group) {
       // Instead of inheriting the process group ID of the parent, the child
       // starts off a new process group with pgid equal to its process ID.
       if (setpgid(0, 0) < 0) {
-        PLOG(ERROR) << "setpgid";
-        return false;
+        RAW_LOG(ERROR, "setpgid failed");
+        _exit(127);
       }
     }
 #if defined(OS_MACOSX)
@@ -542,12 +572,6 @@ bool LaunchAppImpl(
     }
 
     environ = new_environ.get();
-
-    // Obscure fork() rule: in the child, if you don't end up doing exec*(),
-    // you call _exit() instead of exit(). This is because _exit() does not
-    // call any previously-registered (in the parent) exit handlers, which
-    // might do things like block waiting for threads that don't even exist
-    // in the child.
 
     // fd_shuffle1 is mutated by this call because it cannot malloc.
     if (!ShuffleFileDescriptors(&fd_shuffle1))
@@ -712,14 +736,15 @@ bool WaitForExitCodeWithTimeout(ProcessHandle handle, int* exit_code,
     return false;
   if (!waitpid_success)
     return false;
-  if (!WIFEXITED(status))
-    return false;
   if (WIFSIGNALED(status)) {
     *exit_code = -1;
     return true;
   }
-  *exit_code = WEXITSTATUS(status);
-  return true;
+  if (WIFEXITED(status)) {
+    *exit_code = WEXITSTATUS(status);
+    return true;
+  }
+  return false;
 }
 
 #if defined(OS_MACOSX)
@@ -806,19 +831,6 @@ bool WaitForSingleProcess(ProcessHandle handle, int64 wait_milliseconds) {
     return WIFEXITED(status);
   } else {
     return false;
-  }
-}
-
-bool CrashAwareSleep(ProcessHandle handle, int64 wait_milliseconds) {
-  bool waitpid_success;
-  int status = WaitpidWithTimeout(handle, wait_milliseconds, &waitpid_success);
-  if (status != -1) {
-    DCHECK(waitpid_success);
-    return !(WIFEXITED(status) || WIFSIGNALED(status));
-  } else {
-    // If waitpid returned with an error, then the process doesn't exist
-    // (which most probably means it didn't exist before our call).
-    return waitpid_success;
   }
 }
 

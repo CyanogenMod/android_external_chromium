@@ -9,9 +9,9 @@
 
 #include "base/file_util.h"
 #include "base/logging.h"
+#include "base/memory/scoped_temp_dir.h"
 #include "base/metrics/histogram.h"
 #include "base/path_service.h"
-#include "base/scoped_temp_dir.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/common/chrome_paths.h"
@@ -21,7 +21,7 @@
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/extensions/extension_resource.h"
 #include "chrome/common/extensions/extension_sidebar_defaults.h"
-#include "chrome/common/json_value_serializer.h"
+#include "content/common/json_value_serializer.h"
 #include "grit/generated_resources.h"
 #include "net/base/escape.h"
 #include "net/base/file_stream.h"
@@ -88,8 +88,7 @@ void UninstallExtension(const FilePath& extensions_dir,
 
 scoped_refptr<Extension> LoadExtension(const FilePath& extension_path,
                                        Extension::Location location,
-                                       bool require_key,
-                                       bool strict_error_checks,
+                                       int flags,
                                        std::string* error) {
   FilePath manifest_path =
       extension_path.Append(Extension::kManifestFilename);
@@ -128,8 +127,7 @@ scoped_refptr<Extension> LoadExtension(const FilePath& extension_path,
       extension_path,
       location,
       *manifest,
-      require_key,
-      strict_error_checks,
+      flags,
       error));
   if (!extension.get())
     return NULL;
@@ -247,8 +245,10 @@ bool ValidateExtension(Extension* extension, std::string* error) {
     }
   }
 
-  // Validate background page location.
-  if (!extension->background_url().is_empty()) {
+  // Validate background page location, except for hosted apps, which should use
+  // an external URL. Background page for hosted apps are verified when the
+  // extension is created (in Extension::InitFromValue)
+  if (!extension->background_url().is_empty() && !extension->is_hosted_app()) {
     FilePath page_path = ExtensionURLToRelativeFilePath(
         extension->background_url());
     const FilePath path = extension->GetResource(page_path).GetFilePath();

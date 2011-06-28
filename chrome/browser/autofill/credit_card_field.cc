@@ -4,10 +4,15 @@
 
 #include "chrome/browser/autofill/credit_card_field.h"
 
-#include "base/scoped_ptr.h"
+#include <stddef.h>
+
+#include "base/logging.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/string16.h"
+#include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/autofill/autofill_field.h"
+#include "chrome/browser/autofill/field_types.h"
 #include "grit/autofill_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 
@@ -118,7 +123,7 @@ CreditCardField* CreditCardField::Parse(
         &credit_card_field->number_))
       continue;
 
-    if ((*q) && LowerCaseEqualsASCII((*q)->form_control_type(), "month")) {
+    if ((*q) && LowerCaseEqualsASCII((*q)->form_control_type, "month")) {
       credit_card_field->expiration_month_ = *q++;
     } else {
       // "Expiration date" is the most common label here, but some pages have
@@ -187,7 +192,7 @@ CreditCardField* CreditCardField::Parse(
       credit_card_field->expiration_month_ &&
       (credit_card_field->expiration_year_ ||
       (LowerCaseEqualsASCII(
-           credit_card_field->expiration_month_->form_control_type(),
+           credit_card_field->expiration_month_->form_control_type,
            "month")))) {
       *iter = q;
       return credit_card_field.release();

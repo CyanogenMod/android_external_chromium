@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -135,9 +135,14 @@ NSImage* AutocompleteEditViewMac::ImageForResource(int resource_id) {
     case IDR_STAR_LIT: image_name = @"star_lit.pdf"; break;
 
     // Values from |AutocompleteMatch::TypeToIcon()|.
-    case IDR_OMNIBOX_SEARCH: image_name = @"omnibox_search.pdf"; break;
-    case IDR_OMNIBOX_HTTP: image_name = @"omnibox_http.pdf"; break;
-    case IDR_OMNIBOX_HISTORY: image_name = @"omnibox_history.pdf"; break;
+    case IDR_OMNIBOX_SEARCH:
+      image_name = @"omnibox_search.pdf"; break;
+    case IDR_OMNIBOX_HTTP:
+      image_name = @"omnibox_http.pdf"; break;
+    case IDR_OMNIBOX_HISTORY:
+      image_name = @"omnibox_history.pdf"; break;
+    case IDR_OMNIBOX_EXTENSION_APP:
+      image_name = @"omnibox_extension_app.pdf"; break;
 
     // Values from |ToolbarModel::GetIcon()|.
     case IDR_OMNIBOX_HTTPS_VALID:
@@ -193,7 +198,7 @@ AutocompleteEditViewMac::AutocompleteEditViewMac(
       layoutManager([[NSLayoutManager alloc] init]);
   [layoutManager setUsesScreenFonts:YES];
   line_height_ = [layoutManager defaultLineHeightForFont:GetFieldFont()];
-  DCHECK(line_height_ > 0);
+  DCHECK_GT(line_height_, 0);
 }
 
 AutocompleteEditViewMac::~AutocompleteEditViewMac() {
@@ -604,7 +609,7 @@ void AutocompleteEditViewMac::OnStartingIME() {
   // Reset the suggest text just before starting an IME composition session,
   // otherwise the IME composition may be interrupted when the suggest text
   // gets reset by the IME composition change.
-  SetInstantSuggestion(string16());
+  SetInstantSuggestion(string16(), false);
 }
 
 bool AutocompleteEditViewMac::OnInlineAutocompleteTextMaybeChanged(
@@ -673,10 +678,10 @@ bool AutocompleteEditViewMac::OnAfterPossibleChange() {
 
   delete_at_end_pressed_ = false;
 
-  const bool allow_keyword_ui_change = at_end_of_edit && !IsImeComposing();
-  const bool something_changed = model_->OnAfterPossibleChange(new_text,
+  const bool something_changed = model_->OnAfterPossibleChange(
+      new_text, new_selection.location, NSMaxRange(new_selection),
       selection_differs, text_differs, just_deleted_text,
-      allow_keyword_ui_change);
+      !IsImeComposing());
 
   if (delete_was_pressed_ && at_end_of_edit)
     delete_at_end_pressed_ = true;
@@ -703,7 +708,8 @@ CommandUpdater* AutocompleteEditViewMac::GetCommandUpdater() {
 }
 
 void AutocompleteEditViewMac::SetInstantSuggestion(
-    const string16& suggest_text) {
+    const string16& suggest_text,
+    bool animate_to_complete) {
   NSString* text = GetNonSuggestTextSubstring();
   bool needs_update = (suggest_text_length_ > 0);
 
@@ -769,7 +775,7 @@ bool AutocompleteEditViewMac::OnDoCommandBySelector(SEL cmd) {
     // Reset the suggest text for any change other than key right or tab.
     // TODO(rohitrao): This is here to prevent complications when editing text.
     // See if this can be removed.
-    SetInstantSuggestion(string16());
+    SetInstantSuggestion(string16(), false);
   }
 
   if (cmd == @selector(deleteForward:))

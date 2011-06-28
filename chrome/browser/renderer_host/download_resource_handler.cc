@@ -12,6 +12,7 @@
 #include "base/stringprintf.h"
 #include "chrome/browser/download/download_item.h"
 #include "chrome/browser/download/download_file_manager.h"
+#include "chrome/browser/download/download_util.h"
 #include "chrome/browser/history/download_create_info.h"
 #include "content/browser/browser_thread.h"
 #include "content/browser/renderer_host/global_request_id.h"
@@ -35,8 +36,6 @@ DownloadResourceHandler::DownloadResourceHandler(
     : download_id_(-1),
       global_id_(render_process_host_id, request_id),
       render_view_id_(render_view_id),
-      url_(url),
-      original_url_(url),
       content_length_(0),
       download_file_manager_(download_file_manager),
       request_(request),
@@ -45,6 +44,7 @@ DownloadResourceHandler::DownloadResourceHandler(
       buffer_(new DownloadBuffer),
       rdh_(rdh),
       is_paused_(false) {
+  download_util::RecordDownloadCount(download_util::UNTHROTTLED_COUNT);
 }
 
 bool DownloadResourceHandler::OnUploadProgress(int request_id,
@@ -58,7 +58,6 @@ bool DownloadResourceHandler::OnRequestRedirected(int request_id,
                                                   const GURL& url,
                                                   ResourceResponse* response,
                                                   bool* defer) {
-  url_ = url;
   return true;
 }
 
@@ -81,8 +80,7 @@ bool DownloadResourceHandler::OnResponseStarted(int request_id,
 
   // Deleted in DownloadManager.
   DownloadCreateInfo* info = new DownloadCreateInfo;
-  info->url = url_;
-  info->original_url = original_url_;
+  info->url_chain = request_->url_chain();
   info->referrer_url = GURL(request_->referrer());
   info->start_time = base::Time::Now();
   info->received_bytes = 0;
@@ -95,6 +93,8 @@ bool DownloadResourceHandler::OnResponseStarted(int request_id,
   info->request_id = global_id_.request_id;
   info->content_disposition = content_disposition_;
   info->mime_type = response->response_head.mime_type;
+  // TODO(ahendrickson) -- Get the last modified time and etag, so we can
+  // resume downloading.
 
   std::string content_type_header;
   if (!response->response_head.headers ||
@@ -157,7 +157,7 @@ bool DownloadResourceHandler::OnReadCompleted(int request_id, int* bytes_read) {
         NewRunnableMethod(download_file_manager_,
                           &DownloadFileManager::UpdateDownload,
                           download_id_,
-                          buffer_));
+                          buffer_.get()));
   }
 
   // We schedule a pause outside of the read loop if there is too much file
@@ -176,16 +176,20 @@ bool DownloadResourceHandler::OnResponseCompleted(
            << " request_id = " << request_id
            << " status.status() = " << status.status()
            << " status.os_error() = " << status.os_error();
+  int error_code = (status.status() == net::URLRequestStatus::FAILED) ?
+      status.os_error() : 0;
+  // We transfer ownership to |DownloadFileManager| to delete |buffer_|,
+  // so that any functions queued up on the FILE thread are executed
+  // before deletion.
   BrowserThread::PostTask(
       BrowserThread::FILE, FROM_HERE,
       NewRunnableMethod(download_file_manager_,
                         &DownloadFileManager::OnResponseCompleted,
                         download_id_,
-                        buffer_));
+                        buffer_.release(),
+                        error_code,
+                        security_info));
   read_buffer_ = NULL;
-
-  // 'buffer_' is deleted by the DownloadFileManager.
-  buffer_ = NULL;
   return true;
 }
 
@@ -209,7 +213,7 @@ void DownloadResourceHandler::set_content_disposition(
 }
 
 void DownloadResourceHandler::CheckWriteProgress() {
-  if (!buffer_)
+  if (!buffer_.get())
     return;  // The download completed while we were waiting to run.
 
   size_t contents_size;
@@ -251,7 +255,7 @@ std::string DownloadResourceHandler::DebugString() const {
                             " render_view_id_ = " "%d"
                             " save_info_.file_path = \"%" PRFilePath "\""
                             " }",
-                            url_.spec().c_str(),
+                            request_->url().spec().c_str(),
                             download_id_,
                             global_id_.child_id,
                             global_id_.request_id,

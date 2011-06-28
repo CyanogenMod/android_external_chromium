@@ -5,11 +5,13 @@
 #include "chrome/browser/ui/webui/options/browser_options_handler.h"
 
 #include "base/basictypes.h"
-#include "base/scoped_ptr.h"
-#include "base/singleton.h"
+#include "base/memory/scoped_ptr.h"
+#include "base/memory/singleton.h"
 #include "base/string_number_conversions.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
+#include "chrome/browser/autocomplete/autocomplete.h"
+#include "chrome/browser/autocomplete/autocomplete_match.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/custom_home_pages_table_model.h"
 #include "chrome/browser/instant/instant_confirm_dialog.h"
@@ -22,11 +24,13 @@
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/browser/ui/options/options_window.h"
 #include "chrome/browser/ui/webui/favicon_source.h"
-#include "chrome/browser/ui/webui/options/dom_options_util.h"
 #include "chrome/browser/ui/webui/options/options_managed_banner_handler.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/installer/util/browser_distribution.h"
 #include "content/browser/browser_thread.h"
+#include "content/common/notification_service.h"
+#include "content/common/notification_source.h"
+#include "content/common/notification_type.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -50,25 +54,26 @@ void BrowserOptionsHandler::GetLocalizedValues(
   DCHECK(localized_strings);
 
   static OptionsStringResource resources[] = {
-    { "startupGroupName", IDS_OPTIONS_STARTUP_GROUP_NAME, true },
+    { "startupGroupName", IDS_OPTIONS_STARTUP_GROUP_NAME },
     { "startupShowDefaultAndNewTab",
       IDS_OPTIONS_STARTUP_SHOW_DEFAULT_AND_NEWTAB},
     { "startupShowLastSession", IDS_OPTIONS_STARTUP_SHOW_LAST_SESSION },
     { "startupShowPages", IDS_OPTIONS_STARTUP_SHOW_PAGES },
-    { "startupAddButton", IDS_OPTIONS_STARTUP_ADD_BUTTON },
+    { "startupAddLabel", IDS_OPTIONS_STARTUP_ADD_LABEL },
     { "startupUseCurrent", IDS_OPTIONS_STARTUP_USE_CURRENT },
-    { "homepageGroupName", IDS_OPTIONS_HOMEPAGE_GROUP_NAME, true },
+    { "homepageGroupName", IDS_OPTIONS_HOMEPAGE_GROUP_NAME },
     { "homepageUseNewTab", IDS_OPTIONS_HOMEPAGE_USE_NEWTAB },
     { "homepageUseURL", IDS_OPTIONS_HOMEPAGE_USE_URL },
-    { "toolbarGroupName", IDS_OPTIONS_TOOLBAR_GROUP_NAME, true },
+    { "toolbarGroupName", IDS_OPTIONS_TOOLBAR_GROUP_NAME },
     { "toolbarShowHomeButton", IDS_OPTIONS_TOOLBAR_SHOW_HOME_BUTTON },
-    { "defaultSearchGroupName", IDS_OPTIONS_DEFAULTSEARCH_GROUP_NAME, true },
+    { "toolbarShowBookmarksBar", IDS_OPTIONS_TOOLBAR_SHOW_BOOKMARKS_BAR },
+    { "defaultSearchGroupName", IDS_OPTIONS_DEFAULTSEARCH_GROUP_NAME },
     { "defaultSearchManageEngines", IDS_OPTIONS_DEFAULTSEARCH_MANAGE_ENGINES },
     { "instantName", IDS_INSTANT_PREF },
     { "instantWarningText", IDS_INSTANT_PREF_WARNING },
     { "instantConfirmTitle", IDS_INSTANT_OPT_IN_TITLE },
     { "instantConfirmMessage", IDS_INSTANT_OPT_IN_MESSAGE },
-    { "defaultBrowserGroupName", IDS_OPTIONS_DEFAULTBROWSER_GROUP_NAME, true },
+    { "defaultBrowserGroupName", IDS_OPTIONS_DEFAULTBROWSER_GROUP_NAME },
   };
 
   RegisterStrings(localized_strings, resources, arraysize(resources));
@@ -107,6 +112,13 @@ void BrowserOptionsHandler::RegisterMessages() {
   web_ui_->RegisterMessageCallback(
       "setStartupPagesToCurrentPages",
       NewCallback(this, &BrowserOptionsHandler::SetStartupPagesToCurrentPages));
+  web_ui_->RegisterMessageCallback(
+      "requestAutocompleteSuggestions",
+      NewCallback(this,
+                  &BrowserOptionsHandler::RequestAutocompleteSuggestions));
+  web_ui_->RegisterMessageCallback(
+      "toggleShowBookmarksBar",
+      NewCallback(this, &BrowserOptionsHandler::ToggleShowBookmarksBar));
 }
 
 void BrowserOptionsHandler::Initialize() {
@@ -114,7 +126,7 @@ void BrowserOptionsHandler::Initialize() {
 
   // Create our favicon data source.
   profile->GetChromeURLDataManager()->AddDataSource(
-      new FavIconSource(profile));
+      new FaviconSource(profile));
 
   homepage_.Init(prefs::kHomePage, profile->GetPrefs(), NULL);
   default_browser_policy_.Init(prefs::kDefaultBrowserSettingEnabled,
@@ -127,18 +139,18 @@ void BrowserOptionsHandler::Initialize() {
       new OptionsManagedBannerHandler(web_ui_,
                                       ASCIIToUTF16("BrowserOptions"),
                                       OPTIONS_PAGE_GENERAL));
+
+  autocomplete_controller_.reset(new AutocompleteController(profile, this));
 }
 
 void BrowserOptionsHandler::SetHomePage(const ListValue* args) {
   std::string url_string;
   std::string do_fixup_string;
   int do_fixup;
-  if (args->GetSize() != 2 ||
-      !args->GetString(0, &url_string) ||
-      !args->GetString(1, &do_fixup_string) ||
-      !base::StringToInt(do_fixup_string, &do_fixup)) {
-    CHECK(false);
-  };
+  CHECK_EQ(args->GetSize(), 2U);
+  CHECK(args->GetString(0, &url_string));
+  CHECK(args->GetString(1, &do_fixup_string));
+  CHECK(base::StringToInt(do_fixup_string, &do_fixup));
 
   if (do_fixup) {
     GURL fixed_url = URLFixerUpper::FixupURL(url_string, std::string());
@@ -231,9 +243,10 @@ void BrowserOptionsHandler::SetDefaultBrowserUIString(int status_string_id) {
       (status_string_id == IDS_OPTIONS_DEFAULTBROWSER_DEFAULT ||
        status_string_id == IDS_OPTIONS_DEFAULTBROWSER_NOTDEFAULT)));
 
-  web_ui_->CallJavascriptFunction(
-      L"BrowserOptions.updateDefaultBrowserState",
-      *(status_string.get()), *(is_default.get()), *(can_be_default.get()));
+  web_ui_->CallJavascriptFunction("BrowserOptions.updateDefaultBrowserState",
+                                  *(status_string.get()),
+                                  *(is_default.get()),
+                                  *(can_be_default.get()));
 }
 
 void BrowserOptionsHandler::OnTemplateURLModelChanged() {
@@ -261,7 +274,7 @@ void BrowserOptionsHandler::OnTemplateURLModelChanged() {
 
   scoped_ptr<Value> default_value(Value::CreateIntegerValue(default_index));
 
-  web_ui_->CallJavascriptFunction(L"BrowserOptions.updateSearchEngines",
+  web_ui_->CallJavascriptFunction("BrowserOptions.updateSearchEngines",
                                   search_engines, *(default_value.get()));
 }
 
@@ -315,7 +328,7 @@ void BrowserOptionsHandler::OnModelChanged() {
     startup_pages.Append(entry);
   }
 
-  web_ui_->CallJavascriptFunction(L"BrowserOptions.updateStartupPages",
+  web_ui_->CallJavascriptFunction("BrowserOptions.updateStartupPages",
                                   startup_pages);
 }
 
@@ -346,9 +359,8 @@ void BrowserOptionsHandler::SetStartupPagesToCurrentPages(
 void BrowserOptionsHandler::RemoveStartupPages(const ListValue* args) {
   for (int i = args->GetSize() - 1; i >= 0; --i) {
     std::string string_value;
-    if (!args->GetString(i, &string_value)) {
-      CHECK(false);
-    }
+    CHECK(args->GetString(i, &string_value));
+
     int selected_index;
     base::StringToInt(string_value, &selected_index);
     if (selected_index < 0 ||
@@ -364,22 +376,11 @@ void BrowserOptionsHandler::RemoveStartupPages(const ListValue* args) {
 
 void BrowserOptionsHandler::AddStartupPage(const ListValue* args) {
   std::string url_string;
-  std::string index_string;
-  int index;
-  if (args->GetSize() != 2 ||
-      !args->GetString(0, &url_string) ||
-      !args->GetString(1, &index_string) ||
-      !base::StringToInt(index_string, &index)) {
-    CHECK(false);
-  };
-
-  if (index == -1)
-    index = startup_custom_pages_table_model_->RowCount();
-  else
-    ++index;
+  CHECK_EQ(args->GetSize(), 1U);
+  CHECK(args->GetString(0, &url_string));
 
   GURL url = URLFixerUpper::FixupURL(url_string, std::string());
-
+  int index = startup_custom_pages_table_model_->RowCount();
   startup_custom_pages_table_model_->Add(index, url);
   SaveStartupPagesPref();
 }
@@ -388,12 +389,10 @@ void BrowserOptionsHandler::EditStartupPage(const ListValue* args) {
   std::string url_string;
   std::string index_string;
   int index;
-  if (args->GetSize() != 2 ||
-      !args->GetString(0, &index_string) ||
-      !base::StringToInt(index_string, &index) ||
-      !args->GetString(1, &url_string)) {
-    CHECK(false);
-  };
+  CHECK_EQ(args->GetSize(), 2U);
+  CHECK(args->GetString(0, &index_string));
+  CHECK(base::StringToInt(index_string, &index));
+  CHECK(args->GetString(1, &url_string));
 
   if (index < 0 || index > startup_custom_pages_table_model_->RowCount()) {
     NOTREACHED();
@@ -412,4 +411,45 @@ void BrowserOptionsHandler::SaveStartupPagesPref() {
   pref.urls = startup_custom_pages_table_model_->GetURLs();
 
   SessionStartupPref::SetStartupPref(prefs, pref);
+}
+
+void BrowserOptionsHandler::RequestAutocompleteSuggestions(
+    const ListValue* args) {
+  string16 input;
+  CHECK_EQ(args->GetSize(), 1U);
+  CHECK(args->GetString(0, &input));
+
+  autocomplete_controller_->Start(input, string16(), true, false, false,
+                                  AutocompleteInput::ALL_MATCHES);
+}
+
+void BrowserOptionsHandler::ToggleShowBookmarksBar(const ListValue* args) {
+  Source<Profile> source(web_ui_->GetProfile());
+  NotificationService::current()->Notify(
+      NotificationType::BOOKMARK_BAR_VISIBILITY_PREF_CHANGED,
+      source,
+      NotificationService::NoDetails());
+}
+
+void BrowserOptionsHandler::OnResultChanged(bool default_match_changed) {
+  const AutocompleteResult& result = autocomplete_controller_->result();
+  ListValue suggestions;
+  for (size_t i = 0; i < result.size(); ++i) {
+    const AutocompleteMatch& match = result.match_at(i);
+    AutocompleteMatch::Type type = match.type;
+    if (type != AutocompleteMatch::HISTORY_URL &&
+        type != AutocompleteMatch::HISTORY_TITLE &&
+        type != AutocompleteMatch::HISTORY_BODY &&
+        type != AutocompleteMatch::HISTORY_KEYWORD &&
+        type != AutocompleteMatch::NAVSUGGEST)
+      continue;
+    DictionaryValue* entry = new DictionaryValue();
+    entry->SetString("title", match.description);
+    entry->SetString("displayURL", match.contents);
+    entry->SetString("url", match.destination_url.spec());
+    suggestions.Append(entry);
+  }
+
+  web_ui_->CallJavascriptFunction(
+      "BrowserOptions.updateAutocompleteSuggestions", suggestions);
 }

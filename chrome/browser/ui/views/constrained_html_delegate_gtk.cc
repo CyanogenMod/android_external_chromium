@@ -41,13 +41,16 @@ class ConstrainedHtmlDelegateGtk : public views::WidgetGtk,
     return html_tab_contents_.GetContentNativeView();
   }
   virtual void DeleteDelegate() {
+    html_delegate_->OnWindowClosed();
     html_delegate_->OnDialogClosed("");
     tab_container_->ChangeTabContents(NULL);
+  }
+  virtual bool ShouldHaveBorderPadding() const {
+    return false;
   }
 
   // HtmlDialogTabContentsDelegate interface.
   void MoveContents(TabContents* source, const gfx::Rect& pos) {}
-  void ToolbarSizeChanged(TabContents* source, bool is_animating) {}
   void HandleKeyboardEvent(const NativeWebKeyboardEvent& event) {}
 
   void set_window(ConstrainedWindow* window) {
@@ -108,7 +111,7 @@ void ConstrainedHtmlDelegateGtk::OnDialogClose() {
 }
 
 // static
-void ConstrainedHtmlUI::CreateConstrainedHtmlDialog(
+ConstrainedWindow* ConstrainedHtmlUI::CreateConstrainedHtmlDialog(
     Profile* profile,
     HtmlDialogUIDelegate* delegate,
     TabContents* container) {
@@ -117,4 +120,5 @@ void ConstrainedHtmlUI::CreateConstrainedHtmlDialog(
   ConstrainedWindow* constrained_window =
       container->CreateConstrainedDialog(constrained_delegate);
   constrained_delegate->set_window(constrained_window);
+  return constrained_window;
 }

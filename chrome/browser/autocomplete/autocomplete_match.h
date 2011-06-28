@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 #include <vector>
 #include <string>
 
-#include "chrome/common/page_transition_types.h"
+#include "content/common/page_transition_types.h"
 #include "googleurl/src/gurl.h"
 
 class AutocompleteProvider;
@@ -77,6 +77,8 @@ struct AutocompleteMatch {
                              // containing the input.
     SEARCH_SUGGEST,          // A suggested search (with the default engine).
     SEARCH_OTHER_ENGINE,     // A search with a non-default engine.
+    EXTENSION_APP,           // An Extension App with a title/url that contains
+                             // the input.
     NUM_TYPES,
   };
 
@@ -128,10 +130,10 @@ struct AutocompleteMatch {
   // no provider (or memory of the user's selection).
   AutocompleteProvider* provider;
 
-  // The relevance of this match. See table above for scores returned by
-  // various providers. This is used to rank matches among all responding
-  // providers, so different providers must be carefully tuned to supply
-  // matches with appropriate relevance.
+  // The relevance of this match. See table in autocomplete.h for scores
+  // returned by various providers. This is used to rank matches among all
+  // responding providers, so different providers must be carefully tuned to
+  // supply matches with appropriate relevance.
   //
   // TODO(pkasting): http://b/1111299 This should be calculated algorithmically,
   // rather than being a fairly fixed value defined by the table above.

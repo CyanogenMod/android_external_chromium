@@ -12,21 +12,22 @@
 #include <string>
 
 #include "base/basictypes.h"
-#include "base/scoped_ptr.h"
-#include "base/scoped_vector.h"
+#include "base/memory/scoped_ptr.h"
+#include "base/memory/scoped_vector.h"
 #include "chrome/browser/autocomplete/autocomplete_edit.h"
 #include "chrome/browser/autocomplete/autocomplete_edit_view_gtk.h"
 #include "chrome/browser/extensions/extension_context_menu_model.h"
 #include "chrome/browser/extensions/image_loading_tracker.h"
 #include "chrome/browser/first_run/first_run.h"
+#include "chrome/browser/prefs/pref_member.h"
 #include "chrome/browser/ui/gtk/info_bubble_gtk.h"
 #include "chrome/browser/ui/gtk/menu_gtk.h"
 #include "chrome/browser/ui/gtk/owned_widget_gtk.h"
 #include "chrome/browser/ui/omnibox/location_bar.h"
 #include "chrome/common/content_settings_types.h"
-#include "chrome/common/page_transition_types.h"
 #include "content/common/notification_observer.h"
 #include "content/common/notification_registrar.h"
+#include "content/common/page_transition_types.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/base/animation/slide_animation.h"
 #include "ui/base/gtk/gtk_signal.h"
@@ -38,7 +39,7 @@ class CommandUpdater;
 class ContentSettingImageModel;
 class ContentSettingBubbleGtk;
 class ExtensionAction;
-class GtkThemeProvider;
+class GtkThemeService;
 class Profile;
 class SkBitmap;
 class TabContents;
@@ -101,14 +102,15 @@ class LocationBarViewGtk : public AutocompleteEditController,
   virtual void OnKillFocus() OVERRIDE;
   virtual void OnSetFocus() OVERRIDE;
   virtual void OnInputInProgress(bool in_progress) OVERRIDE;
-  virtual SkBitmap GetFavIcon() const OVERRIDE;
+  virtual SkBitmap GetFavicon() const OVERRIDE;
   virtual string16 GetTitle() const OVERRIDE;
   virtual InstantController* GetInstant() OVERRIDE;
-  virtual TabContentsWrapper* GetTabContentsWrapper() OVERRIDE;
+  virtual TabContentsWrapper* GetTabContentsWrapper() const OVERRIDE;
 
   // Implement the LocationBar interface.
   virtual void ShowFirstRunBubble(FirstRun::BubbleType bubble_type);
-  virtual void SetSuggestedText(const string16& text);
+  virtual void SetSuggestedText(const string16& text,
+                                InstantCompleteBehavior behavior);
   virtual std::wstring GetInputString() const;
   virtual WindowOpenDisposition GetWindowOpenDisposition() const;
   virtual PageTransition::Type GetPageTransition() const;
@@ -228,11 +230,11 @@ class LocationBarViewGtk : public AutocompleteEditController,
     // Called to notify the PageAction that it should determine whether to be
     // visible or hidden. |contents| is the TabContents that is active, |url|
     // is the current page URL.
-    void UpdateVisibility(TabContents* contents, GURL url);
+    void UpdateVisibility(TabContents* contents, const GURL& url);
 
     // A callback from ImageLoadingTracker for when the image has loaded.
     virtual void OnImageLoaded(
-        SkBitmap* image, ExtensionResource resource, int index);
+        SkBitmap* image, const ExtensionResource& resource, int index);
 
     // Simulate left mouse click on the page action button.
     void TestActivatePageAction();
@@ -429,7 +431,7 @@ class LocationBarViewGtk : public AutocompleteEditController,
   bool popup_window_mode_;
 
   // Provides colors and rendering mode.
-  GtkThemeProvider* theme_provider_;
+  GtkThemeService* theme_service_;
 
   NotificationRegistrar registrar_;
 
@@ -448,6 +450,9 @@ class LocationBarViewGtk : public AutocompleteEditController,
 
   // The last search keyword that was shown via the |tab_to_search_box_|.
   string16 last_keyword_;
+
+  // Used to change the visibility of the star decoration.
+  BooleanPrefMember edit_bookmarks_enabled_;
 
   DISALLOW_COPY_AND_ASSIGN(LocationBarViewGtk);
 };

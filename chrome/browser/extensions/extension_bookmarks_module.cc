@@ -20,17 +20,18 @@
 #include "chrome/browser/bookmarks/bookmark_html_writer.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/bookmarks/bookmark_utils.h"
-#include "chrome/browser/browser_list.h"
 #include "chrome/browser/extensions/extension_bookmark_helpers.h"
 #include "chrome/browser/extensions/extension_bookmarks_module_constants.h"
 #include "chrome/browser/extensions/extension_event_router.h"
 #include "chrome/browser/extensions/extensions_quota_service.h"
 #include "chrome/browser/importer/importer_data_types.h"
+#include "chrome/browser/importer/importer_host.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/common/chrome_paths.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
+#include "content/common/notification_service.h"
 #include "grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 
@@ -54,11 +55,11 @@ FilePath GetDefaultFilepathForBookmarkExport() {
   // Concatenate a date stamp to the filename.
 #if defined(OS_POSIX)
   FilePath::StringType filename =
-      l10n_util::GetStringFUTF8(EXPORT_BOOKMARKS_DEFAULT_FILENAME,
+      l10n_util::GetStringFUTF8(IDS_EXPORT_BOOKMARKS_DEFAULT_FILENAME,
                                 base::TimeFormatShortDateNumeric(time));
 #elif defined(OS_WIN)
   FilePath::StringType filename =
-      l10n_util::GetStringFUTF16(EXPORT_BOOKMARKS_DEFAULT_FILENAME,
+      l10n_util::GetStringFUTF16(IDS_EXPORT_BOOKMARKS_DEFAULT_FILENAME,
                                  base::TimeFormatShortDateNumeric(time));
 #endif
 
@@ -100,6 +101,13 @@ bool BookmarksFunction::GetBookmarkIdAsInt64(
   return false;
 }
 
+bool BookmarksFunction::EditBookmarksEnabled() {
+  if (profile_->GetPrefs()->GetBoolean(prefs::kEditBookmarksEnabled))
+    return true;
+  error_ = keys::kEditBookmarksDisabled;
+  return false;
+}
+
 void BookmarksFunction::Observe(NotificationType type,
                                 const NotificationSource& source,
                                 const NotificationDetails& details) {
@@ -129,7 +137,7 @@ void ExtensionBookmarkEventRouter::Observe(BookmarkModel* model) {
 
 void ExtensionBookmarkEventRouter::DispatchEvent(Profile *profile,
                                                  const char* event_name,
-                                                 const std::string json_args) {
+                                                 const std::string& json_args) {
   if (profile->GetExtensionEventRouter()) {
     profile->GetExtensionEventRouter()->DispatchEventToRenderers(
         event_name, json_args, NULL, GURL());
@@ -218,7 +226,7 @@ void ExtensionBookmarkEventRouter::BookmarkNodeChanged(
   DispatchEvent(model->profile(), keys::kOnBookmarkChanged, json_args);
 }
 
-void ExtensionBookmarkEventRouter::BookmarkNodeFavIconLoaded(
+void ExtensionBookmarkEventRouter::BookmarkNodeFaviconLoaded(
     BookmarkModel* model, const BookmarkNode* node) {
   // TODO(erikkay) anything we should do here?
 }
@@ -227,7 +235,7 @@ void ExtensionBookmarkEventRouter::BookmarkNodeChildrenReordered(
     BookmarkModel* model, const BookmarkNode* node) {
   ListValue args;
   args.Append(new StringValue(base::Int64ToString(node->id())));
-  int childCount = node->GetChildCount();
+  int childCount = node->child_count();
   ListValue* children = new ListValue();
   for (int i = 0; i < childCount; ++i) {
     const BookmarkNode* child = node->GetChild(i);
@@ -318,7 +326,7 @@ bool GetBookmarkChildrenFunction::RunImpl() {
     error_ = keys::kNoNodeError;
     return false;
   }
-  int child_count = node->GetChildCount();
+  int child_count = node->child_count();
   for (int i = 0; i < child_count; ++i) {
     const BookmarkNode* child = node->GetChild(i);
     extension_bookmark_helpers::AddNode(child, json.get(), false);
@@ -393,6 +401,8 @@ bool RemoveBookmarkFunction::ExtractIds(const ListValue* args,
 }
 
 bool RemoveBookmarkFunction::RunImpl() {
+  if (!EditBookmarksEnabled())
+    return false;
   std::list<int64> ids;
   bool invalid_id = false;
   EXTENSION_FUNCTION_VALIDATE(ExtractIds(args_.get(), &ids, &invalid_id));
@@ -415,6 +425,8 @@ bool RemoveBookmarkFunction::RunImpl() {
 }
 
 bool CreateBookmarkFunction::RunImpl() {
+  if (!EditBookmarksEnabled())
+    return false;
   DictionaryValue* json;
   EXTENSION_FUNCTION_VALIDATE(args_->GetDictionary(0, &json));
   EXTENSION_FUNCTION_VALIDATE(json != NULL);
@@ -436,17 +448,17 @@ bool CreateBookmarkFunction::RunImpl() {
     error_ = keys::kNoParentError;
     return false;
   }
-  if (parent->GetParent() == NULL) {  // Can't create children of the root.
-    error_ = keys::kNoParentError;
+  if (parent->parent() == NULL) {  // Can't create children of the root.
+    error_ = keys::kModifySpecialError;
     return false;
   }
 
   int index;
   if (!json->HasKey(keys::kIndexKey)) {  // Optional (defaults to end).
-    index = parent->GetChildCount();
+    index = parent->child_count();
   } else {
     EXTENSION_FUNCTION_VALIDATE(json->GetInteger(keys::kIndexKey, &index));
-    if (index > parent->GetChildCount() || index < 0) {
+    if (index > parent->child_count() || index < 0) {
       error_ = keys::kInvalidIndexError;
       return false;
     }
@@ -466,7 +478,7 @@ bool CreateBookmarkFunction::RunImpl() {
   if (url_string.length())
     node = model->AddURL(parent, index, title, url);
   else
-    node = model->AddGroup(parent, index, title);
+    node = model->AddFolder(parent, index, title);
   DCHECK(node);
   if (!node) {
     error_ = keys::kNoNodeError;
@@ -489,6 +501,8 @@ bool MoveBookmarkFunction::ExtractIds(const ListValue* args,
 }
 
 bool MoveBookmarkFunction::RunImpl() {
+  if (!EditBookmarksEnabled())
+    return false;
   std::list<int64> ids;
   bool invalid_id = false;
   EXTENSION_FUNCTION_VALIDATE(ExtractIds(args_.get(), &ids, &invalid_id));
@@ -517,7 +531,7 @@ bool MoveBookmarkFunction::RunImpl() {
   const BookmarkNode* parent = NULL;
   if (!destination->HasKey(keys::kParentIdKey)) {
     // Optional, defaults to current parent.
-    parent = node->GetParent();
+    parent = node->parent();
   } else {
     std::string parentId_string;
     EXTENSION_FUNCTION_VALIDATE(destination->GetString(keys::kParentIdKey,
@@ -542,12 +556,12 @@ bool MoveBookmarkFunction::RunImpl() {
   if (destination->HasKey(keys::kIndexKey)) {  // Optional (defaults to end).
     EXTENSION_FUNCTION_VALIDATE(destination->GetInteger(keys::kIndexKey,
                                                         &index));
-    if (index > parent->GetChildCount() || index < 0) {
+    if (index > parent->child_count() || index < 0) {
       error_ = keys::kInvalidIndexError;
       return false;
     }
   } else {
-    index = parent->GetChildCount();
+    index = parent->child_count();
   }
 
   model->Move(node, parent, index);
@@ -568,6 +582,8 @@ bool UpdateBookmarkFunction::ExtractIds(const ListValue* args,
 }
 
 bool UpdateBookmarkFunction::RunImpl() {
+  if (!EditBookmarksEnabled())
+    return false;
   std::list<int64> ids;
   bool invalid_id = false;
   EXTENSION_FUNCTION_VALIDATE(ExtractIds(args_.get(), &ids, &invalid_id));
@@ -692,11 +708,11 @@ class RemoveBookmarksBucketMapper : public BookmarkBucketMapper<std::string> {
     for (IdList::iterator it = ids.begin(); it != ids.end(); ++it) {
       BookmarkModel* model = profile_->GetBookmarkModel();
       const BookmarkNode* node = model->GetNodeByID(*it);
-      if (!node || !node->GetParent())
+      if (!node || !node->parent())
         return;
 
       std::string bucket_id;
-      bucket_id += UTF16ToUTF8(node->GetParent()->GetTitle());
+      bucket_id += UTF16ToUTF8(node->parent()->GetTitle());
       bucket_id += UTF16ToUTF8(node->GetTitle());
       bucket_id += node->GetURL().spec();
       buckets->push_back(GetBucket(base::SHA1HashString(bucket_id)));
@@ -799,16 +815,21 @@ void CreateBookmarkFunction::GetQuotaLimitHeuristics(
 
 BookmarksIOFunction::BookmarksIOFunction() {}
 
-BookmarksIOFunction::~BookmarksIOFunction() {}
+BookmarksIOFunction::~BookmarksIOFunction() {
+  // There may be pending file dialogs, we need to tell them that we've gone
+  // away so they don't try and call back to us.
+  if (select_file_dialog_.get())
+    select_file_dialog_->ListenerDestroyed();
+}
 
 void BookmarksIOFunction::SelectFile(SelectFileDialog::Type type) {
-  // Balanced in one of the three callbacks of SelectFileDialog:
-  // either FileSelectionCanceled, MultiFilesSelected, or FileSelected
-  AddRef();
-  select_file_dialog_ = SelectFileDialog::Create(this);
-  SelectFileDialog::FileTypeInfo file_type_info;
-  file_type_info.extensions.resize(1);
-  file_type_info.extensions[0].push_back(FILE_PATH_LITERAL("html"));
+  // GetDefaultFilepathForBookmarkExport() might have to touch the filesystem
+  // (stat or access, for example), so this requires a thread with IO allowed.
+  if (!BrowserThread::CurrentlyOn(BrowserThread::FILE)) {
+    BrowserThread::PostTask(BrowserThread::FILE, FROM_HERE,
+        NewRunnableMethod(this, &BookmarksIOFunction::SelectFile, type));
+    return;
+  }
 
   // Pre-populating the filename field in case this is a SELECT_SAVEAS_FILE
   // dialog. If not, there is no filename field in the dialog box.
@@ -818,12 +839,35 @@ void BookmarksIOFunction::SelectFile(SelectFileDialog::Type type) {
   else
     DCHECK(type == SelectFileDialog::SELECT_OPEN_FILE);
 
+  // After getting the |default_path|, ask the UI to display the file dialog.
+  BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
+      NewRunnableMethod(this, &BookmarksIOFunction::ShowSelectFileDialog,
+                        type, default_path));
+}
+
+void BookmarksIOFunction::ShowSelectFileDialog(SelectFileDialog::Type type,
+                                               FilePath default_path) {
+  // Balanced in one of the three callbacks of SelectFileDialog:
+  // either FileSelectionCanceled, MultiFilesSelected, or FileSelected
+  AddRef();
+  select_file_dialog_ = SelectFileDialog::Create(this);
+  SelectFileDialog::FileTypeInfo file_type_info;
+  file_type_info.extensions.resize(1);
+  file_type_info.extensions[0].push_back(FILE_PATH_LITERAL("html"));
+
+  TabContents* tab_contents = dispatcher()->delegate()->
+      associated_tab_contents();
+
+  // |tab_contents| can be NULL (for background pages), which is fine. In such
+  // a case if file-selection dialogs are forbidden by policy, we will not
+  // show an InfoBar, which is better than letting one appear out of the blue.
   select_file_dialog_->SelectFile(type,
                                   string16(),
                                   default_path,
                                   &file_type_info,
                                   0,
                                   FILE_PATH_LITERAL(""),
+                                  tab_contents,
                                   NULL,
                                   NULL);
 }
@@ -839,6 +883,8 @@ void BookmarksIOFunction::MultiFilesSelected(
 }
 
 bool ImportBookmarksFunction::RunImpl() {
+  if (!EditBookmarksEnabled())
+    return false;
   SelectFile(SelectFileDialog::SELECT_OPEN_FILE);
   return true;
 }
@@ -847,10 +893,10 @@ void ImportBookmarksFunction::FileSelected(const FilePath& path,
                                            int index,
                                            void* params) {
   scoped_refptr<ImporterHost> importer_host(new ImporterHost);
-  importer::ProfileInfo profile_info;
-  profile_info.browser_type = importer::BOOKMARKS_HTML;
-  profile_info.source_path = path;
-  importer_host->StartImportSettings(profile_info,
+  importer::SourceProfile source_profile;
+  source_profile.importer_type = importer::BOOKMARKS_HTML;
+  source_profile.source_path = path;
+  importer_host->StartImportSettings(source_profile,
                                      profile(),
                                      importer::FAVORITES,
                                      new ProfileWriter(profile()),

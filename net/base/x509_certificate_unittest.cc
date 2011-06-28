@@ -1,12 +1,16 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/crypto/rsa_private_key.h"
 #include "base/file_path.h"
 #include "base/file_util.h"
 #include "base/path_service.h"
 #include "base/pickle.h"
+#include "base/sha1.h"
+#include "base/string_number_conversions.h"
+#include "base/string_split.h"
+#include "crypto/rsa_private_key.h"
+#include "net/base/asn1_util.h"
 #include "net/base/cert_status_flags.h"
 #include "net/base/cert_test_util.h"
 #include "net/base/cert_verify_result.h"
@@ -27,6 +31,8 @@
 #define TEST_EV 1  // Test CERT_STATUS_IS_EV
 #endif
 
+using base::HexEncode;
+using base::SHA1_LENGTH;
 using base::Time;
 
 namespace net {
@@ -380,7 +386,13 @@ TEST(X509CertificateTest, PaypalNullCertParsing) {
   CertVerifyResult verify_result;
   int error = paypal_null_cert->Verify("www.paypal.com", flags,
                                        &verify_result);
-  EXPECT_NE(OK, error);
+#if defined(USE_OPENSSL) || defined(OS_MACOSX) || defined(OS_WIN)
+  // TOOD(bulach): investigate why macosx and win aren't returning
+  // ERR_CERT_INVALID or ERR_CERT_COMMON_NAME_INVALID.
+  EXPECT_EQ(ERR_CERT_AUTHORITY_INVALID, error);
+#else
+  EXPECT_EQ(ERR_CERT_COMMON_NAME_INVALID, error);
+#endif
   // Either the system crypto library should correctly report a certificate
   // name mismatch, or our certificate blacklist should cause us to report an
   // invalid certificate.
@@ -408,8 +420,36 @@ TEST(X509CertificateTest, UnoSoftCertParsing) {
   CertVerifyResult verify_result;
   int error = unosoft_hu_cert->Verify("www.unosoft.hu", flags,
                                       &verify_result);
-  EXPECT_NE(OK, error);
+  EXPECT_EQ(ERR_CERT_AUTHORITY_INVALID, error);
   EXPECT_NE(0, verify_result.cert_status & CERT_STATUS_AUTHORITY_INVALID);
+}
+
+TEST(X509CertificateTest, SerialNumbers) {
+  scoped_refptr<X509Certificate> google_cert(
+      X509Certificate::CreateFromBytes(
+          reinterpret_cast<const char*>(google_der), sizeof(google_der)));
+
+  static const uint8 google_serial[16] = {
+    0x01,0x2a,0x39,0x76,0x0d,0x3f,0x4f,0xc9,
+    0x0b,0xe7,0xbd,0x2b,0xcf,0x95,0x2e,0x7a,
+  };
+
+  ASSERT_EQ(sizeof(google_serial), google_cert->serial_number().size());
+  EXPECT_TRUE(memcmp(google_cert->serial_number().data(), google_serial,
+                     sizeof(google_serial)) == 0);
+
+  // We also want to check a serial number where the first byte is >= 0x80 in
+  // case the underlying library tries to pad it.
+  scoped_refptr<X509Certificate> paypal_null_cert(
+      X509Certificate::CreateFromBytes(
+          reinterpret_cast<const char*>(paypal_null_der),
+          sizeof(paypal_null_der)));
+
+  static const uint8 paypal_null_serial[2] = {0xf0, 0x9b};
+  ASSERT_EQ(sizeof(paypal_null_serial),
+            paypal_null_cert->serial_number().size());
+  EXPECT_TRUE(memcmp(paypal_null_cert->serial_number().data(),
+                     paypal_null_serial, sizeof(paypal_null_serial)) == 0);
 }
 
 // A regression test for http://crbug.com/31497.
@@ -444,6 +484,127 @@ TEST(X509CertificateTest, IntermediateCARequireExplicitPolicy) {
   EXPECT_EQ(OK, error);
   EXPECT_EQ(0, verify_result.cert_status);
   root_certs->Clear();
+}
+
+TEST(X509CertificateTest, TestKnownRoot) {
+  FilePath certs_dir = GetTestCertsDirectory();
+  scoped_refptr<X509Certificate> cert =
+      ImportCertFromFile(certs_dir, "nist.der");
+  ASSERT_NE(static_cast<X509Certificate*>(NULL), cert);
+
+  // This intermediate is only needed for old Linux machines. Modern NSS
+  // includes it as a root already.
+  scoped_refptr<X509Certificate> intermediate_cert =
+      ImportCertFromFile(certs_dir, "nist_intermediate.der");
+  ASSERT_NE(static_cast<X509Certificate*>(NULL), intermediate_cert);
+
+  X509Certificate::OSCertHandles intermediates;
+  intermediates.push_back(intermediate_cert->os_cert_handle());
+  scoped_refptr<X509Certificate> cert_chain =
+      X509Certificate::CreateFromHandle(cert->os_cert_handle(),
+                                        X509Certificate::SOURCE_FROM_NETWORK,
+                                        intermediates);
+
+  int flags = 0;
+  CertVerifyResult verify_result;
+  // This is going to blow up in Feb 2012. Sorry! Disable and file a bug
+  // against agl. Also see PublicKeyHashes in this file.
+  int error = cert_chain->Verify("www.nist.gov", flags, &verify_result);
+  EXPECT_EQ(OK, error);
+  EXPECT_EQ(0, verify_result.cert_status);
+  EXPECT_TRUE(verify_result.is_issued_by_known_root);
+}
+
+// This is the SHA1 hash of the SubjectPublicKeyInfo of nist.der.
+static const char nistSPKIHash[] =
+    "\x15\x60\xde\x65\x4e\x03\x9f\xd0\x08\x82"
+    "\xa9\x6a\xc4\x65\x8e\x6f\x92\x06\x84\x35";
+
+TEST(X509CertificateTest, ExtractSPKIFromDERCert) {
+  FilePath certs_dir = GetTestCertsDirectory();
+  scoped_refptr<X509Certificate> cert =
+      ImportCertFromFile(certs_dir, "nist.der");
+  ASSERT_NE(static_cast<X509Certificate*>(NULL), cert);
+
+  std::string derBytes;
+  EXPECT_TRUE(cert->GetDEREncoded(&derBytes));
+
+  base::StringPiece spkiBytes;
+  EXPECT_TRUE(asn1::ExtractSPKIFromDERCert(derBytes, &spkiBytes));
+
+  uint8 hash[base::SHA1_LENGTH];
+  base::SHA1HashBytes(reinterpret_cast<const uint8*>(spkiBytes.data()),
+                      spkiBytes.size(), hash);
+
+  EXPECT_TRUE(0 == memcmp(hash, nistSPKIHash, sizeof(hash)));
+}
+
+TEST(X509CertificateTest, PublicKeyHashes) {
+  FilePath certs_dir = GetTestCertsDirectory();
+  // This is going to blow up in Feb 2012. Sorry! Disable and file a bug
+  // against agl. Also see TestKnownRoot in this file.
+  scoped_refptr<X509Certificate> cert =
+      ImportCertFromFile(certs_dir, "nist.der");
+  ASSERT_NE(static_cast<X509Certificate*>(NULL), cert);
+
+  // This intermediate is only needed for old Linux machines. Modern NSS
+  // includes it as a root already.
+  scoped_refptr<X509Certificate> intermediate_cert =
+      ImportCertFromFile(certs_dir, "nist_intermediate.der");
+  ASSERT_NE(static_cast<X509Certificate*>(NULL), intermediate_cert);
+
+  TestRootCerts::GetInstance()->Add(intermediate_cert.get());
+
+  X509Certificate::OSCertHandles intermediates;
+  intermediates.push_back(intermediate_cert->os_cert_handle());
+  scoped_refptr<X509Certificate> cert_chain =
+      X509Certificate::CreateFromHandle(cert->os_cert_handle(),
+                                        X509Certificate::SOURCE_FROM_NETWORK,
+                                        intermediates);
+
+  int flags = 0;
+  CertVerifyResult verify_result;
+
+  int error = cert_chain->Verify("www.nist.gov", flags, &verify_result);
+  EXPECT_EQ(OK, error);
+  EXPECT_EQ(0, verify_result.cert_status);
+  ASSERT_LE(2u, verify_result.public_key_hashes.size());
+  EXPECT_EQ(HexEncode(nistSPKIHash, base::SHA1_LENGTH),
+            HexEncode(verify_result.public_key_hashes[0].data, SHA1_LENGTH));
+  EXPECT_EQ("83244223D6CBF0A26FC7DE27CEBCA4BDA32612AD",
+            HexEncode(verify_result.public_key_hashes[1].data, SHA1_LENGTH));
+
+  TestRootCerts::GetInstance()->Clear();
+}
+
+// A regression test for http://crbug.com/70293.
+// The Key Usage extension in this RSA SSL server certificate does not have
+// the keyEncipherment bit.
+TEST(X509CertificateTest, InvalidKeyUsage) {
+  FilePath certs_dir = GetTestCertsDirectory();
+
+  scoped_refptr<X509Certificate> server_cert =
+      ImportCertFromFile(certs_dir, "invalid_key_usage_cert.der");
+  ASSERT_NE(static_cast<X509Certificate*>(NULL), server_cert);
+
+  int flags = 0;
+  CertVerifyResult verify_result;
+  int error = server_cert->Verify("jira.aquameta.com", flags, &verify_result);
+#if defined(USE_OPENSSL)
+  // This certificate has two errors: "invalid key usage" and "untrusted CA".
+  // However, OpenSSL returns only one (the latter), and we can't detect
+  // the other errors.
+  EXPECT_EQ(ERR_CERT_AUTHORITY_INVALID, error);
+#else
+  EXPECT_EQ(ERR_CERT_INVALID, error);
+  EXPECT_NE(0, verify_result.cert_status & CERT_STATUS_INVALID);
+#endif
+  // TODO(wtc): fix http://crbug.com/75520 to get all the certificate errors
+  // from NSS.
+#if !defined(USE_NSS)
+  // The certificate is issued by an unknown CA.
+  EXPECT_NE(0, verify_result.cert_status & CERT_STATUS_AUTHORITY_INVALID);
+#endif
 }
 
 // Tests X509Certificate::Cache via X509Certificate::CreateFromHandle.  We
@@ -509,17 +670,40 @@ TEST(X509CertificateTest, Cache) {
 }
 
 TEST(X509CertificateTest, Pickle) {
-  scoped_refptr<X509Certificate> cert1(X509Certificate::CreateFromBytes(
-      reinterpret_cast<const char*>(google_der), sizeof(google_der)));
+  X509Certificate::OSCertHandle google_cert_handle =
+      X509Certificate::CreateOSCertHandleFromBytes(
+          reinterpret_cast<const char*>(google_der), sizeof(google_der));
+  X509Certificate::OSCertHandle thawte_cert_handle =
+      X509Certificate::CreateOSCertHandleFromBytes(
+          reinterpret_cast<const char*>(thawte_der), sizeof(thawte_der));
+
+  X509Certificate::OSCertHandles intermediates;
+  intermediates.push_back(thawte_cert_handle);
+  // Faking SOURCE_LONE_CERT_IMPORT so that when the pickled certificate is
+  // read, it successfully evicts |cert| from the X509Certificate::Cache.
+  // This will be fixed when http://crbug.com/49377 is fixed.
+  scoped_refptr<X509Certificate> cert = X509Certificate::CreateFromHandle(
+      google_cert_handle,
+      X509Certificate::SOURCE_LONE_CERT_IMPORT,
+      intermediates);
+  ASSERT_NE(static_cast<X509Certificate*>(NULL), cert.get());
+
+  X509Certificate::FreeOSCertHandle(google_cert_handle);
+  X509Certificate::FreeOSCertHandle(thawte_cert_handle);
 
   Pickle pickle;
-  cert1->Persist(&pickle);
+  cert->Persist(&pickle);
 
   void* iter = NULL;
-  scoped_refptr<X509Certificate> cert2(
-      X509Certificate::CreateFromPickle(pickle, &iter));
-
-  EXPECT_EQ(cert1, cert2);
+  scoped_refptr<X509Certificate> cert_from_pickle =
+      X509Certificate::CreateFromPickle(
+          pickle, &iter, X509Certificate::PICKLETYPE_CERTIFICATE_CHAIN);
+  ASSERT_NE(static_cast<X509Certificate*>(NULL), cert_from_pickle);
+  EXPECT_NE(cert.get(), cert_from_pickle.get());
+  EXPECT_TRUE(X509Certificate::IsSameOSCert(
+      cert->os_cert_handle(), cert_from_pickle->os_cert_handle()));
+  EXPECT_TRUE(cert->HasIntermediateCertificates(
+      cert_from_pickle->GetIntermediateCertificates()));
 }
 
 TEST(X509CertificateTest, Policy) {
@@ -670,10 +854,10 @@ TEST(X509CertificateTest, IsIssuedBy) {
 // This test creates a self-signed cert from a private key and then verify the
 // content of the certificate.
 TEST(X509CertificateTest, CreateSelfSigned) {
-  scoped_ptr<base::RSAPrivateKey> private_key(
-      base::RSAPrivateKey::Create(1024));
-  scoped_refptr<net::X509Certificate> cert =
-      net::X509Certificate::CreateSelfSigned(
+  scoped_ptr<crypto::RSAPrivateKey> private_key(
+      crypto::RSAPrivateKey::Create(1024));
+  scoped_refptr<X509Certificate> cert =
+      X509Certificate::CreateSelfSigned(
           private_key.get(), "CN=subject", 1, base::TimeDelta::FromDays(1));
 
   EXPECT_EQ("subject", cert->subject().GetDisplayName());
@@ -766,10 +950,10 @@ TEST(X509CertificateTest, CreateSelfSigned) {
   input.resize(sizeof(private_key_info));
   memcpy(&input.front(), private_key_info, sizeof(private_key_info));
 
-  private_key.reset(base::RSAPrivateKey::CreateFromPrivateKeyInfo(input));
+  private_key.reset(crypto::RSAPrivateKey::CreateFromPrivateKeyInfo(input));
   ASSERT_TRUE(private_key.get());
 
-  cert = net::X509Certificate::CreateSelfSigned(
+  cert = X509Certificate::CreateSelfSigned(
       private_key.get(), "CN=subject", 1, base::TimeDelta::FromDays(1));
 
   EXPECT_EQ("subject", cert->subject().GetDisplayName());
@@ -777,10 +961,10 @@ TEST(X509CertificateTest, CreateSelfSigned) {
 }
 
 TEST(X509CertificateTest, GetDEREncoded) {
-  scoped_ptr<base::RSAPrivateKey> private_key(
-      base::RSAPrivateKey::Create(1024));
-  scoped_refptr<net::X509Certificate> cert =
-      net::X509Certificate::CreateSelfSigned(
+  scoped_ptr<crypto::RSAPrivateKey> private_key(
+      crypto::RSAPrivateKey::Create(1024));
+  scoped_refptr<X509Certificate> cert =
+      X509Certificate::CreateSelfSigned(
           private_key.get(), "CN=subject", 0, base::TimeDelta::FromDays(1));
 
   std::string der_cert;
@@ -836,5 +1020,102 @@ TEST_P(X509CertificateParseTest, CanParseFormat) {
 
 INSTANTIATE_TEST_CASE_P(, X509CertificateParseTest,
                         testing::ValuesIn(FormatTestData));
+
+struct CertificateNameVerifyTestData {
+  // true iff we expect hostname to match an entry in cert_names.
+  bool expected;
+  // The hostname to match.
+  const char* hostname;
+  // '/' separated list of certificate names to match against. Any occurrence
+  // of '#' will be replaced with a null character before processing.
+  const char* cert_names;
+};
+
+// Required by valgrind on mac, otherwise it complains when using its default
+// printer:
+// UninitCondition
+// Conditional jump or move depends on uninitialised value(s)
+// ...
+// snprintf
+// testing::(anonymous namespace)::PrintByteSegmentInObjectTo
+// testing::internal2::TypeWithoutFormatter
+// ...
+void PrintTo(const CertificateNameVerifyTestData& data, std::ostream* os) {
+  *os << " expected: " << data.expected << ", hostname: "
+      << data.hostname << ", cert_names: " << data.cert_names;
+}
+
+const CertificateNameVerifyTestData kNameVerifyTestData[] = {
+    { true, "foo.com", "foo.com" },
+    { true, "foo.com", "foo.com." },
+    { true, "f", "f" },
+    { true, "f", "f." },
+    { true, "bar.foo.com", "*.foo.com" },
+    { true, "www-3.bar.foo.com", "*.bar.foo.com." },
+    { true, "www.test.fr", "*.test.com/*.test.co.uk/*.test.de/*.test.fr" },
+    { true, "wwW.tESt.fr", "//*.*/*.test.de/*.test.FR/www" },
+    { false, "foo.com", "*.com" },
+    { false, "f.uk", ".uk" },
+    { true,  "h.co.uk", "*.co.uk" },
+    { false, "192.168.1.11", "*.168.1.11" },
+    { false, "foo.us", "*.us" },
+    { false, "www.bar.foo.com",
+      "*.foo.com/*.*.foo.com/*.*.bar.foo.com/*w*.bar.foo.com/*..bar.foo.com" },
+    { false, "w.bar.foo.com", "?.bar.foo.com" },
+    { false, "www.foo.com", "(www|ftp).foo.com" },
+    { false, "www.foo.com", "www.foo.com#*.foo.com/#" },  // # = null char.
+    { false, "foo", "*" },
+    { false, "foo.", "*." },
+    { false, "test.org", "www.test.org/*.test.org/*.org" },
+    { false, "1.2.3.4.5.6", "*.2.3.4.5.6" },
+    // IDN tests
+    { true, "xn--poema-9qae5a.com.br", "xn--poema-9qae5a.com.br" },
+    { true, "www.xn--poema-9qae5a.com.br", "*.xn--poema-9qae5a.com.br" },
+    { false, "xn--poema-9qae5a.com.br", "*.xn--poema-9qae5a.com.br" },
+    // The following are adapted from the examples in
+    // http://tools.ietf.org/html/draft-saintandre-tls-server-id-check-09#section-4.4.3
+    { true, "foo.example.com", "*.example.com" },
+    { false, "bar.foo.example.com", "*.example.com" },
+    { false, "example.com", "*.example.com" },
+    { false, "baz1.example.net", "baz*.example.net" },
+    { false, "baz2.example.net", "baz*.example.net" },
+    { false, "bar.*.example.net", "bar.*.example.net" },
+    { false, "bar.f*o.example.net", "bar.f*o.example.net" },
+    // IP addresses currently not supported, except for the localhost.
+    { true, "127.0.0.1", "127.0.0.1" },
+    { false, "192.168.1.1", "192.168.1.1" },
+    { false, "FEDC:BA98:7654:3210:FEDC:BA98:7654:3210",
+      "FEDC:BA98:7654:3210:FEDC:BA98:7654:3210" },
+    { false, "FEDC:BA98:7654:3210:FEDC:BA98:7654:3210", "*.]" },
+    { false, "::192.9.5.5", "::192.9.5.5" },
+    { false, "::192.9.5.5", "*.9.5.5" },
+    { false, "2010:836B:4179::836B:4179", "*:836B:4179::836B:4179" },
+    // Invalid host names.
+    { false, "www%26.foo.com", "www%26.foo.com" },
+    { false, "www.*.com", "www.*.com" },
+    { false, "w$w.f.com", "w$w.f.com" },
+    { false, "www-1.[::FFFF:129.144.52.38]", "*.[::FFFF:129.144.52.38]" },
+};
+
+class X509CertificateNameVerifyTest
+    : public testing::TestWithParam<CertificateNameVerifyTestData> {
+};
+
+TEST_P(X509CertificateNameVerifyTest, VerifyHostname) {
+  CertificateNameVerifyTestData test_data = GetParam();
+
+  std::string cert_name_line(test_data.cert_names);
+  std::replace(cert_name_line.begin(), cert_name_line.end(), '#', '\0');
+  std::vector<std::string> cert_names;
+  base::SplitString(cert_name_line, '/', &cert_names);
+
+  EXPECT_EQ(test_data.expected,
+            X509Certificate::VerifyHostname(test_data.hostname, cert_names))
+      << "Host [" << test_data.hostname
+      << "], cert name [" << test_data.cert_names << "]";
+}
+
+INSTANTIATE_TEST_CASE_P(, X509CertificateNameVerifyTest,
+                        testing::ValuesIn(kNameVerifyTestData));
 
 }  // namespace net

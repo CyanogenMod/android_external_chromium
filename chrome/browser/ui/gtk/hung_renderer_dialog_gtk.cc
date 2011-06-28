@@ -8,14 +8,14 @@
 
 #include "base/process_util.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/browser_list.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/gtk/gtk_util.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/common/logging_chrome.h"
-#include "chrome/common/result_codes.h"
 #include "content/browser/renderer_host/render_process_host.h"
 #include "content/browser/renderer_host/render_view_host.h"
 #include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/result_codes.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
@@ -148,12 +148,13 @@ void HungRendererDialogGtk::ShowForTabContents(TabContents* hung_contents) {
 
   GtkTreeIter tree_iter;
   for (TabContentsIterator it; !it.done(); ++it) {
-    if (it->GetRenderProcessHost() == hung_contents->GetRenderProcessHost()) {
+    if (it->tab_contents()->GetRenderProcessHost() ==
+        hung_contents->GetRenderProcessHost()) {
       gtk_list_store_append(model_, &tree_iter);
-      std::string title = UTF16ToUTF8(it->GetTitle());
+      std::string title = UTF16ToUTF8(it->tab_contents()->GetTitle());
       if (title.empty())
         title = UTF16ToUTF8(TabContentsWrapper::GetDefaultTitle());
-      SkBitmap favicon = it->GetFavIcon();
+      SkBitmap favicon = it->tab_contents()->GetFavicon();
 
       GdkPixbuf* pixbuf = NULL;
       if (favicon.width() > 0)

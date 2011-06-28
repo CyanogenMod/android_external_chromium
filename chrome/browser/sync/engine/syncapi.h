@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -43,8 +43,10 @@
 #include <vector>
 
 #include "base/basictypes.h"
+#include "base/callback.h"
 #include "base/gtest_prod_util.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
+#include "base/tracked.h"
 #include "build/build_config.h"
 #include "chrome/browser/sync/protocol/password_specifics.pb.h"
 #include "chrome/browser/sync/syncable/autofill_migration.h"
@@ -65,9 +67,9 @@ struct SyncSessionSnapshot;
 }
 }
 
-namespace notifier {
-struct NotifierOptions;
-}
+namespace sync_notifier {
+class SyncNotifier;
+}  // namespace sync_notifier
 
 // Forward declarations of internal class types so that sync API objects
 // may have opaque pointers to these types.
@@ -100,7 +102,6 @@ class TypedUrlSpecifics;
 
 namespace sync_api {
 
-// Forward declarations of classes to be defined later in this file.
 class BaseTransaction;
 class HttpPostProviderFactory;
 class SyncManager;
@@ -255,6 +256,10 @@ class BaseNode {
   // Dumps all node info into a DictionaryValue and returns it.
   // Transfers ownership of the DictionaryValue to the caller.
   DictionaryValue* ToValue() const;
+
+  // Does a case in-sensitive search for a given string, which must be
+  // lower case.
+  bool ContainsString(const std::string& lowercase_query) const;
 
  protected:
   BaseNode();
@@ -803,12 +808,6 @@ class SyncManager {
     // message, unless otherwise specified, produces undefined behavior.
     virtual void OnInitializationComplete() = 0;
 
-    // The syncer thread has been paused.
-    virtual void OnPaused() = 0;
-
-    // The syncer thread has been resumed.
-    virtual void OnResumed() = 0;
-
     // We are no longer permitted to communicate with the server. Sync should
     // be disabled and state cleaned up at once.  This can happen for a number
     // of reasons, e.g. swapping from a test instance to production, or a
@@ -828,6 +827,8 @@ class SyncManager {
     virtual ~Observer();
   };
 
+  typedef Callback0::Type ModeChangeCallback;
+
   // Create an uninitialized SyncManager.  Callers must Init() before using.
   SyncManager();
   virtual ~SyncManager();
@@ -844,7 +845,7 @@ class SyncManager {
   // |model_safe_worker| ownership is given to the SyncManager.
   // |user_agent| is a 7-bit ASCII string suitable for use as the User-Agent
   // HTTP header. Used internally when collecting stats to classify clients.
-  // |notifier_options| contains options specific to sync notifications.
+  // |sync_notifier| used to listen for notifications, not owned.
   bool Init(const FilePath& database_location,
             const char* sync_server_and_path,
             int sync_server_port,
@@ -853,7 +854,7 @@ class SyncManager {
             browser_sync::ModelSafeWorkerRegistrar* registrar,
             const char* user_agent,
             const SyncCredentials& credentials,
-            const notifier::NotifierOptions& notifier_options,
+            sync_notifier::SyncNotifier* sync_notifier,
             const std::string& restored_key_for_bootstrapping,
             bool setup_for_test_mode);
 
@@ -884,9 +885,8 @@ class SyncManager {
   // Update tokens that we're using in Sync. Email must stay the same.
   void UpdateCredentials(const SyncCredentials& credentials);
 
-  // Update the set of enabled sync types. Usually called when the user disables
-  // or enables a sync type.
-  void UpdateEnabledTypes(const syncable::ModelTypeSet& types);
+  // Called when the user disables or enables a sync type.
+  void UpdateEnabledTypes();
 
   // Start the SyncerThread.
   // TODO(tim): With the new impl, this would mean starting "NORMAL" operation.
@@ -911,19 +911,11 @@ class SyncManager {
   // types, as we do not currently support decrypting datatypes.
   void EncryptDataTypes(const syncable::ModelTypeSet& encrypted_types);
 
-  // Requests the syncer thread to pause.  The observer's OnPause
-  // method will be called when the syncer thread is paused.  Returns
-  // false if the syncer thread can not be paused (e.g. if it is not
-  // started).
-  // TODO(tim): Deprecated.
-  bool RequestPause();
-
-  // Requests the syncer thread to resume.  The observer's OnResume
-  // method will be called when the syncer thread is resumed.  Returns
-  // false if the syncer thread can not be resumed (e.g. if it is not
-  // paused).
-  // TODO(tim): Deprecated.
-  bool RequestResume();
+  // Puts the SyncerThread into a mode where no normal nudge or poll traffic
+  // will occur, but calls to RequestConfig will be supported.  If |callback|
+  // is provided, it will be invoked (from the internal SyncerThread) when
+  // the thread has changed to configuration mode.
+  void StartConfigurationMode(ModeChangeCallback* callback);
 
   // For the new SyncerThread impl, this switches the mode of operation to
   // CONFIGURATION_MODE and schedules a config task to fetch updates for
@@ -932,7 +924,7 @@ class SyncManager {
 
   // Request a nudge of the syncer, which will cause the syncer thread
   // to run at the next available opportunity.
-  void RequestNudge();
+  void RequestNudge(const tracked_objects::Location& nudge_location);
 
   // Request a clearing of all data on the server
   void RequestClearServerData();
@@ -1020,77 +1012,6 @@ class SyncManager {
   SyncInternal* data_;
 
   DISALLOW_COPY_AND_ASSIGN(SyncManager);
-};
-
-// An interface the embedding application (e.g. Chromium) implements to
-// provide required HTTP POST functionality to the syncer backend.
-// This interface is designed for one-time use. You create one, use it, and
-// create another if you want to make a subsequent POST.
-// TODO(timsteele): Bug 1482576. Consider splitting syncapi.h into two files:
-// one for the API defining the exports, which doesn't need to be included from
-// anywhere internally, and another file for the interfaces like this one.
-class HttpPostProviderInterface {
- public:
-  HttpPostProviderInterface() { }
-  virtual ~HttpPostProviderInterface() { }
-
-  // Use specified user agent string when POSTing. If not called a default UA
-  // may be used.
-  virtual void SetUserAgent(const char* user_agent) = 0;
-
-  // Add additional headers to the request.
-  virtual void SetExtraRequestHeaders(const char * headers) = 0;
-
-  // Set the URL to POST to.
-  virtual void SetURL(const char* url, int port) = 0;
-
-  // Set the type, length and content of the POST payload.
-  // |content_type| is a null-terminated MIME type specifier.
-  // |content| is a data buffer; Do not interpret as a null-terminated string.
-  // |content_length| is the total number of chars in |content|. It is used to
-  // assign/copy |content| data.
-  virtual void SetPostPayload(const char* content_type, int content_length,
-                              const char* content) = 0;
-
-  // Returns true if the URL request succeeded. If the request failed,
-  // os_error() may be non-zero and hence contain more information.
-  virtual bool MakeSynchronousPost(int* os_error_code, int* response_code) = 0;
-
-  // Get the length of the content returned in the HTTP response.
-  // This does not count the trailing null-terminating character returned
-  // by GetResponseContent, so it is analogous to calling string.length.
-  virtual int GetResponseContentLength() const = 0;
-
-  // Get the content returned in the HTTP response.
-  // This is a null terminated string of characters.
-  // Value should be copied.
-  virtual const char* GetResponseContent() const = 0;
-
-  // Get the value of a header returned in the HTTP response.
-  // If the header is not present, returns the empty string.
-  virtual const std::string GetResponseHeaderValue(
-      const std::string& name) const = 0;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(HttpPostProviderInterface);
-};
-
-// A factory to create HttpPostProviders to hide details about the
-// implementations and dependencies.
-// A factory instance itself should be owned by whomever uses it to create
-// HttpPostProviders.
-class HttpPostProviderFactory {
- public:
-  // Obtain a new HttpPostProviderInterface instance, owned by caller.
-  virtual HttpPostProviderInterface* Create() = 0;
-
-  // When the interface is no longer needed (ready to be cleaned up), clients
-  // must call Destroy().
-  // This allows actual HttpPostProvider subclass implementations to be
-  // reference counted, which is useful if a particular implementation uses
-  // multiple threads to serve network requests.
-  virtual void Destroy(HttpPostProviderInterface* http) = 0;
-  virtual ~HttpPostProviderFactory() { }
 };
 
 }  // namespace sync_api

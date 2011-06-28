@@ -24,14 +24,13 @@
 #include "chrome/browser/chromeos/login/network_screen_delegate.h"
 #include "chrome/browser/chromeos/login/rounded_rect_painter.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
-#include "chrome/browser/chromeos/metrics_cros_settings_provider.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/views/dom_view.h"
 #include "chrome/browser/ui/views/window.h"
-#include "chrome/common/native_web_keyboard_event.h"
 #include "chrome/common/url_constants.h"
 #include "content/browser/site_instance.h"
 #include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/native_web_keyboard_event.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
@@ -39,8 +38,10 @@
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "views/controls/button/checkbox.h"
+#include "views/controls/button/native_button_gtk.h"
 #include "views/controls/label.h"
 #include "views/controls/throbber.h"
+#include "views/events/event.h"
 #include "views/layout/grid_layout.h"
 #include "views/layout/layout_constants.h"
 #include "views/layout/layout_manager.h"
@@ -53,7 +54,7 @@ using views::WidgetGtk;
 namespace {
 
 const int kBorderSize = 10;
-const int kCheckboxWidth = 20;
+const int kCheckboxWidth = 26;
 const int kLastButtonHorizontalMargin = 10;
 const int kMargin = 20;
 const int kTextMargin = 10;
@@ -68,6 +69,35 @@ enum kLayoutColumnsets {
   SINGLE_CONTROL_WITH_SHIFT_ROW,
   SINGLE_LINK_WITH_SHIFT_ROW,
   LAST_ROW
+};
+
+// Helper class that disables using native label for subclassed GTK control.
+class EULANativeCheckboxGtk : public views::NativeCheckboxGtk {
+ public:
+  explicit EULANativeCheckboxGtk(views::Checkbox* checkbox)
+      : views::NativeCheckboxGtk(checkbox) {
+    set_fast_resize(true);
+  }
+  virtual ~EULANativeCheckboxGtk() { }
+  virtual bool UsesNativeLabel() const { return false; }
+  virtual void UpdateLabel() { }
+};
+
+// views::Checkbox specialization that uses its internal views::Label
+// instead of native one. We need this because native label does not
+// support multiline property and we need it for certain languages.
+class EULACheckbox : public views::Checkbox {
+ public:
+  EULACheckbox() { }
+  virtual ~EULACheckbox() { }
+
+ protected:
+  virtual views::NativeButtonWrapper* CreateWrapper() {
+    views::NativeButtonWrapper* native_wrapper =
+        new EULANativeCheckboxGtk(this);
+    native_wrapper->UpdateChecked();
+    return native_wrapper;
+  }
 };
 
 // A simple LayoutManager that causes the associated view's one child to be
@@ -289,10 +319,10 @@ static void SetUpGridLayout(views::GridLayout* layout) {
 // Convenience function. Returns URL of the OEM EULA page that should be
 // displayed using current locale and manifest. Returns empty URL otherwise.
 static GURL GetOemEulaPagePath() {
-  const StartupCustomizationDocument *customization =
-      WizardController::default_controller()->GetCustomization();
-  if (customization) {
-    std::string locale = g_browser_process->GetApplicationLocale();
+  const StartupCustomizationDocument* customization =
+      StartupCustomizationDocument::GetInstance();
+  if (customization->IsReady()) {
+    std::string locale = customization->initial_locale();
     std::string eula_page = customization->GetEULAPage(locale);
     if (!eula_page.empty())
       return GURL(eula_page);
@@ -347,9 +377,10 @@ void EulaView::Init() {
 
   layout->AddPaddingRow(0, views::kRelatedControlSmallVerticalSpacing);
   layout->StartRow(0, SINGLE_CONTROL_WITH_SHIFT_ROW);
-  usage_statistics_checkbox_ = new views::Checkbox();
+  usage_statistics_checkbox_ = new EULACheckbox();
   usage_statistics_checkbox_->SetMultiLine(true);
-  usage_statistics_checkbox_->SetChecked(true);
+  usage_statistics_checkbox_->SetChecked(
+      observer_->usage_statistics_reporting());
   layout->AddView(usage_statistics_checkbox_);
 
   layout->StartRow(0, SINGLE_LINK_WITH_SHIFT_ROW);
@@ -444,11 +475,11 @@ void EulaView::OnLocaleChanged() {
 // views::ButtonListener implementation:
 
 void EulaView::ButtonPressed(views::Button* sender, const views::Event& event) {
+  if (usage_statistics_checkbox_) {
+    observer_->set_usage_statistics_reporting(
+        usage_statistics_checkbox_->checked());
+  }
   if (sender == continue_button_) {
-    if (usage_statistics_checkbox_) {
-      MetricsCrosSettingsProvider::SetMetricsStatus(
-          usage_statistics_checkbox_->checked());
-    }
     observer_->OnExit(ScreenObserver::EULA_ACCEPTED);
   } else if (sender == back_button_) {
     observer_->OnExit(ScreenObserver::EULA_BACK);
@@ -488,8 +519,6 @@ static bool PublishTitleIfReady(const TabContents* contents,
   if (contents != eula_view->tab_contents())
     return false;
   eula_label->SetText(UTF16ToWide(eula_view->tab_contents()->GetTitle()));
-  eula_label->parent()->SetAccessibleName(
-      eula_view->tab_contents()->GetTitle());
   return true;
 }
 
@@ -505,8 +534,10 @@ void EulaView::NavigationStateChanged(const TabContents* contents,
 
 void EulaView::HandleKeyboardEvent(const NativeWebKeyboardEvent& event) {
   views::Widget* widget = GetWidget();
-  if (widget && event.os_event && !event.skip_in_browser)
-    static_cast<views::WidgetGtk*>(widget)->HandleKeyboardEvent(event.os_event);
+  if (widget && event.os_event && !event.skip_in_browser) {
+    views::KeyEvent views_event(reinterpret_cast<GdkEvent*>(event.os_event));
+    static_cast<views::WidgetGtk*>(widget)->HandleKeyboardEvent(views_event);
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////

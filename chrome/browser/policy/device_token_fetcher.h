@@ -8,15 +8,16 @@
 
 #include <string>
 
+#include "base/memory/scoped_ptr.h"
 #include "base/observer_list.h"
-#include "base/scoped_ptr.h"
 #include "base/task.h"
 #include "chrome/browser/policy/device_management_backend.h"
+#include "chrome/browser/policy/policy_notifier.h"
 #include "chrome/browser/policy/proto/device_management_backend.pb.h"
 
 namespace policy {
 
-class CloudPolicyCache;
+class CloudPolicyCacheBase;
 class DeviceManagementService;
 
 namespace em = enterprise_management;
@@ -38,11 +39,14 @@ class DeviceTokenFetcher
   // |service| is used to talk to the device management service and |cache| is
   // used to persist whether the device is unmanaged.
   DeviceTokenFetcher(DeviceManagementService* service,
-                     CloudPolicyCache* cache);
-  // Version for tests that allows to set timing paramters.
+                     CloudPolicyCacheBase* cache,
+                     PolicyNotifier* notifier);
+  // Version for tests that allows to set timing parameters.
   DeviceTokenFetcher(DeviceManagementService* service,
-                     CloudPolicyCache* cache,
+                     CloudPolicyCacheBase* cache,
+                     PolicyNotifier* notifier,
                      int64 token_fetch_error_delay_ms,
+                     int64 token_fetch_error_max_delay_ms,
                      int64 unmanaged_device_refresh_rate_ms);
   virtual ~DeviceTokenFetcher();
 
@@ -51,11 +55,17 @@ class DeviceTokenFetcher
   virtual void FetchToken(const std::string& auth_token,
                           const std::string& device_id,
                           em::DeviceRegisterRequest_Type policy_type,
-                          const std::string& machine_id);
+                          const std::string& machine_id,
+                          const std::string& machine_model);
+
+  virtual void SetUnmanagedState();
 
   // Returns the device management token or the empty string if not available.
   // Declared virtual so it can be overridden by mocks.
   virtual const std::string& GetDeviceToken();
+
+  // Disables the auto-retry-on-error behavior of this token fetcher.
+  void StopAutoRetry();
 
   void AddObserver(Observer* observer);
   void RemoveObserver(Observer* observer);
@@ -84,12 +94,18 @@ class DeviceTokenFetcher
     STATE_UNMANAGED,
     // Error, retry later.
     STATE_ERROR,
+    // Temporary error. Retry sooner.
+    STATE_TEMPORARY_ERROR,
+    // Server rejected the auth token.
+    STATE_BAD_AUTH
   };
 
   // Common initialization helper.
   void Initialize(DeviceManagementService* service,
-                  CloudPolicyCache* cache,
+                  CloudPolicyCacheBase* cache,
+                  PolicyNotifier* notifier,
                   int64 token_fetch_error_delay_ms,
+                  int64 token_fetch_error_max_delay_ms,
                   int64 unmanaged_device_refresh_rate_ms);
 
   // Moves the fetcher into a new state.
@@ -111,10 +127,13 @@ class DeviceTokenFetcher
   scoped_ptr<DeviceManagementBackend> backend_;
 
   // Reference to the cache. Used to persist and read unmanaged state.
-  CloudPolicyCache* cache_;
+  CloudPolicyCacheBase* cache_;
+
+  PolicyNotifier* notifier_;
 
   // Refresh parameters.
   int64 token_fetch_error_delay_ms_;
+  int64 token_fetch_error_max_delay_ms_;
   int64 effective_token_fetch_error_delay_ms_;
   int64 unmanaged_device_refresh_rate_ms_;
 
@@ -132,6 +151,8 @@ class DeviceTokenFetcher
   em::DeviceRegisterRequest_Type policy_type_;
   // Contains physical machine id to send to the server.
   std::string machine_id_;
+  // Contains physical machine model to send to server.
+  std::string machine_model_;
 
   // Task that has been scheduled to retry fetching a token.
   CancelableTask* retry_task_;

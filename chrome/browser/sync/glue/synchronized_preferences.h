@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,13 +22,12 @@ static const char* kSynchronizedPreferences[] = {
   prefs::kHomePageIsNewTabPage,
   prefs::kHomePage,
   prefs::kShowHomeButton,
-  prefs::kShowPageOptionsButtons,
   // Default Search is not synced, needs a new data type.  See
   // http://crbug.com/40482
 
   // Options dialog: Personal Stuff tab.
   prefs::kPasswordManagerEnabled,
-  prefs::kAutoFillEnabled,
+  prefs::kAutofillEnabled,
   prefs::kUseCustomChromeFrame,
 
   // Options dialog: Under the hood -> Content Settings -> Cookies.
@@ -77,7 +76,7 @@ static const char* kSynchronizedPreferences[] = {
   // Options dialog: Under the hood.
   prefs::kAlternateErrorPagesEnabled,
   prefs::kSearchSuggestEnabled,
-  prefs::kDnsPrefetchingEnabled,
+  prefs::kNetworkPredictionEnabled,
   prefs::kSafeBrowsingEnabled,
   prefs::kEnableTranslate,
   // Download directory not synced.
@@ -96,7 +95,7 @@ static const char* kSynchronizedPreferences[] = {
 
   // Autofill dialog.
 #if defined(OS_MACOSX)
-  prefs::kAutoFillAuxiliaryProfilesEnabled,
+  prefs::kAutofillAuxiliaryProfilesEnabled,
 #endif
 
   // Translate preferences.
@@ -110,8 +109,8 @@ static const char* kSynchronizedPreferences[] = {
   prefs::kDesktopNotificationAllowedOrigins,
   prefs::kDesktopNotificationDeniedOrigins,
 
-  // Cookie prompt dialog.
-  prefs::kCookiePromptExpanded,
+  // (Mac) Application menu.
+  prefs::kConfirmToQuitEnabled,
 
 #if defined(OS_CHROMEOS)
   // IME prefs
@@ -186,6 +185,18 @@ static const char* kSynchronizedPreferences[] = {
   // Whether to show mobile plan notifications.
   //   Settings -> Internet -> Mobile plan details
   prefs::kShowPlanNotifications,
+
+  // Whether to require password to wake up from sleep
+  //   Settings -> Personal Stuff -> Account
+  prefs::kEnableScreenLock,
+
+  // Whether to enable tap-to-click
+  //   Settings -> System -> Touchpad
+  prefs::kTapToClickEnabled,
+
+  // Whether to use the 24-hour clock format.
+  //   Settings -> System -> Date and Time
+  prefs::kUse24HourClock,
 #endif
 };
 

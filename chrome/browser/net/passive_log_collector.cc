@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -71,6 +71,7 @@ PassiveLogCollector::PassiveLogCollector()
       &dns_request_tracker_;
   trackers_[net::NetLog::SOURCE_HOST_RESOLVER_IMPL_JOB] = &dns_job_tracker_;
   trackers_[net::NetLog::SOURCE_DISK_CACHE_ENTRY] = &disk_cache_entry_tracker_;
+  trackers_[net::NetLog::SOURCE_MEMORY_CACHE_ENTRY] = &mem_cache_entry_tracker_;
   trackers_[net::NetLog::SOURCE_HTTP_STREAM_JOB] = &http_stream_job_tracker_;
   // Make sure our mapping is up-to-date.
   for (size_t i = 0; i < arraysize(trackers_); ++i)
@@ -91,7 +92,7 @@ void PassiveLogCollector::OnAddEntry(
   ChromeNetLog::Entry entry(num_events_seen_++, type, time, source, phase,
                             params);
 
-  SourceTrackerInterface* tracker = GetTrackerForSourceType_(entry.source.type);
+  SourceTrackerInterface* tracker = GetTrackerForSourceType(entry.source.type);
   if (tracker)
     tracker->OnAddEntry(entry);
 }
@@ -103,10 +104,10 @@ void PassiveLogCollector::Clear() {
 }
 
 PassiveLogCollector::SourceTrackerInterface*
-PassiveLogCollector::GetTrackerForSourceType_(
+PassiveLogCollector::GetTrackerForSourceType(
     net::NetLog::SourceType source_type) {
-  DCHECK_LE(source_type, static_cast<int>(arraysize(trackers_)));
-  DCHECK_GE(source_type, 0);
+  CHECK_LT(source_type, static_cast<int>(arraysize(trackers_)));
+  CHECK_GE(source_type, 0);
   return trackers_[source_type];
 }
 
@@ -233,8 +234,8 @@ void PassiveLogCollector::SourceTracker::DeleteSourceInfo(
     return;
   }
   // The source should not be in the deletion queue.
-  DCHECK(std::find(deletion_queue_.begin(), deletion_queue_.end(),
-                   source_id) == deletion_queue_.end());
+  CHECK(std::find(deletion_queue_.begin(), deletion_queue_.end(),
+                  source_id) == deletion_queue_.end());
   ReleaseAllReferencesToDependencies(&(it->second));
   sources_.erase(it);
 }
@@ -287,7 +288,7 @@ void PassiveLogCollector::SourceTracker::EraseFromDeletionQueue(
   DeletionQueue::iterator it =
       std::remove(deletion_queue_.begin(), deletion_queue_.end(),
                   source_id);
-  DCHECK(it != deletion_queue_.end());
+  CHECK(it != deletion_queue_.end());
   deletion_queue_.erase(it);
 }
 
@@ -337,7 +338,7 @@ void PassiveLogCollector::SourceTracker::AddReferenceToSourceDependency(
   DCHECK(parent_);
   DCHECK_NE(source.type, net::NetLog::SOURCE_NONE);
   SourceTracker* tracker = static_cast<SourceTracker*>(
-      parent_->GetTrackerForSourceType_(source.type));
+      parent_->GetTrackerForSourceType(source.type));
   DCHECK(tracker);
 
   // Tell the owning tracker to increment the reference count of |source|.
@@ -358,7 +359,7 @@ void PassiveLogCollector::SourceTracker::ReleaseAllReferencesToDependencies(
     DCHECK(parent_);
     DCHECK_NE(source.type, net::NetLog::SOURCE_NONE);
     SourceTracker* tracker = static_cast<SourceTracker*>(
-        parent_->GetTrackerForSourceType_(source.type));
+        parent_->GetTrackerForSourceType(source.type));
     DCHECK(tracker);
 
     // Tell the owning tracker to decrement the reference count of |source|.
@@ -578,7 +579,32 @@ PassiveLogCollector::DiskCacheEntryTracker::DoAddEntry(
   AddEntryToSourceInfo(entry, out_info);
 
   // If the request has ended, move it to the graveyard.
-  if (entry.type == net::NetLog::TYPE_DISK_CACHE_ENTRY &&
+  if (entry.type == net::NetLog::TYPE_DISK_CACHE_ENTRY_IMPL &&
+      entry.phase == net::NetLog::PHASE_END) {
+    return ACTION_MOVE_TO_GRAVEYARD;
+  }
+
+  return ACTION_NONE;
+}
+
+//----------------------------------------------------------------------------
+// MemCacheEntryTracker
+//----------------------------------------------------------------------------
+
+const size_t PassiveLogCollector::MemCacheEntryTracker::kMaxNumSources = 100;
+const size_t PassiveLogCollector::MemCacheEntryTracker::kMaxGraveyardSize = 25;
+
+PassiveLogCollector::MemCacheEntryTracker::MemCacheEntryTracker()
+    : SourceTracker(kMaxNumSources, kMaxGraveyardSize, NULL) {
+}
+
+PassiveLogCollector::SourceTracker::Action
+PassiveLogCollector::MemCacheEntryTracker::DoAddEntry(
+    const ChromeNetLog::Entry& entry, SourceInfo* out_info) {
+  AddEntryToSourceInfo(entry, out_info);
+
+  // If the request has ended, move it to the graveyard.
+  if (entry.type == net::NetLog::TYPE_DISK_CACHE_MEM_ENTRY_IMPL &&
       entry.phase == net::NetLog::PHASE_END) {
     return ACTION_MOVE_TO_GRAVEYARD;
   }

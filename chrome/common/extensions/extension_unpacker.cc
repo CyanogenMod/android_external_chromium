@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,21 +7,21 @@
 #include <set>
 
 #include "base/file_util.h"
-#include "base/scoped_handle.h"
-#include "base/scoped_temp_dir.h"
+#include "base/memory/scoped_handle.h"
+#include "base/memory/scoped_temp_dir.h"
 #include "base/string_util.h"
 #include "base/threading/thread.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "net/base/file_stream.h"
-#include "chrome/common/common_param_traits.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/extensions/extension_file_util.h"
 #include "chrome/common/extensions/extension_l10n_util.h"
-#include "chrome/common/json_value_serializer.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/common/zip.h"
+#include "content/common/common_param_traits.h"
+#include "content/common/json_value_serializer.h"
 #include "ipc/ipc_message_utils.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "webkit/glue/image_decoder.h"
@@ -180,8 +180,7 @@ bool ExtensionUnpacker::Run() {
       temp_install_dir_,
       Extension::INVALID,
       *parsed_manifest_,
-      false,  // Do not require a key
-      false,  // Do not enable strict error checks
+      Extension::NO_FLAGS,
       &error));
   if (!extension.get()) {
     SetError(error);

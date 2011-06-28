@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #import "base/logging.h"
 #import "base/metrics/histogram.h"
-#import "base/scoped_nsobject.h"
+#import "base/memory/scoped_nsobject.h"
 #import "base/sys_string_conversions.h"
 #import "chrome/app/breakpad_mac.h"
 #import "chrome/browser/app_controller_mac.h"
@@ -76,6 +76,13 @@ static IMP gOriginalInitIMP = NULL;
       }
     }
 
+    // Mostly "unrecognized selector sent to (instance|class)".  A
+    // very small number of things like nil being passed to an
+    // inappropriate receiver.
+    if (aName == NSInvalidArgumentException) {
+      fatal = YES;
+    }
+
     // Dear reader: Something you just did provoked an NSException.
     // NSException is implemented in terms of setjmp()/longjmp(),
     // which does poor things when combined with C++ scoping
@@ -115,17 +122,25 @@ size_t BinForException(NSException* exception) {
   // determine where they live in the histogram, so never move them
   // around, only add to the end.
   static NSString* const kKnownNSExceptionNames[] = {
-    // ???
+    // Grab-bag exception, not very common.  CFArray (or other
+    // container) mutated while being enumerated is one case seen in
+    // production.
     NSGenericException,
 
-    // Out-of-range on NSString or NSArray.
+    // Out-of-range on NSString or NSArray.  Quite common.
     NSRangeException,
 
-    // Invalid arg to method, unrecognized selector.
+    // Invalid arg to method, unrecognized selector.  Quite common.
     NSInvalidArgumentException,
 
-    // malloc() returned null in object creation, I think.
+    // malloc() returned null in object creation, I think.  Turns out
+    // to be very uncommon in production, because of the OOM killer.
     NSMallocException,
+
+    // This contains things like windowserver errors, trying to draw
+    // views which aren't in windows, unable to read nib files.  By
+    // far the most common exception seen on the crash server.
+    NSInternalInconsistencyException,
 
     nil
   };
@@ -162,23 +177,6 @@ void CancelTerminate() {
 }  // namespace chrome_browser_application_mac
 
 namespace {
-
-// Helper to make it easy to get crash keys right.
-// TODO(shess): Find a better home for this.  app/breakpad_mac.h
-// doesn't work.
-class ScopedCrashKey {
- public:
-  ScopedCrashKey(NSString* key, NSString* value)
-      : crash_key_([key retain]) {
-    SetCrashKeyValue(crash_key_.get(), value);
-  }
-  ~ScopedCrashKey() {
-    ClearCrashKeyValue(crash_key_.get());
-  }
-
- private:
-  scoped_nsobject<NSString> crash_key_;
-};
 
 // Do-nothing wrapper so that we can arrange to only swizzle
 // -[NSException raise] when DCHECK() is turned on (as opposed to
@@ -342,6 +340,15 @@ BOOL SwizzleNSExceptionInit() {
   if (!reportingException) {
     reportingException = YES;
     chrome_browser_application_mac::RecordExceptionWithUma(anException);
+
+    // http://crbug.com/45928 is a bug about needing to double-close
+    // windows sometimes.  One theory is that |-isHandlingSendEvent|
+    // gets latched to always return |YES|.  Since scopers are used to
+    // manipulate that value, that should not be possible.  One way to
+    // sidestep scopers is setjmp/longjmp (see above).  The following
+    // is to "fix" this while the more fundamental concern is
+    // addressed elsewhere.
+    [self clearIsHandlingSendEvent];
 
     // Store some human-readable information in breakpad keys in case
     // there is a crash.  Since breakpad does not provide infinite

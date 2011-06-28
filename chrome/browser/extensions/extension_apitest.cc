@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,12 +6,12 @@
 
 #include "base/string_util.h"
 #include "base/stringprintf.h"
-#include "chrome/browser/extensions/extension_test_api.h"
 #include "chrome/browser/extensions/extension_service.h"
+#include "chrome/browser/extensions/extension_test_api.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/common/notification_registrar.h"
 #include "chrome/test/ui_test_utils.h"
+#include "content/common/notification_registrar.h"
 
 namespace {
 
@@ -100,17 +100,30 @@ void ExtensionApiTest::TearDownInProcessBrowserTestFixture() {
 }
 
 bool ExtensionApiTest::RunExtensionTest(const char* extension_name) {
-  return RunExtensionTestImpl(extension_name, "", false);
+  return RunExtensionTestImpl(extension_name, "", false, true, false);
 }
 
 bool ExtensionApiTest::RunExtensionTestIncognito(const char* extension_name) {
-  return RunExtensionTestImpl(extension_name, "", true);
+  return RunExtensionTestImpl(extension_name, "", true, true, false);
 }
 
+bool ExtensionApiTest::RunComponentExtensionTest(const char* extension_name) {
+  return RunExtensionTestImpl(extension_name, "", false, true, true);
+}
+
+bool ExtensionApiTest::RunExtensionTestNoFileAccess(
+    const char* extension_name) {
+  return RunExtensionTestImpl(extension_name, "", false, false, false);
+}
+
+bool ExtensionApiTest::RunExtensionTestIncognitoNoFileAccess(
+    const char* extension_name) {
+  return RunExtensionTestImpl(extension_name, "", true, false, false);
+}
 bool ExtensionApiTest::RunExtensionSubtest(const char* extension_name,
                                            const std::string& page_url) {
   DCHECK(!page_url.empty()) << "Argument page_url is required.";
-  return RunExtensionTestImpl(extension_name, page_url, false);
+  return RunExtensionTestImpl(extension_name, page_url, false, true, false);
 }
 
 bool ExtensionApiTest::RunPageTest(const std::string& page_url) {
@@ -121,15 +134,30 @@ bool ExtensionApiTest::RunPageTest(const std::string& page_url) {
 // PASSED or FAILED notification.
 bool ExtensionApiTest::RunExtensionTestImpl(const char* extension_name,
                                             const std::string& page_url,
-                                            bool enable_incognito) {
+                                            bool enable_incognito,
+                                            bool enable_fileaccess,
+                                            bool load_as_component) {
   ResultCatcher catcher;
   DCHECK(!std::string(extension_name).empty() || !page_url.empty()) <<
       "extension_name and page_url cannot both be empty";
 
   if (!std::string(extension_name).empty()) {
-    bool loaded = enable_incognito ?
-        LoadExtensionIncognito(test_data_dir_.AppendASCII(extension_name)) :
-        LoadExtension(test_data_dir_.AppendASCII(extension_name));
+    bool loaded = false;
+    if (load_as_component) {
+      loaded =
+          LoadExtensionAsComponent(test_data_dir_.AppendASCII(extension_name));
+    } else {
+      if (enable_incognito) {
+        loaded = enable_fileaccess ?
+          LoadExtensionIncognito(test_data_dir_.AppendASCII(extension_name)) :
+          LoadExtensionIncognitoNoFileAccess(
+              test_data_dir_.AppendASCII(extension_name));
+      } else {
+        loaded = enable_fileaccess ?
+          LoadExtension(test_data_dir_.AppendASCII(extension_name)) :
+          LoadExtensionNoFileAccess(test_data_dir_.AppendASCII(extension_name));
+      }
+    }
     if (!loaded) {
       message_ = "Failed to load extension.";
       return false;

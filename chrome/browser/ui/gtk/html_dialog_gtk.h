@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/ui/webui/html_dialog_tab_contents_delegate.h"
 #include "chrome/browser/ui/webui/html_dialog_ui.h"
 #include "ui/base/gtk/gtk_signal.h"
@@ -22,6 +22,7 @@ class Browser;
 class Profile;
 class TabContents;
 class TabContentsContainerGtk;
+class TabContentsWrapper;
 
 class HtmlDialogGtk : public HtmlDialogTabContentsDelegate,
                       public HtmlDialogUIDelegate {
@@ -47,7 +48,6 @@ class HtmlDialogGtk : public HtmlDialogTabContentsDelegate,
 
   // Overridden from TabContentsDelegate:
   virtual void MoveContents(TabContents* source, const gfx::Rect& pos);
-  virtual void ToolbarSizeChanged(TabContents* source, bool is_animating);
   virtual void HandleKeyboardEvent(const NativeWebKeyboardEvent& event);
 
  private:
@@ -63,7 +63,7 @@ class HtmlDialogGtk : public HtmlDialogTabContentsDelegate,
 
   GtkWidget* dialog_;
 
-  scoped_ptr<TabContents> tab_contents_;
+  scoped_ptr<TabContentsWrapper> tab_;
   scoped_ptr<TabContentsContainerGtk> tab_contents_container_;
 
   DISALLOW_COPY_AND_ASSIGN(HtmlDialogGtk);

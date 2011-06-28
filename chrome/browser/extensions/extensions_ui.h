@@ -9,15 +9,15 @@
 #include <string>
 #include <vector>
 
-#include "base/scoped_ptr.h"
-#include "chrome/browser/extensions/extension_install_ui.h"
+#include "base/memory/scoped_ptr.h"
+#include "chrome/browser/extensions/extension_uninstall_dialog.h"
 #include "chrome/browser/extensions/pack_extension_job.h"
 #include "chrome/browser/ui/shell_dialogs.h"
 #include "chrome/browser/ui/webui/chrome_url_data_manager.h"
 #include "chrome/common/extensions/extension_resource.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
 #include "content/browser/webui/web_ui.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
 #include "googleurl/src/gurl.h"
 
 class DictionaryValue;
@@ -49,7 +49,7 @@ class ExtensionsUIHTMLSource : public ChromeURLDataManager::DataSource {
   // Called when the network layer has requested a resource underneath
   // the path we registered.
   virtual void StartDataRequest(const std::string& path,
-                                bool is_off_the_record,
+                                bool is_incognito,
                                 int request_id);
   virtual std::string GetMimeType(const std::string&) const;
 
@@ -60,14 +60,12 @@ class ExtensionsUIHTMLSource : public ChromeURLDataManager::DataSource {
 };
 
 // The handler for JavaScript messages related to the "extensions" view.
-class ExtensionsDOMHandler
-    : public WebUIMessageHandler,
-      public NotificationObserver,
-      public PackExtensionJob::Client,
-      public SelectFileDialog::Listener,
-      public ExtensionInstallUI::Delegate {
+class ExtensionsDOMHandler : public WebUIMessageHandler,
+                             public NotificationObserver,
+                             public PackExtensionJob::Client,
+                             public SelectFileDialog::Listener,
+                             public ExtensionUninstallDialog::Delegate {
  public:
-
   explicit ExtensionsDOMHandler(ExtensionService* extension_service);
   virtual ~ExtensionsDOMHandler();
 
@@ -83,21 +81,15 @@ class ExtensionsDOMHandler
       bool enabled,
       bool terminated);
 
-  // ContentScript JSON Struct for page. (static for ease of testing).
-  static DictionaryValue* CreateContentScriptDetailValue(
-      const UserScript& script,
-      const FilePath& extension_path);
-
   // ExtensionPackJob::Client
   virtual void OnPackSuccess(const FilePath& crx_file,
                              const FilePath& key_file);
 
   virtual void OnPackFailure(const std::string& error);
 
-  // ExtensionInstallUI::Delegate implementation, used for receiving
-  // notification about uninstall confirmation dialog selections.
-  virtual void InstallUIProceed();
-  virtual void InstallUIAbort();
+  // ExtensionUninstallDialog::Delegate:
+  virtual void ExtensionDialogAccepted();
+  virtual void ExtensionDialogCanceled();
 
  private:
   // Callback for "requestExtensionsData" message.
@@ -174,9 +166,9 @@ class ExtensionsDOMHandler
       const Extension* extension,
       std::vector<ExtensionPage> *result);
 
-  // Returns the ExtensionInstallUI object for this class, creating it if
+  // Returns the ExtensionUninstallDialog object for this class, creating it if
   // needed.
-  ExtensionInstallUI* GetExtensionInstallUI();
+  ExtensionUninstallDialog* GetExtensionUninstallDialog();
 
   // Our model.
   scoped_refptr<ExtensionService> extensions_service_;
@@ -187,9 +179,8 @@ class ExtensionsDOMHandler
   // Used to package the extension.
   scoped_refptr<PackExtensionJob> pack_job_;
 
-  // Used to show confirmation UI for uninstalling/enabling extensions in
-  // incognito mode.
-  scoped_ptr<ExtensionInstallUI> install_ui_;
+  // Used to show confirmation UI for uninstalling extensions in incognito mode.
+  scoped_ptr<ExtensionUninstallDialog> extension_uninstall_dialog_;
 
   // The id of the extension we are prompting the user about.
   std::string extension_id_prompting_;

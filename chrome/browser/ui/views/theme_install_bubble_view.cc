@@ -5,8 +5,8 @@
 #include "chrome/browser/ui/views/theme_install_bubble_view.h"
 
 #include "base/utf_string_conversions.h"
-#include "chrome/common/notification_service.h"
 #include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/notification_service.h"
 #include "grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -71,10 +71,10 @@ ThemeInstallBubbleView::ThemeInstallBubbleView(TabContents* tab_contents)
       NotificationService::AllSources());
 
   gfx::Rect rc(0, 0, 0, 0);
-  popup_ = views::Widget::CreatePopupWidget(views::Widget::Transparent,
-                                            views::Widget::NotAcceptEvents,
-                                            views::Widget::DeleteOnDestroy,
-                                            views::Widget::MirrorOriginInRTL);
+  views::Widget::CreateParams params(views::Widget::CreateParams::TYPE_POPUP);
+  params.transparent = true;
+  params.accept_events = false;
+  popup_ = views::Widget::CreateWidget(params);
   popup_->SetOpacity(0xCC);
   popup_->Init(tab_contents->GetNativeView(), rc);
   popup_->SetContentsView(this);

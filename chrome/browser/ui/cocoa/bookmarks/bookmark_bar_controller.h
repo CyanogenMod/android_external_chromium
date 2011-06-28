@@ -9,15 +9,15 @@
 #import <Cocoa/Cocoa.h>
 #include <map>
 
-#include "base/scoped_nsobject.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_nsobject.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/ui/cocoa/bookmarks/bookmark_bar_bridge.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_bar_constants.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_bar_state.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_bar_toolbar_view.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_button.h"
 #include "chrome/browser/ui/cocoa/tabs/tab_strip_model_observer_bridge.h"
-#import "chrome/common/chrome_application_mac.h"
+#import "content/common/chrome_application_mac.h"
 #include "webkit/glue/window_open_disposition.h"
 
 @class BookmarkBarController;
@@ -31,10 +31,6 @@ class BookmarkModel;
 class BookmarkNode;
 class Browser;
 class GURL;
-class PrefService;
-class TabContents;
-@class ToolbarController;
-@protocol ViewResizer;
 
 namespace bookmarks {
 
@@ -260,6 +256,13 @@ willAnimateFromState:(bookmarks::VisualState)oldState
   // Set to YES to prevent any node animations. Useful for unit testing so that
   // incomplete animations do not cause valgrind complaints.
   BOOL ignoreAnimations_;
+
+  // YES if there is a possible drop about to happen in the bar.
+  BOOL hasInsertionPos_;
+
+  // The x point on the bar where the left edge of the new item will end
+  // up if it is dropped.
+  CGFloat insertionPos_;
 }
 
 @property(readonly, nonatomic) bookmarks::VisualState visualState;
@@ -305,8 +308,8 @@ willAnimateFromState:(bookmarks::VisualState)oldState
 // Import bookmarks from another browser.
 - (IBAction)importBookmarks:(id)sender;
 
-// Provide a favIcon for a bookmark node.  May return nil.
-- (NSImage*)favIconForNode:(const BookmarkNode*)node;
+// Provide a favicon for a bookmark node.  May return nil.
+- (NSImage*)faviconForNode:(const BookmarkNode*)node;
 
 // Used for situations where the bookmark bar folder menus should no longer
 // be actively popping up. Called when the window loses focus, a click has
@@ -320,6 +323,9 @@ willAnimateFromState:(bookmarks::VisualState)oldState
 
 // Checks if operations such as edit or delete are allowed.
 - (BOOL)canEditBookmark:(const BookmarkNode*)node;
+
+// Checks if bookmark editing is enabled at all.
+- (BOOL)canEditBookmarks;
 
 // Actions for manipulating bookmarks.
 // Open a normal bookmark or folder from a button, ...
@@ -360,7 +366,7 @@ willAnimateFromState:(bookmarks::VisualState)oldState
         newParent:(const BookmarkNode*)newParent newIndex:(int)newIndex;
 - (void)nodeRemoved:(BookmarkModel*)model
              parent:(const BookmarkNode*)oldParent index:(int)index;
-- (void)nodeFavIconLoaded:(BookmarkModel*)model
+- (void)nodeFaviconLoaded:(BookmarkModel*)model
                      node:(const BookmarkNode*)node;
 - (void)nodeChildrenReordered:(BookmarkModel*)model
                          node:(const BookmarkNode*)node;

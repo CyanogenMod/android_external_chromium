@@ -167,7 +167,7 @@ bool CompareEOLInsensitive(const std::string& s1, const std::string& s2) {
 TEST(QuotedPrintableTest, Encode) {
   ASSERT_EQ(arraysize(kNormalText), arraysize(kEncodedText));
   for (size_t i = 0; i < arraysize(kNormalText); ++i) {
-    SCOPED_TRACE(::testing::Message::Message() << "Iteration " << i);
+    SCOPED_TRACE(::testing::Message() << "Iteration " << i);
     std::string output;
     chrome::browser::net::QuotedPrintableEncode(kNormalText[i], &output);
     std::string expected(kEncodedText[i]);
@@ -182,7 +182,7 @@ TEST(QuotedPrintableTest, Decode) {
     EXPECT_TRUE(chrome::browser::net::QuotedPrintableDecode(
         kEncodedText[i], &output));
     std::string expected(kNormalText[i]);
-    SCOPED_TRACE(::testing::Message::Message() << "Iteration " << i <<
+    SCOPED_TRACE(::testing::Message() << "Iteration " << i <<
                  "\n  Actual=\n" << output << "\n  Expected=\n" <<
                  expected);
     // We cannot test for equality as EOLs won't match the normal text
@@ -196,7 +196,7 @@ TEST(QuotedPrintableTest, Decode) {
 TEST(QuotedPrintableTest, DecodeBadInput) {
   ASSERT_EQ(arraysize(kBadEncodedText), arraysize(kBadEncodedTextDecoded));
   for (size_t i = 0; i < arraysize(kBadEncodedText); ++i) {
-    SCOPED_TRACE(::testing::Message::Message() << "Iteration " << i);
+    SCOPED_TRACE(::testing::Message() << "Iteration " << i);
     std::string output;
     EXPECT_FALSE(chrome::browser::net::QuotedPrintableDecode(
         kBadEncodedText[i], &output));

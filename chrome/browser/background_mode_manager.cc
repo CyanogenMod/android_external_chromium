@@ -11,17 +11,17 @@
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/background_application_list_model.h"
 #include "chrome/browser/background_mode_manager.h"
-#include "chrome/browser/browser_list.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/status_icons/status_icon.h"
 #include "chrome/browser/status_icons/status_tray.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/extension.h"
-#include "chrome/common/notification_service.h"
-#include "chrome/common/notification_type.h"
 #include "chrome/common/pref_names.h"
+#include "content/common/notification_service.h"
+#include "content/common/notification_type.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
@@ -378,4 +378,9 @@ bool BackgroundModeManager::IsBackgroundModeEnabled(
       !command_line->HasSwitch(switches::kDisableExtensions);
   return background_mode_enabled;
 #endif
+}
+
+// static
+void BackgroundModeManager::RegisterPrefs(PrefService* prefs) {
+  prefs->RegisterBooleanPref(prefs::kUserCreatedLoginItem, false);
 }

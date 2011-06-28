@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,15 +10,18 @@
 #include "base/file_util.h"
 #include "base/file_version_info.h"
 #include "base/message_loop.h"
+#include "base/metrics/field_trial.h"
 #include "base/metrics/histogram.h"
 #include "base/rand_util.h"
 #include "base/string_util.h"
+#include "base/time.h"
 #include "net/base/cert_status_flags.h"
 #include "net/base/cookie_policy.h"
 #include "net/base/cookie_store.h"
 #include "net/base/filter.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/load_flags.h"
+#include "net/base/mime_util.h"
 #include "net/base/net_errors.h"
 #include "net/base/net_util.h"
 #include "net/base/sdch_manager.h"
@@ -39,6 +42,13 @@
 #include "net/url_request/url_request_throttler_manager.h"
 
 static const char kAvailDictionaryHeader[] = "Avail-Dictionary";
+
+// When histogramming results related to SDCH and/or an SDCH latency test, the
+// number of packets for which we need to record arrival times so as to
+// calculate interpacket latencies.  We currently are only looking at the
+// first few packets, as we're monitoring the impact of the initial TCP
+// congestion window on stalling of transmissions.
+static const size_t kSdchPacketHistogramCount = 5;
 
 namespace net {
 
@@ -80,6 +90,77 @@ class HTTPSProberDelegateImpl : public HTTPSProberDelegate {
 
 }  // namespace
 
+class URLRequestHttpJob::HttpFilterContext : public FilterContext {
+ public:
+  explicit HttpFilterContext(URLRequestHttpJob* job);
+  virtual ~HttpFilterContext();
+
+  // FilterContext implementation.
+  virtual bool GetMimeType(std::string* mime_type) const;
+  virtual bool GetURL(GURL* gurl) const;
+  virtual base::Time GetRequestTime() const;
+  virtual bool IsCachedContent() const;
+  virtual bool IsDownload() const;
+  virtual bool IsSdchResponse() const;
+  virtual int64 GetByteReadCount() const;
+  virtual int GetResponseCode() const;
+  virtual void RecordPacketStats(StatisticSelector statistic) const;
+
+ private:
+  URLRequestHttpJob* job_;
+
+  DISALLOW_COPY_AND_ASSIGN(HttpFilterContext);
+};
+
+URLRequestHttpJob::HttpFilterContext::HttpFilterContext(URLRequestHttpJob* job)
+    : job_(job) {
+  DCHECK(job_);
+}
+
+URLRequestHttpJob::HttpFilterContext::~HttpFilterContext() {
+}
+
+bool URLRequestHttpJob::HttpFilterContext::GetMimeType(
+    std::string* mime_type) const {
+  return job_->GetMimeType(mime_type);
+}
+
+bool URLRequestHttpJob::HttpFilterContext::GetURL(GURL* gurl) const {
+  if (!job_->request())
+    return false;
+  *gurl = job_->request()->url();
+  return true;
+}
+
+base::Time URLRequestHttpJob::HttpFilterContext::GetRequestTime() const {
+  return job_->request() ? job_->request()->request_time() : base::Time();
+}
+
+bool URLRequestHttpJob::HttpFilterContext::IsCachedContent() const {
+  return job_->is_cached_content_;
+}
+
+bool URLRequestHttpJob::HttpFilterContext::IsDownload() const {
+  return (job_->request_info_.load_flags & LOAD_IS_DOWNLOAD) != 0;
+}
+
+bool URLRequestHttpJob::HttpFilterContext::IsSdchResponse() const {
+  return job_->sdch_dictionary_advertised_;
+}
+
+int64 URLRequestHttpJob::HttpFilterContext::GetByteReadCount() const {
+  return job_->filter_input_byte_count();
+}
+
+int URLRequestHttpJob::HttpFilterContext::GetResponseCode() const {
+  return job_->GetResponseCode();
+}
+
+void URLRequestHttpJob::HttpFilterContext::RecordPacketStats(
+    StatisticSelector statistic) const {
+  job_->RecordPacketStats(statistic);
+}
+
 // TODO(darin): make sure the port blocking code is not lost
 // static
 URLRequestJob* URLRequestHttpJob::Factory(URLRequest* request,
@@ -98,10 +179,11 @@ URLRequestJob* URLRequestHttpJob::Factory(URLRequest* request,
 
   TransportSecurityState::DomainState domain_state;
   if (scheme == "http" &&
-      (request->url().port().empty() || port == 80) &&
       request->context()->transport_security_state() &&
       request->context()->transport_security_state()->IsEnabledForHost(
-          &domain_state, request->url().host())) {
+          &domain_state,
+          request->url().host(),
+          request->context()->IsSNIAvailable())) {
     if (domain_state.mode ==
          TransportSecurityState::DomainState::MODE_STRICT) {
       DCHECK_EQ(request->url().scheme(), "http");
@@ -126,10 +208,6 @@ URLRequestHttpJob::URLRequestHttpJob(URLRequest* request)
       response_cookies_save_index_(0),
       proxy_auth_state_(AUTH_STATE_DONT_NEED_AUTH),
       server_auth_state_(AUTH_STATE_DONT_NEED_AUTH),
-      ALLOW_THIS_IN_INITIALIZER_LIST(can_get_cookies_callback_(
-          this, &URLRequestHttpJob::OnCanGetCookiesCompleted)),
-      ALLOW_THIS_IN_INITIALIZER_LIST(can_set_cookie_callback_(
-          this, &URLRequestHttpJob::OnCanSetCookieCompleted)),
       ALLOW_THIS_IN_INITIALIZER_LIST(start_callback_(
           this, &URLRequestHttpJob::OnStartCompleted)),
       ALLOW_THIS_IN_INITIALIZER_LIST(read_callback_(
@@ -143,6 +221,14 @@ URLRequestHttpJob::URLRequestHttpJob(URLRequest* request)
       sdch_test_control_(false),
       is_cached_content_(false),
       request_creation_time_(),
+      packet_timing_enabled_(false),
+      bytes_observed_in_packets_(0),
+      packet_times_(),
+      request_time_snapshot_(),
+      final_packet_time_(),
+      observed_packet_count_(0),
+      ALLOW_THIS_IN_INITIALIZER_LIST(
+          filter_context_(new HttpFilterContext(this))),
       ALLOW_THIS_IN_INITIALIZER_LIST(method_factory_(this)) {
   ResetTimer();
 }
@@ -159,7 +245,8 @@ void URLRequestHttpJob::NotifyHeadersComplete() {
   if (!is_cached_content_) {
     URLRequestThrottlerHeaderAdapter response_adapter(
         response_info_->headers);
-    throttling_entry_->UpdateWithResponse(&response_adapter);
+    throttling_entry_->UpdateWithResponse(request_info_.url.host(),
+                                          &response_adapter);
   }
 
   ProcessStrictTransportSecurityHeader();
@@ -178,7 +265,7 @@ void URLRequestHttpJob::NotifyHeadersComplete() {
     if (response_info_->headers->EnumerateHeader(&iter, name, &url_text)) {
       // request_->url() won't be valid in the destructor, so we use an
       // alternate copy.
-      DCHECK(request_->url() == request_info_.url);
+      DCHECK_EQ(request_->url(), request_info_.url);
       // Resolve suggested URL relative to request url.
       sdch_dictionary_url_ = request_info_.url.Resolve(url_text);
     }
@@ -194,6 +281,11 @@ void URLRequestHttpJob::NotifyHeadersComplete() {
   }
 
   URLRequestJob::NotifyHeadersComplete();
+}
+
+void URLRequestHttpJob::NotifyDone(const URLRequestStatus& status) {
+  RecordCompressionHistograms();
+  URLRequestJob::NotifyDone(status);
 }
 
 void URLRequestHttpJob::DestroyTransaction() {
@@ -223,8 +315,14 @@ void URLRequestHttpJob::StartTransaction() {
     rv = request_->context()->http_transaction_factory()->CreateTransaction(
         &transaction_);
     if (rv == OK) {
-      rv = transaction_->Start(
-          &request_info_, &start_callback_, request_->net_log());
+      if (!URLRequestThrottlerManager::GetInstance()->enforce_throttling() ||
+          !throttling_entry_->IsDuringExponentialBackoff()) {
+        rv = transaction_->Start(
+            &request_info_, &start_callback_, request_->net_log());
+      } else {
+        // Special error code for the exponential back-off module.
+        rv = ERR_TEMPORARILY_THROTTLED;
+      }
       // Make sure the context is alive for the duration of the
       // transaction.
       context_ = request_->context();
@@ -261,7 +359,7 @@ void URLRequestHttpJob::AddExtraHeaders() {
       // We are participating in the test (or control), and hence we'll
       // eventually record statistics via either SDCH_EXPERIMENT_DECODE or
       // SDCH_EXPERIMENT_HOLDBACK, and we'll need some packet timing data.
-      EnablePacketCounting(kSdchPacketHistogramCount);
+      packet_timing_enabled_ = true;
       if (base::RandDouble() < .01) {
         sdch_test_control_ = true;  // 1% probability.
         advertise_sdch = false;
@@ -292,7 +390,7 @@ void URLRequestHttpJob::AddExtraHeaders() {
       // definately employ an SDCH filter (or tentative sdch filter) when we get
       // a response.  When done, we'll record histograms via SDCH_DECODE or
       // SDCH_PASSTHROUGH.  Hence we need to record packet arrival times.
-      EnablePacketCounting(kSdchPacketHistogramCount);
+      packet_timing_enabled_ = true;
     }
   }
 
@@ -300,12 +398,16 @@ void URLRequestHttpJob::AddExtraHeaders() {
   if (context) {
     // Only add default Accept-Language and Accept-Charset if the request
     // didn't have them specified.
-    request_info_.extra_headers.SetHeaderIfMissing(
-        HttpRequestHeaders::kAcceptLanguage,
-        context->accept_language());
-    request_info_.extra_headers.SetHeaderIfMissing(
-        HttpRequestHeaders::kAcceptCharset,
-        context->accept_charset());
+    if (!context->accept_language().empty()) {
+      request_info_.extra_headers.SetHeaderIfMissing(
+          HttpRequestHeaders::kAcceptLanguage,
+          context->accept_language());
+    }
+    if (!context->accept_charset().empty()) {
+      request_info_.extra_headers.SetHeaderIfMissing(
+          HttpRequestHeaders::kAcceptCharset,
+          context->accept_charset());
+    }
   }
 }
 
@@ -314,8 +416,6 @@ void URLRequestHttpJob::AddCookieHeaderAndStart() {
   // be notifying our consumer asynchronously via OnStartCompleted.
   SetStatus(URLRequestStatus(URLRequestStatus::IO_PENDING, 0));
 
-  AddRef();  // Balanced in OnCanGetCookiesCompleted
-
   int policy = OK;
 
   if (request_info_.load_flags & LOAD_DO_NOT_SEND_COOKIES) {
@@ -323,10 +423,7 @@ void URLRequestHttpJob::AddCookieHeaderAndStart() {
   } else if (request_->context()->cookie_policy()) {
     policy = request_->context()->cookie_policy()->CanGetCookies(
         request_->url(),
-        request_->first_party_for_cookies(),
-        &can_get_cookies_callback_);
-    if (policy == ERR_IO_PENDING)
-      return;  // Wait for completion callback
+        request_->first_party_for_cookies());
   }
 
   OnCanGetCookiesCompleted(policy);
@@ -360,8 +457,6 @@ void URLRequestHttpJob::SaveNextCookie() {
   // be notifying our consumer asynchronously via OnStartCompleted.
   SetStatus(URLRequestStatus(URLRequestStatus::IO_PENDING, 0));
 
-  AddRef();  // Balanced in OnCanSetCookieCompleted
-
   int policy = OK;
 
   if (request_info_.load_flags & LOAD_DO_NOT_SAVE_COOKIES) {
@@ -370,10 +465,7 @@ void URLRequestHttpJob::SaveNextCookie() {
     policy = request_->context()->cookie_policy()->CanSetCookie(
         request_->url(),
         request_->first_party_for_cookies(),
-        response_cookies_[response_cookies_save_index_],
-        &can_set_cookie_callback_);
-    if (policy == ERR_IO_PENDING)
-      return;  // Wait for completion callback
+        response_cookies_[response_cookies_save_index_]);
   }
 
   OnCanSetCookieCompleted(policy);
@@ -506,7 +598,6 @@ void URLRequestHttpJob::OnCanGetCookiesCompleted(int policy) {
       NotifyCanceled();
     }
   }
-  Release();  // Balance AddRef taken in AddCookieHeaderAndStart
 }
 
 void URLRequestHttpJob::OnCanSetCookieCompleted(int policy) {
@@ -514,10 +605,12 @@ void URLRequestHttpJob::OnCanSetCookieCompleted(int policy) {
   if (request_ && request_->delegate()) {
     if (request_->context()->cookie_store()) {
       if (policy == ERR_ACCESS_DENIED) {
+        CookieOptions options;
+        options.set_include_httponly();
         request_->delegate()->OnSetCookie(
             request_,
             response_cookies_[response_cookies_save_index_],
-            CookieOptions(),
+            options,
             true);
       } else if (policy == OK || policy == OK_FOR_SESSION_ONLY) {
         // OK to save the current response cookie now.
@@ -543,7 +636,6 @@ void URLRequestHttpJob::OnCanSetCookieCompleted(int policy) {
       NotifyCanceled();
     }
   }
-  Release();  // Balance AddRef taken in SaveNextCookie
 }
 
 void URLRequestHttpJob::OnStartCompleted(int result) {
@@ -560,6 +652,25 @@ void URLRequestHttpJob::OnStartCompleted(int result) {
 
   // Clear the IO_PENDING status
   SetStatus(URLRequestStatus());
+
+  // Take care of any mandates for public key pinning.
+  // TODO(agl): we might have an issue here where a request for foo.example.com
+  // merges into a SPDY connection to www.example.com, and gets a different
+  // certificate.
+  const SSLInfo& ssl_info = transaction_->GetResponseInfo()->ssl_info;
+  if (result == OK &&
+      ssl_info.is_valid() &&
+      context_->transport_security_state()) {
+    TransportSecurityState::DomainState domain_state;
+    if (context_->transport_security_state()->IsEnabledForHost(
+            &domain_state,
+            request_->url().host(),
+            context_->IsSNIAvailable()) &&
+        ssl_info.is_issued_by_known_root &&
+        !domain_state.IsChainOfPublicKeysPermitted(ssl_info.public_key_hashes)){
+      result = ERR_CERT_INVALID;
+    }
+  }
 
   if (result == OK) {
     SaveCookiesAndNotifyHeadersComplete();
@@ -597,6 +708,11 @@ bool URLRequestHttpJob::ShouldTreatAsCertificateError(int result) {
   if (!IsCertificateError(result))
     return false;
 
+  // Revocation check failures are always certificate errors, even if the host
+  // is using Strict-Transport-Security.
+  if (result == ERR_CERT_UNABLE_TO_CHECK_REVOCATION)
+    return true;
+
   // Check whether our context is using Strict-Transport-Security.
   if (!context_->transport_security_state())
     return true;
@@ -604,7 +720,7 @@ bool URLRequestHttpJob::ShouldTreatAsCertificateError(int result) {
   TransportSecurityState::DomainState domain_state;
   // TODO(agl): don't ignore opportunistic mode.
   const bool r = context_->transport_security_state()->IsEnabledForHost(
-      &domain_state, request_info_.url.host());
+      &domain_state, request_info_.url.host(), context_->IsSNIAvailable());
 
   return !r || domain_state.mode ==
                TransportSecurityState::DomainState::MODE_OPPORTUNISTIC;
@@ -653,6 +769,7 @@ void URLRequestHttpJob::Start() {
   request_info_.method = request_->method();
   request_info_.load_flags = request_->load_flags();
   request_info_.priority = request_->priority();
+  request_info_.request_id = request_->identifier();
 
   if (request_->context()) {
     request_info_.extra_headers.SetHeaderIfMissing(
@@ -731,35 +848,27 @@ int URLRequestHttpJob::GetResponseCode() const {
   return response_info_->headers->response_code();
 }
 
-bool URLRequestHttpJob::GetContentEncodings(
-    std::vector<Filter::FilterType>* encoding_types) {
+Filter* URLRequestHttpJob::SetupFilter() const {
   DCHECK(transaction_.get());
   if (!response_info_)
-    return false;
-  DCHECK(encoding_types->empty());
+    return NULL;
 
+  std::vector<Filter::FilterType> encoding_types;
   std::string encoding_type;
   void* iter = NULL;
   while (response_info_->headers->EnumerateHeader(&iter, "Content-Encoding",
                                                   &encoding_type)) {
-    encoding_types->push_back(Filter::ConvertEncodingToType(encoding_type));
+    encoding_types.push_back(Filter::ConvertEncodingToType(encoding_type));
   }
 
   // Even if encoding types are empty, there is a chance that we need to add
   // some decoding, as some proxies strip encoding completely. In such cases,
   // we may need to add (for example) SDCH filtering (when the context suggests
   // it is appropriate).
-  Filter::FixupEncodingTypes(*this, encoding_types);
+  Filter::FixupEncodingTypes(*filter_context_, &encoding_types);
 
-  return !encoding_types->empty();
-}
-
-bool URLRequestHttpJob::IsCachedContent() const {
-  return is_cached_content_;
-}
-
-bool URLRequestHttpJob::IsSdchResponse() const {
-  return sdch_dictionary_advertised_;
+  return !encoding_types.empty()
+      ? Filter::Factory(encoding_types, *filter_context_) : NULL;
 }
 
 bool URLRequestHttpJob::IsSafeRedirect(const GURL& location) {
@@ -828,7 +937,7 @@ void URLRequestHttpJob::SetAuth(const string16& username,
   if (proxy_auth_state_ == AUTH_STATE_NEED_AUTH) {
     proxy_auth_state_ = AUTH_STATE_HAVE_AUTH;
   } else {
-    DCHECK(server_auth_state_ == AUTH_STATE_NEED_AUTH);
+    DCHECK_EQ(server_auth_state_, AUTH_STATE_NEED_AUTH);
     server_auth_state_ = AUTH_STATE_HAVE_AUTH;
   }
 
@@ -840,7 +949,7 @@ void URLRequestHttpJob::CancelAuth() {
   if (proxy_auth_state_ == AUTH_STATE_NEED_AUTH) {
     proxy_auth_state_ = AUTH_STATE_CANCELED;
   } else {
-    DCHECK(server_auth_state_ == AUTH_STATE_NEED_AUTH);
+    DCHECK_EQ(server_auth_state_, AUTH_STATE_NEED_AUTH);
     server_auth_state_ = AUTH_STATE_CANCELED;
   }
 
@@ -946,14 +1055,14 @@ HostPortPair URLRequestHttpJob::GetSocketAddress() const {
 
 URLRequestHttpJob::~URLRequestHttpJob() {
   DCHECK(!sdch_test_control_ || !sdch_test_activated_);
-  if (!IsCachedContent()) {
+  if (!is_cached_content_) {
     if (sdch_test_control_)
-      RecordPacketStats(SDCH_EXPERIMENT_HOLDBACK);
+      RecordPacketStats(FilterContext::SDCH_EXPERIMENT_HOLDBACK);
     if (sdch_test_activated_)
-      RecordPacketStats(SDCH_EXPERIMENT_DECODE);
+      RecordPacketStats(FilterContext::SDCH_EXPERIMENT_DECODE);
   }
-  // Make sure SDCH filters are told to emit histogram data while this class
-  // can still service the IsCachedContent() call.
+  // Make sure SDCH filters are told to emit histogram data while
+  // filter_context_ is still alive.
   DestroyFilters();
 
   if (sdch_dictionary_url_.is_valid()) {
@@ -981,7 +1090,39 @@ void URLRequestHttpJob::RecordTimer() {
 
   base::TimeDelta to_start = base::Time::Now() - request_creation_time_;
   request_creation_time_ = base::Time();
+
+  static const bool use_prefetch_histogram =
+      base::FieldTrialList::Find("Prefetch") &&
+      !base::FieldTrialList::Find("Prefetch")->group_name().empty();
+
   UMA_HISTOGRAM_MEDIUM_TIMES("Net.HttpTimeToFirstByte", to_start);
+  if (use_prefetch_histogram) {
+    UMA_HISTOGRAM_MEDIUM_TIMES(
+        base::FieldTrial::MakeName("Net.HttpTimeToFirstByte",
+                                   "Prefetch"),
+        to_start);
+  }
+
+  const bool is_prerender = !!(request_info_.load_flags & LOAD_PRERENDER);
+  if (is_prerender) {
+    UMA_HISTOGRAM_MEDIUM_TIMES("Net.HttpTimeToFirstByte_Prerender",
+                               to_start);
+    if (use_prefetch_histogram) {
+      UMA_HISTOGRAM_MEDIUM_TIMES(
+          base::FieldTrial::MakeName("Net.HttpTimeToFirstByte_Prerender",
+                                     "Prefetch"),
+          to_start);
+    }
+  } else {
+    UMA_HISTOGRAM_MEDIUM_TIMES("Net.HttpTimeToFirstByte_NonPrerender",
+                               to_start);
+    if (use_prefetch_histogram) {
+      UMA_HISTOGRAM_MEDIUM_TIMES(
+          base::FieldTrial::MakeName("Net.HttpTimeToFirstByte_NonPrerender",
+                                     "Prefetch"),
+          to_start);
+    }
+  }
 }
 
 void URLRequestHttpJob::ResetTimer() {
@@ -991,6 +1132,242 @@ void URLRequestHttpJob::ResetTimer() {
     return;
   }
   request_creation_time_ = base::Time::Now();
+}
+
+void URLRequestHttpJob::UpdatePacketReadTimes() {
+  if (!packet_timing_enabled_)
+    return;
+
+  if (filter_input_byte_count() <= bytes_observed_in_packets_) {
+    DCHECK_EQ(filter_input_byte_count(), bytes_observed_in_packets_);
+    return;  // No new bytes have arrived.
+  }
+
+  if (!bytes_observed_in_packets_)
+    request_time_snapshot_ = request_ ? request_->request_time() : base::Time();
+
+  final_packet_time_ = base::Time::Now();
+  const size_t kTypicalPacketSize = 1430;
+  while (filter_input_byte_count() > bytes_observed_in_packets_) {
+    ++observed_packet_count_;
+    if (packet_times_.size() < kSdchPacketHistogramCount) {
+      packet_times_.push_back(final_packet_time_);
+      DCHECK_EQ(static_cast<size_t>(observed_packet_count_),
+                packet_times_.size());
+    }
+    bytes_observed_in_packets_ += kTypicalPacketSize;
+  }
+  // Since packets may not be full, we'll remember the number of bytes we've
+  // accounted for in packets thus far.
+  bytes_observed_in_packets_ = filter_input_byte_count();
+}
+
+void URLRequestHttpJob::RecordPacketStats(
+    FilterContext::StatisticSelector statistic) const {
+  if (!packet_timing_enabled_ || (final_packet_time_ == base::Time()))
+    return;
+
+  base::TimeDelta duration = final_packet_time_ - request_time_snapshot_;
+  switch (statistic) {
+    case FilterContext::SDCH_DECODE: {
+      UMA_HISTOGRAM_CLIPPED_TIMES("Sdch3.Network_Decode_Latency_F_a", duration,
+                                  base::TimeDelta::FromMilliseconds(20),
+                                  base::TimeDelta::FromMinutes(10), 100);
+      UMA_HISTOGRAM_COUNTS_100("Sdch3.Network_Decode_Packets_b",
+                               static_cast<int>(observed_packet_count_));
+      UMA_HISTOGRAM_CUSTOM_COUNTS("Sdch3.Network_Decode_Bytes_Processed_b",
+          static_cast<int>(bytes_observed_in_packets_), 500, 100000, 100);
+      if (packet_times_.empty())
+        return;
+      UMA_HISTOGRAM_CLIPPED_TIMES("Sdch3.Network_Decode_1st_To_Last_a",
+                                  final_packet_time_ - packet_times_[0],
+                                  base::TimeDelta::FromMilliseconds(20),
+                                  base::TimeDelta::FromMinutes(10), 100);
+
+      DCHECK_GT(kSdchPacketHistogramCount, 4u);
+      if (packet_times_.size() <= 4)
+        return;
+      UMA_HISTOGRAM_CLIPPED_TIMES("Sdch3.Network_Decode_1st_To_2nd_c",
+                                  packet_times_[1] - packet_times_[0],
+                                  base::TimeDelta::FromMilliseconds(1),
+                                  base::TimeDelta::FromSeconds(10), 100);
+      UMA_HISTOGRAM_CLIPPED_TIMES("Sdch3.Network_Decode_2nd_To_3rd_c",
+                                  packet_times_[2] - packet_times_[1],
+                                  base::TimeDelta::FromMilliseconds(1),
+                                  base::TimeDelta::FromSeconds(10), 100);
+      UMA_HISTOGRAM_CLIPPED_TIMES("Sdch3.Network_Decode_3rd_To_4th_c",
+                                  packet_times_[3] - packet_times_[2],
+                                  base::TimeDelta::FromMilliseconds(1),
+                                  base::TimeDelta::FromSeconds(10), 100);
+      UMA_HISTOGRAM_CLIPPED_TIMES("Sdch3.Network_Decode_4th_To_5th_c",
+                                  packet_times_[4] - packet_times_[3],
+                                  base::TimeDelta::FromMilliseconds(1),
+                                  base::TimeDelta::FromSeconds(10), 100);
+      return;
+    }
+    case FilterContext::SDCH_PASSTHROUGH: {
+      // Despite advertising a dictionary, we handled non-sdch compressed
+      // content.
+      UMA_HISTOGRAM_CLIPPED_TIMES("Sdch3.Network_Pass-through_Latency_F_a",
+                                  duration,
+                                  base::TimeDelta::FromMilliseconds(20),
+                                  base::TimeDelta::FromMinutes(10), 100);
+      UMA_HISTOGRAM_COUNTS_100("Sdch3.Network_Pass-through_Packets_b",
+                               observed_packet_count_);
+      if (packet_times_.empty())
+        return;
+      UMA_HISTOGRAM_CLIPPED_TIMES("Sdch3.Network_Pass-through_1st_To_Last_a",
+                                  final_packet_time_ - packet_times_[0],
+                                  base::TimeDelta::FromMilliseconds(20),
+                                  base::TimeDelta::FromMinutes(10), 100);
+      DCHECK_GT(kSdchPacketHistogramCount, 4u);
+      if (packet_times_.size() <= 4)
+        return;
+      UMA_HISTOGRAM_CLIPPED_TIMES("Sdch3.Network_Pass-through_1st_To_2nd_c",
+                                  packet_times_[1] - packet_times_[0],
+                                  base::TimeDelta::FromMilliseconds(1),
+                                  base::TimeDelta::FromSeconds(10), 100);
+      UMA_HISTOGRAM_CLIPPED_TIMES("Sdch3.Network_Pass-through_2nd_To_3rd_c",
+                                  packet_times_[2] - packet_times_[1],
+                                  base::TimeDelta::FromMilliseconds(1),
+                                  base::TimeDelta::FromSeconds(10), 100);
+      UMA_HISTOGRAM_CLIPPED_TIMES("Sdch3.Network_Pass-through_3rd_To_4th_c",
+                                  packet_times_[3] - packet_times_[2],
+                                  base::TimeDelta::FromMilliseconds(1),
+                                  base::TimeDelta::FromSeconds(10), 100);
+      UMA_HISTOGRAM_CLIPPED_TIMES("Sdch3.Network_Pass-through_4th_To_5th_c",
+                                  packet_times_[4] - packet_times_[3],
+                                  base::TimeDelta::FromMilliseconds(1),
+                                  base::TimeDelta::FromSeconds(10), 100);
+      return;
+    }
+
+    case FilterContext::SDCH_EXPERIMENT_DECODE: {
+      UMA_HISTOGRAM_CLIPPED_TIMES("Sdch3.Experiment_Decode",
+                                  duration,
+                                  base::TimeDelta::FromMilliseconds(20),
+                                  base::TimeDelta::FromMinutes(10), 100);
+      // We already provided interpacket histograms above in the SDCH_DECODE
+      // case, so we don't need them here.
+      return;
+    }
+    case FilterContext::SDCH_EXPERIMENT_HOLDBACK: {
+      UMA_HISTOGRAM_CLIPPED_TIMES("Sdch3.Experiment_Holdback",
+                                  duration,
+                                  base::TimeDelta::FromMilliseconds(20),
+                                  base::TimeDelta::FromMinutes(10), 100);
+      UMA_HISTOGRAM_CLIPPED_TIMES("Sdch3.Experiment_Holdback_1st_To_Last_a",
+                                  final_packet_time_ - packet_times_[0],
+                                  base::TimeDelta::FromMilliseconds(20),
+                                  base::TimeDelta::FromMinutes(10), 100);
+
+      DCHECK_GT(kSdchPacketHistogramCount, 4u);
+      if (packet_times_.size() <= 4)
+        return;
+      UMA_HISTOGRAM_CLIPPED_TIMES("Sdch3.Experiment_Holdback_1st_To_2nd_c",
+                                  packet_times_[1] - packet_times_[0],
+                                  base::TimeDelta::FromMilliseconds(1),
+                                  base::TimeDelta::FromSeconds(10), 100);
+      UMA_HISTOGRAM_CLIPPED_TIMES("Sdch3.Experiment_Holdback_2nd_To_3rd_c",
+                                  packet_times_[2] - packet_times_[1],
+                                  base::TimeDelta::FromMilliseconds(1),
+                                  base::TimeDelta::FromSeconds(10), 100);
+      UMA_HISTOGRAM_CLIPPED_TIMES("Sdch3.Experiment_Holdback_3rd_To_4th_c",
+                                  packet_times_[3] - packet_times_[2],
+                                  base::TimeDelta::FromMilliseconds(1),
+                                  base::TimeDelta::FromSeconds(10), 100);
+      UMA_HISTOGRAM_CLIPPED_TIMES("Sdch3.Experiment_Holdback_4th_To_5th_c",
+                                  packet_times_[4] - packet_times_[3],
+                                  base::TimeDelta::FromMilliseconds(1),
+                                  base::TimeDelta::FromSeconds(10), 100);
+      return;
+    }
+    default:
+      NOTREACHED();
+      return;
+  }
+}
+
+// The common type of histogram we use for all compression-tracking histograms.
+#define COMPRESSION_HISTOGRAM(name, sample) \
+    do { \
+      UMA_HISTOGRAM_CUSTOM_COUNTS("Net.Compress." name, sample, \
+                                  500, 1000000, 100); \
+    } while(0)
+
+void URLRequestHttpJob::RecordCompressionHistograms() {
+  DCHECK(request_);
+  if (!request_)
+    return;
+
+  if (is_cached_content_ ||                // Don't record cached content
+      !GetStatus().is_success() ||         // Don't record failed content
+      !IsCompressibleContent() ||          // Only record compressible content
+      !prefilter_bytes_read())       // Zero-byte responses aren't useful.
+    return;
+
+  // Miniature requests aren't really compressible.  Don't count them.
+  const int kMinSize = 16;
+  if (prefilter_bytes_read() < kMinSize)
+    return;
+
+  // Only record for http or https urls.
+  bool is_http = request_->url().SchemeIs("http");
+  bool is_https = request_->url().SchemeIs("https");
+  if (!is_http && !is_https)
+    return;
+
+  int compressed_B = prefilter_bytes_read();
+  int decompressed_B = postfilter_bytes_read();
+  bool was_filtered = HasFilter();
+
+  // We want to record how often downloaded resources are compressed.
+  // But, we recognize that different protocols may have different
+  // properties.  So, for each request, we'll put it into one of 3
+  // groups:
+  //      a) SSL resources
+  //         Proxies cannot tamper with compression headers with SSL.
+  //      b) Non-SSL, loaded-via-proxy resources
+  //         In this case, we know a proxy might have interfered.
+  //      c) Non-SSL, loaded-without-proxy resources
+  //         In this case, we know there was no explicit proxy.  However,
+  //         it is possible that a transparent proxy was still interfering.
+  //
+  // For each group, we record the same 3 histograms.
+
+  if (is_https) {
+    if (was_filtered) {
+      COMPRESSION_HISTOGRAM("SSL.BytesBeforeCompression", compressed_B);
+      COMPRESSION_HISTOGRAM("SSL.BytesAfterCompression", decompressed_B);
+    } else {
+      COMPRESSION_HISTOGRAM("SSL.ShouldHaveBeenCompressed", decompressed_B);
+    }
+    return;
+  }
+
+  if (request_->was_fetched_via_proxy()) {
+    if (was_filtered) {
+      COMPRESSION_HISTOGRAM("Proxy.BytesBeforeCompression", compressed_B);
+      COMPRESSION_HISTOGRAM("Proxy.BytesAfterCompression", decompressed_B);
+    } else {
+      COMPRESSION_HISTOGRAM("Proxy.ShouldHaveBeenCompressed", decompressed_B);
+    }
+    return;
+  }
+
+  if (was_filtered) {
+    COMPRESSION_HISTOGRAM("NoProxy.BytesBeforeCompression", compressed_B);
+    COMPRESSION_HISTOGRAM("NoProxy.BytesAfterCompression", decompressed_B);
+  } else {
+    COMPRESSION_HISTOGRAM("NoProxy.ShouldHaveBeenCompressed", decompressed_B);
+  }
+}
+
+bool URLRequestHttpJob::IsCompressibleContent() const {
+  std::string mime_type;
+  return GetMimeType(&mime_type) &&
+      (IsSupportedJavascriptMimeType(mime_type.c_str()) ||
+       IsSupportedNonImageMimeType(mime_type.c_str()));
 }
 
 }  // namespace net

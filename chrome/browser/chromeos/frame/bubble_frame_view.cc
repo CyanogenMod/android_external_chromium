@@ -6,7 +6,7 @@
 
 #include "chrome/browser/chromeos/frame/bubble_window.h"
 #include "chrome/browser/chromeos/login/helper.h"
-#include "chrome/browser/ui/views/bubble_border.h"
+#include "chrome/browser/ui/views/bubble/bubble_border.h"
 #include "grit/theme_resources.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/canvas_skia.h"
@@ -137,6 +137,9 @@ void BubbleFrameView::EnableClose(bool enable) {
 void BubbleFrameView::ResetWindowControls() {
 }
 
+void BubbleFrameView::UpdateWindowIcon() {
+}
+
 gfx::Insets BubbleFrameView::GetInsets() const {
   gfx::Insets border_insets;
   border()->GetInsets(&border_insets);
@@ -224,7 +227,7 @@ void BubbleFrameView::OnPaint(gfx::Canvas* canvas) {
 void BubbleFrameView::ButtonPressed(views::Button* sender,
                                     const views::Event& event) {
   if (close_button_ != NULL && sender == close_button_)
-    frame_->Close();
+    frame_->CloseWindow();
 }
 
 }  // namespace chromeos

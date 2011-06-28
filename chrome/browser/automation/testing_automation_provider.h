@@ -6,15 +6,19 @@
 #define CHROME_BROWSER_AUTOMATION_TESTING_AUTOMATION_PROVIDER_H_
 #pragma once
 
+#include <string>
+
 #include "base/basictypes.h"
-#include "base/scoped_ptr.h"
+#include "base/compiler_specific.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/automation/automation_provider.h"
-#include "chrome/browser/browser_list.h"
+#include "chrome/browser/automation/automation_provider_json.h"
 #include "chrome/browser/history/history.h"
 #include "chrome/browser/importer/importer_list.h"
 #include "chrome/browser/sync/profile_sync_service_harness.h"
-#include "chrome/common/notification_registrar.h"
-#include "chrome/common/page_type.h"
+#include "chrome/browser/ui/browser_list.h"
+#include "content/common/notification_registrar.h"
+#include "content/common/page_type.h"
 
 class DictionaryValue;
 class TemplateURLModel;
@@ -27,13 +31,9 @@ class TestingAutomationProvider : public AutomationProvider,
  public:
   explicit TestingAutomationProvider(Profile* profile);
 
-  // BrowserList::Observer implementation.
-  virtual void OnBrowserAdded(const Browser* browser);
-  virtual void OnBrowserRemoved(const Browser* browser);
-
-  // IPC::Channel::Listener implementation.
-  virtual bool OnMessageReceived(const IPC::Message& msg);
-  virtual void OnChannelError();
+  // IPC::Channel::Listener:
+  virtual bool OnMessageReceived(const IPC::Message& msg) OVERRIDE;
+  virtual void OnChannelError() OVERRIDE;
 
  private:
   class PopupMenuWaiter;
@@ -49,13 +49,17 @@ class TestingAutomationProvider : public AutomationProvider,
 
   virtual ~TestingAutomationProvider();
 
-  // ImporterList::Observer implementation.
-  virtual void SourceProfilesLoaded();
+  // BrowserList::Observer:
+  virtual void OnBrowserAdded(const Browser* browser) OVERRIDE;
+  virtual void OnBrowserRemoved(const Browser* browser) OVERRIDE;
 
-  // NotificationObserver implementation.
+  // ImporterList::Observer:
+  virtual void OnSourceProfilesLoaded() OVERRIDE;
+
+  // NotificationObserver:
   virtual void Observe(NotificationType type,
                        const NotificationSource& source,
-                       const NotificationDetails& details);
+                       const NotificationDetails& details) OVERRIDE;
 
   // IPC Message callbacks.
   void CloseBrowser(int handle, IPC::Message* reply_message);
@@ -68,7 +72,7 @@ class TestingAutomationProvider : public AutomationProvider,
   void GetCookies(const GURL& url, int handle, int* value_size,
                   std::string* value);
   void SetCookie(const GURL& url,
-                 const std::string value,
+                 const std::string& value,
                  int handle,
                  int* response_value);
   void DeleteCookie(const GURL& url, const std::string& cookie_name,
@@ -358,15 +362,10 @@ class TestingAutomationProvider : public AutomationProvider,
   // Returns the number of blocked popups in the tab |handle|.
   void GetBlockedPopupCount(int handle, int* count);
 
-  // Captures the entire page for the given tab and saves it as PNG at the
-  // given path.
-  void CaptureEntirePageAsPNG(int tab_handle, const FilePath& path,
-                              IPC::Message* reply_message);
-
   // Generic pattern for pyautolib
   // Uses the JSON interface for input/output.
   void SendJSONRequest(int handle,
-                       std::string json_request,
+                       const std::string& json_request,
                        IPC::Message* reply_message);
 
   // Method ptr for json handlers.
@@ -633,13 +632,13 @@ class TestingAutomationProvider : public AutomationProvider,
 
   // Get the profiles that are currently saved to the DB.
   // Uses the JSON interface for input/output.
-  void GetAutoFillProfile(Browser* browser,
+  void GetAutofillProfile(Browser* browser,
                           DictionaryValue* args,
                           IPC::Message* reply_message);
 
-  // Fill in an AutoFillProfile with the given profile information.
+  // Fill in an AutofillProfile with the given profile information.
   // Uses the JSON interface for input/output.
-  void FillAutoFillProfile(Browser* browser,
+  void FillAutofillProfile(Browser* browser,
                            DictionaryValue* args,
                            IPC::Message* reply_message);
 
@@ -678,7 +677,7 @@ class TestingAutomationProvider : public AutomationProvider,
   // Args:
   //   profiles/cards: the ListValue of profiles/credit cards to translate.
   //   error_message: a pointer to the return string in case of error.
-  static std::vector<AutoFillProfile> GetAutoFillProfilesFromList(
+  static std::vector<AutofillProfile> GetAutofillProfilesFromList(
       const ListValue& profiles, std::string* error_message);
   static std::vector<CreditCard> GetCreditCardsFromList(
       const ListValue& cards, std::string* error_message);
@@ -686,8 +685,8 @@ class TestingAutomationProvider : public AutomationProvider,
   // The opposite of the above: translates from the internal data structure
   // for profiles and credit cards to a ListValue of DictionaryValues. The
   // caller owns the returned object.
-  static ListValue* GetListFromAutoFillProfiles(
-      const std::vector<AutoFillProfile*>& autofill_profiles);
+  static ListValue* GetListFromAutofillProfiles(
+      const std::vector<AutofillProfile*>& autofill_profiles);
   static ListValue* GetListFromCreditCards(
       const std::vector<CreditCard*>& credit_cards);
 
@@ -754,12 +753,12 @@ class TestingAutomationProvider : public AutomationProvider,
                            DictionaryValue* args,
                            IPC::Message* reply_message);
 
-  // Sends a web keyboard event to the active tab. This should not trigger any
-  // browser hotkeys.
-  // Uses the JSON interface for input/output.
-  void SendKeyEventToActiveTab(Browser* browser,
-                               DictionaryValue* args,
-                               IPC::Message* reply_message);
+  // Populates the fields of the event parameters with what is found
+  // on the args one. If fails return false and puts the error message in
+  // the error parameter, else returns true.
+  bool BuildWebKeyEventFromArgs(DictionaryValue* args,
+                                std::string* error,
+                                NativeWebKeyboardEvent* event);
 
   // Determines whether each relevant section of the NTP is in thumbnail mode.
   void GetNTPThumbnailMode(Browser* browser,
@@ -782,6 +781,16 @@ class TestingAutomationProvider : public AutomationProvider,
   void SetNTPMenuMode(Browser* browser,
                       DictionaryValue* args,
                       IPC::Message* reply_message);
+
+  // Launches the specified app from the currently-selected tab.
+  void LaunchApp(Browser* browser,
+                 DictionaryValue* args,
+                 IPC::Message* reply_message);
+
+  // Sets the launch type for the specified app.
+  void SetAppLaunchType(Browser* browser,
+                        DictionaryValue* args,
+                        IPC::Message* reply_message);
 
   // Waits for all tabs to stop loading.
   void WaitForAllTabsToStopLoading(DictionaryValue* args,
@@ -862,17 +871,36 @@ class TestingAutomationProvider : public AutomationProvider,
   //   output: { "title": "Google" }
   void GetTabTitleJSON(DictionaryValue* args, IPC::Message* reply_message);
 
-  // Gets the cookies for the given URL. Uses the JSON interface.
+  // Captures the entire page of the the specified tab, including the
+  // non-visible portions of the page, and saves the PNG to a file.
   // Example:
-  //   input: { "windex": 1, "tab_index": 1, "url": "http://www.google.com" }
-  //   output: { "cookies": "PREF=12012" }
+  //   input: { "windex": 1, "tab_index": 1, "path":"/tmp/foo.png"}
+  //   output: none
+  void CaptureEntirePageJSON(
+      DictionaryValue* args, IPC::Message* reply_message);
+
+  // Gets the cookies for the given URL. Uses the JSON interface.
+  // "expiry" refers to the amount of seconds since the Unix epoch. If omitted,
+  // the cookie is valid for the duration of the browser session.
+  // Example:
+  //   input: { "url": "http://www.google.com" }
+  //   output: { "cookies": [
+  //               {
+  //                 "name": "PREF",
+  //                 "value": "123101",
+  //                 "path": "/",
+  //                 "domain": "www.google.com",
+  //                 "secure": false,
+  //                 "expiry": 1401982012
+  //               }
+  //             ]
+  //           }
   void GetCookiesJSON(DictionaryValue* args, IPC::Message* reply_message);
 
   // Deletes the cookie with the given name for the URL. Uses the JSON
   // interface.
   // Example:
-  //   input: { "windex": 1,
-  //            "tab_index": 1,
+  //   input: {
   //            "url": "http://www.google.com",
   //            "name": "my_cookie"
   //          }
@@ -880,11 +908,25 @@ class TestingAutomationProvider : public AutomationProvider,
   void DeleteCookieJSON(DictionaryValue* args, IPC::Message* reply_message);
 
   // Sets a cookie for the given URL. Uses the JSON interface.
+  // "expiry" refers to the amount of seconds since the Unix epoch. If omitted,
+  // the cookie will be valid for the duration of the browser session.
+  // "domain" refers to the applicable domain for the cookie. Valid domain
+  // choices for the site "http://www.google.com" and resulting cookie
+  // applicability:
+  //   [.]www.google.com - applicable on www.google.com and its subdomains
+  //   [.]google.com - applicable on google.com and its subdomains
+  //   <none> - applicable only on www.google.com
+  //
   // Example:
-  //   input: { "windex": 1,
-  //            "tab_index": 1,
-  //            "url": "http://www.google.com",
-  //            "cookie": "PREF=21321"
+  //   input: { "url": "http://www.google.com",
+  //            "cookie": {
+  //              "name": "PREF",
+  //              "value": "123101",
+  //              "path": "/",                  // optional
+  //              "domain": ".www.google.com",  // optional
+  //              "secure": false,              // optional
+  //              "expiry": 1401982012          // optional
+  //            }
   //          }
   //   output: none
   void SetCookieJSON(DictionaryValue* args, IPC::Message* reply_message);
@@ -959,6 +1001,22 @@ class TestingAutomationProvider : public AutomationProvider,
   void SendWebkitKeyEvent(DictionaryValue* args,
                           IPC::Message* message);
 
+  // Sends the key event from the OS level to the browser window,
+  // allowing it to be preprocessed by some external application (ie. IME).
+  // Will switch to the tab specified by tab_index before sending the event.
+  // Example:
+  //   input: { "windex": 1,
+  //            "tab_index": 1,
+  //            "keyCode": ui::VKEY_X,
+  //            "modifiers": automation::kShiftKeyMask,
+  //          }
+  //   output: none
+  void SendOSLevelKeyEventToTab(DictionaryValue* args,
+                                IPC::Message* message);
+
+  // Method used as a Task that sends a success AutomationJSONReply.
+  void SendSuccessReply(IPC::Message* reply_message);
+
   // Activates the given tab.
   // Example:
   //   input: { "windex": 1,
@@ -967,16 +1025,54 @@ class TestingAutomationProvider : public AutomationProvider,
   //   output: none
   void ActivateTabJSON(DictionaryValue* args, IPC::Message* message);
 
+  // Auto-updates installed extensions.
+  // Uses the JSON interface for input/output.
+  void UpdateExtensionsNow(DictionaryValue* args, IPC::Message* reply_message);
+
+  // Gets the version of ChromeDriver automation supported by this server.
+  // Example:
+  //   input: none
+  //   output: { "version": 1 }
+  void GetChromeDriverAutomationVersion(DictionaryValue* args,
+                                        IPC::Message* message);
+
 #if defined(OS_CHROMEOS)
+  void GetLoginInfo(DictionaryValue* args, IPC::Message* reply_message);
+
   void LoginAsGuest(DictionaryValue* args, IPC::Message* reply_message);
 
   void Login(DictionaryValue* args, IPC::Message* reply_message);
 
-  void Logout(DictionaryValue* args, IPC::Message* reply_message);
+  void LockScreen(DictionaryValue* args, IPC::Message* reply_message);
 
-  void ScreenLock(DictionaryValue* args, IPC::Message* reply_message);
+  void UnlockScreen(DictionaryValue* args, IPC::Message* reply_message);
 
-  void ScreenUnlock(DictionaryValue* args, IPC::Message* reply_message);
+  void SignoutInScreenLocker(DictionaryValue* args,
+                             IPC::Message* reply_message);
+
+  void GetBatteryInfo(DictionaryValue* args, IPC::Message* reply_message);
+
+  void GetNetworkInfo(DictionaryValue* args, IPC::Message* reply_message);
+
+  void NetworkScan(DictionaryValue* args, IPC::Message* reply_message);
+
+  void GetProxySettings(DictionaryValue* args, IPC::Message* reply_message);
+
+  void SetProxySettings(DictionaryValue* args, IPC::Message* reply_message);
+
+  void ConnectToWifiNetwork(DictionaryValue* args, IPC::Message* reply_message);
+
+  void ConnectToHiddenWifiNetwork(DictionaryValue* args,
+                                  IPC::Message* reply_message);
+
+  void DisconnectFromWifiNetwork(DictionaryValue* args,
+                                 IPC::Message* reply_message);
+
+  void GetUpdateInfo(DictionaryValue* args, IPC::Message* reply_message);
+
+  void UpdateCheck(DictionaryValue* args, IPC::Message* reply_message);
+
+  void SetReleaseTrack(DictionaryValue* args, IPC::Message* reply_message);
 #endif  // defined(OS_CHROMEOS)
 
   void WaitForTabCountToBecome(int browser_handle,

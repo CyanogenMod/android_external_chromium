@@ -10,12 +10,13 @@
 
 #include "base/callback.h"
 #include "base/command_line.h"
+#include "base/file_util.h"
 #include "base/i18n/number_formatting.h"
 #include "base/json/json_writer.h"
+#include "base/memory/singleton.h"
 #include "base/metrics/histogram.h"
 #include "base/metrics/stats_table.h"
 #include "base/path_service.h"
-#include "base/singleton.h"
 #include "base/string_number_conversions.h"
 #include "base/string_piece.h"
 #include "base/string_util.h"
@@ -27,7 +28,6 @@
 #include "chrome/browser/about_flags.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/defaults.h"
-#include "chrome/browser/gpu_process_host_ui_shim.h"
 #include "chrome/browser/memory_details.h"
 #include "chrome/browser/metrics/histogram_synchronizer.h"
 #include "chrome/browser/net/predictor_api.h"
@@ -39,7 +39,6 @@
 #include "chrome/common/about_handler.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_version_info.h"
-#include "chrome/common/gpu_info.h"
 #include "chrome/common/jstemplate_builder.h"
 #include "chrome/common/net/gaia/google_service_auth_error.h"
 #include "chrome/common/render_messages.h"
@@ -48,6 +47,7 @@
 #include "content/browser/gpu_process_host.h"
 #include "content/browser/renderer_host/render_process_host.h"
 #include "content/browser/renderer_host/render_view_host.h"
+#include "content/common/gpu_messages.h"
 #include "googleurl/src/gurl.h"
 #include "grit/browser_resources.h"
 #include "grit/chromium_strings.h"
@@ -57,6 +57,9 @@
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "webkit/glue/webkit_glue.h"
+#include "webkit/glue/plugins/plugin_list.h"
+#include "webkit/plugins/npapi/webplugininfo.h"
+
 #ifdef CHROME_V8
 #include "v8/include/v8.h"
 #endif
@@ -67,6 +70,7 @@
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/cros/network_library.h"
 #include "chrome/browser/chromeos/cros/syslogs_library.h"
+#include "chrome/browser/chromeos/login/wizard_controller.h"
 #include "chrome/browser/chromeos/version_loader.h"
 #include "content/browser/zygote_host_linux.h"
 #elif defined(OS_LINUX)
@@ -91,7 +95,8 @@ AboutTcmallocOutputs::AboutTcmallocOutputs() {}
 AboutTcmallocOutputs::~AboutTcmallocOutputs() {}
 
 // Glue between the callback task and the method in the singleton.
-void AboutTcmallocRendererCallback(base::ProcessId pid, std::string output) {
+void AboutTcmallocRendererCallback(base::ProcessId pid,
+                                   const std::string& output) {
   AboutTcmallocOutputs::GetInstance()->RendererCallback(pid, output);
 }
 #endif
@@ -109,7 +114,7 @@ const char kConflictsPath[] = "conflicts";
 #endif
 const char kDnsPath[] = "dns";
 const char kFlagsPath[] = "flags";
-const char kGpuPath[] = "gpu";
+const char kGpuPath[] = "gpu-internals";
 const char kHistogramsPath[] = "histograms";
 const char kMemoryRedirectPath[] = "memory-redirect";
 const char kMemoryPath[] = "memory";
@@ -132,6 +137,7 @@ const char kSandboxPath[] = "sandbox";
 #if defined(OS_CHROMEOS)
 const char kNetworkPath[] = "network";
 const char kOSCreditsPath[] = "os-credits";
+const char kEULAPathFormat[] = "/usr/share/chromeos-assets/eula/%s/eula.html";
 #endif
 
 // Add path here to be included in about:about
@@ -153,7 +159,9 @@ const char *kAllAboutPaths[] = {
   kPluginsPath,
   kStatsPath,
   kSyncInternalsPath,
+#ifdef TRACK_ALL_TASK_OBJECTS
   kTasksPath,
+#endif  // TRACK_ALL_TASK_OBJECTS
   kTcmallocPath,
   kTermsPath,
   kVersionPath,
@@ -189,7 +197,7 @@ class AboutSource : public ChromeURLDataManager::DataSource {
   // Called when the network layer has requested a resource underneath
   // the path we registered.
   virtual void StartDataRequest(const std::string& path,
-                                bool is_off_the_record,
+                                bool is_incognito,
                                 int request_id);
 
   virtual std::string GetMimeType(const std::string&) const {
@@ -257,6 +265,69 @@ class ChromeOSAboutVersionHandler {
 
   DISALLOW_COPY_AND_ASSIGN(ChromeOSAboutVersionHandler);
 };
+
+class ChromeOSTermsHandler
+    : public base::RefCountedThreadSafe<ChromeOSTermsHandler> {
+ public:
+  static void Start(AboutSource* source, int request_id) {
+    scoped_refptr<ChromeOSTermsHandler> handler(
+        new ChromeOSTermsHandler(source, request_id));
+    handler->StartOnUIThread();
+  }
+
+ private:
+  ChromeOSTermsHandler(AboutSource* source, int request_id)
+    : source_(source),
+      request_id_(request_id),
+      locale_(WizardController::GetInitialLocale()) {
+  }
+
+  void StartOnUIThread() {
+    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+    BrowserThread::PostTask(
+        BrowserThread::FILE, FROM_HERE,
+        NewRunnableMethod(this, &ChromeOSTermsHandler::LoadFileOnFileThread));
+  }
+
+  void LoadFileOnFileThread() {
+    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
+    std::string path = StringPrintf(kEULAPathFormat, locale_.c_str());
+    if (!file_util::ReadFileToString(FilePath(path), &contents_)) {
+      // No EULA for given language - try en-US as default.
+      path = StringPrintf(kEULAPathFormat, "en-US");
+      if (!file_util::ReadFileToString(FilePath(path), &contents_)) {
+        // File with EULA not found, ResponseOnUIThread will load EULA from
+        // resources if contents_ is empty.
+        contents_.clear();
+      }
+    }
+    BrowserThread::PostTask(
+        BrowserThread::UI, FROM_HERE,
+        NewRunnableMethod(this, &ChromeOSTermsHandler::ResponseOnUIThread));
+  }
+
+  void ResponseOnUIThread() {
+    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+    if (contents_.empty()) {
+      contents_ = ResourceBundle::GetSharedInstance().GetRawDataResource(
+          IDR_TERMS_HTML).as_string();
+    }
+    source_->FinishDataRequest(contents_, request_id_);
+  }
+
+  // Where the results are fed to.
+  scoped_refptr<AboutSource> source_;
+
+  // ID identifying the request.
+  int request_id_;
+
+  std::string locale_;
+
+  std::string contents_;
+
+  DISALLOW_COPY_AND_ASSIGN(ChromeOSTermsHandler);
+};
+
 #endif
 
 // Individual about handlers ---------------------------------------------------
@@ -295,11 +366,180 @@ std::string AboutAbout() {
 }
 
 #if defined(OS_CHROMEOS)
+
+// Html output helper functions
+// TODO(stevenjb): L10N this.
+
+// Helper function to wrap Html with <th> tag.
+static std::string WrapWithTH(std::string text) {
+  return "<th>" + text + "</th>";
+}
+
+// Helper function to wrap Html with <td> tag.
+static std::string WrapWithTD(std::string text) {
+  return "<td>" + text + "</td>";
+}
+
+// Helper function to create an Html table header for a Network.
+static std::string ToHtmlTableHeader(const chromeos::Network* network) {
+  std::string str =
+      WrapWithTH("Name") +
+      WrapWithTH("Active") +
+      WrapWithTH("State");
+  if (network->type() == chromeos::TYPE_WIFI ||
+      network->type() == chromeos::TYPE_CELLULAR) {
+    str += WrapWithTH("Auto-Connect");
+    str += WrapWithTH("Strength");
+  }
+  if (network->type() == chromeos::TYPE_WIFI) {
+    str += WrapWithTH("Encryption");
+    str += WrapWithTH("Passphrase");
+    str += WrapWithTH("Identity");
+    str += WrapWithTH("Certificate");
+  }
+  if (network->type() == chromeos::TYPE_CELLULAR) {
+    str += WrapWithTH("Technology");
+    str += WrapWithTH("Connectivity");
+    str += WrapWithTH("Activation");
+    str += WrapWithTH("Roaming");
+  }
+  if (network->type() == chromeos::TYPE_VPN) {
+    str += WrapWithTH("Host");
+    str += WrapWithTH("Provider Type");
+    str += WrapWithTH("PSK Passphrase");
+    str += WrapWithTH("Username");
+    str += WrapWithTH("User Passphrase");
+  }
+  str += WrapWithTH("Error");
+  str += WrapWithTH("IP Address");
+  return str;
+}
+
+// Helper function to create an Html table row for a Network.
+static std::string ToHtmlTableRow(const chromeos::Network* network) {
+  std::string str =
+      WrapWithTD(network->name()) +
+      WrapWithTD(base::IntToString(network->is_active())) +
+      WrapWithTD(network->GetStateString());
+  if (network->type() == chromeos::TYPE_WIFI ||
+      network->type() == chromeos::TYPE_CELLULAR) {
+    const chromeos::WirelessNetwork* wireless =
+        static_cast<const chromeos::WirelessNetwork*>(network);
+    str += WrapWithTD(base::IntToString(wireless->auto_connect()));
+    str += WrapWithTD(base::IntToString(wireless->strength()));
+  }
+  if (network->type() == chromeos::TYPE_WIFI) {
+    const chromeos::WifiNetwork* wifi =
+        static_cast<const chromeos::WifiNetwork*>(network);
+    str += WrapWithTD(wifi->GetEncryptionString());
+    str += WrapWithTD(std::string(wifi->passphrase().length(), '*'));
+    str += WrapWithTD(wifi->identity());
+    str += WrapWithTD(wifi->cert_path());
+  }
+  if (network->type() == chromeos::TYPE_CELLULAR) {
+    const chromeos::CellularNetwork* cell =
+        static_cast<const chromeos::CellularNetwork*>(network);
+    str += WrapWithTH(cell->GetNetworkTechnologyString());
+    str += WrapWithTH(cell->GetConnectivityStateString());
+    str += WrapWithTH(cell->GetActivationStateString());
+    str += WrapWithTH(cell->GetRoamingStateString());
+  }
+  if (network->type() == chromeos::TYPE_VPN) {
+    const chromeos::VirtualNetwork* vpn =
+        static_cast<const chromeos::VirtualNetwork*>(network);
+    str += WrapWithTH(vpn->server_hostname());
+    str += WrapWithTH(vpn->GetProviderTypeString());
+    str += WrapWithTD(std::string(vpn->psk_passphrase().length(), '*'));
+    str += WrapWithTH(vpn->username());
+    str += WrapWithTD(std::string(vpn->user_passphrase().length(), '*'));
+  }
+  str += WrapWithTD(network->failed() ? network->GetErrorString() : "");
+  str += WrapWithTD(network->ip_address());
+  return str;
+}
+
+std::string GetNetworkHtmlInfo(int refresh) {
+  chromeos::NetworkLibrary* cros =
+      chromeos::CrosLibrary::Get()->GetNetworkLibrary();
+  std::string output;
+  output.append("<html><head><title>About Network</title>");
+  if (refresh > 0)
+    output.append("<meta http-equiv=\"refresh\" content=\"" +
+                  base::IntToString(refresh) + "\"/>");
+  output.append("</head><body>");
+  if (refresh > 0) {
+    output.append("(Auto-refreshing page every " +
+                  base::IntToString(refresh) + "s)");
+  } else {
+    output.append("(To auto-refresh this page: about:network/&lt;secs&gt;)");
+  }
+
+  if (cros->ethernet_enabled()) {
+    output.append("<h3>Ethernet:</h3><table border=1>");
+    const chromeos::EthernetNetwork* ethernet = cros->ethernet_network();
+    if (ethernet) {
+      output.append("<tr>" + ToHtmlTableHeader(ethernet) + "</tr>");
+      output.append("<tr>" + ToHtmlTableRow(ethernet) + "</tr>");
+    }
+  }
+
+  if (cros->wifi_enabled()) {
+    output.append("</table><h3>Wifi Networks:</h3><table border=1>");
+    const chromeos::WifiNetworkVector& wifi_networks = cros->wifi_networks();
+    for (size_t i = 0; i < wifi_networks.size(); ++i) {
+      if (i == 0)
+        output.append("<tr>" + ToHtmlTableHeader(wifi_networks[i]) +
+                      "</tr>");
+      output.append("<tr>" + ToHtmlTableRow(wifi_networks[i]) + "</tr>");
+    }
+  }
+
+  if (cros->cellular_enabled()) {
+    output.append("</table><h3>Cellular Networks:</h3><table border=1>");
+    const chromeos::CellularNetworkVector& cellular_networks =
+        cros->cellular_networks();
+    for (size_t i = 0; i < cellular_networks.size(); ++i) {
+      if (i == 0)
+        output.append("<tr>" + ToHtmlTableHeader(cellular_networks[i]) +
+                      "</tr>");
+      output.append("<tr>" + ToHtmlTableRow(cellular_networks[i]) + "</tr>");
+    }
+  }
+
+  {
+    output.append("</table><h3>Virtual Networks:</h3><table border=1>");
+    const chromeos::VirtualNetworkVector& virtual_networks =
+        cros->virtual_networks();
+    for (size_t i = 0; i < virtual_networks.size(); ++i) {
+      if (i == 0)
+        output.append("<tr>" + ToHtmlTableHeader(virtual_networks[i]) +
+                      "</tr>");
+      output.append("<tr>" + ToHtmlTableRow(virtual_networks[i]) + "</tr>");
+    }
+  }
+
+  {
+    output.append(
+        "</table><h3>Remembered Wi-Fi Networks:</h3><table border=1>");
+    const chromeos::WifiNetworkVector& remembered_wifi_networks =
+        cros->remembered_wifi_networks();
+    for (size_t i = 0; i < remembered_wifi_networks.size(); ++i) {
+      if (i == 0)
+        output.append("<tr>" +
+                      ToHtmlTableHeader(remembered_wifi_networks[i]) + "</tr>");
+      output.append("<tr>" + ToHtmlTableRow(remembered_wifi_networks[i]) +
+                    "</tr>");
+    }
+  }
+
+  output.append("</table></body></html>");
+  return output;
+}
+
 std::string AboutNetwork(const std::string& query) {
   int refresh;
   base::StringToInt(query, &refresh);
-  return chromeos::CrosLibrary::Get()->GetNetworkLibrary()->
-      GetHtmlInfo(refresh);
+  return GetNetworkHtmlInfo(refresh);
 }
 #endif
 
@@ -683,10 +923,28 @@ std::string AboutVersion(DictionaryValue* localized_strings) {
   localized_strings->SetString("name",
       l10n_util::GetStringUTF16(IDS_PRODUCT_NAME));
   localized_strings->SetString("version", version_info.Version());
+  // Bug 79458: Need to evaluate the use of getting the version string on
+  // this thread.
+  base::ThreadRestrictions::ScopedAllowIO allow_io;
   localized_strings->SetString("version_modifier",
                                platform_util::GetVersionStringModifier());
   localized_strings->SetString("js_engine", js_engine);
   localized_strings->SetString("js_version", js_version);
+
+  // Obtain the version of the first enabled Flash plugin.
+  std::vector<webkit::npapi::WebPluginInfo> info_array;
+  webkit::npapi::PluginList::Singleton()->GetPluginInfoArray(
+      GURL(), "application/x-shockwave-flash", false, &info_array, NULL);
+  string16 flash_version =
+      l10n_util::GetStringUTF16(IDS_PLUGINS_DISABLED_PLUGIN);
+  for (size_t i = 0; i < info_array.size(); ++i) {
+    if (webkit::npapi::IsPluginEnabled(info_array[i])) {
+      flash_version = info_array[i].version;
+      break;
+    }
+  }
+  localized_strings->SetString("flash_plugin", "Flash");
+  localized_strings->SetString("flash_version", flash_version);
   localized_strings->SetString("webkit_version", webkit_version);
   localized_strings->SetString("company",
       l10n_util::GetStringUTF16(IDS_ABOUT_VERSION_COMPANY_NAME));
@@ -742,7 +1000,7 @@ AboutSource::~AboutSource() {
 }
 
 void AboutSource::StartDataRequest(const std::string& path_raw,
-    bool is_off_the_record, int request_id) {
+    bool is_incognito, int request_id) {
   std::string path = path_raw;
   std::string info;
   if (path.find("/") != std::string::npos) {
@@ -794,8 +1052,13 @@ void AboutSource::StartDataRequest(const std::string& path_raw,
     response = AboutNetwork(info);
 #endif
   } else if (path == kTermsPath) {
+#if defined(OS_CHROMEOS)
+    ChromeOSTermsHandler::Start(this, request_id);
+    return;
+#else
     response = ResourceBundle::GetSharedInstance().GetRawDataResource(
         IDR_TERMS_HTML).as_string();
+#endif
 #if defined(OS_LINUX)
   } else if (path == kLinuxProxyConfigPath) {
     response = AboutLinuxProxyConfig();
@@ -955,6 +1218,7 @@ ChromeOSAboutVersionHandler::ChromeOSAboutVersionHandler(AboutSource* source,
                                                          int request_id)
     : source_(source),
       request_id_(request_id) {
+  loader_.EnablePlatformVersions(true);
   loader_.GetVersion(&consumer_,
                      NewCallback(this, &ChromeOSAboutVersionHandler::OnVersion),
                      chromeos::VersionLoader::VERSION_FULL);
@@ -1070,16 +1334,13 @@ bool WillHandleBrowserAboutURL(GURL* url, Profile* profile) {
   }
 
   // Handle URLs to wreck the gpu process.
-  GpuProcessHostUIShim* gpu_ui_shim = GpuProcessHostUIShim::GetForRenderer(0);
-  if (gpu_ui_shim) {
-    if (LowerCaseEqualsASCII(url->spec(), chrome::kAboutGpuCrashURL)) {
-      gpu_ui_shim->SendAboutGpuCrash();
-      return true;
-    }
-    if (LowerCaseEqualsASCII(url->spec(), chrome::kAboutGpuHangURL)) {
-      gpu_ui_shim->SendAboutGpuHang();
-      return true;
-    }
+  if (LowerCaseEqualsASCII(url->spec(), chrome::kAboutGpuCrashURL)) {
+    GpuProcessHost::SendOnIO(
+        0, content::CAUSE_FOR_GPU_LAUNCH_ABOUT_GPUCRASH, new GpuMsg_Crash());
+  }
+  if (LowerCaseEqualsASCII(url->spec(), chrome::kAboutGpuHangURL)) {
+    GpuProcessHost::SendOnIO(
+        0, content::CAUSE_FOR_GPU_LAUNCH_ABOUT_GPUHANG, new GpuMsg_Hang());
   }
 
   // There are a few about: URLs that we hand over to the renderer. If the

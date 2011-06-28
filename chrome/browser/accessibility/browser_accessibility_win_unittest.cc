@@ -1,15 +1,17 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/scoped_ptr.h"
-#include "base/scoped_comptr_win.h"
+#include "base/memory/scoped_ptr.h"
+#include "base/win/scoped_comptr.h"
 #include "chrome/browser/accessibility/browser_accessibility_manager.h"
 #include "chrome/browser/accessibility/browser_accessibility_win.h"
-#include "chrome/common/render_messages_params.h"
+#include "content/common/view_messages.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using webkit_glue::WebAccessibility;
+
+namespace {
 
 // Subclass of BrowserAccessibilityWin that counts the number of instances.
 class CountedBrowserAccessibility : public BrowserAccessibilityWin {
@@ -35,6 +37,8 @@ class CountedBrowserAccessibilityFactory
     return instance;
   }
 };
+
+}  // anonymous namespace
 
 VARIANT CreateI4Variant(LONG value) {
   VARIANT variant = {0};
@@ -168,12 +172,12 @@ TEST_F(BrowserAccessibilityTest, TestChildrenChange) {
 
   // Query for the text IAccessible and verify that it returns "old text" as its
   // value.
-  ScopedComPtr<IDispatch> text_dispatch;
+  base::win::ScopedComPtr<IDispatch> text_dispatch;
   HRESULT hr = manager->GetRoot()->toBrowserAccessibilityWin()->get_accChild(
       CreateI4Variant(1), text_dispatch.Receive());
   ASSERT_EQ(S_OK, hr);
 
-  ScopedComPtr<IAccessible> text_accessible;
+  base::win::ScopedComPtr<IAccessible> text_accessible;
   hr = text_dispatch.QueryInterface(text_accessible.Receive());
   ASSERT_EQ(S_OK, hr);
 
@@ -189,7 +193,7 @@ TEST_F(BrowserAccessibilityTest, TestChildrenChange) {
   text.name = L"new text";
   ViewHostMsg_AccessibilityNotification_Params param;
   param.notification_type =
-      ViewHostMsg_AccessibilityNotification_Params::
+      ViewHostMsg_AccessibilityNotification_Type::
         NOTIFICATION_TYPE_CHILDREN_CHANGED;
   param.acc_obj = text;
   std::vector<ViewHostMsg_AccessibilityNotification_Params> notifications;
@@ -261,7 +265,7 @@ TEST_F(BrowserAccessibilityTest, TestChildrenChangeNoLeaks) {
   root.children.clear();
   ViewHostMsg_AccessibilityNotification_Params param;
   param.notification_type =
-      ViewHostMsg_AccessibilityNotification_Params::
+      ViewHostMsg_AccessibilityNotification_Type::
         NOTIFICATION_TYPE_CHILDREN_CHANGED;
   param.acc_obj = root;
   std::vector<ViewHostMsg_AccessibilityNotification_Params> notifications;

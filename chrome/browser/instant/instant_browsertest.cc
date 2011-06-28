@@ -5,9 +5,9 @@
 #include "base/command_line.h"
 #include "base/stringprintf.h"
 #include "base/utf_string_conversions.h"
+#include "chrome/browser/autocomplete/autocomplete_edit.h"
 #include "chrome/browser/autocomplete/autocomplete_edit_view.h"
-#include "chrome/browser/browser_list.h"
-#include "chrome/browser/browser_window.h"
+#include "chrome/browser/content_settings/host_content_settings_map.h"
 #include "chrome/browser/instant/instant_controller.h"
 #include "chrome/browser/instant/instant_loader.h"
 #include "chrome/browser/instant/instant_loader_manager.h"
@@ -15,6 +15,8 @@
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/omnibox/location_bar.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/common/url_constants.h"
@@ -112,7 +114,7 @@ class InstantTest : public InProcessBrowserTest {
     // When the page loads, the initial searchBox values are set and only a
     // resize will have been sent.
     ASSERT_EQ("true 0 0 0 1 d false d false 1 1",
-              GetSearchStateAsString(preview_));
+              GetSearchStateAsString(preview_, false));
   }
 
   void SetLocationBarText(const std::string& text) {
@@ -186,7 +188,11 @@ class InstantTest : public InProcessBrowserTest {
   // window.chrome.searchBox.selectionStart
   // window.chrome.searchBox.selectionEnd
   // If determining any of the values fails, the value is 'fail'.
-  std::string GetSearchStateAsString(TabContents* tab_contents) {
+  //
+  // If |use_last| is true, then the last searchBox values are used instead of
+  // the current. Set |use_last| to true when testing OnSubmit/OnCancel.
+  std::string GetSearchStateAsString(TabContents* tab_contents,
+                                     bool use_last) {
     bool sv = false;
     int onsubmitcalls = 0;
     int oncancelcalls = 0;
@@ -213,17 +219,35 @@ class InstantTest : public InProcessBrowserTest {
             &before_load_value) ||
         !GetBoolFromJavascript(
             tab_contents, "window.beforeLoadSearchBox.verbatim",
-            &before_load_verbatim) ||
-        !GetStringFromJavascript(tab_contents, "window.chrome.searchBox.value",
-                                 &value) ||
-        !GetBoolFromJavascript(tab_contents, "window.chrome.searchBox.verbatim",
-                               &verbatim) ||
-        !GetIntFromJavascript(tab_contents,
-                              "window.chrome.searchBox.selectionStart",
-                              &selection_start) ||
-        !GetIntFromJavascript(tab_contents,
-                              "window.chrome.searchBox.selectionEnd",
-                              &selection_end)) {
+            &before_load_verbatim)) {
+      return "fail";
+    }
+
+    if (use_last &&
+        (!GetStringFromJavascript(tab_contents, "window.lastSearchBox.value",
+                                  &value) ||
+         !GetBoolFromJavascript(tab_contents, "window.lastSearchBox.verbatim",
+                                &verbatim) ||
+         !GetIntFromJavascript(tab_contents,
+                               "window.lastSearchBox.selectionStart",
+                               &selection_start) ||
+         !GetIntFromJavascript(tab_contents,
+                               "window.lastSearchBox.selectionEnd",
+                               &selection_end))) {
+      return "fail";
+    }
+
+    if (!use_last &&
+        (!GetStringFromJavascript(tab_contents, "window.searchBox.value",
+                                  &value) ||
+         !GetBoolFromJavascript(tab_contents, "window.searchBox.verbatim",
+                                &verbatim) ||
+         !GetIntFromJavascript(tab_contents,
+                               "window.searchBox.selectionStart",
+                               &selection_start) ||
+         !GetIntFromJavascript(tab_contents,
+                               "window.searchBox.selectionEnd",
+                               &selection_end))) {
       return "fail";
     }
 
@@ -309,7 +333,7 @@ IN_PROC_BROWSER_TEST_F(InstantTest, OnChangeEvent) {
 
   // Check that the value is reflected and onchange is called.
   EXPECT_EQ("true 0 0 1 2 d false def false 3 3",
-            GetSearchStateAsString(preview_));
+            GetSearchStateAsString(preview_, true));
 }
 
 IN_PROC_BROWSER_TEST_F(InstantTest, SetSuggestionsArrayOfStrings) {
@@ -529,8 +553,8 @@ IN_PROC_BROWSER_TEST_F(InstantTest, MAYBE_SearchServerDoesntSupportInstant) {
 // Verifies transitioning from loading a non-search string to a search string
 // with the provider not supporting instant works (meaning we don't display
 // anything).
-#if defined(OS_MACOSX)
-// Showing as flaky on Mac
+#if defined(OS_MACOSX) || defined(OS_LINUX)
+// Showing as flaky on Mac and Linux/ChromeOS
 // http://crbug.com/70810
 #define MAYBE_NonSearchToSearchDoesntSupportInstant \
     DISABLED_NonSearchToSearchDoesntSupportInstant
@@ -650,7 +674,11 @@ IN_PROC_BROWSER_TEST_F(InstantTest, OnSubmitEvent) {
 
   // Check that the value is reflected and onsubmit is called.
   EXPECT_EQ("true 1 0 1 2 d false defghi true 3 3",
-            GetSearchStateAsString(preview_));
+            GetSearchStateAsString(preview_, true));
+
+  // Make sure the searchbox values were reset.
+  EXPECT_EQ("true 1 0 1 2 d false  false 0 0",
+            GetSearchStateAsString(preview_, false));
 }
 
 // Verify that the oncancel event is dispatched upon losing focus.
@@ -675,7 +703,11 @@ IN_PROC_BROWSER_TEST_F(InstantTest, OnCancelEvent) {
 
   // Check that the value is reflected and oncancel is called.
   EXPECT_EQ("true 0 1 1 2 d false def false 3 3",
-            GetSearchStateAsString(preview_));
+            GetSearchStateAsString(preview_, true));
+
+  // Make sure the searchbox values were reset.
+  EXPECT_EQ("true 0 1 1 2 d false  false 0 0",
+            GetSearchStateAsString(preview_, false));
 }
 
 // Make sure about:crash is shown.
@@ -689,4 +721,123 @@ IN_PROC_BROWSER_TEST_F(InstantTest, ShowAboutCrash) {
 
   // If we get here it means the preview was shown. If we time out, it means the
   // preview was never shown.
+}
+
+IN_PROC_BROWSER_TEST_F(InstantTest, InstantCompleteNever) {
+  ASSERT_TRUE(test_server()->Start());
+  EnableInstant();
+  ASSERT_NO_FATAL_FAILURE(SetupInstantProvider("search.html"));
+  ASSERT_NO_FATAL_FAILURE(SetupLocationBar());
+  ASSERT_NO_FATAL_FAILURE(SetupPreview());
+
+  SetSuggestionsJavascriptArgument(
+      preview_,
+      "{suggestions:[{value:'defghij'}],complete_behavior:'never'}");
+  ASSERT_NO_FATAL_FAILURE(SetLocationBarText("def"));
+  EXPECT_STR_EQ("defghij", GetSuggestion());
+  AutocompleteEditModel* edit_model = location_bar_->location_entry()->model();
+  EXPECT_EQ(INSTANT_COMPLETE_NEVER, edit_model->instant_complete_behavior());
+  ASSERT_EQ(ASCIIToUTF16("def"), location_bar_->location_entry()->GetText());
+}
+
+IN_PROC_BROWSER_TEST_F(InstantTest, InstantCompleteDelayed) {
+  ASSERT_TRUE(test_server()->Start());
+  EnableInstant();
+  ASSERT_NO_FATAL_FAILURE(SetupInstantProvider("search.html"));
+  ASSERT_NO_FATAL_FAILURE(SetupLocationBar());
+  ASSERT_NO_FATAL_FAILURE(SetupPreview());
+
+  SetSuggestionsJavascriptArgument(
+      preview_,
+      "{suggestions:[{value:'defghij'}],complete_behavior:'delayed'}");
+  ASSERT_NO_FATAL_FAILURE(SetLocationBarText("def"));
+  EXPECT_STR_EQ("defghij", GetSuggestion());
+  AutocompleteEditModel* edit_model = location_bar_->location_entry()->model();
+  EXPECT_EQ(INSTANT_COMPLETE_DELAYED, edit_model->instant_complete_behavior());
+  ASSERT_EQ(ASCIIToUTF16("def"), location_bar_->location_entry()->GetText());
+}
+
+// Make sure the renderer doesn't crash if javascript is blocked.
+IN_PROC_BROWSER_TEST_F(InstantTest, DontCrashOnBlockedJS) {
+  browser()->profile()->GetHostContentSettingsMap()->SetDefaultContentSetting(
+      CONTENT_SETTINGS_TYPE_JAVASCRIPT, CONTENT_SETTING_BLOCK);
+  ASSERT_TRUE(test_server()->Start());
+  EnableInstant();
+  ASSERT_NO_FATAL_FAILURE(SetupInstantProvider("search.html"));
+  ASSERT_NO_FATAL_FAILURE(SetupLocationBar());
+  // Wait for notification that the instant API has been determined.
+  ui_test_utils::WaitForNotification(
+      NotificationType::INSTANT_SUPPORT_DETERMINED);
+  // As long as we get the notification we're good (the renderer didn't crash).
+}
+
+IN_PROC_BROWSER_TEST_F(InstantTest, DownloadOnEnter) {
+  ASSERT_TRUE(test_server()->Start());
+  EnableInstant();
+  // Make sure the browser window is the front most window.
+  ASSERT_TRUE(ui_test_utils::BringBrowserWindowToFront(browser()));
+  ASSERT_NO_FATAL_FAILURE(SetupInstantProvider("search.html"));
+  ASSERT_NO_FATAL_FAILURE(FindLocationBar());
+  GURL url(test_server()->GetURL("files/instant/empty.html"));
+  location_bar_->location_entry()->SetUserText(UTF8ToUTF16(url.spec()));
+  printf("0\n");
+  ASSERT_NO_FATAL_FAILURE(WaitForPreviewToNavigate(true));
+  url = test_server()->GetURL("files/instant/download.zip");
+  location_bar_->location_entry()->SetUserText(UTF8ToUTF16(url.spec()));
+  // Wait for the load to fail (because instant disables downloads).
+  printf("1\n");
+  ui_test_utils::WaitForNotification(
+      NotificationType::FAIL_PROVISIONAL_LOAD_WITH_ERROR);
+
+  printf("2\n");
+  ui_test_utils::WindowedNotificationObserver download_observer(
+      NotificationType::DOWNLOAD_INITIATED,
+      NotificationService::AllSources());
+  ASSERT_NO_FATAL_FAILURE(SendKey(ui::VKEY_RETURN));
+  printf("3\n");
+  download_observer.Wait();
+  printf("4\n");
+
+  // And we should end up at about:blank.
+  TabContents* contents = browser()->GetSelectedTabContents();
+  ASSERT_TRUE(contents);
+  EXPECT_EQ("about:blank",
+            contents->controller().GetLastCommittedEntry()->url().spec());
+  if (contents->controller().pending_entry()) {
+    // If there is a pending entry, the url should correspond to the download.
+    EXPECT_EQ(url.spec(),
+              contents->controller().pending_entry()->url().spec());
+  }
+}
+
+// Makes sure window.chrome.searchbox doesn't persist when a new page is loaded.
+IN_PROC_BROWSER_TEST_F(InstantTest, DontPersistSearchbox) {
+  ASSERT_TRUE(test_server()->Start());
+  EnableInstant();
+  ASSERT_NO_FATAL_FAILURE(SetupInstantProvider("search.html"));
+
+  ASSERT_TRUE(ui_test_utils::BringBrowserWindowToFront(browser()));
+  ASSERT_NO_FATAL_FAILURE(SetupLocationBar());
+  ASSERT_NO_FATAL_FAILURE(SetupPreview());
+
+  ASSERT_NO_FATAL_FAILURE(SetLocationBarText("def"));
+  ASSERT_NO_FATAL_FAILURE(SendKey(ui::VKEY_RETURN));
+
+  // Check that the preview contents have been committed.
+  ASSERT_FALSE(browser()->instant()->GetPreviewContents());
+  ASSERT_FALSE(browser()->instant()->is_active());
+
+  TabContents* contents = browser()->GetSelectedTabContents();
+  ASSERT_TRUE(contents);
+
+  // Navigate to a new URL. This should reset the searchbox values.
+  ui_test_utils::NavigateToURL(
+      browser(),
+      GURL(test_server()->GetURL("files/instant/empty.html")));
+  bool result;
+  ASSERT_TRUE(GetBoolFromJavascript(
+                  browser()->GetSelectedTabContents(),
+                  "window.chrome.searchBox.value.length == 0",
+                  &result));
+  EXPECT_TRUE(result);
 }

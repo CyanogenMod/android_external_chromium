@@ -25,8 +25,8 @@
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/devtools_messages.h"
-#include "chrome/common/plugin_messages.h"
 #include "chrome/common/render_messages.h"
+#include "content/common/plugin_messages.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_job.h"
 #include "net/url_request/url_request_job_tracker.h"
@@ -219,7 +219,7 @@ void AboutIPCDialog::RunDialog() {
     views::Window::CreateChromeWindow(NULL, gfx::Rect(),
                                       g_active_dialog)->Show();
   } else {
-    // TOOD(brettw) it would be nice to focus the existing window.
+    // TODO(brettw) it would be nice to focus the existing window.
   }
 }
 

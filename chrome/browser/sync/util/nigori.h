@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,8 @@
 
 #include <string>
 
-#include "base/crypto/symmetric_key.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
+#include "crypto/symmetric_key.h"
 
 namespace browser_sync {
 
@@ -73,9 +73,9 @@ class Nigori {
   static const size_t kSigningIterations = 1004;
 
  private:
-  scoped_ptr<base::SymmetricKey> user_key_;
-  scoped_ptr<base::SymmetricKey> encryption_key_;
-  scoped_ptr<base::SymmetricKey> mac_key_;
+  scoped_ptr<crypto::SymmetricKey> user_key_;
+  scoped_ptr<crypto::SymmetricKey> encryption_key_;
+  scoped_ptr<crypto::SymmetricKey> mac_key_;
 };
 
 }  // namespace browser_sync

@@ -14,6 +14,7 @@
 #include "chrome/browser/autocomplete/autocomplete_edit.h"
 #include "chrome/browser/extensions/extension_context_menu_model.h"
 #include "chrome/browser/first_run/first_run.h"
+#include "chrome/browser/prefs/pref_member.h"
 #include "chrome/browser/search_engines/template_url_model_observer.h"
 #include "chrome/browser/ui/omnibox/location_bar.h"
 #include "chrome/browser/ui/toolbar/toolbar_model.h"
@@ -66,7 +67,8 @@ class LocationBarView : public LocationBar,
                         public views::View,
                         public views::DragController,
                         public AutocompleteEditController,
-                        public TemplateURLModelObserver {
+                        public TemplateURLModelObserver,
+                        public NotificationObserver {
  public:
   // The location bar view's class name.
   static const char kViewClassName[];
@@ -74,7 +76,7 @@ class LocationBarView : public LocationBar,
   class Delegate {
    public:
     // Should return the current tab contents.
-    virtual TabContentsWrapper* GetTabContentsWrapper() = 0;
+    virtual TabContentsWrapper* GetTabContentsWrapper() const = 0;
 
     // Returns the InstantController, or NULL if there isn't one.
     virtual InstantController* GetInstant() = 0;
@@ -152,8 +154,14 @@ class LocationBarView : public LocationBar,
   // appears, not where the icons are shown).
   gfx::Point GetLocationEntryOrigin() const;
 
+#if defined(OS_WIN)
+  // Invoked from AutocompleteEditViewWin to show the instant suggestion.
+  void SetInstantSuggestion(const string16& text,
+                            bool animate_to_complete);
+
   // Returns the current instant suggestion text.
   string16 GetInstantSuggestion() const;
+#endif
 
   // Sizing functions
   virtual gfx::Size GetPreferredSize() OVERRIDE;
@@ -178,8 +186,8 @@ class LocationBarView : public LocationBar,
   // Event Handlers
   virtual bool OnMousePressed(const views::MouseEvent& event) OVERRIDE;
   virtual bool OnMouseDragged(const views::MouseEvent& event) OVERRIDE;
-  virtual void OnMouseReleased(const views::MouseEvent& event,
-                               bool canceled) OVERRIDE;
+  virtual void OnMouseReleased(const views::MouseEvent& event) OVERRIDE;
+  virtual void OnMouseCaptureLost() OVERRIDE;
 #endif
 
   const LocationIconView* location_icon_view() const {
@@ -196,20 +204,16 @@ class LocationBarView : public LocationBar,
   virtual void OnInputInProgress(bool in_progress) OVERRIDE;
   virtual void OnKillFocus() OVERRIDE;
   virtual void OnSetFocus() OVERRIDE;
-  virtual SkBitmap GetFavIcon() const OVERRIDE;
+  virtual SkBitmap GetFavicon() const OVERRIDE;
   virtual string16 GetTitle() const OVERRIDE;
   virtual InstantController* GetInstant() OVERRIDE;
-  virtual TabContentsWrapper* GetTabContentsWrapper() OVERRIDE;
+  virtual TabContentsWrapper* GetTabContentsWrapper() const OVERRIDE;
 
   // Overridden from views::View:
   virtual std::string GetClassName() const OVERRIDE;
-  virtual bool SkipDefaultKeyEventProcessing(const views::KeyEvent& e) OVERRIDE;
-  virtual AccessibilityTypes::Role GetAccessibleRole() OVERRIDE;
-  virtual string16 GetAccessibleValue() OVERRIDE;
-
-  // TODO(dmazzoni): Remove this when refactoring views accessibility code.
-  // http://crbug.com/74988
-  void GetSelectionBounds(int* start_index, int* end_index);
+  virtual bool SkipDefaultKeyEventProcessing(const views::KeyEvent& event)
+      OVERRIDE;
+  virtual void GetAccessibleState(ui::AccessibleViewState* state) OVERRIDE;
 
   // Overridden from views::DragController:
   virtual void WriteDragDataForView(View* sender,
@@ -223,7 +227,8 @@ class LocationBarView : public LocationBar,
 
   // Overridden from LocationBar:
   virtual void ShowFirstRunBubble(FirstRun::BubbleType bubble_type) OVERRIDE;
-  virtual void SetSuggestedText(const string16& text) OVERRIDE;
+  virtual void SetSuggestedText(const string16& text,
+                                InstantCompleteBehavior behavior) OVERRIDE;
   virtual std::wstring GetInputString() const OVERRIDE;
   virtual WindowOpenDisposition GetWindowOpenDisposition() const OVERRIDE;
   virtual PageTransition::Type GetPageTransition() const OVERRIDE;
@@ -249,15 +254,19 @@ class LocationBarView : public LocationBar,
   // Overridden from TemplateURLModelObserver
   virtual void OnTemplateURLModelChanged() OVERRIDE;
 
+  // Overridden from NotificationObserver
+  virtual void Observe(NotificationType type,
+                       const NotificationSource& source,
+                       const NotificationDetails& details) OVERRIDE;
+
   // Thickness of the left and right edges of the omnibox, in normal mode.
   static const int kNormalHorizontalEdgeThickness;
   // Thickness of the top and bottom edges of the omnibox.
   static const int kVerticalEdgeThickness;
   // Space between items in the location bar.
   static const int kItemPadding;
-  // Space between items in the location bar when an extension keyword is
-  // showing.
-  static const int kExtensionItemPadding;
+  // Amount of padding built into the standard omnibox icons.
+  static const int kIconInternalPadding;
   // Space between the edges and the items next to them.
   static const int kEdgeItemPadding;
   // Space between the edge and a bubble.
@@ -399,6 +408,9 @@ class LocationBarView : public LocationBar,
   // because calling profile_->GetTemplateURLModel() in the destructor causes a
   // crash.
   TemplateURLModel* template_url_model_;
+
+  // Tracks this preference to determine whether bookmark editing is allowed.
+  BooleanPrefMember edit_bookmarks_enabled_;
 
   DISALLOW_IMPLICIT_CONSTRUCTORS(LocationBarView);
 };

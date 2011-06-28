@@ -22,16 +22,11 @@
 #import "chrome/browser/ui/cocoa/browser_window_controller.h"
 #import "chrome/browser/ui/cocoa/bug_report_window_controller.h"
 #import "chrome/browser/ui/cocoa/chrome_event_processing_window.h"
-#import "chrome/browser/ui/cocoa/clear_browsing_data_controller.h"
 #import "chrome/browser/ui/cocoa/content_settings/collected_cookies_mac.h"
 #import "chrome/browser/ui/cocoa/download/download_shelf_controller.h"
 #import "chrome/browser/ui/cocoa/html_dialog_window_controller.h"
-#import "chrome/browser/ui/cocoa/importer/import_dialog_cocoa.h"
 #import "chrome/browser/ui/cocoa/location_bar/location_bar_view_mac.h"
 #import "chrome/browser/ui/cocoa/nsmenuitem_additions.h"
-#import "chrome/browser/ui/cocoa/options/content_settings_dialog_controller.h"
-#import "chrome/browser/ui/cocoa/options/edit_search_engine_cocoa_controller.h"
-#import "chrome/browser/ui/cocoa/options/keyword_editor_cocoa_controller.h"
 #include "chrome/browser/ui/cocoa/repost_form_warning_mac.h"
 #include "chrome/browser/ui/cocoa/restart_browser.h"
 #include "chrome/browser/ui/cocoa/status_bubble_mac.h"
@@ -39,10 +34,10 @@
 #import "chrome/browser/ui/cocoa/theme_install_bubble_view.h"
 #import "chrome/browser/ui/cocoa/toolbar/toolbar_controller.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
-#include "chrome/common/native_web_keyboard_event.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
 #include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/native_web_keyboard_event.h"
+#include "content/common/notification_service.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util_mac.h"
@@ -74,6 +69,10 @@ void BrowserWindowCocoa::Show() {
   BrowserList::SetLastActive(browser_);
 
   [window() makeKeyAndOrderFront:controller_];
+}
+
+void BrowserWindowCocoa::ShowInactive() {
+    [window() orderFront:controller_];
 }
 
 void BrowserWindowCocoa::SetBounds(const gfx::Rect& bounds) {
@@ -140,7 +139,7 @@ StatusBubble* BrowserWindowCocoa::GetStatusBubble() {
   return [controller_ statusBubble];
 }
 
-void BrowserWindowCocoa::SelectedTabToolbarSizeChanged(bool is_animating) {
+void BrowserWindowCocoa::ToolbarSizeChanged(bool is_animating) {
   // According to beng, this is an ugly method that comes from the days when the
   // download shelf was a ChromeView attached to the TabContents, and as its
   // size changed via animation it notified through TCD/etc to the browser view
@@ -224,16 +223,7 @@ bool BrowserWindowCocoa::IsFullscreenBubbleVisible() const {
 void BrowserWindowCocoa::ConfirmAddSearchProvider(
     const TemplateURL* template_url,
     Profile* profile) {
-  // The controller will release itself when the window closes.
-  EditSearchEngineCocoaController* editor =
-      [[EditSearchEngineCocoaController alloc] initWithProfile:profile
-                                                      delegate:NULL
-                                                   templateURL:template_url];
-  [NSApp beginSheet:[editor window]
-     modalForWindow:window()
-      modalDelegate:controller_
-     didEndSelector:@selector(sheetDidEnd:returnCode:context:)
-        contextInfo:NULL];
+  NOTIMPLEMENTED();
 }
 
 LocationBar* BrowserWindowCocoa::GetLocationBar() const {
@@ -275,7 +265,10 @@ void BrowserWindowCocoa::FocusChromeOSStatus() {
 }
 
 bool BrowserWindowCocoa::IsBookmarkBarVisible() const {
-  return browser_->profile()->GetPrefs()->GetBoolean(prefs::kShowBookmarkBar);
+  return (browser_->profile()->GetPrefs()->GetBoolean(
+              prefs::kShowBookmarkBar) &&
+          browser_->profile()->GetPrefs()->GetBoolean(
+              prefs::kEnableBookmarkBar));
 }
 
 bool BrowserWindowCocoa::IsBookmarkBarAnimating() const {
@@ -336,48 +329,14 @@ DownloadShelf* BrowserWindowCocoa::GetDownloadShelf() {
   return [shelfController bridge];
 }
 
-void BrowserWindowCocoa::ShowClearBrowsingDataDialog() {
-  [ClearBrowsingDataController
-      showClearBrowsingDialogForProfile:browser_->profile()];
-}
-
-void BrowserWindowCocoa::ShowImportDialog() {
-  [ImportDialogController
-          showImportSettingsDialogForProfile:browser_->profile()];
-}
-
-void BrowserWindowCocoa::ShowSearchEnginesDialog() {
-  [KeywordEditorCocoaController showKeywordEditor:browser_->profile()];
-}
-
-void BrowserWindowCocoa::ShowPasswordManager() {
-  NOTIMPLEMENTED();
-}
-
 void BrowserWindowCocoa::ShowRepostFormWarningDialog(
     TabContents* tab_contents) {
   RepostFormWarningMac::Create(GetNativeHandle(), tab_contents);
 }
 
-void BrowserWindowCocoa::ShowContentSettingsWindow(
-    ContentSettingsType settings_type,
-    Profile* profile) {
-  [ContentSettingsDialogController showContentSettingsForType:settings_type
-                                                      profile:profile];
-}
-
 void BrowserWindowCocoa::ShowCollectedCookiesDialog(TabContents* tab_contents) {
   // Deletes itself on close.
   new CollectedCookiesMac(GetNativeHandle(), tab_contents);
-}
-
-void BrowserWindowCocoa::ShowProfileErrorDialog(int message_id) {
-  scoped_nsobject<NSAlert> alert([[NSAlert alloc] init]);
-  [alert addButtonWithTitle:l10n_util::GetNSStringWithFixup(IDS_OK)];
-  [alert setMessageText:l10n_util::GetNSStringWithFixup(IDS_PRODUCT_NAME)];
-  [alert setInformativeText:l10n_util::GetNSStringWithFixup(message_id)];
-  [alert setAlertStyle:NSWarningAlertStyle];
-  [alert runModal];
 }
 
 void BrowserWindowCocoa::ShowThemeInstallBubble() {
@@ -555,7 +514,7 @@ bool BrowserWindowCocoa::HandleKeyboardEventInternal(NSEvent* event) {
 }
 
 void BrowserWindowCocoa::ShowCreateWebAppShortcutsDialog(
-    TabContents* tab_contents) {
+    TabContentsWrapper* tab_contents) {
   NOTIMPLEMENTED();
 }
 
@@ -588,8 +547,8 @@ void BrowserWindowCocoa::PrepareForInstant() {
   // TODO: implement fade as done on windows.
 }
 
-void BrowserWindowCocoa::ShowInstant(TabContents* preview_contents) {
-  [controller_ showInstant:preview_contents];
+void BrowserWindowCocoa::ShowInstant(TabContentsWrapper* preview) {
+  [controller_ showInstant:preview->tab_contents()];
 }
 
 void BrowserWindowCocoa::HideInstant(bool instant_is_active) {

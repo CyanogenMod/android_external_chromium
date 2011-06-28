@@ -1,13 +1,13 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/safe_browsing/safe_browsing_util.h"
 
 #include "base/base64.h"
-#include "base/hmac.h"
-#include "base/sha2.h"
 #include "base/string_util.h"
+#include "crypto/hmac.h"
+#include "crypto/sha2.h"
 #include "chrome/browser/google/google_util.h"
 #include "googleurl/src/gurl.h"
 #include "googleurl/src/url_util.h"
@@ -166,14 +166,8 @@ namespace safe_browsing_util {
 const char kMalwareList[] = "goog-malware-shavar";
 const char kPhishingList[] = "goog-phish-shavar";
 const char kBinUrlList[] = "goog-badbinurl-shavar";
-const char kBinHashList[] = "goog-badbinhash-shavar";
-
-// Keywords to identify a list type from listname.
-// TODO(lzheng): check if this can be replaced by full listnames.
-const char kMalwareListKey[] = "-malware-";
-const char kPhishingListKey[] = "-phish-";
-const char kBinUrlListKey[] = "-badbinurl-";
-const char kBinHashListKey[] = "-badbinhash-";
+const char kBinHashList[] = "goog-badbin-digestvar";
+const char kCsdWhiteList[] = "goog-csdwhite-sha256";
 
 int GetListId(const std::string& name) {
   int id;
@@ -183,8 +177,10 @@ int GetListId(const std::string& name) {
     id = PHISH;
   } else if (name == safe_browsing_util::kBinUrlList) {
     id = BINURL;
-  }  else if (name == safe_browsing_util::kBinHashList) {
+  } else if (name == safe_browsing_util::kBinHashList) {
     id = BINHASH;
+  } else if (name == safe_browsing_util::kCsdWhiteList) {
+    id = CSDWHITELIST;
   } else {
     id = INVALID;
   }
@@ -204,6 +200,9 @@ bool GetListName(int list_id, std::string* list) {
       break;
     case BINHASH:
       *list = safe_browsing_util::kBinHashList;
+      break;
+    case CSDWHITELIST:
+      *list = safe_browsing_util::kCsdWhiteList;
       break;
     default:
       return false;
@@ -437,9 +436,9 @@ int GetUrlHashIndex(const GURL& url,
   for (size_t h = 0; h < hosts.size(); ++h) {
     for (size_t p = 0; p < paths.size(); ++p) {
       SBFullHash key;
-      base::SHA256HashString(hosts[h] + paths[p],
-                             key.full_hash,
-                             sizeof(SBFullHash));
+      crypto::SHA256HashString(hosts[h] + paths[p],
+                               key.full_hash,
+                               sizeof(SBFullHash));
       int index = GetHashIndex(key, full_hashes);
       if (index != -1) return index;
     }
@@ -449,19 +448,19 @@ int GetUrlHashIndex(const GURL& url,
 }
 
 bool IsPhishingList(const std::string& list_name) {
-  return list_name.find(kPhishingListKey) != std::string::npos;
+  return list_name.compare(kPhishingList) == 0;
 }
 
 bool IsMalwareList(const std::string& list_name) {
-  return list_name.find(kMalwareListKey) != std::string::npos;
+  return list_name.compare(kMalwareList) == 0;
 }
 
 bool IsBadbinurlList(const std::string& list_name) {
-  return list_name.find(kBinUrlListKey) != std::string::npos;
+  return list_name.compare(kBinUrlList) == 0;
 }
 
 bool IsBadbinhashList(const std::string& list_name) {
-  return list_name.find(kBinHashListKey) != std::string::npos;
+  return list_name.compare(kBinHashList) == 0;
 }
 
 static void DecodeWebSafe(std::string* decoded) {
@@ -486,7 +485,7 @@ bool VerifyMAC(const std::string& key, const std::string& mac,
   std::string decoded_mac;
   base::Base64Decode(mac_copy, &decoded_mac);
 
-  base::HMAC hmac(base::HMAC::SHA1);
+  crypto::HMAC hmac(crypto::HMAC::SHA1);
   if (!hmac.Init(decoded_key))
     return false;
   const std::string data_str(data, data_length);
@@ -521,8 +520,12 @@ GURL GeneratePhishingReportUrl(const std::string& report_page,
 }
 
 void StringToSBFullHash(const std::string& hash_in, SBFullHash* hash_out) {
-  DCHECK_EQ(static_cast<size_t>(base::SHA256_LENGTH), hash_in.size());
-  memcpy(hash_out->full_hash, hash_in.data(), base::SHA256_LENGTH);
+  DCHECK_EQ(static_cast<size_t>(crypto::SHA256_LENGTH), hash_in.size());
+  memcpy(hash_out->full_hash, hash_in.data(), crypto::SHA256_LENGTH);
 }
 
+std::string SBFullHashToString(const SBFullHash& hash) {
+  DCHECK_EQ(static_cast<size_t>(crypto::SHA256_LENGTH), sizeof(hash.full_hash));
+  return std::string(hash.full_hash, sizeof(hash.full_hash));
+}
 }  // namespace safe_browsing_util

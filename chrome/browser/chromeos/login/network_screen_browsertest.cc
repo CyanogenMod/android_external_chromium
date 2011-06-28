@@ -4,8 +4,8 @@
 
 #include <string>
 
+#include "base/memory/scoped_ptr.h"
 #include "base/message_loop.h"
-#include "base/scoped_ptr.h"
 #include "base/string16.h"
 #include "base/string_number_conversions.h"
 #include "base/utf_string_conversions.h"
@@ -54,10 +54,11 @@ class NetworkScreenTest : public WizardInProcessBrowserTest {
     cros_mock_->InitStatusAreaMocks();
     mock_network_library_ = cros_mock_->mock_network_library();
     mock_login_library_ = new MockLoginLibrary();
+    cellular_.reset(new NetworkDevice("cellular"));
     cros_mock_->test_api()->SetLoginLibrary(mock_login_library_, true);
     EXPECT_CALL(*mock_login_library_, EmitLoginPromptReady())
         .Times(1);
-    EXPECT_CALL(*mock_login_library_,RetrieveProperty(_,_,_))
+    EXPECT_CALL(*mock_login_library_,RequestRetrieveProperty(_,_,_))
         .Times(AnyNumber());
 
     // Minimal set of expectations needed on NetworkScreen initialization.
@@ -72,9 +73,10 @@ class NetworkScreenTest : public WizardInProcessBrowserTest {
     EXPECT_CALL(*mock_network_library_, wifi_connected())
         .Times(1)
         .WillRepeatedly(Return(false));
-    EXPECT_CALL(*mock_network_library_, cellular_connected())
-        .Times(1)
-        .WillRepeatedly(Return(false));
+    EXPECT_CALL(*mock_network_library_, FindWifiDevice())
+        .Times(AnyNumber());
+    EXPECT_CALL(*mock_network_library_, FindEthernetDevice())
+        .Times(AnyNumber());
 
     cros_mock_->SetStatusAreaMocksExpectations();
 
@@ -100,6 +102,10 @@ class NetworkScreenTest : public WizardInProcessBrowserTest {
     EXPECT_CALL(*mock_network_library_, cellular_connecting())
         .Times(AnyNumber())
         .WillRepeatedly((Return(false)));
+
+    EXPECT_CALL(*mock_network_library_, FindCellularDevice())
+        .Times(AnyNumber())
+        .WillRepeatedly((Return(cellular_.get())));
   }
 
   virtual void TearDownInProcessBrowserTestFixture() {
@@ -128,6 +134,7 @@ class NetworkScreenTest : public WizardInProcessBrowserTest {
 
   MockLoginLibrary* mock_login_library_;
   MockNetworkLibrary* mock_network_library_;
+  scoped_ptr<NetworkDevice> cellular_;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(NetworkScreenTest);

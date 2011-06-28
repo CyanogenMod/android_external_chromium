@@ -8,13 +8,15 @@
 
 #include <algorithm>
 
+#include "app/mac/nsimage_cache.h"
 #include "base/mac/mac_util.h"
 #include "base/mac/scoped_cftyperef.h"
-#include "base/scoped_callback_factory.h"
+#include "base/memory/scoped_callback_factory.h"
 #include "base/sys_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/browser_process.h"
 #import "chrome/browser/debugger/devtools_window.h"
+#include "chrome/browser/extensions/extension_tab_helper.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/render_widget_host_view_mac.h"
@@ -22,6 +24,7 @@
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_bar_constants.h"
 #import "chrome/browser/ui/cocoa/browser_window_controller.h"
 #import "chrome/browser/ui/cocoa/infobars/infobar_container_controller.h"
+#import "chrome/browser/ui/cocoa/tab_contents/favicon_util.h"
 #import "chrome/browser/ui/cocoa/tabs/tab_strip_controller.h"
 #import "chrome/browser/ui/cocoa/tabs/tab_strip_model_observer_bridge.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
@@ -98,12 +101,12 @@ namespace tabpose {
 class ThumbnailLoader;
 }
 
-// A CALayer that draws a thumbnail for a TabContents object. The layer tries
-// to draw the TabContents's backing store directly if possible, and requests
-// a thumbnail bitmap from the TabContents's renderer process if not.
+// A CALayer that draws a thumbnail for a TabContentsWrapper object. The layer
+// tries to draw the TabContents's backing store directly if possible, and
+// requests a thumbnail bitmap from the TabContents's renderer process if not.
 @interface ThumbnailLayer : CALayer {
-  // The TabContents the thumbnail is for.
-  TabContents* contents_;  // weak
+  // The TabContentsWrapper the thumbnail is for.
+  TabContentsWrapper* contents_;  // weak
 
   // The size the thumbnail is drawn at when zoomed in.
   NSSize fullSize_;
@@ -118,7 +121,8 @@ class ThumbnailLoader;
   // True if the layer already sent a thumbnail request to a renderer.
   BOOL didSendLoad_;
 }
-- (id)initWithTabContents:(TabContents*)contents fullSize:(NSSize)fullSize;
+- (id)initWithTabContents:(TabContentsWrapper*)contents
+                 fullSize:(NSSize)fullSize;
 - (void)drawInContext:(CGContextRef)context;
 - (void)setThumbnail:(const SkBitmap&)bitmap;
 @end
@@ -189,7 +193,8 @@ void ThumbnailLoader::LoadThumbnail() {
 
 @implementation ThumbnailLayer
 
-- (id)initWithTabContents:(TabContents*)contents fullSize:(NSSize)fullSize {
+- (id)initWithTabContents:(TabContentsWrapper*)contents
+                 fullSize:(NSSize)fullSize {
   CHECK(contents);
   if ((self = [super init])) {
     contents_ = contents;
@@ -198,7 +203,7 @@ void ThumbnailLoader::LoadThumbnail() {
   return self;
 }
 
-- (void)setTabContents:(TabContents*)contents {
+- (void)setTabContents:(TabContentsWrapper*)contents {
   contents_ = contents;
 }
 
@@ -216,7 +221,7 @@ void ThumbnailLoader::LoadThumbnail() {
 
   // Medium term, we want to show thumbs of the actual info bar views, which
   // means I need to create InfoBarControllers here.
-  NSWindow* window = [contents_->GetNativeView() window];
+  NSWindow* window = [contents_->tab_contents()->GetNativeView() window];
   NSWindowController* windowController = [window windowController];
   if ([windowController isKindOfClass:[BrowserWindowController class]]) {
     BrowserWindowController* bwc =
@@ -232,7 +237,8 @@ void ThumbnailLoader::LoadThumbnail() {
   bool always_show_bookmark_bar =
       contents_->profile()->GetPrefs()->GetBoolean(prefs::kShowBookmarkBar);
   bool has_detached_bookmark_bar =
-      contents_->ShouldShowBookmarkBar() && !always_show_bookmark_bar;
+      contents_->tab_contents()->ShouldShowBookmarkBar() &&
+          !always_show_bookmark_bar;
   if (has_detached_bookmark_bar)
     topOffset += bookmarks::kNTPBookmarkBarHeight;
 
@@ -241,10 +247,11 @@ void ThumbnailLoader::LoadThumbnail() {
 
 - (int)bottomOffset {
   int bottomOffset = 0;
-  TabContents* devToolsContents =
-      DevToolsWindow::GetDevToolsContents(contents_);
-  if (devToolsContents && devToolsContents->render_view_host() &&
-      devToolsContents->render_view_host()->view()) {
+  TabContentsWrapper* devToolsContents =
+      DevToolsWindow::GetDevToolsContents(contents_->tab_contents());
+  if (devToolsContents && devToolsContents->tab_contents() &&
+      devToolsContents->tab_contents()->render_view_host() &&
+      devToolsContents->tab_contents()->render_view_host()->view()) {
     // The devtool's size might not be up-to-date, but since its height doesn't
     // change on window resize, and since most users don't use devtools, this is
     // good enough.
@@ -431,7 +438,7 @@ class Tile {
 
   NSRect GetFaviconStartRectRelativeTo(const Tile& tile) const;
   NSRect favicon_rect() const { return NSIntegralRect(favicon_rect_); }
-  SkBitmap favicon() const;
+  NSImage* favicon() const;
 
   // This changes |title_rect| and |favicon_rect| such that the favicon is on
   // the font's baseline and that the minimum distance between thumb rect and
@@ -448,10 +455,14 @@ class Tile {
   NSRect title_rect() const { return NSIntegralRect(title_rect_); }
 
   // Returns an unelided title. The view logic is responsible for eliding.
-  const string16& title() const { return contents_->GetTitle(); }
+  const string16& title() const {
+    return contents_->tab_contents()->GetTitle();
+  }
 
-  TabContents* tab_contents() const { return contents_; }
-  void set_tab_contents(TabContents* new_contents) { contents_ = new_contents; }
+  TabContentsWrapper* tab_contents() const { return contents_; }
+  void set_tab_contents(TabContentsWrapper* new_contents) {
+    contents_ = new_contents;
+  }
 
  private:
   friend class TileSet;
@@ -466,7 +477,7 @@ class Tile {
   CGFloat title_font_size_;
   NSRect title_rect_;
 
-  TabContents* contents_;  // weak
+  TabContentsWrapper* contents_;  // weak
 
   DISALLOW_COPY_AND_ASSIGN(Tile);
 };
@@ -488,13 +499,13 @@ NSRect Tile::GetFaviconStartRectRelativeTo(const Tile& tile) const {
   return rect;
 }
 
-SkBitmap Tile::favicon() const {
-  if (contents_->is_app()) {
-    SkBitmap* icon = contents_->GetExtensionAppIcon();
-    if (icon)
-      return *icon;
+NSImage* Tile::favicon() const {
+  if (contents_->extension_tab_helper()->is_app()) {
+    SkBitmap* bitmap = contents_->extension_tab_helper()->GetExtensionAppIcon();
+    if (bitmap)
+      return gfx::SkBitmapToNSImage(*bitmap);
   }
-  return contents_->GetFavIcon();
+  return mac::FaviconForTabContents(contents_->tab_contents());
 }
 
 NSRect Tile::GetTitleStartRectRelativeTo(const Tile& tile) const {
@@ -559,7 +570,7 @@ class TileSet {
 
   // Inserts a new Tile object containing |contents| at |index|. Does no
   // relayout.
-  void InsertTileAt(int index, TabContents* contents);
+  void InsertTileAt(int index, TabContentsWrapper* contents);
 
   // Removes the Tile object at |index|. Does no relayout.
   void RemoveTileAt(int index);
@@ -599,11 +610,11 @@ class TileSet {
 };
 
 void TileSet::Build(TabStripModel* source_model) {
-  selected_index_ =  source_model->selected_index();
+  selected_index_ =  source_model->active_index();
   tiles_.resize(source_model->count());
   for (size_t i = 0; i < tiles_.size(); ++i) {
     tiles_[i] = new Tile;
-    tiles_[i]->contents_ = source_model->GetTabContentsAt(i)->tab_contents();
+    tiles_[i]->contents_ = source_model->GetTabContentsAt(i);
   }
 }
 
@@ -825,7 +836,7 @@ int TileSet::previous_index() const {
   return new_index;
 }
 
-void TileSet::InsertTileAt(int index, TabContents* contents) {
+void TileSet::InsertTileAt(int index, TabContentsWrapper* contents) {
   tiles_.insert(tiles_.begin() + index, new Tile);
   tiles_[index]->contents_ = contents;
 }
@@ -1067,17 +1078,8 @@ void AnimateCALayerOpacityFromTo(
   NSFont* font = [NSFont systemFontOfSize:tile.title_font_size()];
   tile.set_font_metrics([font ascender], -[font descender]);
 
-  NSImage* nsFavicon = gfx::SkBitmapToNSImage(tile.favicon());
-  // Either we don't have a valid favicon or there was some issue converting
-  // it from an SkBitmap. Either way, just show the default.
-  if (!nsFavicon) {
-    NSImage* defaultFavIcon =
-        ResourceBundle::GetSharedInstance().GetNativeImageNamed(
-            IDR_DEFAULT_FAVICON);
-    nsFavicon = defaultFavIcon;
-  }
   base::mac::ScopedCFTypeRef<CGImageRef> favicon(
-      base::mac::CopyNSImageToCGImage(nsFavicon));
+      base::mac::CopyNSImageToCGImage(tile.favicon()));
 
   CALayer* faviconLayer = [CALayer layer];
   if (showZoom) {
@@ -1274,7 +1276,7 @@ void AnimateCALayerOpacityFromTo(
       [self fadeAwayInSlomo:([event modifierFlags] & NSShiftKeyMask) != 0];
       break;
     case '\e':  // Escape
-      tileSet_->set_selected_index(tabStripModel_->selected_index());
+      tileSet_->set_selected_index(tabStripModel_->active_index());
       [self fadeAwayInSlomo:([event modifierFlags] & NSShiftKeyMask) != 0];
       break;
   }
@@ -1444,8 +1446,8 @@ void AnimateCALayerOpacityFromTo(
 
   // Select chosen tab.
   if (tileSet_->selected_index() < tabStripModel_->count()) {
-    tabStripModel_->SelectTabContentsAt(tileSet_->selected_index(),
-                                        /*user_gesture=*/true);
+    tabStripModel_->ActivateTabAt(tileSet_->selected_index(),
+                                  /*user_gesture=*/true);
   } else {
     DCHECK_EQ(tileSet_->selected_index(), 0);
   }
@@ -1565,7 +1567,7 @@ void AnimateCALayerOpacityFromTo(
   ScopedCAActionSetDuration durationSetter(kObserverChangeAnimationDuration);
 
   // Insert new layer and relayout.
-  tileSet_->InsertTileAt(index, contents->tab_contents());
+  tileSet_->InsertTileAt(index, contents);
   tileSet_->Layout(containingRect_);
   [self  addLayersForTile:tileSet_->tile_at(index)
                  showZoom:NO
@@ -1690,16 +1692,16 @@ void AnimateCALayerOpacityFromTo(
   // For now, just make sure that we don't hold on to an invalid TabContents
   // object.
   tabpose::Tile& tile = tileSet_->tile_at(index);
-  if (contents->tab_contents() == tile.tab_contents()) {
+  if (contents == tile.tab_contents()) {
     // TODO(thakis): Install a timer to send a thumb request/update title/update
     // favicon after 20ms or so, and reset the timer every time this is called
     // to make sure we get an updated thumb, without requesting them all over.
     return;
   }
 
-  tile.set_tab_contents(contents->tab_contents());
+  tile.set_tab_contents(contents);
   ThumbnailLayer* thumbLayer = [allThumbnailLayers_ objectAtIndex:index];
-  [thumbLayer setTabContents:contents->tab_contents()];
+  [thumbLayer setTabContents:contents];
 }
 
 - (void)tabStripModelDeleted {

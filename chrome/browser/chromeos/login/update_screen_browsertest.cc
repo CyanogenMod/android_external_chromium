@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,9 +13,15 @@
 
 namespace chromeos {
 using ::testing::_;
+using ::testing::AnyNumber;
 using ::testing::AtLeast;
 using ::testing::Return;
 using ::testing::ReturnRef;
+using ::testing::Invoke;
+
+static void RequestUpdateCheckSuccess(UpdateCallback callback, void* userdata) {
+  callback(userdata, chromeos::UPDATE_RESULT_SUCCESS, NULL);
+}
 
 class UpdateScreenTest : public WizardInProcessBrowserTest {
  public:
@@ -46,9 +52,9 @@ class UpdateScreenTest : public WizardInProcessBrowserTest {
         .Times(1);
     EXPECT_CALL(*mock_update_library_, RemoveObserver(_))
         .Times(AtLeast(1));
-    EXPECT_CALL(*mock_update_library_, CheckForUpdate())
+    EXPECT_CALL(*mock_update_library_, RequestUpdateCheck(_,_))
         .Times(1)
-        .WillOnce(Return(true));
+        .WillOnce(Invoke(RequestUpdateCheckSuccess));
 
     mock_network_library_ = cros_mock_->mock_network_library();
     EXPECT_CALL(*mock_network_library_, Connected())
@@ -58,6 +64,10 @@ class UpdateScreenTest : public WizardInProcessBrowserTest {
     EXPECT_CALL(*mock_network_library_, AddNetworkManagerObserver(_))
         .Times(1)
         .RetiresOnSaturation();
+    EXPECT_CALL(*mock_network_library_, FindWifiDevice())
+        .Times(AnyNumber());
+    EXPECT_CALL(*mock_network_library_, FindEthernetDevice())
+        .Times(AnyNumber());
   }
 
   virtual void TearDownInProcessBrowserTestFixture() {
@@ -165,6 +175,10 @@ IN_PROC_BROWSER_TEST_F(UpdateScreenTest, TestUpdateAvailable) {
   controller()->set_observer(NULL);
 }
 
+static void RequestUpdateCheckFail(UpdateCallback callback, void* userdata) {
+  callback(userdata, chromeos::UPDATE_RESULT_FAILED, NULL);
+}
+
 IN_PROC_BROWSER_TEST_F(UpdateScreenTest, TestErrorIssuingUpdateCheck) {
   ASSERT_TRUE(controller() != NULL);
   scoped_ptr<MockScreenObserver> mock_screen_observer(new MockScreenObserver());
@@ -185,9 +199,9 @@ IN_PROC_BROWSER_TEST_F(UpdateScreenTest, TestErrorIssuingUpdateCheck) {
       .Times(1);
   EXPECT_CALL(*mock_update_library_, RemoveObserver(_))
       .Times(AtLeast(1));
-  EXPECT_CALL(*mock_update_library_, CheckForUpdate())
+  EXPECT_CALL(*mock_update_library_, RequestUpdateCheck(_,_))
       .Times(1)
-      .WillOnce(Return(false));
+      .WillOnce(Invoke(RequestUpdateCheckFail));
   EXPECT_CALL(*mock_screen_observer,
               OnExit(ScreenObserver::UPDATE_ERROR_CHECKING_FOR_UPDATE))
       .Times(1);

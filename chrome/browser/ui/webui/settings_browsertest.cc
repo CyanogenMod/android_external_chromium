@@ -66,17 +66,37 @@ class MockCoreOptionsHandler : public CoreOptionsHandler {
 
 class SettingsWebUITest : public WebUIBrowserTest {
  protected:
-  virtual WebUIMessageHandler* GetMockMessageHandler() {
-    return &mock_core_options_handler_;
+  virtual void SetUpInProcessBrowserTestFixture() {
+    WebUIBrowserTest::SetUpInProcessBrowserTestFixture();
+    AddLibrary(FILE_PATH_LITERAL("settings.js"));
   }
 
-  StrictMock<MockCoreOptionsHandler> mock_core_options_handler_;
+  virtual void SetUpOnMainThread() {
+    mock_core_options_handler_.reset(new StrictMock<MockCoreOptionsHandler>());
+  }
+
+  virtual void CleanUpOnMainThread() {
+    mock_core_options_handler_.reset();
+  }
+
+  virtual WebUIMessageHandler* GetMockMessageHandler() {
+    return mock_core_options_handler_.get();
+  }
+
+  scoped_ptr<StrictMock<MockCoreOptionsHandler> > mock_core_options_handler_;
 };
 
 // Test the end to end js to WebUI handler code path for
 // the message setBooleanPref.
 // TODO(dtseng): add more EXPECT_CALL's when updating js test.
-IN_PROC_BROWSER_TEST_F(SettingsWebUITest, TestSetBooleanPrefTriggers) {
+
+// Crashes on Mac only. See http://crbug.com/79181
+#if defined(OS_MACOSX)
+#define MAYBE_TestSetBooleanPrefTriggers DISABLED_TestSetBooleanPrefTriggers
+#else
+#define MAYBE_TestSetBooleanPrefTriggers TestSetBooleanPrefTriggers
+#endif
+IN_PROC_BROWSER_TEST_F(SettingsWebUITest, MAYBE_TestSetBooleanPrefTriggers) {
   // This serves as an example of a very constrained test.
   ListValue true_list_value;
   true_list_value.Append(Value::CreateStringValue("browser.show_home_button"));
@@ -84,9 +104,7 @@ IN_PROC_BROWSER_TEST_F(SettingsWebUITest, TestSetBooleanPrefTriggers) {
   true_list_value.Append(
       Value::CreateStringValue("Options_Homepage_HomeButton"));
   ui_test_utils::NavigateToURL(browser(), GURL(chrome::kChromeUISettingsURL));
-  EXPECT_CALL(mock_core_options_handler_,
+  EXPECT_CALL(*mock_core_options_handler_,
       HandleSetBooleanPref(Eq_ListValue(&true_list_value)));
-  ASSERT_TRUE(RunWebUITest(
-      FILE_PATH_LITERAL("settings_set_boolean_pref_triggers.js")));
+  ASSERT_TRUE(RunJavascriptTest("testSetBooleanPrefTriggers"));
 }
-

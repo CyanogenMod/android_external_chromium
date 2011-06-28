@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,8 @@
 #include <vector>
 
 #include "base/basictypes.h"
+#include "base/memory/ref_counted.h"
 #include "base/string16.h"
-#include "base/ref_counted.h"
 #include "net/base/cert_type.h"
 
 namespace net {
@@ -31,6 +31,31 @@ typedef std::vector<scoped_refptr<X509Certificate> > CertificateList;
 
 class CertDatabase {
  public:
+
+  // A CertDatabase::Observer will be notified on certificate database changes.
+  // The change could be either a new user certificate is added or trust on
+  // a certificate is changed.  Observers can register themselves
+  // via CertDatabase::AddObserver, and can un-register with
+  // CertDatabase::RemoveObserver.
+  class Observer {
+   public:
+    virtual ~Observer() {}
+
+    // Will be called when a new user certificate is added.
+    // Note that |cert| could be NULL when called.
+    virtual void OnUserCertAdded(const X509Certificate* cert) {}
+
+    // Will be called when a certificate's trust is changed.
+    // Note that |cert| could be NULL when called.
+    virtual void OnCertTrustChanged(const X509Certificate* cert) {}
+
+   protected:
+    Observer() {}
+
+   private:
+    DISALLOW_COPY_AND_ASSIGN(Observer);
+  };
+
   // Stores per-certificate error codes for import failures.
   struct ImportCertFailure {
    public:
@@ -74,9 +99,13 @@ class CertDatabase {
   // instance of all certificates.)
   void ListCerts(CertificateList* certs);
 
-  // Get the default module.
+  // Get the default module for public key data.
   // The returned pointer must be stored in a scoped_refptr<CryptoModule>.
-  CryptoModule* GetDefaultModule() const;
+  CryptoModule* GetPublicModule() const;
+
+  // Get the default module for private key or mixed private/public key data.
+  // The returned pointer must be stored in a scoped_refptr<CryptoModule>.
+  CryptoModule* GetPrivateModule() const;
 
   // Get all modules.
   // If |need_rw| is true, only writable modules will be returned.
@@ -85,7 +114,7 @@ class CertDatabase {
   // Import certificates and private keys from PKCS #12 blob into the module.
   // Returns OK or a network error code such as ERR_PKCS12_IMPORT_BAD_PASSWORD
   // or ERR_PKCS12_IMPORT_ERROR.
-  int ImportFromPKCS12(net::CryptoModule* module,
+  int ImportFromPKCS12(CryptoModule* module,
                        const std::string& data,
                        const string16& password);
 
@@ -141,7 +170,20 @@ class CertDatabase {
   bool IsReadOnly(const X509Certificate* cert) const;
 #endif
 
+  // Registers |observer| to receive notifications of certificate changes.  The
+  // thread on which this is called is the thread on which |observer| will be
+  // called back with notifications.
+  static void AddObserver(Observer* observer);
+
+  // Unregisters |observer| from receiving notifications.  This must be called
+  // on the same thread on which AddObserver() was called.
+  static void RemoveObserver(Observer* observer);
+
  private:
+  // Broadcasts notifications to all registered observers.
+  static void NotifyObserversOfUserCertAdded(const X509Certificate* cert);
+  static void NotifyObserversOfCertTrustChanged(const X509Certificate* cert);
+
   DISALLOW_COPY_AND_ASSIGN(CertDatabase);
 };
 

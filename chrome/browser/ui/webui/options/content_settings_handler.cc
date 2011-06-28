@@ -8,20 +8,21 @@
 #include "base/command_line.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
-#include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/content_settings/content_settings_details.h"
 #include "chrome/browser/content_settings/host_content_settings_map.h"
 #include "chrome/browser/geolocation/geolocation_content_settings_map.h"
 #include "chrome/browser/notifications/desktop_notification_service.h"
+#include "chrome/browser/notifications/desktop_notification_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/content_settings_helper.h"
-#include "chrome/common/notification_service.h"
-#include "chrome/common/notification_source.h"
-#include "chrome/common/notification_type.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
+#include "content/common/notification_service.h"
+#include "content/common/notification_source.h"
+#include "content/common/notification_type.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -120,7 +121,7 @@ std::string GeolocationExceptionToString(const GURL& origin,
 // in a HostContentSettingsMap-controlled exceptions table (e.g., cookies).
 // Ownership of the pointer is passed to the caller.
 DictionaryValue* GetExceptionForPage(
-    const ContentSettingsPattern pattern,
+    const ContentSettingsPattern& pattern,
     ContentSetting setting) {
   DictionaryValue* exception = new DictionaryValue();
   exception->Set(
@@ -198,6 +199,8 @@ void ContentSettingsHandler::GetLocalizedValues(
     { "examplePattern", IDS_EXCEPTIONS_PATTERN_EXAMPLE },
     { "addNewExceptionInstructions", IDS_EXCEPTIONS_ADD_NEW_INSTRUCTIONS },
     { "manage_exceptions", IDS_EXCEPTIONS_MANAGE },
+    { "exceptionPatternHeader", IDS_EXCEPTIONS_PATTERN_HEADER },
+    { "exceptionBehaviorHeader", IDS_EXCEPTIONS_ACTION_HEADER },
     // Cookies filter.
     { "cookies_tab_label", IDS_COOKIES_TAB_LABEL },
     { "cookies_header", IDS_COOKIES_HEADER },
@@ -205,6 +208,8 @@ void ContentSettingsHandler::GetLocalizedValues(
     { "cookies_ask", IDS_COOKIES_ASK_EVERY_TIME_RADIO },
     { "cookies_block", IDS_COOKIES_BLOCK_RADIO },
     { "cookies_block_3rd_party", IDS_COOKIES_BLOCK_3RDPARTY_CHKBOX },
+    { "cookies_clear_when_close", IDS_COOKIES_CLEAR_WHEN_CLOSE_CHKBOX },
+    { "cookies_lso_clear_when_close", IDS_COOKIES_LSO_CLEAR_WHEN_CLOSE_CHKBOX },
     { "cookies_show_cookies", IDS_COOKIES_SHOW_COOKIES_BUTTON },
     { "flash_storage_settings", IDS_FLASH_STORAGE_SETTINGS },
     { "flash_storage_url", IDS_FLASH_STORAGE_URL },
@@ -256,13 +261,8 @@ void ContentSettingsHandler::Initialize() {
   const HostContentSettingsMap* settings_map = GetContentSettingsMap();
   scoped_ptr<Value> block_3rd_party(Value::CreateBooleanValue(
       settings_map->BlockThirdPartyCookies()));
-  web_ui_->CallJavascriptFunction(
-      L"ContentSettings.setBlockThirdPartyCookies", *block_3rd_party.get());
-
-  clear_plugin_lso_data_enabled_.Init(prefs::kClearPluginLSODataEnabled,
-                                      g_browser_process->local_state(),
-                                      this);
-  UpdateClearPluginLSOData();
+  web_ui_->CallJavascriptFunction("ContentSettings.setBlockThirdPartyCookies",
+                                  *block_3rd_party.get());
 
   notification_registrar_.Add(
       this, NotificationType::OTR_PROFILE_CREATED,
@@ -296,7 +296,7 @@ void ContentSettingsHandler::Observe(NotificationType type,
       Profile* profile = static_cast<Source<Profile> >(source).ptr();
       if (profile->IsOffTheRecord()) {
         web_ui_->CallJavascriptFunction(
-            L"ContentSettingsExceptionsArea.OTRProfileDestroyed");
+            "ContentSettingsExceptionsArea.OTRProfileDestroyed");
       }
       break;
     }
@@ -324,8 +324,6 @@ void ContentSettingsHandler::Observe(NotificationType type,
         UpdateSettingDefaultFromModel(CONTENT_SETTINGS_TYPE_GEOLOCATION);
       else if (pref_name == prefs::kGeolocationContentSettings)
         UpdateGeolocationExceptionsView();
-      else if (pref_name == prefs::kClearPluginLSODataEnabled)
-        UpdateClearPluginLSOData();
       break;
     }
 
@@ -344,16 +342,6 @@ void ContentSettingsHandler::Observe(NotificationType type,
   }
 }
 
-void ContentSettingsHandler::UpdateClearPluginLSOData() {
-  int label_id = clear_plugin_lso_data_enabled_.GetValue() ?
-      IDS_COOKIES_LSO_CLEAR_WHEN_CLOSE_CHKBOX :
-      IDS_COOKIES_CLEAR_WHEN_CLOSE_CHKBOX;
-  scoped_ptr<Value> label(
-      Value::CreateStringValue(l10n_util::GetStringUTF16(label_id)));
-  web_ui_->CallJavascriptFunction(
-      L"ContentSettings.setClearLocalDataOnShutdownLabel", *label);
-}
-
 void ContentSettingsHandler::UpdateSettingDefaultFromModel(
     ContentSettingsType type) {
   DictionaryValue filter_settings;
@@ -363,7 +351,7 @@ void ContentSettingsHandler::UpdateSettingDefaultFromModel(
       GetDefaultSettingManagedFromModel(type));
 
   web_ui_->CallJavascriptFunction(
-      L"ContentSettings.setContentFilterSettingsValue", filter_settings);
+      "ContentSettings.setContentFilterSettingsValue", filter_settings);
 }
 
 std::string ContentSettingsHandler::GetSettingDefaultFromModel(
@@ -373,8 +361,8 @@ std::string ContentSettingsHandler::GetSettingDefaultFromModel(
     default_setting = web_ui_->GetProfile()->
         GetGeolocationContentSettingsMap()->GetDefaultContentSetting();
   } else if (type == CONTENT_SETTINGS_TYPE_NOTIFICATIONS) {
-    default_setting = web_ui_->GetProfile()->
-        GetDesktopNotificationService()->GetDefaultContentSetting();
+    default_setting = DesktopNotificationServiceFactory::GetForProfile(
+        web_ui_->GetProfile())->GetDefaultContentSetting();
   } else {
     default_setting = GetContentSettingsMap()->GetDefaultContentSetting(type);
   }
@@ -388,8 +376,8 @@ bool ContentSettingsHandler::GetDefaultSettingManagedFromModel(
     return web_ui_->GetProfile()->
         GetGeolocationContentSettingsMap()->IsDefaultContentSettingManaged();
   } else if (type == CONTENT_SETTINGS_TYPE_NOTIFICATIONS) {
-    return web_ui_->GetProfile()->
-        GetDesktopNotificationService()->IsDefaultContentSettingManaged();
+    return DesktopNotificationServiceFactory::GetForProfile(
+        web_ui_->GetProfile())->IsDefaultContentSettingManaged();
   } else {
     return GetContentSettingsMap()->IsDefaultContentSettingManaged(type);
   }
@@ -479,8 +467,8 @@ void ContentSettingsHandler::UpdateGeolocationExceptionsView() {
 
   StringValue type_string(
       ContentSettingsTypeToGroupName(CONTENT_SETTINGS_TYPE_GEOLOCATION));
-  web_ui_->CallJavascriptFunction(
-      L"ContentSettings.setExceptions", type_string, exceptions);
+  web_ui_->CallJavascriptFunction("ContentSettings.setExceptions",
+                                  type_string, exceptions);
 
   // This is mainly here to keep this function ideologically parallel to
   // UpdateExceptionsViewFromHostContentSettingsMap().
@@ -489,7 +477,7 @@ void ContentSettingsHandler::UpdateGeolocationExceptionsView() {
 
 void ContentSettingsHandler::UpdateNotificationExceptionsView() {
   DesktopNotificationService* service =
-      web_ui_->GetProfile()->GetDesktopNotificationService();
+      DesktopNotificationServiceFactory::GetForProfile(web_ui_->GetProfile());
 
   std::vector<GURL> allowed(service->GetAllowedOrigins());
   std::vector<GURL> blocked(service->GetBlockedOrigins());
@@ -506,8 +494,8 @@ void ContentSettingsHandler::UpdateNotificationExceptionsView() {
 
   StringValue type_string(
       ContentSettingsTypeToGroupName(CONTENT_SETTINGS_TYPE_NOTIFICATIONS));
-  web_ui_->CallJavascriptFunction(
-      L"ContentSettings.setExceptions", type_string, exceptions);
+  web_ui_->CallJavascriptFunction("ContentSettings.setExceptions",
+                                  type_string, exceptions);
 
   // This is mainly here to keep this function ideologically parallel to
   // UpdateExceptionsViewFromHostContentSettingsMap().
@@ -525,8 +513,8 @@ void ContentSettingsHandler::UpdateExceptionsViewFromHostContentSettingsMap(
   }
 
   StringValue type_string(ContentSettingsTypeToGroupName(type));
-  web_ui_->CallJavascriptFunction(
-      L"ContentSettings.setExceptions", type_string, exceptions);
+  web_ui_->CallJavascriptFunction("ContentSettings.setExceptions", type_string,
+                                  exceptions);
 
   UpdateExceptionsViewFromOTRHostContentSettingsMap(type);
 
@@ -551,8 +539,8 @@ void ContentSettingsHandler::UpdateExceptionsViewFromOTRHostContentSettingsMap(
   }
 
   StringValue type_string(ContentSettingsTypeToGroupName(type));
-  web_ui_->CallJavascriptFunction(
-      L"ContentSettings.setOTRExceptions", type_string, otr_exceptions);
+  web_ui_->CallJavascriptFunction("ContentSettings.setOTRExceptions",
+                                  type_string, otr_exceptions);
 }
 
 void ContentSettingsHandler::RegisterMessages() {
@@ -588,7 +576,7 @@ void ContentSettingsHandler::SetContentFilter(const ListValue* args) {
     web_ui_->GetProfile()->GetGeolocationContentSettingsMap()->
         SetDefaultContentSetting(default_setting);
   } else if (content_type == CONTENT_SETTINGS_TYPE_NOTIFICATIONS) {
-    web_ui_->GetProfile()->GetDesktopNotificationService()->
+    DesktopNotificationServiceFactory::GetForProfile(web_ui_->GetProfile())->
         SetDefaultContentSetting(default_setting);
   } else {
     GetContentSettingsMap()->
@@ -597,9 +585,10 @@ void ContentSettingsHandler::SetContentFilter(const ListValue* args) {
 }
 
 void ContentSettingsHandler::SetAllowThirdPartyCookies(const ListValue* args) {
-  std::wstring allow = ExtractStringValue(args);
+  string16 allow = ExtractStringValue(args);
 
-  GetContentSettingsMap()->SetBlockThirdPartyCookies(allow == L"true");
+  GetContentSettingsMap()->SetBlockThirdPartyCookies(
+      LowerCaseEqualsASCII(allow, "true"));
 }
 
 void ContentSettingsHandler::RemoveException(const ListValue* args) {
@@ -629,11 +618,11 @@ void ContentSettingsHandler::RemoveException(const ListValue* args) {
     DCHECK(rv);
     ContentSetting content_setting = ContentSettingFromString(setting);
     if (content_setting == CONTENT_SETTING_ALLOW) {
-      web_ui_->GetProfile()->GetDesktopNotificationService()->
+      DesktopNotificationServiceFactory::GetForProfile(web_ui_->GetProfile())->
           ResetAllowedOrigin(GURL(origin));
     } else {
       DCHECK_EQ(content_setting, CONTENT_SETTING_BLOCK);
-      web_ui_->GetProfile()->GetDesktopNotificationService()->
+      DesktopNotificationServiceFactory::GetForProfile(web_ui_->GetProfile())->
           ResetBlockedOrigin(GURL(origin));
     }
   } else {
@@ -710,10 +699,11 @@ void ContentSettingsHandler::CheckExceptionPatternValidity(
   scoped_ptr<Value> valid_value(Value::CreateBooleanValue(pattern.IsValid()));
 
   web_ui_->CallJavascriptFunction(
-      L"ContentSettings.patternValidityCheckComplete", *type,
-                                                       *mode_value.get(),
-                                                       *pattern_value.get(),
-                                                       *valid_value.get());
+      "ContentSettings.patternValidityCheckComplete",
+      *type,
+      *mode_value.get(),
+      *pattern_value.get(),
+      *valid_value.get());
 }
 
 // static

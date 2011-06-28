@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include "base/auto_reset.h"
 #include "base/sys_string_conversions.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/common/notification_service.h"
+#include "content/common/notification_service.h"
 #include "grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/models/table_model_observer.h"
@@ -23,7 +23,8 @@ PluginExceptionsTableModel::PluginExceptionsTableModel(
                  NotificationService::AllSources());
 }
 
-PluginExceptionsTableModel::~PluginExceptionsTableModel() {}
+PluginExceptionsTableModel::~PluginExceptionsTableModel() {
+}
 
 bool PluginExceptionsTableModel::CanRemoveRows(const Rows& rows) const {
   return !rows.empty();
@@ -32,11 +33,12 @@ bool PluginExceptionsTableModel::CanRemoveRows(const Rows& rows) const {
 void PluginExceptionsTableModel::RemoveRows(const Rows& rows) {
   AutoReset<bool> tmp(&updates_disabled_, true);
   bool reload_all = false;
-  // Iterate in reverse over the rows to get the indexes right.
+  // Iterate over the rows starting with the highest ones so we can delete
+  // entries from |settings_| without the other indices shifting.
   for (Rows::const_reverse_iterator it = rows.rbegin();
        it != rows.rend(); ++it) {
     DCHECK_LT(*it, settings_.size());
-    SettingsEntry& entry = settings_[*it];
+    SettingsEntry entry = settings_[*it];
     HostContentSettingsMap* map = entry.is_otr ? otr_map_ : map_;
     map->SetContentSetting(entry.pattern,
                            CONTENT_SETTINGS_TYPE_PLUGINS,
@@ -50,7 +52,8 @@ void PluginExceptionsTableModel::RemoveRows(const Rows& rows) {
       if (row_counts_[entry.plugin_id] == 0)  {
         reload_all = true;
       } else {
-        observer_->OnItemsRemoved(*it, 1);
+        if (observer_)
+          observer_->OnItemsRemoved(*it, 1);
       }
     }
   }
@@ -79,26 +82,21 @@ string16 PluginExceptionsTableModel::GetText(int row, int column_id) {
   DCHECK_GE(row, 0);
   DCHECK_LT(row, static_cast<int>(settings_.size()));
   SettingsEntry& entry = settings_[row];
-  switch (column_id) {
-    case IDS_EXCEPTIONS_PATTERN_HEADER:
-    case IDS_EXCEPTIONS_HOSTNAME_HEADER:
-      return UTF8ToUTF16(entry.pattern.AsString());
-
-    case IDS_EXCEPTIONS_ACTION_HEADER:
-      switch (entry.setting) {
-        case CONTENT_SETTING_ALLOW:
-          return l10n_util::GetStringUTF16(IDS_EXCEPTIONS_ALLOW_BUTTON);
-        case CONTENT_SETTING_BLOCK:
-          return l10n_util::GetStringUTF16(IDS_EXCEPTIONS_BLOCK_BUTTON);
-        default:
-          NOTREACHED();
-      }
-      break;
-
-    default:
-      NOTREACHED();
+  if (column_id == IDS_EXCEPTIONS_PATTERN_HEADER ||
+      column_id == IDS_EXCEPTIONS_HOSTNAME_HEADER) {
+    return UTF8ToUTF16(entry.pattern.AsString());
+  } else if (column_id == IDS_EXCEPTIONS_ACTION_HEADER) {
+    switch (entry.setting) {
+      case CONTENT_SETTING_ALLOW:
+        return l10n_util::GetStringUTF16(IDS_EXCEPTIONS_ALLOW_BUTTON);
+      case CONTENT_SETTING_BLOCK:
+        return l10n_util::GetStringUTF16(IDS_EXCEPTIONS_BLOCK_BUTTON);
+      default:
+        NOTREACHED();
+    }
+  } else {
+    NOTREACHED();
   }
-
   return string16();
 }
 
@@ -156,7 +154,8 @@ void PluginExceptionsTableModel::LoadSettings() {
     }
     string16 title = plugins[i].GetGroupName();
     for (HostContentSettingsMap::SettingsForOneType::iterator setting_it =
-             settings.begin(); setting_it != settings.end(); ++setting_it) {
+             settings.begin();
+         setting_it != settings.end(); ++setting_it) {
       SettingsEntry entry = {
         setting_it->first,
         group_id,
@@ -193,4 +192,3 @@ void PluginExceptionsTableModel::ReloadSettings() {
   if (observer_)
     observer_->OnModelChanged();
 }
-

@@ -9,7 +9,7 @@
 #include <gtk/gtk.h>
 
 #include "base/basictypes.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/ui/find_bar/find_bar.h"
 #include "chrome/browser/ui/gtk/focus_store_gtk.h"
 #include "chrome/browser/ui/gtk/owned_widget_gtk.h"
@@ -22,7 +22,7 @@ class Browser;
 class BrowserWindowGtk;
 class CustomDrawButton;
 class FindBarController;
-class GtkThemeProvider;
+class GtkThemeService;
 class NineBox;
 class SlideAnimatorGtk;
 class TabContentsContainerGtk;
@@ -172,7 +172,7 @@ class FindBarGtk : public FindBar,
   BrowserWindowGtk* window_;
 
   // Provides colors and information about GTK.
-  GtkThemeProvider* theme_provider_;
+  GtkThemeService* theme_service_;
 
   // The widget that animates the slide-in and -out of the findbar.
   scoped_ptr<SlideAnimatorGtk> slide_widget_;

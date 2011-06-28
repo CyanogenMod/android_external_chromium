@@ -1,9 +1,10 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/cocoa/history_menu_bridge.h"
 
+#include "app/mac/nsimage_cache.h"
 #include "base/callback.h"
 #include "base/stl_util-inl.h"
 #include "base/string_number_conversions.h"
@@ -15,9 +16,9 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sessions/session_types.h"
 #import "chrome/browser/ui/cocoa/history_menu_cocoa_controller.h"
-#include "chrome/common/notification_registrar.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/url_constants.h"
+#include "content/common/notification_registrar.h"
+#include "content/common/notification_service.h"
 #include "grit/app_resources.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
@@ -91,7 +92,7 @@ HistoryMenuBridge::HistoryMenuBridge(Profile* profile)
   }
 
   ResourceBundle& rb = ResourceBundle::GetSharedInstance();
-  default_favicon_.reset([rb.GetNativeImageNamed(IDR_DEFAULT_FAVICON) retain]);
+  default_favicon_.reset([app::mac::GetCachedImageWithName(@"nav.pdf") retain]);
 
   // Set the static icons in the menu.
   NSMenuItem* item = [HistoryMenu() itemWithTag:IDC_SHOW_HISTORY];
@@ -380,8 +381,8 @@ void HistoryMenuBridge::OnVisitedHistoryResults(
     HistoryItem* item = new HistoryItem();
     item->title = history_item->GetTitle();
     item->url = history_item->GetURL();
-    if (history_item->HasFavIcon()) {
-      const SkBitmap* icon = history_item->GetFavIcon();
+    if (history_item->HasFavicon()) {
+      const SkBitmap* icon = history_item->GetFavicon();
       item->icon.reset([gfx::SkBitmapToNSImage(*icon) retain]);
     } else {
       GetFaviconForHistoryItem(item);
@@ -422,7 +423,7 @@ void HistoryMenuBridge::GetFaviconForHistoryItem(HistoryItem* item) {
   FaviconService* service =
       profile_->GetFaviconService(Profile::EXPLICIT_ACCESS);
   FaviconService::Handle handle = service->GetFaviconForURL(item->url,
-      &favicon_consumer_,
+      history::FAVICON, &favicon_consumer_,
       NewCallback(this, &HistoryMenuBridge::GotFaviconData));
   favicon_consumer_.SetClientData(service, handle, item);
   item->icon_handle = handle;
@@ -430,10 +431,7 @@ void HistoryMenuBridge::GetFaviconForHistoryItem(HistoryItem* item) {
 }
 
 void HistoryMenuBridge::GotFaviconData(FaviconService::Handle handle,
-                                       bool know_favicon,
-                                       scoped_refptr<RefCountedMemory> data,
-                                       bool expired,
-                                       GURL url) {
+                                       history::FaviconData favicon) {
   // Since we're going to do Cocoa-y things, make sure this is the main thread.
   DCHECK([NSThread isMainThread]);
 
@@ -447,8 +445,9 @@ void HistoryMenuBridge::GotFaviconData(FaviconService::Handle handle,
   // Convert the raw data to Skia and then to a NSImage.
   // TODO(rsesek): Is there an easier way to do this?
   SkBitmap icon;
-  if (know_favicon && data.get() && data->size() &&
-      gfx::PNGCodec::Decode(data->front(), data->size(), &icon)) {
+  if (favicon.is_valid() &&
+      gfx::PNGCodec::Decode(favicon.image_data->front(),
+          favicon.image_data->size(), &icon)) {
     NSImage* image = gfx::SkBitmapToNSImage(icon);
     if (image) {
       // The conversion was successful.

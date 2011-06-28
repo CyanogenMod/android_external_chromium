@@ -5,7 +5,7 @@
 #include "chrome/browser/ui/webui/crashes_ui.h"
 
 #include "base/i18n/time_formatting.h"
-#include "base/ref_counted_memory.h"
+#include "base/memory/ref_counted_memory.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
@@ -13,6 +13,7 @@
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/chrome_url_data_manager.h"
+#include "chrome/common/chrome_version_info.h"
 #include "chrome/common/jstemplate_builder.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
@@ -23,6 +24,10 @@
 #include "grit/theme_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
+
+#if defined(OS_CHROMEOS)
+#include "chrome/browser/chromeos/metrics_cros_settings_provider.h"
+#endif
 
 namespace {
 
@@ -40,7 +45,7 @@ class CrashesUIHTMLSource : public ChromeURLDataManager::DataSource {
   // Called when the network layer has requested a resource underneath
   // the path we registered.
   virtual void StartDataRequest(const std::string& path,
-                                bool is_off_the_record,
+                                bool is_incognito,
                                 int request_id);
   virtual std::string GetMimeType(const std::string&) const {
     return "text/html";
@@ -53,7 +58,7 @@ class CrashesUIHTMLSource : public ChromeURLDataManager::DataSource {
 };
 
 void CrashesUIHTMLSource::StartDataRequest(const std::string& path,
-                                           bool is_off_the_record,
+                                           bool is_incognito,
                                            int request_id) {
   DictionaryValue localized_strings;
   localized_strings.SetString("crashesTitle",
@@ -127,7 +132,7 @@ class CrashesDOMHandler : public WebUIMessageHandler,
 
 CrashesDOMHandler::CrashesDOMHandler()
     : list_available_(false), js_request_pending_(false) {
-  upload_list_ = new CrashUploadList(this);
+  upload_list_ = CrashUploadList::Create(this);
 }
 
 CrashesDOMHandler::~CrashesDOMHandler() {
@@ -177,13 +182,19 @@ void CrashesDOMHandler::UpdateUI() {
 
   FundamentalValue enabled(crash_reporting_enabled);
 
-  web_ui_->CallJavascriptFunction(L"updateCrashList", enabled, crash_list);
+  const chrome::VersionInfo version_info;
+  StringValue version(version_info.Version());
+
+  web_ui_->CallJavascriptFunction("updateCrashList", enabled, crash_list,
+                                  version);
 }
 
 bool CrashesDOMHandler::CrashReportingEnabled() const {
-#if defined(GOOGLE_CHROME_BUILD)
+#if defined(GOOGLE_CHROME_BUILD) && !defined(OS_CHROMEOS)
   PrefService* prefs = g_browser_process->local_state();
   return prefs->GetBoolean(prefs::kMetricsReportingEnabled);
+#elif defined(GOOGLE_CHROME_BUILD) && defined(OS_CHROMEOS)
+  return chromeos::MetricsCrosSettingsProvider::GetMetricsStatus();
 #else
   return false;
 #endif

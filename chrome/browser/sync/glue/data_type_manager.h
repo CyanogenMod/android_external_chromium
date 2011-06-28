@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 
 #include <set>
 
+#include "base/memory/scoped_ptr.h"
 #include "base/task.h"
 #include "chrome/browser/sync/glue/data_type_controller.h"
 #include "chrome/browser/sync/syncable/model_type.h"
@@ -20,17 +21,13 @@ class DataTypeManager {
  public:
   enum State {
     STOPPED,           // No data types are currently running.
-    RESTARTING,        // Configuration has been changed...
     DOWNLOAD_PENDING,  // Not implemented yet: Waiting for the syncer to
                        // complete the initial download of new data
                        // types.
 
-    // TODO(tim): Deprecated. Bug 26339.
-    PAUSE_PENDING,     // Waiting for the sync backend to pause.
     CONFIGURING,       // Data types are being started.
-
-    // TODO(tim): Deprecated. Bug 26339.
-    RESUME_PENDING,    // Waiting for the sync backend to resume.
+    BLOCKED,           // We can't move forward with configuration because some
+                       // external action must take place (i.e. passphrase).
 
     CONFIGURED,        // All enabled data types are running.
     STOPPING           // Data types are being stopped.
@@ -46,6 +43,32 @@ class DataTypeManager {
   };
 
   typedef std::set<syncable::ModelType> TypeSet;
+
+  // In case of an error the location is filled with the location the
+  // error originated from. In case of a success the error location value
+  // is to be not used.
+  // TODO(tim): We should rename this / ConfigureResult to something more
+  // flexible like SyncConfigureDoneDetails.
+  struct ConfigureResultWithErrorLocation {
+    ConfigureResult result;
+    TypeSet requested_types;
+    scoped_ptr<tracked_objects::Location> location;
+
+    ConfigureResultWithErrorLocation();
+    ConfigureResultWithErrorLocation(const ConfigureResult& result,
+        const tracked_objects::Location& location,
+        const TypeSet& requested_types)
+        : result(result),
+          requested_types(requested_types) {
+      this->location.reset(new tracked_objects::Location(
+          location.function_name(),
+          location.file_name(),
+          location.line_number()));
+    }
+
+      ~ConfigureResultWithErrorLocation();
+  };
+
 
   virtual ~DataTypeManager() {}
 

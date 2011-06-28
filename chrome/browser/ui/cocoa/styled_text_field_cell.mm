@@ -1,11 +1,12 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "chrome/browser/ui/cocoa/styled_text_field_cell.h"
 
 #include "base/logging.h"
-#include "chrome/browser/themes/browser_theme_provider.h"
+#include "chrome/browser/themes/theme_service.h"
+#import "chrome/browser/ui/cocoa/nsview_additions.h"
 #import "chrome/browser/ui/cocoa/themed_window.h"
 #include "grit/theme_resources.h"
 #import "third_party/GTM/AppKit/GTMNSBezierPath+RoundRect.h"
@@ -137,18 +138,21 @@ private:
 // calculating things like the editing area.  This is probably
 // incorrect.  I know that this affects -drawingRectForBounds:.
 - (void)drawWithFrame:(NSRect)cellFrame inView:(NSView*)controlView {
+  const CGFloat lineWidth = [controlView cr_lineWidth];
+  const CGFloat halfLineWidth = lineWidth / 2.0;
+
   DCHECK([controlView isFlipped]);
   StyledTextFieldCellRoundedFlags roundedFlags = [self roundedFlags];
 
   // TODO(shess): This inset is also reflected by |kFieldVisualInset|
   // in autocomplete_popup_view_mac.mm.
-  const NSRect frame = NSInsetRect(cellFrame, 0, 1);
+  const NSRect frame = NSInsetRect(cellFrame, 0, lineWidth);
   const CGFloat radius = [self cornerRadius];
 
   // Paint button background image if there is one (otherwise the border won't
   // look right).
-  BrowserThemeProvider* themeProvider =
-      static_cast<BrowserThemeProvider*>([[controlView window] themeProvider]);
+  ThemeService* themeProvider =
+      static_cast<ThemeService*>([[controlView window] themeProvider]);
   if (themeProvider) {
     NSColor* backgroundImageColor =
         themeProvider->GetNSImageColorNamed(IDR_THEME_BUTTON_BACKGROUND, false);
@@ -159,22 +163,25 @@ private:
       [[NSGraphicsContext currentContext] setPatternPhase:midPoint];
 
       // NOTE(shess): This seems like it should be using a 0.0 inset,
-      // but AFAICT using a 0.5 inset is important in mixing the
+      // but AFAICT using a halfLineWidth inset is important in mixing the
       // toolbar background and the omnibox background.
-      FillRectWithInset(roundedFlags, frame, 0.5, radius, backgroundImageColor);
+      FillRectWithInset(roundedFlags, frame, halfLineWidth, radius,
+                        backgroundImageColor);
     }
 
     // Draw the outer stroke (over the background).
     BOOL active = [[controlView window] isMainWindow];
     NSColor* strokeColor = themeProvider->GetNSColor(
-        active ? BrowserThemeProvider::COLOR_TOOLBAR_BUTTON_STROKE :
-                 BrowserThemeProvider::COLOR_TOOLBAR_BUTTON_STROKE_INACTIVE,
+        active ? ThemeService::COLOR_TOOLBAR_BUTTON_STROKE :
+                 ThemeService::COLOR_TOOLBAR_BUTTON_STROKE_INACTIVE,
         true);
-    FrameRectWithInset(roundedFlags, frame, 0.0, radius, 1.0, strokeColor);
+    FrameRectWithInset(roundedFlags, frame, 0.0, radius, lineWidth,
+                       strokeColor);
   }
 
   // Fill interior with background color.
-  FillRectWithInset(roundedFlags, frame, 1.0, radius, [self backgroundColor]);
+  FillRectWithInset(roundedFlags, frame, lineWidth, radius,
+                    [self backgroundColor]);
 
   // Draw the shadow.  For the rounded-rect case, the shadow needs to
   // slightly turn in at the corners.  |shadowFrame| is at the same
@@ -183,32 +190,34 @@ private:
   // will clip the bottom and right edges (and corner).
   {
     ScopedSaveGraphicsState state;
-    [RectPathWithInset(roundedFlags, frame, 1.0, radius) addClip];
-    const NSRect shadowFrame = NSOffsetRect(frame, 0.5, 0.5);
+    [RectPathWithInset(roundedFlags, frame, lineWidth, radius) addClip];
+    const NSRect shadowFrame =
+        NSOffsetRect(frame, halfLineWidth, halfLineWidth);
     NSColor* shadowShade = [NSColor colorWithCalibratedWhite:0.0 alpha:0.05];
-    FrameRectWithInset(roundedFlags, shadowFrame, 0.5, radius - 0.5,
-                       1.0, shadowShade);
+    FrameRectWithInset(roundedFlags, shadowFrame, halfLineWidth,
+                       radius - halfLineWidth, lineWidth, shadowShade);
   }
 
   // Draw optional bezel below bottom stroke.
   if ([self shouldDrawBezel] && themeProvider &&
       themeProvider->UsingDefaultTheme()) {
 
-    [themeProvider->GetNSColor(
-        BrowserThemeProvider::COLOR_TOOLBAR_BEZEL, true) set];
+    NSColor* bezelColor = themeProvider->GetNSColor(
+        ThemeService::COLOR_TOOLBAR_BEZEL, true);
+    [[bezelColor colorWithAlphaComponent:0.5] set];
     NSRect bezelRect = NSMakeRect(cellFrame.origin.x,
-                                  NSMaxY(cellFrame) - 0.5,
+                                  NSMaxY(cellFrame) - lineWidth,
                                   NSWidth(cellFrame),
-                                  1.0);
-    bezelRect = NSInsetRect(bezelRect, radius - 0.5, 0.0);
-    NSRectFill(bezelRect);
+                                  lineWidth);
+    bezelRect = NSInsetRect(bezelRect, radius - halfLineWidth, 0.0);
+    NSRectFillUsingOperation(bezelRect, NSCompositeSourceOver);
   }
 
   // Draw the focus ring if needed.
   if ([self showsFirstResponder]) {
     NSColor* color =
         [[NSColor keyboardFocusIndicatorColor] colorWithAlphaComponent:0.5];
-    FrameRectWithInset(roundedFlags, frame, 0.0, radius, 2.0, color);
+    FrameRectWithInset(roundedFlags, frame, 0.0, radius, lineWidth * 2, color);
   }
 
   [self drawInteriorWithFrame:cellFrame inView:controlView];

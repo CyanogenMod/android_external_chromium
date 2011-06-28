@@ -11,7 +11,7 @@
 #include <string>
 #include <vector>
 
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/time.h"
 #include "chrome/browser/ui/gtk/owned_widget_gtk.h"
 #include "content/browser/renderer_host/render_widget_host_view.h"
@@ -60,6 +60,7 @@ class RenderWidgetHostViewGtk : public RenderWidgetHostView,
   virtual void DidBecomeSelected();
   virtual void WasHidden();
   virtual void SetSize(const gfx::Size& size);
+  virtual void SetBounds(const gfx::Rect& rect);
   virtual gfx::NativeView GetNativeView();
   virtual void MovePluginWindows(
       const std::vector<webkit::npapi::WebPluginGeometry>& moves);
@@ -93,8 +94,7 @@ class RenderWidgetHostViewGtk : public RenderWidgetHostView,
   virtual bool ContainsNativeView(gfx::NativeView native_view) const;
 
   virtual void AcceleratedCompositingActivated(bool activated);
-  virtual gfx::PluginWindowHandle AcquireCompositingSurface();
-  virtual void ReleaseCompositingSurface(gfx::PluginWindowHandle surface);
+  virtual gfx::PluginWindowHandle GetCompositingSurface();
 
   // ui::AnimationDelegate implementation.
   virtual void AnimationEnded(const ui::Animation* animation);
@@ -116,6 +116,10 @@ class RenderWidgetHostViewGtk : public RenderWidgetHostView,
   // edit commands to renderer by calling
   // RenderWidgetHost::ForwardEditCommandsForNextKeyEvent().
   void ForwardKeyboardEvent(const NativeWebKeyboardEvent& event);
+
+  GdkEventButton* last_mouse_down() const {
+    return last_mouse_down_;
+  }
 
 #if !defined(TOOLKIT_VIEWS)
   // Appends the input methods context menu to the specified |menu| object as a
@@ -152,6 +156,8 @@ class RenderWidgetHostViewGtk : public RenderWidgetHostView,
 
   // Update the display cursor for the render view.
   void ShowCurrentCursor();
+
+  void set_last_mouse_down(GdkEventButton* event);
 
   // The model object.
   RenderWidgetHost* host_;
@@ -241,7 +247,11 @@ class RenderWidgetHostViewGtk : public RenderWidgetHostView,
   // indicate the top edge, positive the bottom.
   int dragged_at_vertical_edge_;
 
-  bool accelerated_surface_acquired_;
+  gfx::PluginWindowHandle compositing_surface_;
+
+  // The event for the last mouse down we handled. We need this for context
+  // menus and drags.
+  GdkEventButton* last_mouse_down_;
 
 #if defined(OS_CHROMEOS)
   // Custimized tooltip window.

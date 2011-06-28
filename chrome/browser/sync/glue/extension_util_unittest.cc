@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,14 +6,20 @@
 
 #include "base/file_path.h"
 #include "base/values.h"
+#include "chrome/browser/extensions/mock_extension_service.h"
 #include "chrome/browser/sync/protocol/extension_specifics.pb.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_constants.h"
+#include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace browser_sync {
 
 namespace {
+
+using ::testing::_;
+using ::testing::Return;
+using ::testing::StrictMock;
 
 #if defined(OS_WIN)
 const FilePath::CharType kExtensionFilePath[] = FILE_PATH_LITERAL("c:\\foo");
@@ -71,13 +77,7 @@ scoped_refptr<Extension> MakeExtension(
 
   std::string error;
   scoped_refptr<Extension> extension = Extension::Create(
-      extension_path, location, source, false, true, &error);
-#if defined(OS_CHROMEOS)
-  if (num_plugins > 0) {  // plugins are illegal in extensions on chrome os.
-    EXPECT_FALSE(extension);
-    return NULL;
-  }
-#endif
+      extension_path, location, source, Extension::STRICT_ERROR_CHECKS, &error);
   EXPECT_TRUE(extension);
   EXPECT_EQ("", error);
   return extension;
@@ -135,6 +135,9 @@ TEST_F(ExtensionUtilTest, IsExtensionValid) {
             Extension::INTERNAL, 0, file_path));
     EXPECT_FALSE(IsExtensionValid(*extension));
   }
+  // These last 2 tests don't make sense on Chrome OS, where extension plugins
+  // are not allowed.
+#if !defined(OS_CHROMEOS)
   {
     FilePath file_path(kExtensionFilePath);
     scoped_refptr<Extension> extension(
@@ -149,6 +152,7 @@ TEST_F(ExtensionUtilTest, IsExtensionValid) {
                       Extension::INTERNAL, 2, file_path));
     EXPECT_FALSE(extension && IsExtensionValid(*extension));
   }
+#endif
 }
 
 TEST_F(ExtensionUtilTest, IsExtensionSpecificsUnset) {
@@ -386,40 +390,32 @@ scoped_refptr<Extension> MakeSyncableExtension(
   source.SetString(extension_manifest_keys::kName, name);
   std::string error;
   scoped_refptr<Extension> extension = Extension::Create(
-      extension_path, Extension::INTERNAL, source, false, true, &error);
+      extension_path, Extension::INTERNAL, source,
+      Extension::STRICT_ERROR_CHECKS, &error);
   EXPECT_TRUE(extension);
   EXPECT_EQ("", error);
   return extension;
 }
 
-TEST_F(ExtensionUtilTest, GetExtensionSpecificsHelper) {
+TEST_F(ExtensionUtilTest, GetExtensionSpecifics) {
   FilePath file_path(kExtensionFilePath);
+  StrictMock<MockExtensionService> mock_extension_service;
+  EXPECT_CALL(mock_extension_service, IsExtensionEnabled(_))
+      .WillOnce(Return(true));
+  EXPECT_CALL(mock_extension_service, IsIncognitoEnabled(_))
+      .WillOnce(Return(false));
+
   scoped_refptr<Extension> extension(
-      MakeSyncableExtension(kValidVersion, kValidUpdateUrl1, kName, file_path));
+      MakeSyncableExtension(
+          kValidVersion, kValidUpdateUrl1, kName, file_path));
   sync_pb::ExtensionSpecifics specifics;
-  GetExtensionSpecificsHelper(*extension, true, false, &specifics);
+  GetExtensionSpecifics(*extension, mock_extension_service, &specifics);
   EXPECT_EQ(extension->id(), specifics.id());
   EXPECT_EQ(extension->VersionString(), kValidVersion);
   EXPECT_EQ(extension->update_url().spec(), kValidUpdateUrl1);
   EXPECT_TRUE(specifics.enabled());
   EXPECT_FALSE(specifics.incognito_enabled());
   EXPECT_EQ(kName, specifics.name());
-}
-
-TEST_F(ExtensionUtilTest, IsExtensionOutdated) {
-  FilePath file_path(kExtensionFilePath);
-  scoped_refptr<Extension> extension(
-      MakeSyncableExtension(kVersion2, kValidUpdateUrl1, kName, file_path));
-  sync_pb::ExtensionSpecifics specifics;
-  specifics.set_id(kValidId);
-  specifics.set_update_url(kValidUpdateUrl1);
-
-  specifics.set_version(kVersion1);
-  EXPECT_FALSE(IsExtensionOutdated(*extension, specifics));
-  specifics.set_version(kVersion2);
-  EXPECT_FALSE(IsExtensionOutdated(*extension, specifics));
-  specifics.set_version(kVersion3);
-  EXPECT_TRUE(IsExtensionOutdated(*extension, specifics));
 }
 
 // TODO(akalin): Make ExtensionService/ExtensionUpdater testable

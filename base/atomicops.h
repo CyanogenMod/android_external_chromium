@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -30,7 +30,7 @@
 #pragma once
 
 #include "base/basictypes.h"
-#include "base/port.h"
+#include "build/build_config.h"
 
 namespace base {
 namespace subtle {
@@ -143,6 +143,12 @@ Atomic64 Release_Load(volatile const Atomic64* ptr);
 #include "base/atomicops_internals_arm_gcc.h"
 #else
 #error "Atomic operations are not supported on your platform"
+#endif
+
+// On some platforms we need additional declarations to make
+// AtomicWord compatible with our other Atomic* types.
+#if defined(OS_MACOSX) || defined(OS_OPENBSD)
+#include "base/atomicops_internals_atomicword_compat.h"
 #endif
 
 #endif  // BASE_ATOMICOPS_H_

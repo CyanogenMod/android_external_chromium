@@ -11,7 +11,7 @@
 #include "chrome/browser/ui/gtk/browser_window_gtk.h"
 #include "chrome/browser/ui/gtk/custom_button.h"
 #include "chrome/browser/ui/gtk/gtk_chrome_link_button.h"
-#include "chrome/browser/ui/gtk/gtk_theme_provider.h"
+#include "chrome/browser/ui/gtk/gtk_theme_service.h"
 #include "chrome/browser/ui/gtk/gtk_util.h"
 #include "chrome/browser/ui/gtk/infobars/infobar_container_gtk.h"
 #include "content/common/notification_service.h"
@@ -37,7 +37,7 @@ const int InfoBar::kButtonButtonSpacing = 3;
 InfoBar::InfoBar(InfoBarDelegate* delegate)
     : container_(NULL),
       delegate_(delegate),
-      theme_provider_(NULL),
+      theme_service_(NULL),
       arrow_model_(this) {
   // Create |hbox_| and pad the sides.
   hbox_ = gtk_hbox_new(FALSE, kElementPadding);
@@ -63,6 +63,9 @@ InfoBar::InfoBar(InfoBarDelegate* delegate)
     GdkPixbuf* pixbuf = gfx::GdkPixbufFromSkBitmap(icon);
     GtkWidget* image = gtk_image_new_from_pixbuf(pixbuf);
     g_object_unref(pixbuf);
+
+    gtk_misc_set_alignment(GTK_MISC(image), 0.5, 0.5);
+
     gtk_box_pack_start(GTK_BOX(hbox_), image, FALSE, FALSE, 0);
   }
 
@@ -138,13 +141,13 @@ void InfoBar::Closed() {
   Close();
 }
 
-void InfoBar::SetThemeProvider(GtkThemeProvider* theme_provider) {
-  if (theme_provider_) {
+void InfoBar::SetThemeProvider(GtkThemeService* theme_service) {
+  if (theme_service_) {
     NOTREACHED();
     return;
   }
 
-  theme_provider_ = theme_provider;
+  theme_service_ = theme_service;
   registrar_.Add(this, NotificationType::BROWSER_THEME_CHANGED,
                  NotificationService::AllSources());
   UpdateBorderColor();
@@ -266,7 +269,7 @@ gboolean InfoBar::OnBackgroundExpose(GtkWidget* sender,
   cairo_pattern_destroy(pattern);
 
   // Draw the bottom border.
-  GdkColor border_color = theme_provider_->GetBorderColor();
+  GdkColor border_color = theme_service_->GetBorderColor();
   cairo_set_source_rgb(cr, border_color.red / 65535.0,
                            border_color.green / 65535.0,
                            border_color.blue / 65535.0);
@@ -287,7 +290,9 @@ gboolean InfoBar::OnBackgroundExpose(GtkWidget* sender,
   int x = browser_window ?
       browser_window->GetXPositionOfLocationIcon(sender) : 0;
 
-  arrow_model_.Paint(sender, event, gfx::Point(x, y), border_color);
+  size_t size = InfoBarArrowModel::kDefaultArrowSize;
+  gfx::Rect arrow_bounds(x - size, y - size, 2 * size, size);
+  arrow_model_.Paint(sender, event, arrow_bounds, border_color);
 
   return FALSE;
 }

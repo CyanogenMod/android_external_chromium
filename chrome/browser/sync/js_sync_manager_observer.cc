@@ -98,17 +98,18 @@ void JsSyncManagerObserver::OnEncryptionComplete(
                                JsArgList(return_args), NULL);
 }
 
+void JsSyncManagerObserver::OnMigrationNeededForTypes(
+    const syncable::ModelTypeSet& types) {
+  ListValue return_args;
+  return_args.Append(syncable::ModelTypeSetToValue(types));
+  parent_router_->RouteJsEvent("onMigrationNeededForTypes",
+                               JsArgList(return_args), NULL);
+  // TODO(akalin): Bug 79247. Hook up JS boiler plate!
+}
+
 void JsSyncManagerObserver::OnInitializationComplete() {
   parent_router_->RouteJsEvent("onInitializationComplete",
                                JsArgList(), NULL);
-}
-
-void JsSyncManagerObserver::OnPaused() {
-  parent_router_->RouteJsEvent("onPaused", JsArgList(), NULL);
-}
-
-void JsSyncManagerObserver::OnResumed() {
-  parent_router_->RouteJsEvent("onResumed", JsArgList(), NULL);
 }
 
 void JsSyncManagerObserver::OnStopSyncingPermanently() {

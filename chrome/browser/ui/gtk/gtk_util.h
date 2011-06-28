@@ -22,7 +22,7 @@ typedef struct _GdkColor GdkColor;
 typedef struct _GtkWidget GtkWidget;
 
 class BrowserWindow;
-class GtkThemeProvider;
+class GtkThemeService;
 class GURL;
 class Profile;
 struct RendererPreferences;  // from common/renderer_preferences.h
@@ -252,7 +252,7 @@ void DrawThemedToolbarBackground(GtkWidget* widget,
                                  cairo_t* cr,
                                  GdkEventExpose* event,
                                  const gfx::Point& tabstrip_origin,
-                                 GtkThemeProvider* provider);
+                                 GtkThemeService* provider);
 
 // Returns the two colors averaged together.
 GdkColor AverageColors(GdkColor color_one, GdkColor color_two);
@@ -261,9 +261,6 @@ GdkColor AverageColors(GdkColor color_one, GdkColor color_two);
 // show images. Only to be used for favicons or other menus where the image is
 // crucial to its functionality.
 void SetAlwaysShowImage(GtkWidget* image_menu_item);
-
-// Stacks a |popup| window directly on top of a |toplevel| window.
-void StackPopupWindow(GtkWidget* popup, GtkWidget* toplevel);
 
 // Get a rectangle corresponding to a widget's allocation relative to its
 // toplevel window's origin.
@@ -345,9 +342,6 @@ string16 GetStockPreferencesMenuLabel();
 // Checks whether a widget is actually visible, i.e. whether it and all its
 // ancestors up to its toplevel are visible.
 bool IsWidgetAncestryVisible(GtkWidget* widget);
-
-// Sets the GTK font from the given font name (ex. "Arial Black, 10").
-void SetGtkFont(const std::string& font_name);
 
 // Sets the given label's size request to |pixel_width|. This will cause the
 // label to wrap if it needs to. The reason for this function is that some

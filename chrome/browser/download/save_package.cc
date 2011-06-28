@@ -15,11 +15,10 @@
 #include "base/string_piece.h"
 #include "base/string_split.h"
 #include "base/sys_string_conversions.h"
-#include "base/utf_string_conversions.h"
 #include "base/task.h"
 #include "base/threading/thread.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/download/download_history.h"
 #include "chrome/browser/download/download_item.h"
 #include "chrome/browser/download/download_item_model.h"
 #include "chrome/browser/download/download_manager.h"
@@ -36,9 +35,6 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tab_contents/tab_util.h"
 #include "chrome/common/chrome_paths.h"
-#include "chrome/common/net/url_request_context_getter.h"
-#include "chrome/common/notification_service.h"
-#include "chrome/common/notification_type.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/render_messages.h"
 #include "chrome/common/url_constants.h"
@@ -48,6 +44,8 @@
 #include "content/browser/renderer_host/render_view_host_delegate.h"
 #include "content/browser/renderer_host/resource_dispatcher_host.h"
 #include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/notification_service.h"
+#include "content/common/notification_type.h"
 #include "grit/generated_resources.h"
 #include "net/base/io_buffer.h"
 #include "net/base/mime_util.h"
@@ -55,6 +53,7 @@
 #include "net/url_request/url_request_context.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebPageSerializerClient.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "net/url_request/url_request_context_getter.h"
 
 using base::Time;
 using WebKit::WebPageSerializerClient;
@@ -314,10 +313,17 @@ bool SavePackage::Init() {
 
   request_context_getter_ = profile->GetRequestContext();
 
-  // Create the fake DownloadItem and add it to the download history.
-  CreateDownloadItem(saved_main_file_path_,
-                     page_url_,
-                     profile->IsOffTheRecord());
+  // Create the fake DownloadItem and display the view.
+  DownloadManager* download_manager =
+      tab_contents()->profile()->GetDownloadManager();
+  download_ = new DownloadItem(download_manager,
+                               saved_main_file_path_,
+                               page_url_,
+                               profile->IsOffTheRecord());
+
+  // Transfer the ownership to the download manager. We need the DownloadItem
+  // to be alive as long as the Profile is alive.
+  download_manager->SavePageAsDownloadStarted(download_);
 
   tab_contents()->OnStartDownload(download_);
 
@@ -344,41 +350,6 @@ bool SavePackage::Init() {
   }
 
   return true;
-}
-
-void SavePackage::OnDownloadEntryAdded(DownloadCreateInfo info,
-                                       int64 db_handle) {
-  DownloadManager* download_manager =
-      tab_contents()->profile()->GetDownloadManager();
-
-  download_manager->AddDownloadItemToHistory(download_, db_handle);
-}
-
-void SavePackage::CreateDownloadItem(const FilePath& path,
-                                     const GURL& url,
-                                     bool is_otr) {
-  DownloadManager* download_manager =
-      tab_contents()->profile()->GetDownloadManager();
-
-  download_ = new DownloadItem(download_manager, path, url, is_otr);
-
-  // Transfer the ownership to the download manager. We need the DownloadItem
-  // to be alive as long as the Profile is alive.
-  download_manager->SavePageAsDownloadStarted(download_);
-
-  // Copy over the fields used by the history service.
-  DownloadCreateInfo info(download_->full_path(),
-                          download_->url(),
-                          download_->start_time(),
-                          0, 0,
-                          download_->state(),
-                          download_->id(),
-                          false);
-
-  // Add entry to the history service.
-  DownloadHistory* download_history = download_manager->download_history();
-  download_history->AddEntry(info, download_,
-      NewCallback(this, &SavePackage::OnDownloadEntryAdded));
 }
 
 // On POSIX, the length of |pure_file_name| + |file_name_ext| is further
@@ -719,9 +690,6 @@ void SavePackage::Stop() {
 
   // Inform the DownloadItem we have canceled whole save page job.
   download_->Cancel(false);
-  DownloadManager* download_manager =
-      tab_contents()->profile()->GetDownloadManager();
-  download_manager->download_history()->UpdateEntry(download_);
 }
 
 void SavePackage::CheckFinish() {
@@ -776,15 +744,6 @@ void SavePackage::Finish() {
 
   download_->OnAllDataSaved(all_save_items_count_);
   download_->MarkAsComplete();
-
-  // Notify download observers that we are complete (the call
-  // to OnReadyToFinish() set the state to complete but did not notify).
-  download_->UpdateObservers();
-
-  // Update the download history.
-  DownloadManager* download_manager =
-      tab_contents()->profile()->GetDownloadManager();
-  download_manager->download_history()->UpdateEntry(download_);
 
   NotificationService::current()->Notify(
       NotificationType::SAVE_PACKAGE_SUCCESSFULLY_FINISHED,
@@ -1056,6 +1015,9 @@ void SavePackage::OnReceivedSerializedHtmlData(const GURL& frame_url,
   if (flag == WebPageSerializerClient::AllFramesAreFinished) {
     for (SaveUrlItemMap::iterator it = in_progress_items_.begin();
          it != in_progress_items_.end(); ++it) {
+      VLOG(20) << " " << __FUNCTION__ << "()"
+               << " save_id = " << it->second->save_id()
+               << " url = \"" << it->second->url().spec() << "\"";
       BrowserThread::PostTask(
           BrowserThread::FILE, FROM_HERE,
           NewRunnableMethod(file_manager_,
@@ -1091,6 +1053,9 @@ void SavePackage::OnReceivedSerializedHtmlData(const GURL& frame_url,
 
   // Current frame is completed saving, call finish in file thread.
   if (flag == WebPageSerializerClient::CurrentFrameIsFinished) {
+    VLOG(20) << " " << __FUNCTION__ << "()"
+             << " save_id = " << save_item->save_id()
+             << " url = \"" << save_item->url().spec() << "\"";
     BrowserThread::PostTask(
         BrowserThread::FILE, FROM_HERE,
         NewRunnableMethod(file_manager_,
@@ -1348,6 +1313,11 @@ void SavePackage::CreateDirectoryOnFileThread(
 
 void SavePackage::ContinueGetSaveInfo(const FilePath& suggested_path,
                                       bool can_save_as_complete) {
+  // The TabContents which owns this SavePackage may have disappeared during
+  // the UI->FILE->UI thread hop of
+  // GetSaveInfo->CreateDirectoryOnFileThread->ContinueGetSaveInfo.
+  if (!tab_contents())
+    return;
   DownloadPrefs* download_prefs =
       tab_contents()->profile()->GetDownloadManager()->download_prefs();
   int file_type_index =
@@ -1419,6 +1389,7 @@ void SavePackage::ContinueGetSaveInfo(const FilePath& suggested_path,
                                     &file_type_info,
                                     file_type_index,
                                     default_extension,
+                                    tab_contents(),
                                     platform_util::GetTopLevel(
                                         tab_contents()->GetNativeView()),
                                     NULL);

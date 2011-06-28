@@ -6,15 +6,15 @@
 #define CHROME_BROWSER_AUTOFILL_AUTOFILL_COMMON_TEST_H_
 #pragma once
 
-class AutoFillProfile;
+class AutofillProfile;
 class CreditCard;
 class Profile;
 
 namespace webkit_glue {
-class FormField;
+struct FormField;
 }  // namespace webkit_glue
 
-// Common utilities shared amongst AutoFill tests.
+// Common utilities shared amongst Autofill tests.
 namespace autofill_test {
 
 // Provides a quick way to populate a FormField with c-strings.
@@ -24,24 +24,24 @@ void CreateTestFormField(const char* label,
                          const char* type,
                          webkit_glue::FormField* field);
 
-// A unit testing utility that is common to a number of the AutoFill unit
+// A unit testing utility that is common to a number of the Autofill unit
 // tests.  |SetProfileInfo| provides a quick way to populate a profile with
 // c-strings.
-void SetProfileInfo(AutoFillProfile* profile,
+void SetProfileInfo(AutofillProfile* profile,
     const char* first_name, const char* middle_name,
     const char* last_name, const char* email, const char* company,
     const char* address1, const char* address2, const char* city,
     const char* state, const char* zipcode, const char* country,
     const char* phone, const char* fax);
 
-void SetProfileInfoWithGuid(AutoFillProfile* profile,
+void SetProfileInfoWithGuid(AutofillProfile* profile,
     const char* guid, const char* first_name, const char* middle_name,
     const char* last_name, const char* email, const char* company,
     const char* address1, const char* address2, const char* city,
     const char* state, const char* zipcode, const char* country,
     const char* phone, const char* fax);
 
-// A unit testing utility that is common to a number of the AutoFill unit
+// A unit testing utility that is common to a number of the Autofill unit
 // tests.  |SetCreditCardInfo| provides a quick way to populate a credit card
 // with c-strings.
 void SetCreditCardInfo(CreditCard* credit_card,

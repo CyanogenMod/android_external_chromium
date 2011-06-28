@@ -6,14 +6,15 @@
 #define CHROME_BROWSER_UI_WEBUI_APP_LAUNCHER_HANDLER_H_
 #pragma once
 
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/extensions/extension_install_ui.h"
+#include "chrome/browser/extensions/extension_uninstall_dialog.h"
 #include "chrome/browser/prefs/pref_change_registrar.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_constants.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
 #include "content/browser/webui/web_ui.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
 
 class ExtensionPrefs;
 class ExtensionService;
@@ -22,14 +23,14 @@ class PrefChangeRegistrar;
 class Profile;
 
 namespace gfx {
-  class Rect;
+class Rect;
 }
 
 // The handler for Javascript messages related to the "apps" view.
-class AppLauncherHandler
-    : public WebUIMessageHandler,
-      public ExtensionInstallUI::Delegate,
-      public NotificationObserver {
+class AppLauncherHandler : public WebUIMessageHandler,
+                           public ExtensionUninstallDialog::Delegate,
+                           public ExtensionInstallUI::Delegate,
+                           public NotificationObserver {
  public:
   explicit AppLauncherHandler(ExtensionService* extension_service);
   virtual ~AppLauncherHandler();
@@ -53,6 +54,9 @@ class AppLauncherHandler
 
   // Populate the given dictionary with all installed app info.
   void FillAppDictionary(DictionaryValue* value);
+
+  // Populate the given dictionary with the web store promo content.
+  void FillPromoDictionary(DictionaryValue* value);
 
   // Callback for the "getApps" message.
   void HandleGetApps(const ListValue* args);
@@ -78,6 +82,9 @@ class AppLauncherHandler
   // Callback for the "setPageIndex" message.
   void HandleSetPageIndex(const ListValue* args);
 
+  // Callback for the "promoSeen" message.
+  void HandlePromoSeen(const ListValue* args);
+
  private:
   // Records a web store launch in the appropriate histograms. |promo_active|
   // specifies if the web store promotion was active.
@@ -95,12 +102,19 @@ class AppLauncherHandler
                                    extension_misc::AppLaunchBucket bucket);
 
   // Prompts the user to re-enable the app for |extension_id|.
-  void PromptToEnableApp(std::string extension_id);
+  void PromptToEnableApp(const std::string& extension_id);
 
-  // ExtensionInstallUI::Delegate implementation, used for receiving
-  // notification about uninstall confirmation dialog selections.
+  // ExtensionUninstallDialog::Delegate:
+  virtual void ExtensionDialogAccepted();
+  virtual void ExtensionDialogCanceled();
+
+  // ExtensionInstallUI::Delegate:
   virtual void InstallUIProceed();
   virtual void InstallUIAbort();
+
+  // Returns the ExtensionUninstallDialog object for this class, creating it if
+  // needed.
+  ExtensionUninstallDialog* GetExtensionUninstallDialog();
 
   // Returns the ExtensionInstallUI object for this class, creating it if
   // needed.
@@ -119,15 +133,14 @@ class AppLauncherHandler
   // Monitor extension preference changes so that the Web UI can be notified.
   PrefChangeRegistrar pref_change_registrar_;
 
-  // Used to show confirmation UI for uninstalling/enabling extensions in
-  // incognito mode.
-  scoped_ptr<ExtensionInstallUI> install_ui_;
+  // Used to show confirmation UI for uninstalling extensions in incognito mode.
+  scoped_ptr<ExtensionUninstallDialog> extension_uninstall_dialog_;
+
+  // Used to show confirmation UI for enabling extensions in incognito mode.
+  scoped_ptr<ExtensionInstallUI> extension_install_ui_;
 
   // The id of the extension we are prompting the user about.
   std::string extension_id_prompting_;
-
-  // The type of prompt we are showing the user.
-  ExtensionInstallUI::PromptType extension_prompt_type_;
 
   // Whether the promo is currently being shown.
   bool promo_active_;

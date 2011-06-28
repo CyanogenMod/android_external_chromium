@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -75,6 +75,7 @@ void ChromeInvalidationClient::Start(
   ChangeBaseTask(base_task);
   registration_manager_.reset(
       new RegistrationManager(invalidation_client_.get()));
+  registration_manager_->SetRegisteredTypes(registered_types_);
 }
 
 void ChromeInvalidationClient::ChangeBaseTask(
@@ -105,8 +106,11 @@ void ChromeInvalidationClient::Stop() {
 void ChromeInvalidationClient::RegisterTypes(
     const syncable::ModelTypeSet& types) {
   DCHECK(non_thread_safe_.CalledOnValidThread());
-
-  registration_manager_->SetRegisteredTypes(types);
+  registered_types_ = types;
+  if (registration_manager_.get()) {
+    registration_manager_->SetRegisteredTypes(registered_types_);
+  }
+  // TODO(akalin): Clear invalidation versions for unregistered types.
 }
 
 void ChromeInvalidationClient::Invalidate(
@@ -116,28 +120,70 @@ void ChromeInvalidationClient::Invalidate(
   DCHECK(invalidation::IsCallbackRepeatable(callback));
   VLOG(1) << "Invalidate: " << InvalidationToString(invalidation);
   syncable::ModelType model_type;
-  if (ObjectIdToRealModelType(invalidation.object_id(), &model_type)) {
-    std::string payload;
-    // payload() CHECK()'s has_payload(), so we must check it ourselves first.
-    if (invalidation.has_payload())
-      payload = invalidation.payload();
-
-    listener_->OnInvalidate(model_type, payload);
-  } else {
+  if (!ObjectIdToRealModelType(invalidation.object_id(), &model_type)) {
     LOG(WARNING) << "Could not get invalidation model type; "
                  << "invalidating everything";
-    listener_->OnInvalidateAll();
+    EmitInvalidation(registered_types_, std::string());
+    RunAndDeleteClosure(callback);
+    return;
   }
+  // The invalidation API spec allows for the possibility of redundant
+  // invalidations, so keep track of the max versions and drop
+  // invalidations with old versions.
+  //
+  // TODO(akalin): Now that we keep track of registered types, we
+  // should drop invalidations for unregistered types.  We may also
+  // have to filter it at a higher level, as invalidations for
+  // newly-unregistered types may already be in flight.
+  //
+  // TODO(akalin): Persist |max_invalidation_versions_| somehow.
+  if (invalidation.version() != UNKNOWN_OBJECT_VERSION) {
+    std::map<syncable::ModelType, int64>::const_iterator it =
+        max_invalidation_versions_.find(model_type);
+    if ((it != max_invalidation_versions_.end()) &&
+        (invalidation.version() <= it->second)) {
+      // Drop redundant invalidations.
+      RunAndDeleteClosure(callback);
+      return;
+    }
+    max_invalidation_versions_[model_type] = invalidation.version();
+  }
+
+  std::string payload;
+  // payload() CHECK()'s has_payload(), so we must check it ourselves first.
+  if (invalidation.has_payload())
+    payload = invalidation.payload();
+
+  syncable::ModelTypeSet types;
+  types.insert(model_type);
+  EmitInvalidation(types, payload);
+  // TODO(akalin): We should really |callback| only after we get the
+  // updates from the sync server. (see http://crbug.com/78462).
   RunAndDeleteClosure(callback);
 }
 
+// This should behave as if we got an invalidation with version
+// UNKNOWN_OBJECT_VERSION for all known data types.
 void ChromeInvalidationClient::InvalidateAll(
     invalidation::Closure* callback) {
   DCHECK(non_thread_safe_.CalledOnValidThread());
   DCHECK(invalidation::IsCallbackRepeatable(callback));
   VLOG(1) << "InvalidateAll";
-  listener_->OnInvalidateAll();
+  EmitInvalidation(registered_types_, std::string());
+  // TODO(akalin): We should really |callback| only after we get the
+  // updates from the sync server. (see http://crbug.com/76482).
   RunAndDeleteClosure(callback);
+}
+
+void ChromeInvalidationClient::EmitInvalidation(
+    const syncable::ModelTypeSet& types, const std::string& payload) {
+  DCHECK(non_thread_safe_.CalledOnValidThread());
+  // TODO(akalin): Move all uses of ModelTypeBitSet for invalidations
+  // to ModelTypeSet.
+  syncable::ModelTypePayloadMap type_payloads =
+      syncable::ModelTypePayloadMapFromBitSet(
+          syncable::ModelTypeBitSetFromSet(types), payload);
+  listener_->OnInvalidate(type_payloads);
 }
 
 void ChromeInvalidationClient::RegistrationStateChanged(
@@ -159,9 +205,8 @@ void ChromeInvalidationClient::RegistrationStateChanged(
   }
 
   if (new_state != invalidation::RegistrationState_REGISTERED) {
-    // TODO(akalin): Figure out something else to do if the failure
-    // isn't transient.  Even if it is transient, we may still want to
-    // add exponential back-off or limit the number of attempts.
+    // We don't care about |unknown_hint|; we let
+    // |registration_manager_| handle the registration backoff policy.
     registration_manager_->MarkRegistrationLost(model_type);
   }
 }
@@ -175,19 +220,9 @@ void ChromeInvalidationClient::AllRegistrationsLost(
   RunAndDeleteClosure(callback);
 }
 
-void ChromeInvalidationClient::RegistrationLost(
-    const invalidation::ObjectId& object_id,
-    invalidation::Closure* callback) {
-  DCHECK(non_thread_safe_.CalledOnValidThread());
-  DCHECK(invalidation::IsCallbackRepeatable(callback));
-  VLOG(1) << "RegistrationLost: " << ObjectIdToString(object_id);
-  syncable::ModelType model_type;
-  if (ObjectIdToRealModelType(object_id, &model_type)) {
-    registration_manager_->MarkRegistrationLost(model_type);
-  } else {
-    LOG(WARNING) << "Could not get object id model type; ignoring";
-  }
-  RunAndDeleteClosure(callback);
+void ChromeInvalidationClient::SessionStatusChanged(bool has_session) {
+  VLOG(1) << "SessionStatusChanged: " << has_session;
+  listener_->OnSessionStatusChanged(has_session);
 }
 
 void ChromeInvalidationClient::WriteState(const std::string& state) {

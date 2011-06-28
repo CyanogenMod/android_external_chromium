@@ -1,15 +1,15 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/utility_process_host.h"
-#include "chrome/common/indexed_db_key.h"
-#include "chrome/common/serialized_script_value.h"
 #include "chrome/test/in_process_browser_test.h"
 #include "chrome/test/ui_test_utils.h"
 #include "content/browser/renderer_host/resource_dispatcher_host.h"
+#include "content/common/indexed_db_key.h"
+#include "content/common/serialized_script_value.h"
 #include "googleurl/src/gurl.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebSerializedScriptValue.h"
@@ -67,18 +67,16 @@ class IDBKeyPathHelper : public UtilityProcessHost::Client {
         value_for_key_path_failed_(false) {
   }
 
-  void CreateUtilityProcess(ResourceDispatcherHost* resource_dispatcher_host) {
+  void CreateUtilityProcess() {
     if (!BrowserThread::CurrentlyOn(BrowserThread::IO)) {
       BrowserThread::PostTask(
           BrowserThread::IO, FROM_HERE,
-          NewRunnableMethod(this, &IDBKeyPathHelper::CreateUtilityProcess,
-                            resource_dispatcher_host));
+          NewRunnableMethod(this, &IDBKeyPathHelper::CreateUtilityProcess));
       return;
     }
     DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
     utility_process_host_ =
-        new UtilityProcessHost(resource_dispatcher_host, this,
-                               BrowserThread::IO);
+        new UtilityProcessHost(this, BrowserThread::IO);
     utility_process_host_->StartBatchMode();
     BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
                             new MessageLoop::QuitTask());
@@ -193,8 +191,7 @@ class ScopedIDBKeyPathHelper {
  public:
   ScopedIDBKeyPathHelper() {
     key_path_helper_ = new IDBKeyPathHelper();
-    key_path_helper_->CreateUtilityProcess(
-        g_browser_process->resource_dispatcher_host());
+    key_path_helper_->CreateUtilityProcess();
     ui_test_utils::RunMessageLoop();
   }
 

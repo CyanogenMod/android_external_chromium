@@ -6,7 +6,7 @@
 
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/ui/gtk/gtk_chrome_link_button.h"
-#include "chrome/browser/ui/gtk/gtk_theme_provider.h"
+#include "chrome/browser/ui/gtk/gtk_theme_service.h"
 #include "chrome/browser/ui/gtk/gtk_util.h"
 #include "chrome/browser/ui/gtk/info_bubble_gtk.h"
 #include "chrome/browser/ui/gtk/owned_widget_gtk.h"
@@ -49,7 +49,7 @@ class SpeechInputBubbleGtk
   virtual void Show();
   virtual void Hide();
   virtual void UpdateLayout();
-  virtual void SetImage(const SkBitmap& image);
+  virtual void UpdateImage();
 
   CHROMEGTK_CALLBACK_0(SpeechInputBubbleGtk, void, OnCancelClicked);
   CHROMEGTK_CALLBACK_0(SpeechInputBubbleGtk, void, OnTryAgainClicked);
@@ -61,8 +61,10 @@ class SpeechInputBubbleGtk
   bool did_invoke_close_;
 
   GtkWidget* label_;
+  GtkWidget* cancel_button_;
   GtkWidget* try_again_button_;
   GtkWidget* icon_;
+  GtkWidget* icon_container_;
   GtkWidget* mic_settings_;
 
   DISALLOW_COPY_AND_ASSIGN(SpeechInputBubbleGtk);
@@ -77,8 +79,10 @@ SpeechInputBubbleGtk::SpeechInputBubbleGtk(TabContents* tab_contents,
       element_rect_(element_rect),
       did_invoke_close_(false),
       label_(NULL),
+      cancel_button_(NULL),
       try_again_button_(NULL),
       icon_(NULL),
+      icon_container_(NULL),
       mic_settings_(NULL) {
 }
 
@@ -120,12 +124,10 @@ void SpeechInputBubbleGtk::Show() {
   GtkWidget* vbox = gtk_vbox_new(FALSE, 0);
 
   // The icon with a some padding on the left and right.
-  GtkWidget* icon_container = gtk_alignment_new(0, 0, 0, 0);
-  gtk_alignment_set_padding(GTK_ALIGNMENT(icon_container), 0, 0,
-                            kIconHorizontalPadding, kIconHorizontalPadding);
+  icon_container_ = gtk_alignment_new(0, 0, 0, 0);
   icon_ = gtk_image_new();
-  gtk_container_add(GTK_CONTAINER(icon_container), icon_);
-  gtk_box_pack_start(GTK_BOX(vbox), icon_container, FALSE, FALSE,
+  gtk_container_add(GTK_CONTAINER(icon_container_), icon_);
+  gtk_box_pack_start(GTK_BOX(vbox), icon_container_, FALSE, FALSE,
                      kBubbleControlVerticalSpacing);
 
   label_ = gtk_label_new(NULL);
@@ -146,10 +148,10 @@ void SpeechInputBubbleGtk::Show() {
   gtk_box_pack_start(GTK_BOX(vbox), button_bar, FALSE, FALSE,
                      kBubbleControlVerticalSpacing);
 
-  GtkWidget* cancel_button = gtk_button_new_with_label(
+  cancel_button_ = gtk_button_new_with_label(
       l10n_util::GetStringUTF8(IDS_CANCEL).c_str());
-  gtk_box_pack_start(GTK_BOX(button_bar), cancel_button, TRUE, FALSE, 0);
-  g_signal_connect(cancel_button, "clicked",
+  gtk_box_pack_start(GTK_BOX(button_bar), cancel_button_, TRUE, FALSE, 0);
+  g_signal_connect(cancel_button_, "clicked",
                    G_CALLBACK(&OnCancelClickedThunk), this);
 
   try_again_button_ = gtk_button_new_with_label(
@@ -164,7 +166,7 @@ void SpeechInputBubbleGtk::Show() {
       kBubbleControlHorizontalSpacing, kBubbleControlHorizontalSpacing);
   gtk_container_add(GTK_CONTAINER(content), vbox);
 
-  GtkThemeProvider* theme_provider = GtkThemeProvider::GetFrom(
+  GtkThemeService* theme_provider = GtkThemeService::GetFrom(
       tab_contents()->profile());
   gfx::Rect rect(
       element_rect_.x() + element_rect_.width() - kBubbleTargetOffsetX,
@@ -203,26 +205,53 @@ void SpeechInputBubbleGtk::UpdateLayout() {
   } else {
     // Heading text, icon and cancel button are visible, hide the Try Again
     // button.
+    gtk_label_set_text(GTK_LABEL(label_),
+        l10n_util::GetStringUTF8(IDS_SPEECH_INPUT_BUBBLE_HEADING).c_str());
     if (display_mode() == DISPLAY_MODE_RECORDING) {
-      gtk_label_set_text(GTK_LABEL(label_),
-          l10n_util::GetStringUTF8(IDS_SPEECH_INPUT_BUBBLE_HEADING).c_str());
-      SkBitmap* image = ResourceBundle::GetSharedInstance().GetBitmapNamed(
-          IDR_SPEECH_INPUT_MIC_EMPTY);
-      GdkPixbuf* pixbuf = gfx::GdkPixbufFromSkBitmap(image);
-      gtk_image_set_from_pixbuf(GTK_IMAGE(icon_), pixbuf);
-      g_object_unref(pixbuf);
       gtk_widget_show(label_);
     } else {
       gtk_widget_hide(label_);
     }
+    UpdateImage();
     gtk_widget_show(icon_);
     gtk_widget_hide(try_again_button_);
     if (mic_settings_)
       gtk_widget_hide(mic_settings_);
+    if (display_mode() == DISPLAY_MODE_WARM_UP) {
+      gtk_widget_hide(cancel_button_);
+
+      // The text label and cancel button are hidden in this mode, but we want
+      // the popup to appear the same size as it would once recording starts,
+      // so as to reduce UI jank when recording starts. So we calculate the
+      // difference in size between the two sets of controls and add that as
+      // padding around the icon here.
+      GtkRequisition cancel_size;
+      gtk_widget_get_child_requisition(cancel_button_, &cancel_size);
+      GtkRequisition label_size;
+      gtk_widget_get_child_requisition(label_, &label_size);
+      SkBitmap* volume = ResourceBundle::GetSharedInstance().GetBitmapNamed(
+          IDR_SPEECH_INPUT_MIC_EMPTY);
+      int desired_width = std::max(volume->width(), cancel_size.width) +
+                          kIconHorizontalPadding * 2;
+      int desired_height = volume->height() + label_size.height +
+                           cancel_size.height +
+                           kBubbleControlVerticalSpacing * 2;
+      int diff_width = desired_width - icon_image().width();
+      int diff_height = desired_height - icon_image().height();
+      gtk_alignment_set_padding(GTK_ALIGNMENT(icon_container_),
+                                diff_height / 2, diff_height - diff_height / 2,
+                                diff_width / 2, diff_width - diff_width / 2);
+    } else {
+      // Reset the padding done above.
+      gtk_alignment_set_padding(GTK_ALIGNMENT(icon_container_), 0, 0,
+                                kIconHorizontalPadding, kIconHorizontalPadding);
+      gtk_widget_show(cancel_button_);
+    }
   }
 }
 
-void SpeechInputBubbleGtk::SetImage(const SkBitmap& image) {
+void SpeechInputBubbleGtk::UpdateImage() {
+  SkBitmap image = icon_image();
   if (image.isNull() || !info_bubble_)
     return;
 

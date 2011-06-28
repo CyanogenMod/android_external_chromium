@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,7 @@
 #include <nspr.h>
 #include <nss.h>
 
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "net/base/completion_callback.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/net_log.h"
@@ -32,7 +32,7 @@ class SSLServerSocketNSS : public SSLServerSocket {
   // |key| - The private key used by the server.
   SSLServerSocketNSS(Socket* transport_socket,
                      scoped_refptr<X509Certificate> cert,
-                     base::RSAPrivateKey* key,
+                     crypto::RSAPrivateKey* key,
                      const SSLConfig& ssl_config);
   virtual ~SSLServerSocketNSS();
 
@@ -121,7 +121,7 @@ class SSLServerSocketNSS : public SSLServerSocket {
   scoped_refptr<X509Certificate> cert_;
 
   // Private key used by the server.
-  scoped_ptr<base::RSAPrivateKey> key_;
+  scoped_ptr<crypto::RSAPrivateKey> key_;
 
   State next_handshake_state_;
   bool completed_handshake_;

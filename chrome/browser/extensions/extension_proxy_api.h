@@ -1,20 +1,39 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+// Defines the Chrome Extensions Proxy Settings API relevant classes to realize
+// the API as specified in chrome/common/extensions/api/extension_api.json.
 
 #ifndef CHROME_BROWSER_EXTENSIONS_EXTENSION_PROXY_API_H_
 #define CHROME_BROWSER_EXTENSIONS_EXTENSION_PROXY_API_H_
 
 #include <string>
 
-#include "base/singleton.h"
-#include "chrome/browser/extensions/extension_function.h"
+#include "base/memory/singleton.h"
 #include "chrome/browser/extensions/extension_preference_api.h"
+#include "chrome/browser/prefs/proxy_prefs.h"
 #include "chrome/browser/profiles/profile.h"
-#include "net/proxy/proxy_config.h"
 
-class DictionaryValue;
+class Value;
 class ExtensionEventRouterForwarder;
+
+// Class to convert between the representation of proxy settings used
+// in the Proxy Settings API and the representation used in the PrefStores.
+// This plugs into the ExtensionPreferenceAPI to get and set proxy settings.
+class ProxyPrefTransformer : public PrefTransformerInterface {
+ public:
+  ProxyPrefTransformer();
+  virtual ~ProxyPrefTransformer();
+
+  // Implementation of PrefTransformerInterface.
+  virtual Value* ExtensionToBrowserPref(const Value* extension_pref,
+                                        std::string* error) OVERRIDE;
+  virtual Value* BrowserToExtensionPref(const Value* browser_pref) OVERRIDE;
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(ProxyPrefTransformer);
+};
 
 // This class observes proxy error events and routes them to the appropriate
 // extensions listening to those events. All methods must be called on the IO
@@ -34,54 +53,6 @@ class ExtensionProxyEventRouter {
   ~ExtensionProxyEventRouter();
 
   DISALLOW_COPY_AND_ASSIGN(ExtensionProxyEventRouter);
-};
-
-class SetProxySettingsFunction : public SetPreferenceFunction {
- public:
-  virtual ~SetProxySettingsFunction() {}
-  virtual bool RunImpl();
-
-  DECLARE_EXTENSION_FUNCTION_NAME("experimental.proxy.set")
- private:
-  // Converts a proxy "rules" element passed by the API caller into a proxy
-  // configuration string that can be used by the proxy subsystem (see
-  // proxy_config.h). Returns true if successful and sets |error_| otherwise.
-  bool GetProxyRules(DictionaryValue* proxy_rules, std::string* out);
-
-  // Converts a proxy server description |dict| as passed by the API caller
-  // (e.g. for the http proxy in the rules element) and converts it to a
-  // ProxyServer. Returns true if successful and sets |error_| otherwise.
-  bool GetProxyServer(const DictionaryValue* dict,
-                      net::ProxyServer::Scheme default_scheme,
-                      net::ProxyServer* proxy_server);
-
-  // Joins a list of URLs (stored as StringValues) with |joiner| to |out|.
-  // Returns true if successful and sets |error_| otherwise.
-  bool JoinUrlList(ListValue* list,
-                   const std::string& joiner,
-                   std::string* out);
-
-  // Creates a string of the "bypassList" entries of a ProxyRules object (see
-  // API documentation) by joining the elements with commas.
-  // Returns true if successful (i.e. string could be delivered or no
-  // "bypassList" exists in the |proxy_rules|) and sets |error_| otherwise.
-  bool GetBypassList(DictionaryValue* proxy_rules, std::string* out);
-};
-
-class GetProxySettingsFunction : public GetPreferenceFunction {
- public:
-  virtual ~GetProxySettingsFunction() {}
-  virtual bool RunImpl();
-
-  DECLARE_EXTENSION_FUNCTION_NAME("experimental.proxy.get")
- private:
-  // Convert the representation of a proxy configuration from the format
-  // that is stored in the pref stores to the format that is used by the API.
-  // See ProxyServer type defined in |experimental.proxy|.
-  bool ConvertToApiFormat(const DictionaryValue* proxy_prefs,
-                          DictionaryValue* api_proxy_config);
-  bool ParseRules(const std::string& rules, DictionaryValue* out) const;
-  DictionaryValue* ConvertToDictionary(const net::ProxyServer& proxy) const;
 };
 
 #endif  // CHROME_BROWSER_EXTENSIONS_EXTENSION_PROXY_API_H_

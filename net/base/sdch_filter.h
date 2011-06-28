@@ -17,7 +17,7 @@
 
 #include <string>
 
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "net/base/filter.h"
 #include "net/base/sdch_manager.h"
 
@@ -29,8 +29,6 @@ namespace net {
 
 class SdchFilter : public Filter {
  public:
-  explicit SdchFilter(const FilterContext& filter_context);
-
   virtual ~SdchFilter();
 
   // Initializes filter decoding mode and internal control blocks.
@@ -55,12 +53,19 @@ class SdchFilter : public Filter {
     PASS_THROUGH,  // Non-sdch content being passed without alteration.
   };
 
+  // Only to be instantiated by Filter::Factory.
+  explicit SdchFilter(const FilterContext& filter_context);
+  friend class Filter;
+
   // Identify the suggested dictionary, and initialize underlying decompressor.
   Filter::FilterStatus InitializeDictionary();
 
   // Move data that was internally buffered (after decompression) to the
   // specified dest_buffer.
   int OutputBufferExcess(char* const dest_buffer, size_t available_space);
+
+  // Context data from the owner of this filter.
+  const FilterContext& filter_context_;
 
   // Tracks the status of decoding.
   // This variable is initialized by InitDecoding and updated only by

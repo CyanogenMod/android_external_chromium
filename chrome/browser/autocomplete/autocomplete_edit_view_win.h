@@ -13,13 +13,13 @@
 #include <atlmisc.h>
 #include <tom.h>  // For ITextDocument, a COM interface to CRichEditCtrl.
 
-#include "base/scoped_comptr_win.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
+#include "base/win/scoped_comptr.h"
 #include "chrome/browser/autocomplete/autocomplete.h"
 #include "chrome/browser/autocomplete/autocomplete_edit_view.h"
 #include "chrome/browser/ui/toolbar/toolbar_model.h"
 #include "chrome/browser/ui/views/autocomplete/autocomplete_popup_contents_view.h"
-#include "chrome/common/page_transition_types.h"
+#include "content/common/page_transition_types.h"
 #include "ui/base/models/simple_menu_model.h"
 #include "ui/gfx/font.h"
 #include "views/controls/menu/menu_2.h"
@@ -134,7 +134,8 @@ class AutocompleteEditViewWin
   virtual bool OnAfterPossibleChange();
   virtual gfx::NativeView GetNativeView() const;
   virtual CommandUpdater* GetCommandUpdater();
-  virtual void SetInstantSuggestion(const string16& suggestion);
+  virtual void SetInstantSuggestion(const string16& suggestion,
+                                    bool animate_to_complete);
   virtual int TextWidth() const;
   virtual string16 GetInstantSuggestion() const;
   virtual bool IsImeComposing() const;
@@ -168,7 +169,7 @@ class AutocompleteEditViewWin
 
   // Called before an accelerator is processed to give us a chance to override
   // it.
-  bool SkipDefaultKeyEventProcessing(const views::KeyEvent& e);
+  bool SkipDefaultKeyEventProcessing(const views::KeyEvent& event);
 
   // Handler for external events passed in to us.  The View that owns us may
   // send us events that we should treat as if they were events on us.
@@ -538,7 +539,7 @@ class AutocompleteEditViewWin
   url_parse::Component insecure_scheme_component_;
 
   // Instance of accessibility information and handling.
-  mutable ScopedComPtr<IAccessible> autocomplete_accessibility_;
+  mutable base::win::ScopedComPtr<IAccessible> autocomplete_accessibility_;
 
   DISALLOW_COPY_AND_ASSIGN(AutocompleteEditViewWin);
 };

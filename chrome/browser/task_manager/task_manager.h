@@ -13,10 +13,10 @@
 
 #include "base/basictypes.h"
 #include "base/gtest_prod_util.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/singleton.h"
 #include "base/observer_list.h"
 #include "base/process_util.h"
-#include "base/ref_counted.h"
-#include "base/singleton.h"
 #include "base/string16.h"
 #include "base/timer.h"
 #include "chrome/browser/renderer_host/web_cache_manager.h"
@@ -25,7 +25,7 @@
 
 class Extension;
 class SkBitmap;
-class TabContents;
+class TabContentsWrapper;
 class TaskManagerModel;
 
 namespace base {
@@ -80,7 +80,7 @@ class TaskManager {
 
     // A helper function for ActivateFocusedTab.  Returns NULL by default
     // because not all resources have an associated tab.
-    virtual TabContents* GetTabContents() const { return NULL; }
+    virtual TabContentsWrapper* GetTabContents() const { return NULL; }
 
     // Whether this resource does report the network usage accurately.
     // This controls whether 0 or N/A is displayed when no bytes have been
@@ -146,9 +146,6 @@ class TaskManager {
   // Activates the browser tab associated with the process in the specified
   // index.
   void ActivateProcess(int index);
-
-  void AddResourceProvider(ResourceProvider* provider);
-  void RemoveResourceProvider(ResourceProvider* provider);
 
   // These methods are invoked by the resource providers to add/remove resources
   // to the Task Manager. Note that the resources are owned by the
@@ -290,7 +287,7 @@ class TaskManagerModel : public net::URLRequestJobTracker::JobObserver,
   TaskManager::Resource::Type GetResourceType(int index) const;
 
   // Returns TabContents of given resource or NULL if not applicable.
-  TabContents* GetResourceTabContents(int index) const;
+  TabContentsWrapper* GetResourceTabContents(int index) const;
 
   // Returns Extension of given resource or NULL if not applicable.
   const Extension* GetResourceExtension(int index) const;
@@ -306,9 +303,6 @@ class TaskManagerModel : public net::URLRequestJobTracker::JobObserver,
   virtual void OnBytesRead(net::URLRequestJob* job,
                            const char* buf,
                            int byte_count);
-
-  void AddResourceProvider(TaskManager::ResourceProvider* provider);
-  void RemoveResourceProvider(TaskManager::ResourceProvider* provider);
 
   void AddResource(TaskManager::Resource* resource);
   void RemoveResource(TaskManager::Resource* resource);
@@ -413,6 +407,9 @@ class TaskManagerModel : public net::URLRequestJobTracker::JobObserver,
   // |memory_usage_map_|.
   bool GetAndCacheMemoryMetrics(base::ProcessHandle handle,
                                 std::pair<size_t, size_t>* usage) const;
+
+  // Adds a resource provider to be managed.
+  void AddResourceProvider(TaskManager::ResourceProvider* provider);
 
   // The list of providers to the task manager. They are ref counted.
   ResourceProviderList providers_;

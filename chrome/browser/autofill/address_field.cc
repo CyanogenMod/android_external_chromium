@@ -4,8 +4,10 @@
 
 #include "chrome/browser/autofill/address_field.h"
 
+#include <stddef.h>
+
 #include "base/logging.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/string16.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
@@ -24,7 +26,7 @@ bool AddressField::GetFieldInfo(FieldTypeMap* field_type_map) const {
 
   switch (type_) {
     case kShippingAddress:
-     // Fall through. AutoFill does not support shipping addresses.
+     // Fall through. Autofill does not support shipping addresses.
     case kGenericAddress:
       address_company = COMPANY_NAME;
       address_line1 = ADDRESS_HOME_LINE1;
@@ -148,8 +150,12 @@ AddressType AddressField::FindType() const {
   // "bill" or "ship".  We could check for the ECML type prefixes
   // here, but there's no need to since ECML's prefixes Ecom_BillTo
   // and Ecom_ShipTo contain "bill" and "ship" anyway.
-  string16 name = StringToLowerASCII(address1_->name());
+  string16 name = StringToLowerASCII(address1_->name);
   return AddressTypeFromText(name);
+}
+
+bool AddressField::IsFullAddress() {
+  return address1_ != NULL;
 }
 
 AddressField::AddressField()
@@ -294,7 +300,7 @@ bool AddressField::ParseZipCode(
   }
 
   AddressType tempType;
-  string16 name = (**iter)->name();
+  string16 name = (**iter)->name;
 
   // Note: comparisons using the ecml compliant name as a prefix must be used in
   // order to accommodate Google Checkout. See FormFieldSet::GetEcmlPattern for

@@ -6,7 +6,7 @@
 #define CHROME_BROWSER_CHROMEOS_STATUS_WINDOW_SWITCHER_BUTTON_H_
 #pragma once
 
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/chromeos/status/status_area_button.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "content/common/notification_observer.h"
@@ -37,8 +37,6 @@ class WindowSwitcherButton : public StatusAreaButton,
 
   // views::ViewMenuDelegate implementation.
   virtual void RunMenu(views::View* source, const gfx::Point& pt);
-
-  StatusAreaHost* host_;
 
   DISALLOW_COPY_AND_ASSIGN(WindowSwitcherButton);
 };

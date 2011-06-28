@@ -15,18 +15,6 @@
 #include "grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 
-namespace {
-
-// TODO(xiyuan): Remove this function when strings are updated.
-// Remove "&" in button label for WebUI.
-string16 CleanButtonLabel(const string16& text) {
-  string16 out(text);
-  ReplaceFirstSubstringAfterOffset(&out, 0, ASCIIToUTF16("&"), string16());
-  return out;
-}
-
-}  // namespace
-
 CookiesViewHandler::CookiesViewHandler() : batch_update_(false) {
 }
 
@@ -68,18 +56,13 @@ void CookiesViewHandler::GetLocalizedValues(
     { "cookie_indexed_db", IDS_COOKIES_INDEXED_DB },
     { "cookie_local_storage", IDS_COOKIES_LOCAL_STORAGE },
     { "cookie_session_storage", IDS_COOKIES_SESSION_STORAGE },
+    { "remove_cookie", IDS_COOKIES_REMOVE_LABEL },
+    { "remove_all_cookie", IDS_COOKIES_REMOVE_ALL_LABEL },
   };
 
   RegisterStrings(localized_strings, resources, arraysize(resources));
   RegisterTitle(localized_strings, "cookiesViewPage",
                 IDS_COOKIES_WEBSITE_PERMISSIONS_WINDOW_TITLE);
-
-  // TODO(mdm): add these to the array above when we can get rid of
-  // the calls to CleanButtonLabel().
-  localized_strings->SetString("remove_cookie", CleanButtonLabel(
-      l10n_util::GetStringUTF16(IDS_COOKIES_REMOVE_LABEL)));
-  localized_strings->SetString("remove_all_cookie", CleanButtonLabel(
-      l10n_util::GetStringUTF16(IDS_COOKIES_REMOVE_ALL_LABEL)));
 }
 
 void CookiesViewHandler::RegisterMessages() {
@@ -114,7 +97,7 @@ void CookiesViewHandler::TreeNodesAdded(ui::TreeModel* model,
           cookies_tree_model_util::GetTreeNodeId(parent_node)));
   args.Append(Value::CreateIntegerValue(start));
   args.Append(children);
-  web_ui_->CallJavascriptFunction(L"CookiesView.onTreeItemAdded", args);
+  web_ui_->CallJavascriptFunction("CookiesView.onTreeItemAdded", args);
 }
 
 void CookiesViewHandler::TreeNodesRemoved(ui::TreeModel* model,
@@ -132,7 +115,7 @@ void CookiesViewHandler::TreeNodesRemoved(ui::TreeModel* model,
           cookies_tree_model_->AsNode(parent))));
   args.Append(Value::CreateIntegerValue(start));
   args.Append(Value::CreateIntegerValue(count));
-  web_ui_->CallJavascriptFunction(L"CookiesView.onTreeItemRemoved", args);
+  web_ui_->CallJavascriptFunction("CookiesView.onTreeItemRemoved", args);
 }
 
 void CookiesViewHandler::TreeModelBeginBatch(CookiesTreeModel* model) {
@@ -147,28 +130,35 @@ void CookiesViewHandler::TreeModelEndBatch(CookiesTreeModel* model) {
   SendChildren(cookies_tree_model_->GetRoot());
 }
 
+void CookiesViewHandler::EnsureCookiesTreeModelCreated() {
+  if (!cookies_tree_model_.get()) {
+    Profile* profile = web_ui_->GetProfile();
+    cookies_tree_model_.reset(new CookiesTreeModel(
+        profile->GetRequestContext()->DONTUSEME_GetCookieStore()->
+            GetCookieMonster(),
+        new BrowsingDataDatabaseHelper(profile),
+        new BrowsingDataLocalStorageHelper(profile),
+        NULL,
+        new BrowsingDataAppCacheHelper(profile),
+        BrowsingDataIndexedDBHelper::Create(profile),
+        false));
+    cookies_tree_model_->AddCookiesTreeObserver(this);
+  }
+}
+
 void CookiesViewHandler::UpdateSearchResults(const ListValue* args) {
   std::string query;
   if (!args->GetString(0, &query)){
     return;
   }
 
-  if (!cookies_tree_model_.get()) {
-    Profile* profile = web_ui_->GetProfile();
-    cookies_tree_model_.reset(new CookiesTreeModel(
-        profile->GetRequestContext()->GetCookieStore()->GetCookieMonster(),
-        new BrowsingDataDatabaseHelper(profile),
-        new BrowsingDataLocalStorageHelper(profile),
-        NULL,
-        new BrowsingDataAppCacheHelper(profile),
-        BrowsingDataIndexedDBHelper::Create(profile)));
-    cookies_tree_model_->AddCookiesTreeObserver(this);
-  }
+  EnsureCookiesTreeModelCreated();
 
   cookies_tree_model_->UpdateSearchResults(UTF8ToWide(query));
 }
 
 void CookiesViewHandler::RemoveAll(const ListValue* args) {
+  EnsureCookiesTreeModelCreated();
   cookies_tree_model_->DeleteAllStoredObjects();
 }
 
@@ -177,6 +167,8 @@ void CookiesViewHandler::Remove(const ListValue* args) {
   if (!args->GetString(0, &node_path)){
     return;
   }
+
+  EnsureCookiesTreeModelCreated();
 
   CookieTreeNode* node = cookies_tree_model_util::GetTreeNodeFromPath(
       cookies_tree_model_->GetRoot(), node_path);
@@ -190,6 +182,8 @@ void CookiesViewHandler::LoadChildren(const ListValue* args) {
     return;
   }
 
+  EnsureCookiesTreeModelCreated();
+
   CookieTreeNode* node = cookies_tree_model_util::GetTreeNodeFromPath(
       cookies_tree_model_->GetRoot(), node_path);
   if (node)
@@ -198,7 +192,7 @@ void CookiesViewHandler::LoadChildren(const ListValue* args) {
 
 void CookiesViewHandler::SendChildren(CookieTreeNode* parent) {
   ListValue* children = new ListValue;
-  cookies_tree_model_util::GetChildNodeList(parent, 0, parent->GetChildCount(),
+  cookies_tree_model_util::GetChildNodeList(parent, 0, parent->child_count(),
       children);
 
   ListValue args;
@@ -207,5 +201,5 @@ void CookiesViewHandler::SendChildren(CookieTreeNode* parent) {
       Value::CreateStringValue(cookies_tree_model_util::GetTreeNodeId(parent)));
   args.Append(children);
 
-  web_ui_->CallJavascriptFunction(L"CookiesView.loadChildren", args);
+  web_ui_->CallJavascriptFunction("CookiesView.loadChildren", args);
 }

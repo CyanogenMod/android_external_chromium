@@ -9,10 +9,11 @@
 #include <queue>
 #include <string>
 
+#include "base/base_api.h"
 #include "base/basictypes.h"
+#include "base/memory/ref_counted.h"
 #include "base/message_pump.h"
 #include "base/observer_list.h"
-#include "base/ref_counted.h"
 #include "base/synchronization/lock.h"
 #include "base/task.h"
 
@@ -65,7 +66,7 @@ class Histogram;
 // Please be SURE your task is reentrant (nestable) and all global variables
 // are stable and accessible before calling SetNestableTasksAllowed(true).
 //
-class MessageLoop : public base::MessagePump::Delegate {
+class BASE_API MessageLoop : public base::MessagePump::Delegate {
  public:
 #if defined(OS_WIN)
   typedef base::MessagePumpWin::Dispatcher Dispatcher;
@@ -117,7 +118,7 @@ class MessageLoop : public base::MessagePump::Delegate {
   // NOTE: Any tasks posted to the MessageLoop during this notification will
   // not be run.  Instead, they will be deleted.
   //
-  class DestructionObserver {
+  class BASE_API DestructionObserver {
    public:
     virtual void WillDestroyCurrentMessageLoop() = 0;
 
@@ -283,7 +284,7 @@ class MessageLoop : public base::MessagePump::Delegate {
   // MessageLoop.
   //
   // NOTE: A TaskObserver implementation should be extremely fast!
-  class TaskObserver {
+  class BASE_API TaskObserver {
    public:
     TaskObserver();
 
@@ -318,6 +319,16 @@ class MessageLoop : public base::MessagePump::Delegate {
 
   // Asserts that the MessageLoop is "idle".
   void AssertIdle() const;
+
+#if defined(OS_WIN)
+  void set_os_modal_loop(bool os_modal_loop) {
+    os_modal_loop_ = os_modal_loop;
+  }
+
+  bool os_modal_loop() const {
+    return os_modal_loop_;
+  }
+#endif  // OS_WIN
 
   //----------------------------------------------------------------------------
  protected:
@@ -462,7 +473,7 @@ class MessageLoop : public base::MessagePump::Delegate {
 
   std::string thread_name_;
   // A profiling histogram showing the counts of various messages and events.
-  scoped_refptr<base::Histogram> message_histogram_;
+  base::Histogram* message_histogram_;
 
   // A null terminated list which creates an incoming_queue of tasks that are
   // acquired under a mutex for processing on this instance's thread. These
@@ -476,6 +487,9 @@ class MessageLoop : public base::MessagePump::Delegate {
 
 #if defined(OS_WIN)
   base::TimeTicks high_resolution_timer_expiration_;
+  // Should be set to true before calling Windows APIs like TrackPopupMenu, etc
+  // which enter a modal message loop.
+  bool os_modal_loop_;
 #endif
 
   // The next sequence number to use for delayed tasks.
@@ -483,6 +497,7 @@ class MessageLoop : public base::MessagePump::Delegate {
 
   ObserverList<TaskObserver> task_observers_;
 
+ private:
   DISALLOW_COPY_AND_ASSIGN(MessageLoop);
 };
 
@@ -493,7 +508,7 @@ class MessageLoop : public base::MessagePump::Delegate {
 // This class is typically used like so:
 //   MessageLoopForUI::current()->...call some method...
 //
-class MessageLoopForUI : public MessageLoop {
+class BASE_API MessageLoopForUI : public MessageLoop {
  public:
   MessageLoopForUI() : MessageLoop(TYPE_UI) {
   }
@@ -549,7 +564,7 @@ COMPILE_ASSERT(sizeof(MessageLoop) == sizeof(MessageLoopForUI),
 // This class is typically used like so:
 //   MessageLoopForIO::current()->...call some method...
 //
-class MessageLoopForIO : public MessageLoop {
+class BASE_API MessageLoopForIO : public MessageLoop {
  public:
 #if defined(OS_WIN)
   typedef base::MessagePumpForIO::IOHandler IOHandler;

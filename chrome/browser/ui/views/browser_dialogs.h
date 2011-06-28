@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@
 
 #include <string>
 
-#include "chrome/common/content_settings_types.h"
 #include "ui/gfx/native_widget_types.h"
 
 // This file contains functions for running a variety of browser dialogs and
@@ -18,54 +17,37 @@
 // TODO: Make as many of these methods as possible cross platform, and move them
 // into chrome/browser/ui/browser_dialogs.h.
 
-class Browser;
 class BrowserView;
 class EditSearchEngineControllerDelegate;
 class Extension;
-class FilePath;
 class FindBar;
 class GURL;
-class InfoBubbleDelegate;
+class BubbleDelegate;
 class Profile;
 class TabContents;
+class TabContentsWrapper;
 class TemplateURL;
 
 namespace gfx {
 class Rect;
 class Size;
-}  // namespace gfx
+}
 
 namespace views {
-class Widget;
 class Window;
-}  // namespace views
+}
 
 namespace browser {
-
-// Shows the "Report a problem with this page" dialog box. See BugReportView.
-void ShowBugReportView(views::Window* parent,
-                       Profile* profile,
-                       TabContents* tab);
-
-// Shows the "Clear browsing data" dialog box. See ClearBrowsingDataView.
-void ShowClearBrowsingDataView(gfx::NativeWindow parent,
-                               Profile* profile);
-
-// Shows the "Importer" dialog. See ImportDialogView.
-void ShowImportDialogView(views::Widget* parent, Profile* profile);
 
 // Shows or hides the global bookmark bubble for the star button.
 void ShowBookmarkBubbleView(views::Window* parent,
                             const gfx::Rect& bounds,
-                            InfoBubbleDelegate* delegate,
+                            BubbleDelegate* delegate,
                             Profile* profile,
                             const GURL& url,
                             bool newly_bookmarked);
 void HideBookmarkBubbleView();
 bool IsBookmarkBubbleViewShowing();
-
-// Shows the bookmark manager.
-void ShowBookmarkManagerView(Profile* profile);
 
 // Shows the about dialog. See AboutChromeView.
 views::Window* ShowAboutChromeView(gfx::NativeWindow parent,
@@ -73,13 +55,6 @@ views::Window* ShowAboutChromeView(gfx::NativeWindow parent,
 
 // Creates and returns a find bar for the given browser window. See FindBarWin.
 FindBar* CreateFindBar(BrowserView* browser_view);
-
-// Shows the "Save passwords and exceptions" dialog.
-// See PasswordsExceptionsWindowView.
-void ShowPasswordsExceptionsWindowView(Profile* profile);
-
-// Shows the keyword editor. See KeywordEditorView.
-void ShowKeywordEditorView(Profile* profile);
 
 // Shows the Task Manager.
 void ShowTaskManager();
@@ -106,11 +81,6 @@ void EditSearchEngine(gfx::NativeWindow parent,
 void ShowRepostFormWarningDialog(gfx::NativeWindow parent_window,
                                  TabContents* tab_contents);
 
-// Shows the content settings dialog box.
-void ShowContentSettingsWindow(gfx::NativeWindow parent_window,
-                               ContentSettingsType content_type,
-                               Profile* profile);
-
 // Shows the collected cookies dialog box.
 void ShowCollectedCookiesDialog(gfx::NativeWindow parent_window,
                                 TabContents* tab_contents);
@@ -118,7 +88,7 @@ void ShowCollectedCookiesDialog(gfx::NativeWindow parent_window,
 
 // Shows the create web app shortcut dialog box.
 void ShowCreateWebAppShortcutsDialog(gfx::NativeWindow parent_window,
-                                     TabContents* tab_contents);
+                                     TabContentsWrapper* tab_contents);
 
 // Shows the create chrome app shortcut dialog box.
 void ShowCreateChromeAppShortcutsDialog(gfx::NativeWindow parent_window,

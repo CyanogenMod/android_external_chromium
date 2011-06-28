@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,8 @@
 
 #include "base/basictypes.h"
 #include "base/gtest_prod_util.h"
-#include "base/ref_counted.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/time.h"
 #include "net/base/net_log.h"
 #include "net/base/request_priority.h"
@@ -94,6 +94,8 @@ class HttpNetworkTransaction : public HttpTransaction,
     STATE_GENERATE_PROXY_AUTH_TOKEN_COMPLETE,
     STATE_GENERATE_SERVER_AUTH_TOKEN,
     STATE_GENERATE_SERVER_AUTH_TOKEN_COMPLETE,
+    STATE_BUILD_REQUEST,
+    STATE_BUILD_REQUEST_COMPLETE,
     STATE_SEND_REQUEST,
     STATE_SEND_REQUEST_COMPLETE,
     STATE_READ_HEADERS,
@@ -125,6 +127,8 @@ class HttpNetworkTransaction : public HttpTransaction,
   int DoGenerateProxyAuthTokenComplete(int result);
   int DoGenerateServerAuthToken();
   int DoGenerateServerAuthTokenComplete(int result);
+  int DoBuildRequest();
+  int DoBuildRequestComplete(int result);
   int DoSendRequest();
   int DoSendRequestComplete(int result);
   int DoReadHeaders();
@@ -133,6 +137,8 @@ class HttpNetworkTransaction : public HttpTransaction,
   int DoReadBodyComplete(int result);
   int DoDrainBodyForAuthRestart();
   int DoDrainBodyForAuthRestartComplete(int result);
+
+  void BuildRequestHeaders(bool using_proxy);
 
   // Record histogram of time until first byte of header is received.
   void LogTransactionConnectedMetrics();
@@ -217,7 +223,10 @@ class HttpNetworkTransaction : public HttpTransaction,
   HttpAuth::Target pending_auth_target_;
 
   CompletionCallbackImpl<HttpNetworkTransaction> io_callback_;
+  scoped_refptr<CancelableCompletionCallback<HttpNetworkTransaction> >
+      delegate_callback_;
   CompletionCallback* user_callback_;
+  scoped_ptr<UploadDataStream> request_body_;
 
   scoped_refptr<HttpNetworkSession> session_;
 

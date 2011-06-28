@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,8 @@
 
 class Extension;
 class ExtensionPrefs;
-class ExtensionService;
+class ExtensionServiceInterface;
+struct ExtensionSyncData;
 struct UninstalledExtensionInfo;
 
 namespace sync_pb {
@@ -81,27 +82,8 @@ bool AreExtensionSpecificsNonUserPropertiesEqual(
 // must be a syncable extension.  |specifics| will be valid after this
 // function is called.
 void GetExtensionSpecifics(const Extension& extension,
-                           ExtensionPrefs* extension_prefs,
+                           const ExtensionServiceInterface& extension_service,
                            sync_pb::ExtensionSpecifics* specifics);
-
-// Exposed only for testing.  Pre- and post-conditions are the same as
-// GetExtensionSpecifics().
-void GetExtensionSpecificsHelper(const Extension& extension,
-                                 bool enabled, bool incognito_enabled,
-                                 sync_pb::ExtensionSpecifics* specifics);
-
-// Returns whether or not the extension should be updated according to
-// the specifics.  |extension| must be syncable and |specifics| must
-// be valid.
-bool IsExtensionOutdated(const Extension& extension,
-                         const sync_pb::ExtensionSpecifics& specifics);
-
-// Sets properties of |extension| according to the information in
-// specifics.  |extension| must be syncable and |specifics| must be
-// valid.
-void SetExtensionProperties(
-    const sync_pb::ExtensionSpecifics& specifics,
-    ExtensionService* extensions_service, const Extension* extension);
 
 // Merge |specifics| into |merged_specifics|.  Both must be valid and
 // have the same ID.  The merge policy is currently to copy the
@@ -112,6 +94,12 @@ void MergeExtensionSpecifics(
     const sync_pb::ExtensionSpecifics& specifics,
     bool merge_user_properties,
     sync_pb::ExtensionSpecifics* merged_specifics);
+
+// Fills |sync_data| with the data from |specifics|.  Returns true iff
+// succesful.
+bool GetExtensionSyncData(
+    const sync_pb::ExtensionSpecifics& specifics,
+    ExtensionSyncData* sync_data);
 
 }  // namespace browser_sync
 

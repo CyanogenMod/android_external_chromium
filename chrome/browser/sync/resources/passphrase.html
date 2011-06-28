@@ -19,10 +19,7 @@ form {
   font-weight: bold;
   margin-bottom: 10px;
 }
-.sync-instructions-start-hidden {
-  margin-top: 10px;
-  display: none;
-}
+
 .sync-footer {
   position: fixed;
   right: 0px;
@@ -75,6 +72,9 @@ html[os='mac'] input[type='submit'] {
   margin-top: 12px;
   float: right;
   margin-left: 5px;
+}
+#sync-passphrase-warning {
+  margin-bottom: 5px;
 }
 </style>
 <script src="chrome://resources/js/cr.js"></script>
@@ -160,7 +160,7 @@ html[os='mac'] input[type='submit'] {
     <input id="cancel-no-button" type="submit" i18n-values="value:no"
            onclick="hideCancelWarning(); return false;" />
     <input id="cancel-yes-button" type="submit" i18n-values="value:yes"
-           onclick="chrome.send('PassphraseCancel', ['']);" />
+           onclick="chrome.send('PassphraseCancel', ['']); return false;" />
   </div>
 
   <div class="sync-footer">

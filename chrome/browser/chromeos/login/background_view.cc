@@ -11,6 +11,7 @@
 #include "base/string_util.h"
 #include "base/stringprintf.h"
 #include "base/utf_string_conversions.h"
+#include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/login/helper.h"
 #include "chrome/browser/chromeos/login/login_utils.h"
 #include "chrome/browser/chromeos/login/oobe_progress_bar.h"
@@ -23,9 +24,11 @@
 #include "chrome/browser/chromeos/status/network_menu_button.h"
 #include "chrome/browser/chromeos/status/status_area_view.h"
 #include "chrome/browser/chromeos/wm_ipc.h"
+#include "chrome/browser/policy/browser_policy_connector.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/views/dom_view.h"
 #include "chrome/browser/ui/views/window.h"
+#include "chrome/common/chrome_version_info.h"
 #include "googleurl/src/gurl.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
@@ -46,11 +49,13 @@
 #include <X11/cursorfont.h>  // NOLINT
 #include <X11/Xcursor/Xcursor.h>  // NOLINT
 
+using views::Widget;
 using views::WidgetGtk;
 
 namespace {
 
 const SkColor kVersionColor = 0xff5c739f;
+const char kPlatformLabel[] = "cros:";
 
 // Returns the corresponding step id for step constant.
 int GetStepId(size_t step) {
@@ -166,7 +171,8 @@ views::Widget* BackgroundView::CreateWindowContainingView(
     BackgroundView** view) {
   ResetXCursor();
 
-  WidgetGtk* window = new WidgetGtk(WidgetGtk::TYPE_WINDOW);
+  Widget* window = Widget::CreateWidget(
+      Widget::CreateParams(Widget::CreateParams::TYPE_WINDOW));
   window->Init(NULL, bounds);
   *view = new BackgroundView();
   (*view)->Init(background_url);
@@ -331,10 +337,16 @@ StatusAreaHost::ScreenMode BackgroundView::GetScreenMode() const {
   return kLoginMode;
 }
 
+StatusAreaHost::TextStyle BackgroundView::GetTextStyle() const {
+  return kWhitePlain;
+}
+
 // Overridden from LoginHtmlDialog::Delegate:
 void BackgroundView::OnLocaleChanged() {
   // Proxy settings dialog contains localized strings.
   proxy_settings_dialog_.reset();
+  InitInfoLabels();
+  SchedulePaint();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -350,24 +362,37 @@ void BackgroundView::InitStatusArea() {
 void BackgroundView::InitInfoLabels() {
   ResourceBundle& rb = ResourceBundle::GetSharedInstance();
 
-  os_version_label_ = new views::Label();
-  os_version_label_->SetHorizontalAlignment(views::Label::ALIGN_LEFT);
-  os_version_label_->SetColor(kVersionColor);
-  os_version_label_->SetFont(rb.GetFont(ResourceBundle::SmallFont));
-  AddChildView(os_version_label_);
+  {
+    int idx = GetIndexOf(os_version_label_);
+    delete os_version_label_;
+    os_version_label_ = new views::Label();
+    os_version_label_->SetHorizontalAlignment(views::Label::ALIGN_LEFT);
+    os_version_label_->SetColor(kVersionColor);
+    os_version_label_->SetFont(rb.GetFont(ResourceBundle::SmallFont));
+    if (idx < 0)
+      AddChildView(os_version_label_);
+    else
+      AddChildViewAt(os_version_label_, idx);
+  }
   if (!is_official_build_) {
+    int idx = GetIndexOf(boot_times_label_);
+    delete boot_times_label_;
     boot_times_label_ = new views::Label();
     boot_times_label_->SetHorizontalAlignment(views::Label::ALIGN_LEFT);
     boot_times_label_->SetColor(kVersionColor);
     boot_times_label_->SetFont(rb.GetFont(ResourceBundle::SmallFont));
-    AddChildView(boot_times_label_);
+    if (idx < 0)
+      AddChildView(boot_times_label_);
+    else
+      AddChildViewAt(boot_times_label_, idx);
   }
 
   if (CrosLibrary::Get()->EnsureLoaded()) {
+    version_loader_.EnablePlatformVersions(true);
     version_loader_.GetVersion(
         &version_consumer_,
         NewCallback(this, &BackgroundView::OnVersion),
-        is_official_build_?
+        is_official_build_ ?
             VersionLoader::VERSION_SHORT_WITH_DATE :
             VersionLoader::VERSION_FULL);
     if (!is_official_build_) {
@@ -376,8 +401,19 @@ void BackgroundView::InitInfoLabels() {
           NewCallback(this, &BackgroundView::OnBootTimes));
     }
   } else {
-    os_version_label_->SetText(
-        ASCIIToWide(CrosLibrary::Get()->load_error_string()));
+    UpdateVersionLabel();
+  }
+
+  policy::CloudPolicySubsystem* cloud_policy =
+      g_browser_process->browser_policy_connector()->cloud_policy_subsystem();
+  if (cloud_policy) {
+    cloud_policy_registrar_.reset(
+        new policy::CloudPolicySubsystem::ObserverRegistrar(
+          cloud_policy, this));
+
+    // Ensure that we have up-to-date enterprise info in case enterprise policy
+    // is already fetched and has finished initialization.
+    UpdateEnterpriseInfo();
   }
 }
 
@@ -406,19 +442,96 @@ void BackgroundView::UpdateWindowType() {
       &params);
 }
 
-void BackgroundView::OnVersion(
-    VersionLoader::Handle handle, std::string version) {
-  // TODO(jungshik): Is string concatenation OK here?
-  std::string version_text = l10n_util::GetStringUTF8(IDS_PRODUCT_OS_NAME);
-  version_text += ' ';
-  version_text += l10n_util::GetStringUTF8(IDS_VERSION_FIELD_PREFIX);
-  version_text += ' ';
-  version_text += version;
+void BackgroundView::UpdateVersionLabel() {
+  if (!CrosLibrary::Get()->EnsureLoaded()) {
+    os_version_label_->SetText(
+        ASCIIToWide(CrosLibrary::Get()->load_error_string()));
+    return;
+  }
+
+  if (version_text_.empty())
+    return;
+
+  chrome::VersionInfo version_info;
+  std::string label_text = l10n_util::GetStringUTF8(IDS_PRODUCT_NAME);
+  label_text += ' ';
+  label_text += version_info.Version();
+  label_text += " (";
+  // TODO(rkc): Fix this. This needs to be in a resource file, but we have had
+  // to put it in for merge into R12. Also, look at rtl implications for this
+  // entire string composition code.
+  label_text += kPlatformLabel;
+  label_text += ' ';
+  label_text += version_text_;
+  label_text += ')';
+
+  if (!enterprise_domain_text_.empty()) {
+    label_text += ' ';
+    if (enterprise_status_text_.empty()) {
+      label_text += l10n_util::GetStringFUTF8(
+          IDS_LOGIN_MANAGED_BY_LABEL_FORMAT,
+          UTF8ToUTF16(enterprise_domain_text_));
+    } else {
+      label_text += l10n_util::GetStringFUTF8(
+          IDS_LOGIN_MANAGED_BY_WITH_STATUS_LABEL_FORMAT,
+          UTF8ToUTF16(enterprise_domain_text_),
+          UTF8ToUTF16(enterprise_status_text_));
+    }
+  }
 
   // Workaround over incorrect width calculation in old fonts.
   // TODO(glotov): remove the following line when new fonts are used.
-  version_text += ' ';
-  os_version_label_->SetText(UTF8ToWide(version_text));
+  label_text += ' ';
+
+  os_version_label_->SetText(UTF8ToWide(label_text));
+}
+
+void BackgroundView::UpdateEnterpriseInfo() {
+  policy::BrowserPolicyConnector* policy_connector =
+      g_browser_process->browser_policy_connector();
+
+  std::string status_text;
+  policy::CloudPolicySubsystem* cloud_policy_subsystem =
+      policy_connector->cloud_policy_subsystem();
+  if (cloud_policy_subsystem) {
+    switch (cloud_policy_subsystem->state()) {
+      case policy::CloudPolicySubsystem::UNENROLLED:
+        status_text = l10n_util::GetStringUTF8(
+            IDS_LOGIN_MANAGED_BY_STATUS_PENDING);
+        break;
+      case policy::CloudPolicySubsystem::UNMANAGED:
+      case policy::CloudPolicySubsystem::BAD_GAIA_TOKEN:
+      case policy::CloudPolicySubsystem::LOCAL_ERROR:
+        status_text = l10n_util::GetStringUTF8(
+            IDS_LOGIN_MANAGED_BY_STATUS_LOST_CONNECTION);
+        break;
+      case policy::CloudPolicySubsystem::NETWORK_ERROR:
+        status_text = l10n_util::GetStringUTF8(
+            IDS_LOGIN_MANAGED_BY_STATUS_NETWORK_ERROR);
+        break;
+      case policy::CloudPolicySubsystem::TOKEN_FETCHED:
+      case policy::CloudPolicySubsystem::SUCCESS:
+        break;
+    }
+  }
+
+  SetEnterpriseInfo(policy_connector->GetEnterpriseDomain(), status_text);
+}
+
+void BackgroundView::SetEnterpriseInfo(const std::string& domain_name,
+                                       const std::string& status_text) {
+  if (domain_name != enterprise_domain_text_ ||
+      status_text != enterprise_status_text_) {
+    enterprise_domain_text_ = domain_name;
+    enterprise_status_text_ = status_text;
+    UpdateVersionLabel();
+  }
+}
+
+void BackgroundView::OnVersion(
+    VersionLoader::Handle handle, std::string version) {
+  version_text_.swap(version);
+  UpdateVersionLabel();
 }
 
 void BackgroundView::OnBootTimes(
@@ -448,6 +561,12 @@ void BackgroundView::OnBootTimes(
   }
   // Use UTF8ToWide once this string is localized.
   boot_times_label_->SetText(ASCIIToWide(boot_times_text));
+}
+
+void BackgroundView::OnPolicyStateChanged(
+    policy::CloudPolicySubsystem::PolicySubsystemState state,
+    policy::CloudPolicySubsystem::ErrorDetails error_details) {
+  UpdateEnterpriseInfo();
 }
 
 }  // namespace chromeos

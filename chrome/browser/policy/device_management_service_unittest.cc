@@ -20,17 +20,15 @@
 #include "testing/gtest/include/gtest/gtest.h"
 
 using testing::_;
+using testing::IgnoreResult;
+using testing::InvokeWithoutArgs;
 
 namespace policy {
 
 const char kServiceUrl[] = "https://example.com/management_service";
 
-// Encoded error response messages for testing the error code paths.
+// Encoded empty response messages for testing the error code paths.
 const char kResponseEmpty[] = "\x08\x00";
-const char kResponseErrorManagementNotSupported[] = "\x08\x01";
-const char kResponseErrorDeviceNotFound[] = "\x08\x02";
-const char kResponseErrorManagementTokenInvalid[] = "\x08\x03";
-const char kResponseErrorActivationPending[] = "\x08\x04";
 
 #define PROTO_STRING(name) (std::string(name, arraysize(name) - 1))
 
@@ -167,7 +165,7 @@ INSTANTIATE_TEST_CASE_P(
         FailedRequestParams(
             DeviceManagementBackend::kErrorHttpStatus,
             net::URLRequestStatus::SUCCESS,
-            500,
+            666,
             PROTO_STRING(kResponseEmpty)),
         FailedRequestParams(
             DeviceManagementBackend::kErrorResponseDecoding,
@@ -177,23 +175,33 @@ INSTANTIATE_TEST_CASE_P(
         FailedRequestParams(
             DeviceManagementBackend::kErrorServiceManagementNotSupported,
             net::URLRequestStatus::SUCCESS,
-            200,
-            PROTO_STRING(kResponseErrorManagementNotSupported)),
+            403,
+            PROTO_STRING(kResponseEmpty)),
         FailedRequestParams(
             DeviceManagementBackend::kErrorServiceDeviceNotFound,
             net::URLRequestStatus::SUCCESS,
-            200,
-            PROTO_STRING(kResponseErrorDeviceNotFound)),
+            901,
+            PROTO_STRING(kResponseEmpty)),
         FailedRequestParams(
             DeviceManagementBackend::kErrorServiceManagementTokenInvalid,
             net::URLRequestStatus::SUCCESS,
-            200,
-            PROTO_STRING(kResponseErrorManagementTokenInvalid)),
+            401,
+            PROTO_STRING(kResponseEmpty)),
+        FailedRequestParams(
+            DeviceManagementBackend::kErrorRequestInvalid,
+            net::URLRequestStatus::SUCCESS,
+            400,
+            PROTO_STRING(kResponseEmpty)),
+        FailedRequestParams(
+            DeviceManagementBackend::kErrorTemporaryUnavailable,
+            net::URLRequestStatus::SUCCESS,
+            404,
+            PROTO_STRING(kResponseEmpty)),
         FailedRequestParams(
             DeviceManagementBackend::kErrorServiceActivationPending,
             net::URLRequestStatus::SUCCESS,
-            200,
-            PROTO_STRING(kResponseErrorActivationPending))));
+            491,
+            PROTO_STRING(kResponseEmpty))));
 
 // Simple query parameter parser for testing.
 class QueryParams {
@@ -237,6 +245,11 @@ class QueryParams {
 
 class DeviceManagementServiceTest
     : public DeviceManagementServiceTestBase<testing::Test> {
+ public:
+  void ResetBackend() {
+    backend_.reset();
+  }
+
  protected:
   void CheckURLAndQueryParams(const GURL& request_url,
                               const std::string& request_type,
@@ -296,7 +309,6 @@ TEST_F(DeviceManagementServiceTest, RegisterRequest) {
   // Generate the response.
   std::string response_data;
   em::DeviceManagementResponse response_wrapper;
-  response_wrapper.set_error(em::DeviceManagementResponse::SUCCESS);
   response_wrapper.mutable_register_response()->CopyFrom(expected_response);
   ASSERT_TRUE(response_wrapper.SerializeToString(&response_data));
   net::URLRequestStatus status(net::URLRequestStatus::SUCCESS, 0);
@@ -339,63 +351,7 @@ TEST_F(DeviceManagementServiceTest, UnregisterRequest) {
   // Generate the response.
   std::string response_data;
   em::DeviceManagementResponse response_wrapper;
-  response_wrapper.set_error(em::DeviceManagementResponse::SUCCESS);
   response_wrapper.mutable_unregister_response()->CopyFrom(expected_response);
-  ASSERT_TRUE(response_wrapper.SerializeToString(&response_data));
-  net::URLRequestStatus status(net::URLRequestStatus::SUCCESS, 0);
-  fetcher->delegate()->OnURLFetchComplete(fetcher,
-                                          GURL(kServiceUrl),
-                                          status,
-                                          200,
-                                          ResponseCookies(),
-                                          response_data);
-}
-
-TEST_F(DeviceManagementServiceTest, PolicyRequest) {
-  DevicePolicyResponseDelegateMock mock;
-  em::DevicePolicyResponse expected_response;
-  em::DevicePolicySetting* policy_setting = expected_response.add_setting();
-  policy_setting->set_policy_key(kChromeDevicePolicySettingKey);
-  policy_setting->set_watermark("fresh");
-  em::GenericSetting* policy_value = policy_setting->mutable_policy_value();
-  em::GenericNamedValue* named_value = policy_value->add_named_value();
-  named_value->set_name("HomepageLocation");
-  named_value->mutable_value()->set_value_type(
-      em::GenericValue::VALUE_TYPE_STRING);
-  named_value->mutable_value()->set_string_value("http://www.chromium.org");
-  named_value = policy_value->add_named_value();
-  named_value->set_name("HomepageIsNewTabPage");
-  named_value->mutable_value()->set_value_type(
-      em::GenericValue::VALUE_TYPE_BOOL);
-  named_value->mutable_value()->set_bool_value(false);
-  EXPECT_CALL(mock, HandlePolicyResponse(MessageEquals(expected_response)));
-
-  em::DevicePolicyRequest request;
-  request.set_policy_scope(kChromePolicyScope);
-  em::DevicePolicySettingRequest* setting_request =
-      request.add_setting_request();
-  setting_request->set_key(kChromeDevicePolicySettingKey);
-  setting_request->set_watermark("stale");
-  backend_->ProcessPolicyRequest(kDMToken, kDeviceId, request, &mock);
-  TestURLFetcher* fetcher = factory_.GetFetcherByID(0);
-  ASSERT_TRUE(fetcher);
-
-  CheckURLAndQueryParams(fetcher->original_url(),
-                         DeviceManagementBackendImpl::kValueRequestPolicy,
-                         kDeviceId);
-
-  em::DeviceManagementRequest expected_request_wrapper;
-  expected_request_wrapper.mutable_policy_request()->CopyFrom(request);
-  std::string expected_request_data;
-  ASSERT_TRUE(expected_request_wrapper.SerializeToString(
-      &expected_request_data));
-  EXPECT_EQ(expected_request_data, fetcher->upload_data());
-
-  // Generate the response.
-  std::string response_data;
-  em::DeviceManagementResponse response_wrapper;
-  response_wrapper.set_error(em::DeviceManagementResponse::SUCCESS);
-  response_wrapper.mutable_policy_response()->CopyFrom(expected_response);
   ASSERT_TRUE(response_wrapper.SerializeToString(&response_data));
   net::URLRequestStatus status(net::URLRequestStatus::SUCCESS, 0);
   fetcher->delegate()->OnURLFetchComplete(fetcher,
@@ -470,7 +426,6 @@ TEST_F(DeviceManagementServiceTest, JobQueueing) {
   // Check that the request is processed as expected.
   std::string response_data;
   em::DeviceManagementResponse response_wrapper;
-  response_wrapper.set_error(em::DeviceManagementResponse::SUCCESS);
   response_wrapper.mutable_register_response()->CopyFrom(expected_response);
   ASSERT_TRUE(response_wrapper.SerializeToString(&response_data));
   net::URLRequestStatus status(net::URLRequestStatus::SUCCESS, 0);
@@ -498,6 +453,31 @@ TEST_F(DeviceManagementServiceTest, CancelRequestAfterShutdown) {
   // Shutdown the service and cancel the job afterwards.
   service_->Shutdown();
   backend_.reset();
+}
+
+TEST_F(DeviceManagementServiceTest, CancelDuringCallback) {
+  // Make a request.
+  DeviceRegisterResponseDelegateMock mock;
+  EXPECT_CALL(mock, OnError(_))
+      .WillOnce(InvokeWithoutArgs(this,
+                                  &DeviceManagementServiceTest::ResetBackend))
+      .RetiresOnSaturation();
+  em::DeviceRegisterRequest request;
+  backend_->ProcessRegisterRequest(kAuthToken, kDeviceId, request, &mock);
+  TestURLFetcher* fetcher = factory_.GetFetcherByID(0);
+  ASSERT_TRUE(fetcher);
+
+  // Generate a callback.
+  net::URLRequestStatus status(net::URLRequestStatus::SUCCESS, 0);
+  fetcher->delegate()->OnURLFetchComplete(fetcher,
+                                          GURL(kServiceUrl),
+                                          status,
+                                          500,
+                                          ResponseCookies(),
+                                          "");
+
+  // Backend should have been reset.
+  EXPECT_FALSE(backend_.get());
 }
 
 }  // namespace policy

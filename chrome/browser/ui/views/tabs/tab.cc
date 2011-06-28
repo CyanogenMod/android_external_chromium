@@ -8,7 +8,7 @@
 
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/defaults.h"
-#include "chrome/browser/themes/browser_theme_provider.h"
+#include "chrome/browser/themes/theme_service.h"
 #include "grit/app_resources.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
@@ -34,7 +34,7 @@ static const int kRightPadding = 15;
 static const int kBottomPadding = 5;
 static const int kDropShadowHeight = 2;
 static const int kToolbarOverlap = 1;
-static const int kFavIconTitleSpacing = 4;
+static const int kFaviconTitleSpacing = 4;
 static const int kTitleCloseButtonSpacing = 5;
 static const int kStandardTitleWidth = 175;
 static const int kCloseButtonVertFuzz = 0;
@@ -53,6 +53,12 @@ static const int kMiniTabRendererAsNormalTabWidth =
 // How opaque to make the hover state (out of 1).
 static const double kHoverOpacity = 0.33;
 static const double kHoverSlideOpacity = 0.5;
+
+// Opacity for non-active selected tabs.
+static const double kSelectedTabOpacity = .45;
+
+// Selected (but not active) tabs have their throb value scaled down by this.
+static const double kSelectedTabThrobScale = .5;
 
 Tab::TabImage Tab::tab_alpha_ = {0};
 Tab::TabImage Tab::tab_active_ = {0};
@@ -93,7 +99,7 @@ Tab::Tab(TabController* controller)
     : BaseTab(controller),
       showing_icon_(false),
       showing_close_button_(false),
-      close_button_color_(NULL) {
+      close_button_color_(0) {
   InitTabResources();
 }
 
@@ -143,7 +149,7 @@ gfx::Size Tab::GetMinimumUnselectedSize() {
 // static
 gfx::Size Tab::GetMinimumSelectedSize() {
   gfx::Size minimum_size = GetMinimumUnselectedSize();
-  minimum_size.set_width(kLeftPadding + kFavIconSize + kRightPadding);
+  minimum_size.set_width(kLeftPadding + kFaviconSize + kRightPadding);
   return minimum_size;
 }
 
@@ -151,7 +157,7 @@ gfx::Size Tab::GetMinimumSelectedSize() {
 gfx::Size Tab::GetStandardSize() {
   gfx::Size standard_size = GetMinimumUnselectedSize();
   standard_size.set_width(
-      standard_size.width() + kFavIconTitleSpacing + kStandardTitleWidth);
+      standard_size.width() + kFaviconTitleSpacing + kStandardTitleWidth);
   return standard_size;
 }
 
@@ -200,8 +206,8 @@ void Tab::OnPaint(gfx::Canvas* canvas) {
 
   SkColor title_color = GetThemeProvider()->
       GetColor(IsSelected() ?
-          BrowserThemeProvider::COLOR_TAB_TEXT :
-          BrowserThemeProvider::COLOR_BACKGROUND_TAB_TEXT);
+          ThemeService::COLOR_TAB_TEXT :
+          ThemeService::COLOR_BACKGROUND_TAB_TEXT);
 
   if (!data().mini || width() > kMiniTabRendererAsNormalTabWidth)
     PaintTitle(canvas, title_color);
@@ -227,7 +233,7 @@ void Tab::Layout() {
 
   // The height of the content of the Tab is the largest of the favicon,
   // the title text and the close button graphic.
-  int content_height = std::max(kFavIconSize, font_height());
+  int content_height = std::max(kFaviconSize, font_height());
   gfx::Size close_button_size(close_button()->GetPreferredSize());
   content_height = std::max(content_height, close_button_size.height());
 
@@ -235,17 +241,17 @@ void Tab::Layout() {
   showing_icon_ = ShouldShowIcon();
   if (showing_icon_) {
     // Use the size of the favicon as apps use a bigger favicon size.
-    int favicon_top = kTopPadding + content_height / 2 - kFavIconSize / 2;
+    int favicon_top = kTopPadding + content_height / 2 - kFaviconSize / 2;
     int favicon_left = lb.x();
     favicon_bounds_.SetRect(favicon_left, favicon_top,
-                            kFavIconSize, kFavIconSize);
+                            kFaviconSize, kFaviconSize);
     if (data().mini && width() < kMiniTabRendererAsNormalTabWidth) {
       // Adjust the location of the favicon when transitioning from a normal
       // tab to a mini-tab.
       int mini_delta = kMiniTabRendererAsNormalTabWidth - GetMiniWidth();
       int ideal_delta = width() - GetMiniWidth();
       if (ideal_delta < mini_delta) {
-        int ideal_x = (GetMiniWidth() - kFavIconSize) / 2;
+        int ideal_x = (GetMiniWidth() - kFaviconSize) / 2;
         int x = favicon_bounds_.x() + static_cast<int>(
             (1 - static_cast<float>(ideal_delta) /
              static_cast<float>(mini_delta)) *
@@ -272,7 +278,7 @@ void Tab::Layout() {
     close_button()->SetVisible(false);
   }
 
-  int title_left = favicon_bounds_.right() + kFavIconTitleSpacing;
+  int title_left = favicon_bounds_.right() + kFaviconTitleSpacing;
   int title_top = kTopPadding + (content_height - font_height()) / 2;
   // Size the Title text to fill the remaining space.
   if (!data().mini || width() >= kMiniTabRendererAsNormalTabWidth) {
@@ -350,8 +356,8 @@ bool Tab::GetTooltipTextOrigin(const gfx::Point& p, gfx::Point* origin) {
   return true;
 }
 
-void Tab::OnMouseMoved(const views::MouseEvent& e) {
-  hover_point_ = e.location();
+void Tab::OnMouseMoved(const views::MouseEvent& event) {
+  hover_point_ = event.location();
   // We need to redraw here because otherwise the hover glow does not update
   // and follow the new mouse position.
   SchedulePaint();
@@ -361,7 +367,7 @@ void Tab::OnMouseMoved(const views::MouseEvent& e) {
 // Tab, private
 
 void Tab::PaintTabBackground(gfx::Canvas* canvas) {
-  if (IsSelected()) {
+  if (IsActive()) {
     PaintActiveTabBackground(canvas);
   } else {
     if (mini_title_animation_.get() && mini_title_animation_->is_animating())
@@ -436,8 +442,6 @@ void Tab::PaintInactiveTabBackgroundWithTitleChange(gfx::Canvas* canvas) {
 }
 
 void Tab::PaintInactiveTabBackground(gfx::Canvas* canvas) {
-  bool is_otr = data().off_the_record;
-
   // The tab image needs to be lined up with the background image
   // so that it feels partially transparent.  These offsets represent the tab
   // position within the frame background image.
@@ -448,8 +452,8 @@ void Tab::PaintInactiveTabBackground(gfx::Canvas* canvas) {
       GetWidget()->GetWindow()->non_client_view()->UseNativeFrame()) {
     tab_id = IDR_THEME_TAB_BACKGROUND_V;
   } else {
-    tab_id = is_otr ? IDR_THEME_TAB_BACKGROUND_INCOGNITO :
-                      IDR_THEME_TAB_BACKGROUND;
+    tab_id = data().incognito ? IDR_THEME_TAB_BACKGROUND_INCOGNITO :
+                                IDR_THEME_TAB_BACKGROUND;
   }
 
   SkBitmap* tab_bg = GetThemeProvider()->GetBitmapNamed(tab_id);
@@ -609,7 +613,7 @@ SkBitmap Tab::DrawHoverGlowBitmap(int width_input, int height_input) {
 int Tab::IconCapacity() const {
   if (height() < GetMinimumUnselectedSize().height())
     return 0;
-  return (width() - kLeftPadding - kRightPadding) / kFavIconSize;
+  return (width() - kLeftPadding - kRightPadding) / kFaviconSize;
 }
 
 bool Tab::ShouldShowIcon() const {
@@ -617,8 +621,8 @@ bool Tab::ShouldShowIcon() const {
     return true;
   if (!data().show_icon) {
     return false;
-  } else if (IsSelected()) {
-    // The selected tab clips favicon before close button.
+  } else if (IsActive()) {
+    // The active tab clips favicon before close button.
     return IconCapacity() >= 2;
   }
   // Non-selected tabs clip close button before favicon.
@@ -626,17 +630,22 @@ bool Tab::ShouldShowIcon() const {
 }
 
 bool Tab::ShouldShowCloseBox() const {
-  // The selected tab never clips close button.
-  return !data().mini && IsCloseable() &&
-      (IsSelected() || IconCapacity() >= 3);
+  // The active tab never clips close button.
+  return !data().mini && IsCloseable() && (IsActive() || IconCapacity() >= 3);
 }
 
 double Tab::GetThrobValue() {
-  if (pulse_animation() && pulse_animation()->is_animating())
-    return pulse_animation()->GetCurrentValue() * kHoverOpacity;
+  bool is_selected = IsSelected();
+  double min = is_selected ? kSelectedTabOpacity : 0;
+  double scale = is_selected ? kSelectedTabThrobScale : 1;
 
-  return hover_animation() ?
-      kHoverOpacity * hover_animation()->GetCurrentValue() : 0;
+  if (pulse_animation() && pulse_animation()->is_animating())
+    return pulse_animation()->GetCurrentValue() * kHoverOpacity * scale + min;
+
+  if (hover_animation())
+    return kHoverOpacity * hover_animation()->GetCurrentValue() * scale + min;
+
+  return is_selected ? kSelectedTabOpacity : 0;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

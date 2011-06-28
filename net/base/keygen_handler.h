@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,14 +8,12 @@
 
 #include <string>
 
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "build/build_config.h"
 #include "googleurl/src/gurl.h"
 
 #if defined(USE_NSS)
-namespace base {
-class CryptoModuleBlockingPasswordDelegate;
-};
+#include "crypto/crypto_module_blocking_password_delegate.h"
 #endif  // defined(USE_NSS)
 
 namespace net {
@@ -48,7 +46,7 @@ class KeygenHandler {
   // password callback is okay here.
   // Takes ownership of the delegate.
   void set_crypto_module_password_delegate(
-      base::CryptoModuleBlockingPasswordDelegate* delegate);
+      crypto::CryptoModuleBlockingPasswordDelegate* delegate);
 #endif  // defined(USE_NSS)
 
  private:
@@ -58,7 +56,7 @@ class KeygenHandler {
   bool stores_key_;  // should the generated key-pair be stored persistently?
 #if defined(USE_NSS)
   // The callback for requesting a password to the PKCS#11 token.
-  scoped_ptr<base::CryptoModuleBlockingPasswordDelegate>
+  scoped_ptr<crypto::CryptoModuleBlockingPasswordDelegate>
       crypto_module_password_delegate_;
 #endif  // defined(USE_NSS)
 };

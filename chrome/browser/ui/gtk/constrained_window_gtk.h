@@ -17,7 +17,7 @@
 class TabContents;
 typedef struct _GdkColor GdkColor;
 #if defined(TOUCH_UI)
-class TabContentsViewViews;
+class TabContentsViewTouch;
 #else
 class TabContentsViewGtk;
 #endif
@@ -36,6 +36,9 @@ class ConstrainedWindowGtkDelegate {
 
   virtual bool GetBackgroundColor(GdkColor* color);
 
+  // Returns true if hosting ConstrainedWindowGtk should apply default padding.
+  virtual bool ShouldHaveBorderPadding() const;
+
  protected:
   virtual ~ConstrainedWindowGtkDelegate();
 };
@@ -46,7 +49,7 @@ class ConstrainedWindowGtkDelegate {
 class ConstrainedWindowGtk : public ConstrainedWindow {
  public:
 #if defined(TOUCH_UI)
-   typedef TabContentsViewViews TabContentsViewType;
+   typedef TabContentsViewTouch TabContentsViewType;
 #else
    typedef TabContentsViewGtk TabContentsViewType;
 #endif

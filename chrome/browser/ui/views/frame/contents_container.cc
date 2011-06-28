@@ -56,6 +56,7 @@ ContentsContainer::~ContentsContainer() {
 }
 
 void ContentsContainer::MakePreviewContentsActiveContents() {
+  DCHECK(preview_);
   RemoveFade();
 
   active_ = preview_;
@@ -151,10 +152,10 @@ void ContentsContainer::Layout() {
 
 void ContentsContainer::CreateOverlay(int initial_opacity) {
   DCHECK(!active_overlay_);
-  active_overlay_ = views::Widget::CreatePopupWidget(views::Widget::Transparent,
-                                              views::Widget::NotAcceptEvents,
-                                              views::Widget::DeleteOnDestroy,
-                                              views::Widget::MirrorOriginInRTL);
+  views::Widget::CreateParams params(views::Widget::CreateParams::TYPE_POPUP);
+  params.transparent = true;
+  params.accept_events = false;
+  active_overlay_ = views::Widget::CreateWidget(params);
   active_overlay_->SetOpacity(initial_opacity);
   gfx::Point screen_origin;
   views::View::ConvertPointToScreen(active_, &screen_origin);
@@ -165,7 +166,7 @@ void ContentsContainer::CreateOverlay(int initial_opacity) {
       views::Background::CreateSolidBackground(SK_ColorWHITE));
   active_overlay_->SetContentsView(overlay_view_);
   active_overlay_->Show();
-  active_overlay_->MoveAbove(active_->GetWidget());
+  active_overlay_->MoveAboveWidget(active_->GetWidget());
 }
 
 void ContentsContainer::OverlayViewDestroyed() {

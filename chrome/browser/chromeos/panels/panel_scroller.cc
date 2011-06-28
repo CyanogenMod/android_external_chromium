@@ -12,7 +12,7 @@
 #include "chrome/browser/chromeos/panels/panel_scroller_container.h"
 #include "chrome/browser/chromeos/panels/panel_scroller_header.h"
 #include "ui/gfx/canvas.h"
-#include "views/widget/widget_gtk.h"
+#include "views/widget/widget.h"
 
 struct PanelScroller::Panel {
   PanelScrollerHeader* header;
@@ -80,9 +80,8 @@ PanelScroller::~PanelScroller() {
 
 // static
 PanelScroller* PanelScroller::CreateWindow() {
-  views::WidgetGtk* widget =
-      new views::WidgetGtk(views::WidgetGtk::TYPE_WINDOW);
-  widget->set_delete_on_destroy(true);
+  views::Widget* widget = views::Widget::CreateWidget(
+      views::Widget::CreateParams(views::Widget::CreateParams::TYPE_WINDOW));
   widget->Init(NULL, gfx::Rect(0, 0, 100, 800));
 
   PanelScroller* scroller = new PanelScroller();
@@ -161,10 +160,6 @@ bool PanelScroller::OnMousePressed(const views::MouseEvent& event) {
 
 bool PanelScroller::OnMouseDragged(const views::MouseEvent& event) {
   return true;
-}
-
-void PanelScroller::OnMouseReleased(const views::MouseEvent& event,
-                                    bool canceled) {
 }
 
 void PanelScroller::HeaderClicked(PanelScrollerHeader* source) {

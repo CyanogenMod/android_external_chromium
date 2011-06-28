@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -414,7 +414,7 @@ IN_PROC_BROWSER_TEST_F(SSLUITest, TestHTTPSErrorWithNoNavEntry) {
   GURL url = https_server_expired_.GetURL("files/ssl/google.htm");
   TabContentsWrapper* tab2 =
       browser()->AddSelectedTabWithURL(url, PageTransition::TYPED);
-  ui_test_utils::WaitForLoadStop(&(tab2->controller()));
+  ui_test_utils::WaitForLoadStop(tab2->tab_contents());
 
   // Verify our assumption that there was no prior navigation.
   EXPECT_FALSE(browser()->command_updater()->IsCommandEnabled(IDC_BACK));
@@ -760,8 +760,9 @@ IN_PROC_BROWSER_TEST_F(SSLUITest, DISABLED_TestCloseTabWithUnsafePopup) {
 }
 
 // Visit a page over bad https that is a redirect to a page with good https.
-// Marked as flaky, see bug 40932.
-IN_PROC_BROWSER_TEST_F(SSLUITest, FLAKY_TestRedirectBadToGoodHTTPS) {
+// Crashes: http://crbug.com/77374
+// Previously marked as flaky: http://crbug.com/40932
+IN_PROC_BROWSER_TEST_F(SSLUITest, DISABLED_TestRedirectBadToGoodHTTPS) {
   ASSERT_TRUE(https_server_.Start());
   ASSERT_TRUE(https_server_expired_.Start());
 

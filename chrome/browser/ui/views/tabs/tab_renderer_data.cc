@@ -8,7 +8,7 @@ TabRendererData::TabRendererData()
     : network_state(NETWORK_STATE_NONE),
       loading(false),
       crashed_status(base::TERMINATION_STATUS_STILL_RUNNING),
-      off_the_record(false),
+      incognito(false),
       show_icon(true),
       mini(false),
       blocked(false),
@@ -24,9 +24,10 @@ bool TabRendererData::Equals(const TabRendererData& data) {
       favicon.pixelRefOffset() == data.favicon.pixelRefOffset() &&
       network_state == data.network_state &&
       title == data.title &&
+      url == data.url &&
       loading == data.loading &&
       crashed_status == data.crashed_status &&
-      off_the_record == data.off_the_record &&
+      incognito == data.incognito &&
       show_icon == data.show_icon &&
       mini == data.mini &&
       blocked == data.blocked &&

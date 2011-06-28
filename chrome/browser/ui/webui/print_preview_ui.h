@@ -6,7 +6,7 @@
 #define CHROME_BROWSER_UI_WEBUI_PRINT_PREVIEW_UI_H_
 #pragma once
 
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
 #include "content/browser/webui/web_ui.h"
 
 class PrintPreviewUIHTMLSource;
@@ -20,7 +20,9 @@ class PrintPreviewUI : public WebUI {
 
   // Notify the Web UI renderer that preview data is available.
   // |expected_pages_count| specifies the total number of pages.
-  void PreviewDataIsAvailable(int expected_pages_count);
+  // |job_title| is the title of the page being previewed.
+  void PreviewDataIsAvailable(int expected_pages_count,
+                              const string16& job_title);
 
  private:
   scoped_refptr<PrintPreviewUIHTMLSource> html_source_;

@@ -42,7 +42,12 @@ class AboutPageHandler : public OptionsPageUIHandler {
   // Callback from chromeos::VersionLoader giving the version.
   void OnOSVersion(chromeos::VersionLoader::Handle handle,
                    std::string version);
+  void OnOSFirmware(chromeos::VersionLoader::Handle handle,
+                    std::string firmware);
   void UpdateStatus(const chromeos::UpdateLibrary::Status& status);
+
+  // UpdateEngine Callback handler.
+  static void UpdateSelectedChannel(void* user_data, const char* channel);
 
   // Handles asynchronously loading the version.
   chromeos::VersionLoader loader_;

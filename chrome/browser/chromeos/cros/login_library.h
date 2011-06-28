@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 
 #include <string>
 
-#include "base/singleton.h"
+#include "base/memory/singleton.h"
 #include "third_party/cros/chromeos_login.h"
 
 namespace chromeos {
@@ -32,13 +32,21 @@ class LoginLibrary {
   virtual bool CheckWhitelist(const std::string& email,
                               std::vector<uint8>* OUT_signature) = 0;
 
-  // Fetch the value associated with |name|, if its present.
-  // If so, we return true, store the info in |OUT_value|, and store the
-  // signature passed when the property was initially stored in |OUT_signature|.
-  // If not, we return false and don't touch the output parameters.
-  virtual bool RetrieveProperty(const std::string& name,
-                                std::string* OUT_value,
-                                std::vector<uint8>* OUT_signature) = 0;
+  virtual void RequestRetrievePolicy(RetrievePolicyCallback callback,
+                                     void* delegate_string) = 0;
+
+  // Start fetch the value associated with |name|, if its present.
+  // When fetching is done/failed, |callback| is called to pass back the fetch
+  // results. If fetching is successful, |callback| will be called with
+  // true for |success| and property's name, value and signature filled in
+  // Property struct. Otherwise, |success| would be false.
+  virtual void RequestRetrieveProperty(const std::string& name,
+                                       RetrievePropertyCallback callback,
+                                       void* user_data) = 0;
+
+  virtual void RequestStorePolicy(const std::string& policy,
+                                  StorePolicyCallback callback,
+                                  void* delegate_bool) = 0;
 
   // Attempts to issue a signed async request to store |name|=|value|.
   // |signature| must by a SHA1 with RSA encryption signature over the string
@@ -69,6 +77,11 @@ class LoginLibrary {
                                 const std::vector<uint8>& signature,
                                 Delegate* callback) = 0;
 
+  // DEPRECATED.  We have re-implemented owner-signed settings by fetching
+  // and caching a policy, and then pulling values from there.  This is all
+  // handled at the SignedSettings layer, so anyone using this stuff directly
+  // should not be doing so anymore.
+  //
   // Retrieves the user white list. Note the call is for display purpose only.
   // To determine if an email is white listed, you MUST use CheckWhitelist.
   //  Returns true if the request is successfully dispatched.

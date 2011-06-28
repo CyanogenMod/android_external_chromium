@@ -9,12 +9,14 @@
 #include "base/basictypes.h"
 #include "base/command_line.h"
 #include "base/i18n/number_formatting.h"
+#include "base/metrics/histogram.h"
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/autocomplete/autocomplete_controller_delegate.h"
 #include "chrome/browser/autocomplete/autocomplete_match.h"
 #include "chrome/browser/autocomplete/builtin_provider.h"
+#include "chrome/browser/autocomplete/extension_app_provider.h"
 #include "chrome/browser/autocomplete/history_contents_provider.h"
 #include "chrome/browser/autocomplete/history_quick_provider.h"
 #include "chrome/browser/autocomplete/history_url_provider.h"
@@ -27,9 +29,9 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/history_ui.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
+#include "content/common/notification_service.h"
 #include "googleurl/src/gurl.h"
 #include "googleurl/src/url_canon_ip.h"
 #include "googleurl/src/url_util.h"
@@ -50,7 +52,7 @@ AutocompleteInput::AutocompleteInput()
     prevent_inline_autocomplete_(false),
     prefer_keyword_(false),
     allow_exact_keyword_match_(true),
-    synchronous_only_(false) {
+    matches_requested_(ALL_MATCHES) {
 }
 
 AutocompleteInput::AutocompleteInput(const string16& text,
@@ -58,14 +60,14 @@ AutocompleteInput::AutocompleteInput(const string16& text,
                                      bool prevent_inline_autocomplete,
                                      bool prefer_keyword,
                                      bool allow_exact_keyword_match,
-                                     bool synchronous_only)
+                                     MatchesRequested matches_requested)
     : original_text_(text),
       desired_tld_(desired_tld),
       initial_prevent_inline_autocomplete_(prevent_inline_autocomplete),
       prevent_inline_autocomplete_(prevent_inline_autocomplete),
       prefer_keyword_(prefer_keyword),
       allow_exact_keyword_match_(allow_exact_keyword_match),
-      synchronous_only_(synchronous_only) {
+      matches_requested_(matches_requested) {
   // Trim whitespace from edges of input; don't inline autocomplete if there
   // was trailing whitespace.
   if (TrimWhitespace(text, TRIM_ALL, &text_) & TRIM_TRAILING)
@@ -463,7 +465,7 @@ bool AutocompleteInput::Equals(const AutocompleteInput& other) const {
          (scheme_ == other.scheme_) &&
          (prevent_inline_autocomplete_ == other.prevent_inline_autocomplete_) &&
          (prefer_keyword_ == other.prefer_keyword_) &&
-         (synchronous_only_ == other.synchronous_only_);
+         (matches_requested_ == other.matches_requested_);
 }
 
 void AutocompleteInput::Clear() {
@@ -797,6 +799,7 @@ AutocompleteController::AutocompleteController(
   providers_.push_back(new KeywordProvider(this, profile));
   providers_.push_back(new HistoryContentsProvider(this, profile));
   providers_.push_back(new BuiltinProvider(this, profile));
+  providers_.push_back(new ExtensionAppProvider(this, profile));
   for (ACProviders::iterator i(providers_.begin()); i != providers_.end(); ++i)
     (*i)->AddRef();
 }
@@ -825,16 +828,18 @@ void AutocompleteController::SetProfile(Profile* profile) {
                    // different profile.
 }
 
-void AutocompleteController::Start(const string16& text,
-                                   const string16& desired_tld,
-                                   bool prevent_inline_autocomplete,
-                                   bool prefer_keyword,
-                                   bool allow_exact_keyword_match,
-                                   bool synchronous_only) {
+void AutocompleteController::Start(
+    const string16& text,
+    const string16& desired_tld,
+    bool prevent_inline_autocomplete,
+    bool prefer_keyword,
+    bool allow_exact_keyword_match,
+    AutocompleteInput::MatchesRequested matches_requested) {
   const string16 old_input_text(input_.text());
-  const bool old_synchronous_only = input_.synchronous_only();
+  const AutocompleteInput::MatchesRequested old_matches_requested =
+      input_.matches_requested();
   input_ = AutocompleteInput(text, desired_tld, prevent_inline_autocomplete,
-      prefer_keyword, allow_exact_keyword_match, synchronous_only);
+      prefer_keyword, allow_exact_keyword_match, matches_requested);
 
   // See if we can avoid rerunning autocomplete when the query hasn't changed
   // much.  When the user presses or releases the ctrl key, the desired_tld
@@ -846,17 +851,25 @@ void AutocompleteController::Start(const string16& text,
   // NOTE: This comes after constructing |input_| above since that construction
   // can change the text string (e.g. by stripping off a leading '?').
   const bool minimal_changes = (input_.text() == old_input_text) &&
-      (input_.synchronous_only() == old_synchronous_only);
+      (input_.matches_requested() == old_matches_requested);
 
   expire_timer_.Stop();
 
   // Start the new query.
   in_start_ = true;
+  base::TimeTicks start_time = base::TimeTicks::Now();
   for (ACProviders::iterator i(providers_.begin()); i != providers_.end();
        ++i) {
     (*i)->Start(input_, minimal_changes);
-    if (synchronous_only)
+    if (matches_requested != AutocompleteInput::ALL_MATCHES)
       DCHECK((*i)->done());
+  }
+  if (matches_requested == AutocompleteInput::ALL_MATCHES && text.size() < 6) {
+    base::TimeTicks end_time = base::TimeTicks::Now();
+    std::string name = "Omnibox.QueryTime." + base::IntToString(text.size());
+    base::Histogram* counter = base::Histogram::FactoryGet(
+        name, 1, 1000, 50, base::Histogram::kUmaTargetedHistogramFlag);
+    counter->Add(static_cast<int>((end_time - start_time).InMilliseconds()));
   }
   in_start_ = false;
   CheckIfDone();

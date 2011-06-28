@@ -11,23 +11,20 @@
 
 #include "base/file_path.h"
 #include "chrome/browser/content_settings/host_content_settings_map.h"
-#include "chrome/browser/custom_handlers/protocol_handler_registry.h"
 #include "chrome/browser/extensions/extension_info_map.h"
 #include "chrome/browser/extensions/extension_webrequest_api.h"
 #include "chrome/browser/prefs/pref_change_registrar.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/prerender/prerender_manager.h"
 #include "chrome/common/extensions/extension_icon_set.h"
-#include "chrome/common/net/url_request_context_getter.h"
 #include "content/browser/appcache/chrome_appcache_service.h"
 #include "content/browser/chrome_blob_storage_context.h"
 #include "content/browser/host_zoom_map.h"
 #include "net/base/cookie_policy.h"
 #include "net/url_request/url_request_context.h"
-#include "webkit/database/database_tracker.h"
+#include "net/url_request/url_request_context_getter.h"
 #include "webkit/fileapi/file_system_context.h"
 
-class ChromeCookiePolicy;
 class ChromeURLDataManagerBackend;
 class ChromeURLRequestContextFactory;
 class IOThread;
@@ -48,6 +45,9 @@ class ChromeURLRequestContext : public net::URLRequestContext {
  public:
   ChromeURLRequestContext();
 
+  // Copies the state from |other| into this context.
+  void CopyFrom(ChromeURLRequestContext* other);
+
   // Gets the path to the directory user scripts are stored in.
   FilePath user_script_dir_path() const {
     return user_script_dir_path_;
@@ -57,11 +57,6 @@ class ChromeURLRequestContext : public net::URLRequestContext {
   // May be NULL if requests for this context aren't subject to appcaching.
   ChromeAppCacheService* appcache_service() const {
     return appcache_service_.get();
-  }
-
-  // Gets the database tracker associated with this context's profile.
-  webkit_database::DatabaseTracker* database_tracker() const {
-    return database_tracker_.get();
   }
 
   // Gets the blob storage context associated with this context's profile.
@@ -74,8 +69,8 @@ class ChromeURLRequestContext : public net::URLRequestContext {
     return file_system_context_.get();
   }
 
-  bool is_off_the_record() const {
-    return is_off_the_record_;
+  bool is_incognito() const {
+    return is_incognito_;
   }
 
   virtual const std::string& GetUserAgent(const GURL& url) const;
@@ -94,20 +89,14 @@ class ChromeURLRequestContext : public net::URLRequestContext {
     return prerender_manager_.get();
   }
 
-  const ProtocolHandlerRegistry* protocol_handler_registry() {
-    return protocol_handler_registry_.get();
-  }
-
   ChromeURLDataManagerBackend* GetChromeURLDataManagerBackend();
 
   // Setters to simplify initializing from factory objects.
-  void set_chrome_cookie_policy(ChromeCookiePolicy* cookie_policy);
-
   void set_user_script_dir_path(const FilePath& path) {
     user_script_dir_path_ = path;
   }
-  void set_is_off_the_record(bool is_off_the_record) {
-    is_off_the_record_ = is_off_the_record;
+  void set_is_incognito(bool is_incognito) {
+    is_incognito_ = is_incognito;
   }
   void set_host_content_settings_map(
       HostContentSettingsMap* host_content_settings_map) {
@@ -118,9 +107,6 @@ class ChromeURLRequestContext : public net::URLRequestContext {
   }
   void set_appcache_service(ChromeAppCacheService* service) {
     appcache_service_ = service;
-  }
-  void set_database_tracker(webkit_database::DatabaseTracker* tracker) {
-    database_tracker_ = tracker;
   }
   void set_blob_storage_context(ChromeBlobStorageContext* context) {
     blob_storage_context_ = context;
@@ -134,9 +120,6 @@ class ChromeURLRequestContext : public net::URLRequestContext {
   void set_prerender_manager(prerender::PrerenderManager* prerender_manager) {
     prerender_manager_ = prerender_manager;
   }
-  void set_protocol_handler_registry(ProtocolHandlerRegistry* registry) {
-    protocol_handler_registry_ = registry;
-  }
 
   // Callback for when the accept language changes.
   void OnAcceptLanguageChange(const std::string& accept_language);
@@ -148,13 +131,16 @@ class ChromeURLRequestContext : public net::URLRequestContext {
   virtual ~ChromeURLRequestContext();
 
  private:
+  // ---------------------------------------------------------------------------
+  // Important: When adding any new members below, consider whether they need to
+  // be added to CopyFrom.
+  // ---------------------------------------------------------------------------
+
   // Path to the directory user scripts are stored in.
   FilePath user_script_dir_path_;
 
   // TODO(willchan): Make these non-refcounted.
   scoped_refptr<ChromeAppCacheService> appcache_service_;
-  scoped_refptr<webkit_database::DatabaseTracker> database_tracker_;
-  scoped_refptr<ChromeCookiePolicy> chrome_cookie_policy_;
   scoped_refptr<HostContentSettingsMap> host_content_settings_map_;
   scoped_refptr<HostZoomMap> host_zoom_map_;
   scoped_refptr<ChromeBlobStorageContext> blob_storage_context_;
@@ -163,20 +149,24 @@ class ChromeURLRequestContext : public net::URLRequestContext {
   scoped_refptr<ExtensionInfoMap> extension_info_map_;
   scoped_refptr<prerender::PrerenderManager> prerender_manager_;
   scoped_ptr<ChromeURLDataManagerBackend> chrome_url_data_manager_backend_;
-  scoped_refptr<ProtocolHandlerRegistry> protocol_handler_registry_;
 
-  bool is_off_the_record_;
+  bool is_incognito_;
+
+  // ---------------------------------------------------------------------------
+  // Important: When adding any new members above, consider whether they need to
+  // be added to CopyFrom.
+  // ---------------------------------------------------------------------------
 
   DISALLOW_COPY_AND_ASSIGN(ChromeURLRequestContext);
 };
 
-// A URLRequestContextGetter subclass used by the browser. This returns a
+// A net::URLRequestContextGetter subclass used by the browser. This returns a
 // subclass of net::URLRequestContext which can be used to store extra
 // information about requests.
 //
 // Most methods are expected to be called on the UI thread, except for
 // the destructor and GetURLRequestContext().
-class ChromeURLRequestContextGetter : public URLRequestContextGetter,
+class ChromeURLRequestContextGetter : public net::URLRequestContextGetter,
                                       public NotificationObserver {
  public:
   // Constructs a ChromeURLRequestContextGetter that will use |factory| to
@@ -188,12 +178,12 @@ class ChromeURLRequestContextGetter : public URLRequestContextGetter,
                                 ChromeURLRequestContextFactory* factory);
 
   // Note that GetURLRequestContext() can only be called from the IO
-  // thread (it will assert otherwise). GetCookieStore() and
+  // thread (it will assert otherwise). DONTUSEME_GetCookieStore() and
   // GetIOMessageLoopProxy however can be called from any thread.
   //
-  // URLRequestContextGetter implementation.
+  // net::URLRequestContextGetter implementation.
   virtual net::URLRequestContext* GetURLRequestContext();
-  virtual net::CookieStore* GetCookieStore();
+  virtual net::CookieStore* DONTUSEME_GetCookieStore();
   virtual scoped_refptr<base::MessageLoopProxy> GetIOMessageLoopProxy() const;
 
   // Releases |url_request_context_|.  It's invalid to call
@@ -222,6 +212,13 @@ class ChromeURLRequestContextGetter : public URLRequestContextGetter,
   static ChromeURLRequestContextGetter* CreateOriginalForExtensions(
       Profile* profile, const ProfileIOData* profile_io_data);
 
+  // Create an instance for an original profile for an app with isolated
+  // storage. This is expected to get called on UI thread.
+  static ChromeURLRequestContextGetter* CreateOriginalForIsolatedApp(
+      Profile* profile,
+      const ProfileIOData* profile_io_data,
+      const std::string& app_id);
+
   // Create an instance for use with an OTR profile. This is expected to get
   // called on the UI thread.
   static ChromeURLRequestContextGetter* CreateOffTheRecord(
@@ -231,6 +228,13 @@ class ChromeURLRequestContextGetter : public URLRequestContextGetter,
   // to get called on UI thread.
   static ChromeURLRequestContextGetter* CreateOffTheRecordForExtensions(
       Profile* profile, const ProfileIOData* profile_io_data);
+
+  // Create an instance for an OTR profile for an app with isolated storage.
+  // This is expected to get called on UI thread.
+  static ChromeURLRequestContextGetter* CreateOffTheRecordForIsolatedApp(
+      Profile* profile,
+      const ProfileIOData* profile_io_data,
+      const std::string& app_id);
 
   // Clean up UI thread resources. This is expected to get called on the UI
   // thread before the instance is deleted on the IO thread.

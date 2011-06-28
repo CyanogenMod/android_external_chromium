@@ -9,11 +9,12 @@
 #include <string>
 #include <vector>
 
+#include "base/scoped_ptr.h"
 #include "chrome/browser/extensions/extension_function_dispatcher.h"
 #include "chrome/browser/tab_contents/render_view_host_delegate_helper.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
 #include "content/browser/renderer_host/render_view_host_delegate.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
 
 class Balloon;
 class Browser;
@@ -60,7 +61,8 @@ class BalloonHost : public RenderViewHostDelegate,
   virtual int GetBrowserWindowID() const;
   virtual ViewType::Type GetRenderViewType() const;
   virtual RenderViewHostDelegate::View* GetViewDelegate();
-  virtual void ProcessWebUIMessage(const ViewHostMsg_DomMessage_Params& params);
+  virtual void ProcessWebUIMessage(
+      const ExtensionHostMsg_DomMessage_Params& params);
 
   // NotificationObserver override.
   virtual void Observe(NotificationType type,

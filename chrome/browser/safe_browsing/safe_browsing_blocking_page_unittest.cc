@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,12 +8,11 @@
 #include "chrome/browser/safe_browsing/malware_details.h"
 #include "chrome/browser/safe_browsing/safe_browsing_blocking_page.h"
 #include "chrome/common/pref_names.h"
-#include "chrome/common/render_messages.h"
-#include "chrome/common/render_messages_params.h"
 #include "content/browser/browser_thread.h"
 #include "content/browser/renderer_host/test_render_view_host.h"
 #include "content/browser/tab_contents/navigation_entry.h"
 #include "content/browser/tab_contents/test_tab_contents.h"
+#include "content/common/view_messages.h"
 
 static const char* kGoogleURL = "http://www.google.com/";
 static const char* kGoodURL = "http://www.goodguys.com/";
@@ -39,15 +38,16 @@ class TestSafeBrowsingBlockingPage :  public SafeBrowsingBlockingPage {
 class TestSafeBrowsingService: public SafeBrowsingService {
  public:
   virtual ~TestSafeBrowsingService() {}
-  virtual void ReportMalwareDetails(scoped_refptr<MalwareDetails> details) {
-    details_.push_back(details);
+
+  virtual void SendSerializedMalwareDetails(const std::string& serialized) {
+    details_.push_back(serialized);
   }
 
-  std::list<scoped_refptr<MalwareDetails> >* GetDetails() {
+  std::list<std::string>* GetDetails() {
     return &details_;
   }
 
-  std::list<scoped_refptr<MalwareDetails> > details_;
+  std::list<std::string> details_;
 };
 
 class TestSafeBrowsingBlockingPageFactory
@@ -102,14 +102,19 @@ class SafeBrowsingBlockingPageTest : public RenderViewHostTestHarness,
   void Navigate(const char* url, int page_id) {
     ViewHostMsg_FrameNavigate_Params params;
     InitNavigateParams(&params, page_id, GURL(url), PageTransition::TYPED);
-    contents()->TestDidNavigate(contents_->render_view_host(), params);
+    contents()->TestDidNavigate(contents()->render_view_host(), params);
   }
 
-  void GoBack() {
+  void GoBackCrossSite() {
     NavigationEntry* entry = contents()->controller().GetEntryAtOffset(-1);
     ASSERT_TRUE(entry);
     contents()->controller().GoBack();
-    Navigate(entry->url().spec().c_str(), entry->page_id());
+
+    // The navigation should commit in the pending RVH.
+    ViewHostMsg_FrameNavigate_Params params;
+    InitNavigateParams(&params, entry->page_id(), GURL(entry->url()),
+                       PageTransition::TYPED);
+    contents()->TestDidNavigate(contents()->pending_rvh(), params);
   }
 
   void ShowInterstitial(ResourceType::Type resource_type,
@@ -156,8 +161,8 @@ class SafeBrowsingBlockingPageTest : public RenderViewHostTestHarness,
     resource->url = url;
     resource->resource_type = resource_type;
     resource->threat_type = SafeBrowsingService::URL_MALWARE;
-    resource->render_process_host_id = contents_->GetRenderProcessHost()->id();
-    resource->render_view_id = contents_->render_view_host()->routing_id();
+    resource->render_process_host_id = contents()->GetRenderProcessHost()->id();
+    resource->render_view_id = contents()->render_view_host()->routing_id();
   }
 
   UserResponse user_response_;
@@ -457,7 +462,7 @@ TEST_F(SafeBrowsingBlockingPageTest, NavigatingBackAndForth) {
   // Proceed, then navigate back.
   ProceedThroughInterstitial(sb_interstitial);
   Navigate(kBadURL, 2);  // Commit the navigation.
-  GoBack();
+  GoBackCrossSite();
 
   // We are back on the good page.
   sb_interstitial = GetSafeBrowsingBlockingPage();

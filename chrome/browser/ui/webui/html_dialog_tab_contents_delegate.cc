@@ -38,8 +38,12 @@ void HtmlDialogTabContentsDelegate::OpenURLFromTab(
     browser::NavigateParams params(browser, url, transition);
     params.profile = profile_;
     params.referrer = referrer;
-    params.disposition = disposition;
-    params.show_window = true;
+    if (source && source->is_crashed() && disposition == CURRENT_TAB &&
+        transition == PageTransition::LINK)
+      params.disposition = NEW_FOREGROUND_TAB;
+    else
+      params.disposition = disposition;
+    params.window_action = browser::NavigateParams::SHOW_WINDOW;
     browser::Navigate(&params);
   }
 }
@@ -66,7 +70,7 @@ void HtmlDialogTabContentsDelegate::AddNewContents(
     // params.source_contents = source;
     params.disposition = disposition;
     params.window_bounds = initial_pos;
-    params.show_window = true;
+    params.window_action = browser::NavigateParams::SHOW_WINDOW;
     browser::Navigate(&params);
   }
 }

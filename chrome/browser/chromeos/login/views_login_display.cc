@@ -15,8 +15,8 @@
 #include "chrome/browser/chromeos/wm_ipc.h"
 #include "chrome/browser/ui/views/window.h"
 #include "grit/chromium_strings.h"
-#include "grit/theme_resources.h"
 #include "grit/generated_resources.h"
+#include "grit/theme_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "views/widget/widget_gtk.h"
@@ -150,20 +150,21 @@ void ViewsLoginDisplay::OnUserRemoved(const std::string& username) {
     return;
 
   // Insert just before guest or add new user pods if any.
-  int new_size = static_cast<int>(controllers_.size());
-  int insert_position = new_size;
+  size_t new_size = controllers_.size();
+  size_t insert_position = new_size;
   while (insert_position > 0 &&
          (controllers_[insert_position - 1]->is_new_user() ||
-          controllers_[insert_position - 1]->is_guest()))
+          controllers_[insert_position - 1]->is_guest())) {
     --insert_position;
+  }
 
   controllers_.insert(controllers_.begin() + insert_position,
                       invisible_controllers_[0]);
   invisible_controllers_.erase(invisible_controllers_.begin());
 
   // Update counts for exiting pods.
-  new_size = static_cast<int>(controllers_.size());
-  for (int i = 0; i < new_size; ++i) {
+  new_size = controllers_.size();
+  for (size_t i = 0; i < new_size; ++i) {
     if (i != insert_position)
       controllers_[i]->UpdateUserCount(i, new_size);
   }
@@ -275,6 +276,8 @@ void ViewsLoginDisplay::OnUserSelected(UserController* source) {
     delegate()->OnUserSelected(source->user().email());
   }
   selected_view_index_ = new_selected_index;
+  WizardAccessibilityHelper::GetInstance()->MaybeSpeak(
+      source->GetAccessibleUserLabel().c_str(), false, true);
 }
 
 void ViewsLoginDisplay::RemoveUser(UserController* source) {
@@ -289,6 +292,10 @@ void ViewsLoginDisplay::SelectUser(int index) {
     message.set_param(0, index);
     WmIpc::instance()->SendMessage(message);
   }
+}
+
+void ViewsLoginDisplay::StartEnterpriseEnrollment() {
+  delegate()->OnStartEnterpriseEnrollment();
 }
 
 ////////////////////////////////////////////////////////////////////////////////

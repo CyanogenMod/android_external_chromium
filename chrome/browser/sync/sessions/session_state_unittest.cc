@@ -7,7 +7,7 @@
 #include <string>
 
 #include "base/base64.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/values.h"
 #include "chrome/test/values_test_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -24,26 +24,14 @@ using test::ExpectStringValue;
 
 class SessionStateTest : public testing::Test {};
 
-TEST_F(SessionStateTest, TypePayloadMapToValue) {
-  TypePayloadMap payloads;
-  payloads[syncable::BOOKMARKS] = "bookmarkpayload";
-  payloads[syncable::APPS] = "";
-
-  scoped_ptr<DictionaryValue> value(TypePayloadMapToValue(payloads));
-  EXPECT_EQ(2u, value->size());
-  ExpectStringValue("bookmarkpayload", *value, "Bookmarks");
-  ExpectStringValue("", *value, "Apps");
-  EXPECT_FALSE(value->HasKey("Preferences"));
-}
-
 TEST_F(SessionStateTest, SyncSourceInfoToValue) {
   sync_pb::GetUpdatesCallerInfo::GetUpdatesSource updates_source =
       sync_pb::GetUpdatesCallerInfo::PERIODIC;
-  TypePayloadMap types;
+  syncable::ModelTypePayloadMap types;
   types[syncable::PREFERENCES] = "preferencespayload";
   types[syncable::EXTENSIONS] = "";
   scoped_ptr<DictionaryValue> expected_types_value(
-      TypePayloadMapToValue(types));
+      syncable::ModelTypePayloadMapToValue(types));
 
   SyncSourceInfo source_info(updates_source, types);
 

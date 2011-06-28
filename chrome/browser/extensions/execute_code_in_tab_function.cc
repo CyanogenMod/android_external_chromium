@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,9 @@
 #include "base/callback.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
+#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_tabs_module.h"
 #include "chrome/browser/extensions/extension_tabs_module_constants.h"
-#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/file_reader.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
@@ -17,13 +17,17 @@
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/extensions/extension_error_utils.h"
-#include "chrome/common/notification_service.h"
+#include "chrome/common/extensions/extension_messages.h"
+#include "content/browser/renderer_host/render_view_host.h"
 #include "content/browser/tab_contents/tab_contents.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/common/notification_service.h"
 
 namespace keys = extension_tabs_module_constants;
 
 ExecuteCodeInTabFunction::ExecuteCodeInTabFunction()
-    : execute_tab_id_(-1),
+    : ALLOW_THIS_IN_INITIALIZER_LIST(registrar_(this)),
+      execute_tab_id_(-1),
       all_frames_(false) {
 }
 
@@ -74,11 +78,10 @@ bool ExecuteCodeInTabFunction::RunImpl() {
     }
   }
 
-  DCHECK(browser);
-  DCHECK(contents);
-
   // NOTE: This can give the wrong answer due to race conditions, but it is OK,
   // we check again in the renderer.
+  CHECK(browser);
+  CHECK(contents);
   if (!GetExtension()->CanExecuteScriptOnPage(
           contents->tab_contents()->GetURL(), NULL, &error_)) {
     return false;
@@ -165,24 +168,53 @@ bool ExecuteCodeInTabFunction::Execute(const std::string& code_string) {
   } else if (function_name != TabsExecuteScriptFunction::function_name()) {
     DCHECK(false);
   }
-  if (!contents->tab_contents()->ExecuteCode(request_id(), extension->id(),
-      is_js_code, code_string, all_frames_)) {
-    SendResponse(false);
-    return false;
-  }
-  registrar_.Add(this, NotificationType::TAB_CODE_EXECUTED,
-                 NotificationService::AllSources());
-  AddRef();  // balanced in Observe()
+
+  ExtensionMsg_ExecuteCode_Params params;
+  params.request_id = request_id();
+  params.extension_id = extension->id();
+  params.is_javascript = is_js_code;
+  params.code = code_string;
+  params.all_frames = all_frames_;
+  params.in_main_world = false;
+  contents->render_view_host()->Send(new ExtensionMsg_ExecuteCode(
+      contents->render_view_host()->routing_id(), params));
+
+  registrar_.Observe(contents->tab_contents());
+  AddRef();  // balanced in OnExecuteCodeFinished()
   return true;
 }
 
-void ExecuteCodeInTabFunction::Observe(NotificationType type,
-                                       const NotificationSource& source,
-                                       const NotificationDetails& details) {
-  std::pair<int, bool>* result_details =
-      Details<std::pair<int, bool> >(details).ptr();
-  if (result_details->first == request_id()) {
-    SendResponse(result_details->second);
-    Release();  // balanced in Execute()
+bool ExecuteCodeInTabFunction::OnMessageReceived(const IPC::Message& message) {
+  if (message.type() != ExtensionHostMsg_ExecuteCodeFinished::ID)
+    return false;
+
+  int message_request_id;
+  void* iter = NULL;
+  if (!message.ReadInt(&iter, &message_request_id)) {
+    NOTREACHED() << "malformed extension message";
+    return true;
   }
+
+  if (message_request_id != request_id())
+    return false;
+
+  IPC_BEGIN_MESSAGE_MAP(ExecuteCodeInTabFunction, message)
+    IPC_MESSAGE_HANDLER(ExtensionHostMsg_ExecuteCodeFinished,
+                        OnExecuteCodeFinished)
+  IPC_END_MESSAGE_MAP()
+  return true;
+}
+
+void ExecuteCodeInTabFunction::OnExecuteCodeFinished(int request_id,
+                                                     bool success,
+                                                     const std::string& error) {
+  if (!error.empty()) {
+    CHECK(!success);
+    error_ = error;
+  }
+
+  SendResponse(success);
+
+  registrar_.Observe(NULL);
+  Release();  // balanced in Execute()
 }

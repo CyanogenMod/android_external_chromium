@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,16 +11,16 @@
 #include "base/file_util.h"
 #include "base/file_util_proxy.h"
 #include "base/logging.h"
+#include "base/memory/scoped_ptr.h"
+#include "base/memory/scoped_temp_dir.h"
 #include "base/message_loop.h"
 #include "base/platform_file.h"
-#include "base/scoped_ptr.h"
-#include "base/scoped_temp_dir.h"
 #include "base/task.h"
 #include "base/time.h"
 #include "chrome/browser/safe_browsing/client_side_detection_service.h"
-#include "chrome/browser/safe_browsing/csd.pb.h"
 #include "chrome/common/net/test_url_fetcher_factory.h"
 #include "chrome/common/net/url_fetcher.h"
+#include "chrome/common/safe_browsing/csd.pb.h"
 #include "content/browser/browser_thread.h"
 #include "googleurl/src/gurl.h"
 #include "net/url_request/url_request_status.h"
@@ -64,10 +64,13 @@ class ClientSideDetectionServiceTest : public testing::Test {
   }
 
   bool SendClientReportPhishingRequest(const GURL& phishing_url,
-                                       double score) {
+                                       float score) {
+    ClientPhishingRequest* request = new ClientPhishingRequest();
+    request->set_url(phishing_url.spec());
+    request->set_client_score(score);
+    request->set_is_phishing(true);  // client thinks the URL is phishing.
     csd_service_->SendClientReportPhishingRequest(
-        phishing_url,
-        score,
+        request,
         NewCallback(this, &ClientSideDetectionServiceTest::SendRequestDone));
     phishing_url_ = phishing_url;
     msg_loop_.Run();  // Waits until callback is called.
@@ -136,13 +139,13 @@ class ClientSideDetectionServiceTest : public testing::Test {
     // While 3 elements remain, only the first and the fourth are actually
     // valid.
     bool is_phishing;
-    EXPECT_TRUE(csd_service_->GetCachedResult(GURL("http://first.url.com"),
-                                              &is_phishing));
+    EXPECT_TRUE(csd_service_->GetValidCachedResult(
+        GURL("http://first.url.com"), &is_phishing));
     EXPECT_FALSE(is_phishing);
-    EXPECT_FALSE(csd_service_->GetCachedResult(GURL("http://third.url.com"),
-                                               &is_phishing));
-    EXPECT_TRUE(csd_service_->GetCachedResult(GURL("http://fourth.url.com"),
-                                              &is_phishing));
+    EXPECT_FALSE(csd_service_->GetValidCachedResult(
+        GURL("http://third.url.com"), &is_phishing));
+    EXPECT_TRUE(csd_service_->GetValidCachedResult(
+        GURL("http://fourth.url.com"), &is_phishing));
     EXPECT_TRUE(is_phishing);
   }
 
@@ -226,7 +229,7 @@ TEST_F(ClientSideDetectionServiceTest, SendClientReportPhishingRequest) {
       tmp_dir.path().AppendASCII("model"), NULL));
 
   GURL url("http://a.com/");
-  double score = 0.4;  // Some random client score.
+  float score = 0.4f;  // Some random client score.
 
   base::Time before = base::Time::Now();
 
@@ -241,62 +244,31 @@ TEST_F(ClientSideDetectionServiceTest, SendClientReportPhishingRequest) {
                                   true /* success */);
   EXPECT_TRUE(SendClientReportPhishingRequest(url, score));
 
-  // Caching causes this to still count as phishy.
-  response.set_phishy(false);
-  SetClientReportPhishingResponse(response.SerializeAsString(),
-                                  true /* success */);
-  EXPECT_TRUE(SendClientReportPhishingRequest(url, score));
-
-  // This request will fail and should not be cached.
+  // This request will fail
   GURL second_url("http://b.com/");
   response.set_phishy(false);
   SetClientReportPhishingResponse(response.SerializeAsString(),
                                   false /* success*/);
   EXPECT_FALSE(SendClientReportPhishingRequest(second_url, score));
 
-  // Verify that the previous request was not cached.
-  response.set_phishy(true);
-  SetClientReportPhishingResponse(response.SerializeAsString(),
-                                  true /* success */);
-  EXPECT_TRUE(SendClientReportPhishingRequest(second_url, score));
-
-  // This request is blocked because it's not in the cache and we have more
-  // than 3 requests.
-  GURL third_url("http://c.com");
-  response.set_phishy(true);
-  SetClientReportPhishingResponse(response.SerializeAsString(),
-                                  true /* success */);
-  EXPECT_FALSE(SendClientReportPhishingRequest(third_url, score));
-
-  // Verify that caching still works even when new requests are blocked.
-  response.set_phishy(true);
-  SetClientReportPhishingResponse(response.SerializeAsString(),
-                                  true /* success */);
-  EXPECT_TRUE(SendClientReportPhishingRequest(url, score));
-
-  // Verify that we allow cache refreshing even when requests are blocked.
-  base::Time cache_time = base::Time::Now() - base::TimeDelta::FromHours(1);
-  SetCache(second_url, true, cache_time);
-
-  // Even though this element is in the cache, it's not currently valid so
-  // we make request and return that value instead.
-  response.set_phishy(false);
-  SetClientReportPhishingResponse(response.SerializeAsString(),
-                                  true /* success */);
-  EXPECT_FALSE(SendClientReportPhishingRequest(second_url, score));
-
   base::Time after = base::Time::Now();
 
-  // Check that we have recorded 5 requests, all within the correct time range.
-  // The blocked request and the cached requests should not be present.
+  // Check that we have recorded all 3 requests within the correct time range.
   std::queue<base::Time>& report_times = GetPhishingReportTimes();
-  EXPECT_EQ(5U, report_times.size());
+  EXPECT_EQ(3U, report_times.size());
   while (!report_times.empty()) {
     base::Time time = report_times.back();
     report_times.pop();
     EXPECT_LE(before, time);
     EXPECT_GE(after, time);
   }
+
+  // Only the first url should be in the cache.
+  bool is_phishing;
+  EXPECT_TRUE(csd_service_->IsInCache(url));
+  EXPECT_TRUE(csd_service_->GetValidCachedResult(url, &is_phishing));
+  EXPECT_TRUE(is_phishing);
+  EXPECT_FALSE(csd_service_->IsInCache(second_url));
 }
 
 TEST_F(ClientSideDetectionServiceTest, GetNumReportTest) {

@@ -9,9 +9,10 @@
 #include <list>
 #include <string>
 #include "base/basictypes.h"
-#include "base/ref_counted.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/browser_process_sub_thread.h"
+#include "chrome/browser/prefs/pref_member.h"
 #include "chrome/common/net/predictor_common.h"
 #include "net/base/network_change_notifier.h"
 
@@ -19,7 +20,9 @@ class ChromeNetLog;
 class ChromeURLRequestContextGetter;
 class ExtensionEventRouterForwarder;
 class ListValue;
+class PrefProxyConfigTracker;
 class PrefService;
+class SystemURLRequestContextGetter;
 
 namespace chrome_browser_net {
 class ConnectInterceptor;
@@ -29,14 +32,17 @@ class Predictor;
 namespace net {
 class CertVerifier;
 class DnsRRResolver;
+class FtpTransactionFactory;
 class HostResolver;
 class HttpAuthHandlerFactory;
 class HttpTransactionFactory;
 class NetworkDelegate;
+class ProxyConfigService;
 class ProxyScriptFetcher;
 class ProxyService;
 class SSLConfigService;
 class URLRequestContext;
+class URLRequestContextGetter;
 class URLSecurityManager;
 }  // namespace net
 
@@ -56,8 +62,17 @@ class IOThread : public BrowserProcessSubThread {
     scoped_refptr<net::ProxyService> proxy_script_fetcher_proxy_service;
     scoped_ptr<net::HttpTransactionFactory>
         proxy_script_fetcher_http_transaction_factory;
+    scoped_ptr<net::FtpTransactionFactory>
+        proxy_script_fetcher_ftp_transaction_factory;
     scoped_ptr<net::URLSecurityManager> url_security_manager;
     scoped_refptr<net::URLRequestContext> proxy_script_fetcher_context;
+    scoped_ptr<net::HttpTransactionFactory> system_http_transaction_factory;
+    scoped_ptr<net::FtpTransactionFactory> system_ftp_transaction_factory;
+    scoped_refptr<net::ProxyService> system_proxy_service;
+    // NOTE(willchan): This request context is unusable until a system
+    // SSLConfigService is provided that doesn't rely on
+    // Profiles. Do NOT use this yet.
+    scoped_refptr<net::URLRequestContext> system_request_context;
     scoped_refptr<ExtensionEventRouterForwarder>
         extension_event_router_forwarder;
   };
@@ -104,6 +119,9 @@ class IOThread : public BrowserProcessSubThread {
   // Handles changing to On The Record mode, discarding confidential data.
   void ChangedToOnTheRecord();
 
+  // Returns a getter for the URLRequestContext.  Only called on the UI thread.
+  net::URLRequestContextGetter* system_url_request_context_getter();
+
   // Clear all network stack history, including the host cache, as well as
   // speculative data about subresources of visited sites, and startup-time
   // navigations.
@@ -114,10 +132,18 @@ class IOThread : public BrowserProcessSubThread {
   virtual void CleanUp();
 
  private:
+  // Provide SystemURLRequestContextGetter with access to
+  // InitSystemRequestContext().
+  friend class SystemURLRequestContextGetter;
+
   static void RegisterPrefs(PrefService* local_state);
 
   net::HttpAuthHandlerFactory* CreateDefaultAuthHandlerFactory(
       net::HostResolver* resolver);
+
+  // Lazy initialization of system request context for
+  // SystemURLRequestContextGetter. To be called on IO thread.
+  void InitSystemRequestContext();
 
   void InitNetworkPredictorOnIOThread(
       bool prefetching_enabled,
@@ -156,6 +182,8 @@ class IOThread : public BrowserProcessSubThread {
   scoped_ptr<net::NetworkChangeNotifier::IPAddressObserver>
       network_change_observer_;
 
+  BooleanPrefMember system_enable_referrers_;
+
   // Store HTTP Auth-related policies in this thread.
   std::string auth_schemes_;
   bool negotiate_disable_cname_lookup_;
@@ -173,6 +201,13 @@ class IOThread : public BrowserProcessSubThread {
   // down.
   chrome_browser_net::ConnectInterceptor* speculative_interceptor_;
   chrome_browser_net::Predictor* predictor_;
+
+  scoped_ptr<net::ProxyConfigService> system_proxy_config_service_;
+
+  scoped_refptr<PrefProxyConfigTracker> pref_proxy_config_tracker_;
+
+  scoped_refptr<net::URLRequestContextGetter>
+      system_url_request_context_getter_;
 
   // Keeps track of all live ChromeURLRequestContextGetters, so the
   // ChromeURLRequestContexts can be released during

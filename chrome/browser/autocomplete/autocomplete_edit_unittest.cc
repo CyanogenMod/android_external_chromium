@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -56,7 +56,8 @@ class TestingAutocompleteEditView : public AutocompleteEditView {
   virtual bool OnAfterPossibleChange() { return false; }
   virtual gfx::NativeView GetNativeView() const { return 0; }
   virtual CommandUpdater* GetCommandUpdater() { return NULL; }
-  virtual void SetInstantSuggestion(const string16& input) {}
+  virtual void SetInstantSuggestion(const string16& input,
+                                    bool animate_to_complete) {}
   virtual string16 GetInstantSuggestion() const { return string16(); }
   virtual int TextWidth() const { return 0; }
   virtual bool IsImeComposing() const { return false; }
@@ -82,10 +83,10 @@ class TestingAutocompleteEditController : public AutocompleteEditController {
   virtual void OnInputInProgress(bool in_progress) OVERRIDE {}
   virtual void OnKillFocus() OVERRIDE {}
   virtual void OnSetFocus() OVERRIDE {}
-  virtual SkBitmap GetFavIcon() const OVERRIDE { return SkBitmap(); }
+  virtual SkBitmap GetFavicon() const OVERRIDE { return SkBitmap(); }
   virtual string16 GetTitle() const OVERRIDE { return string16(); }
   virtual InstantController* GetInstant() OVERRIDE { return NULL; }
-  virtual TabContentsWrapper* GetTabContentsWrapper() OVERRIDE {
+  virtual TabContentsWrapper* GetTabContentsWrapper() const OVERRIDE {
     return NULL;
   }
 

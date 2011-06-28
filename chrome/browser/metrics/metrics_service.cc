@@ -161,31 +161,32 @@
 #include "base/md5.h"
 #include "base/metrics/histogram.h"
 #include "base/string_number_conversions.h"
-#include "base/threading/thread.h"
 #include "base/threading/platform_thread.h"
+#include "base/threading/thread.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
-#include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/load_notification_details.h"
 #include "chrome/browser/memory_details.h"
 #include "chrome/browser/metrics/histogram_synchronizer.h"
 #include "chrome/browser/metrics/metrics_log.h"
 #include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/prefs/scoped_user_pref_update.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url_model.h"
-#include "chrome/common/child_process_info.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/common/child_process_logging.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/guid.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/render_messages.h"
 #include "content/browser/renderer_host/render_process_host.h"
+#include "content/common/child_process_info.h"
+#include "content/common/notification_service.h"
+#include "libxml/xmlwriter.h"
 #include "webkit/plugins/npapi/plugin_list.h"
 #include "webkit/plugins/npapi/webplugininfo.h"
-#include "libxml/xmlwriter.h"
 
 // TODO(port): port browser_distribution.h.
 #if !defined(OS_POSIX)
@@ -194,8 +195,8 @@
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/cros/cros_library.h"
-#include "chrome/browser/chromeos/cros/system_library.h"
 #include "chrome/browser/chromeos/external_metrics.h"
+#include "chrome/browser/chromeos/system_access.h"
 #endif
 
 namespace {
@@ -228,8 +229,8 @@ static const int kInitialInterlogDuration = 60;  // one minute
 // data.
 static const int kMaxHistogramGatheringWaitDuration = 60000;  // 60 seconds.
 
-// The default maximum number of events in a log uploaded to the UMA server.
-static const int kInitialEventLimit = 2400;
+// The maximum number of events in a log uploaded to the UMA server.
+static const int kEventLimit = 2400;
 
 // If an upload fails, and the transmission was over this byte count, then we
 // will discard the log, and not try to retransmit it.  We also don't persist
@@ -360,9 +361,8 @@ class MetricsService::InitTask : public Task {
     webkit::npapi::PluginList::Singleton()->GetPlugins(false, &plugins);
     std::string hardware_class;  // Empty string by default.
 #if defined(OS_CHROMEOS)
-    chromeos::SystemLibrary* system_library =
-        chromeos::CrosLibrary::Get()->GetSystemLibrary();
-    system_library->GetMachineStatistic("hardware_class", &hardware_class);
+    chromeos::SystemAccess::GetInstance()->GetMachineStatistic(
+        "hardware_class", &hardware_class);
 #endif  // OS_CHROMEOS
     callback_loop_->PostTask(FROM_HERE, new InitTaskComplete(
         hardware_class, plugins));
@@ -448,19 +448,13 @@ void MetricsService::DiscardOldStabilityStats(PrefService* local_state) {
 
   local_state->ClearPref(prefs::kStabilityPluginStats);
 
-  ListValue* unsent_initial_logs = local_state->GetMutableList(
-      prefs::kMetricsInitialLogs);
-  unsent_initial_logs->Clear();
-
-  ListValue* unsent_ongoing_logs = local_state->GetMutableList(
-      prefs::kMetricsOngoingLogs);
-  unsent_ongoing_logs->Clear();
+  local_state->ClearPref(prefs::kMetricsInitialLogs);
+  local_state->ClearPref(prefs::kMetricsOngoingLogs);
 }
 
 MetricsService::MetricsService()
     : recording_active_(false),
       reporting_active_(false),
-      user_permits_upload_(false),
       server_permits_upload_(true),
       state_(INITIALIZED),
       current_fetch_(NULL),
@@ -469,7 +463,6 @@ MetricsService::MetricsService()
       ALLOW_THIS_IN_INITIALIZER_LIST(log_sender_factory_(this)),
       ALLOW_THIS_IN_INITIALIZER_LIST(state_saver_factory_(this)),
       interlog_duration_(TimeDelta::FromSeconds(kInitialInterlogDuration)),
-      log_event_limit_(kInitialEventLimit),
       timer_pending_(false) {
   DCHECK(IsSingleThreaded());
   InitializeMetricsState();
@@ -479,12 +472,8 @@ MetricsService::~MetricsService() {
   SetRecording(false);
 }
 
-void MetricsService::SetUserPermitsUpload(bool enabled) {
-  HandleIdleSinceLastTransmission(false);
-  user_permits_upload_ = enabled;
-}
-
 void MetricsService::Start() {
+  HandleIdleSinceLastTransmission(false);
   SetRecording(true);
   SetReporting(true);
 }
@@ -495,6 +484,7 @@ void MetricsService::StartRecordingOnly() {
 }
 
 void MetricsService::Stop() {
+  HandleIdleSinceLastTransmission(false);
   SetReporting(false);
   SetRecording(false);
 }
@@ -522,7 +512,7 @@ void MetricsService::SetRecording(bool enabled) {
     child_process_logging::SetClientId(client_id_);
     StartRecording();
 
-    SetupNotifications(&registrar_, this);
+    SetUpNotifications(&registrar_, this);
   } else {
     registrar_.RemoveAll();
     PushPendingLogsToUnsentLists();
@@ -552,7 +542,7 @@ bool MetricsService::reporting_active() const {
 }
 
 // static
-void MetricsService::SetupNotifications(NotificationRegistrar* registrar,
+void MetricsService::SetUpNotifications(NotificationRegistrar* registrar,
                                         NotificationObserver* observer) {
     registrar->Add(observer, NotificationType::BROWSER_OPENED,
                    NotificationService::AllSources());
@@ -682,15 +672,13 @@ void MetricsService::HandleIdleSinceLastTransmission(bool in_idle) {
   idle_since_last_transmission_ = in_idle;
 }
 
-void MetricsService::RecordCleanShutdown() {
-  RecordBooleanPrefValue(prefs::kStabilityExitedCleanly, true);
-}
-
 void MetricsService::RecordStartOfSessionEnd() {
+  LogCleanShutdown();
   RecordBooleanPrefValue(prefs::kStabilitySessionEndCompleted, false);
 }
 
 void MetricsService::RecordCompletedSessionEnd() {
+  LogCleanShutdown();
   RecordBooleanPrefValue(prefs::kStabilitySessionEndCompleted, true);
 }
 
@@ -881,7 +869,7 @@ void MetricsService::StopRecording(MetricsLogBase** log) {
 
   // TODO(jar): Integrate bounds on log recording more consistently, so that we
   // can stop recording logs that are too big much sooner.
-  if (current_log_->num_events() > log_event_limit_) {
+  if (current_log_->num_events() > kEventLimit) {
     UMA_HISTOGRAM_COUNTS("UMA.Discarded Log Events",
                          current_log_->num_events());
     current_log_->CloseLog();
@@ -1060,9 +1048,9 @@ void MetricsService::OnHistogramSynchronizationDone() {
     return;
   }
 
-  // If we're not supposed to upload any UMA data because the response or the
-  // user said so, cancel the upload at this point, but start the timer.
-  if (!TransmissionPermitted()) {
+  // If we're not supposed to upload any UMA data because the response said so,
+  // cancel the upload at this point, but start the timer.
+  if (!ServerPermitsTransmission()) {
     DiscardPendingLog();
     StartLogTransmissionTimer();
     return;
@@ -1139,13 +1127,9 @@ void MetricsService::MakePendingLog() {
   DCHECK(pending_log());
 }
 
-bool MetricsService::TransmissionPermitted() const {
-  // If the user forbids uploading that's they're business, and we don't upload
-  // anything.  If the server forbids uploading, that's our business, so we take
-  // that to mean it forbids current logs, but we still send up the inital logs
-  // and any old logs.
-  if (!user_permits_upload_)
-    return false;
+bool MetricsService::ServerPermitsTransmission() const {
+  // If the server forbids uploading, we take that to mean it forbids current
+  // logs, but we still send up the inital logs and any old logs.
   if (server_permits_upload_)
     return true;
 
@@ -1241,11 +1225,11 @@ void MetricsService::RecallUnsentLogs() {
   PrefService* local_state = g_browser_process->local_state();
   DCHECK(local_state);
 
-  ListValue* unsent_initial_logs = local_state->GetMutableList(
+  const ListValue* unsent_initial_logs = local_state->GetList(
       prefs::kMetricsInitialLogs);
   RecallUnsentLogsHelper(*unsent_initial_logs, &unsent_initial_logs_);
 
-  ListValue* unsent_ongoing_logs = local_state->GetMutableList(
+  const ListValue* unsent_ongoing_logs = local_state->GetList(
       prefs::kMetricsOngoingLogs);
   RecallUnsentLogsHelper(*unsent_ongoing_logs, &unsent_ongoing_logs_);
 }
@@ -1297,15 +1281,19 @@ void MetricsService::StoreUnsentLogs() {
   PrefService* local_state = g_browser_process->local_state();
   DCHECK(local_state);
 
-  ListValue* unsent_initial_logs = local_state->GetMutableList(
-      prefs::kMetricsInitialLogs);
-  StoreUnsentLogsHelper(unsent_initial_logs_, kMaxInitialLogsPersisted,
-                        unsent_initial_logs);
+  {
+    ListPrefUpdate update(local_state, prefs::kMetricsInitialLogs);
+    ListValue* unsent_initial_logs = update.Get();
+    StoreUnsentLogsHelper(unsent_initial_logs_, kMaxInitialLogsPersisted,
+                          unsent_initial_logs);
+  }
 
-  ListValue* unsent_ongoing_logs = local_state->GetMutableList(
-      prefs::kMetricsOngoingLogs);
-  StoreUnsentLogsHelper(unsent_ongoing_logs_, kMaxOngoingLogsPersisted,
-                        unsent_ongoing_logs);
+  {
+    ListPrefUpdate update(local_state, prefs::kMetricsOngoingLogs);
+    ListValue* unsent_ongoing_logs = update.Get();
+    StoreUnsentLogsHelper(unsent_ongoing_logs_, kMaxOngoingLogsPersisted,
+                          unsent_ongoing_logs);
+  }
 }
 
 void MetricsService::PreparePendingLogText() {
@@ -1437,16 +1425,13 @@ void MetricsService::OnURLFetchComplete(const URLFetcher* source,
     if (local_state)
       local_state->ScheduleSavePersistentPrefs();
 
-    // Provide a default (free of exponetial backoff, other varances) in case
-    // the server does not specify a value.
-    interlog_duration_ = TimeDelta::FromSeconds(kMinSecondsPerLog);
-
-    GetSettingsFromResponseData(data);
-    // Override server specified interlog delay if there are unsent logs to
-    // transmit.
+    // Override usual interlog delay if there are unsent logs to transmit,
+    // otherwise reset back to default.
     if (unsent_logs()) {
       DCHECK(state_ < SENDING_CURRENT_LOGS);
       interlog_duration_ = TimeDelta::FromSeconds(kUnsentLogDelay);
+    } else {
+      interlog_duration_ = TimeDelta::FromSeconds(kMinSecondsPerLog);
     }
   }
 
@@ -1474,167 +1459,6 @@ void MetricsService::HandleBadResponseCode() {
             << interlog_duration_.InSeconds() << " seconds for "
             << compressed_log_;
   }
-}
-
-void MetricsService::GetSettingsFromResponseData(const std::string& data) {
-  // We assume that the file is structured as a block opened by <response>
-  // and that inside response, there is a block opened by tag <chrome_config>
-  // other tags are ignored for now except the content of <chrome_config>.
-  VLOG(1) << "METRICS: getting settings from response data: " << data;
-
-  int data_size = static_cast<int>(data.size());
-  if (data_size < 0) {
-    VLOG(1) << "METRICS: server response data bad size: " << data_size
-            << "; aborting extraction of settings";
-    return;
-  }
-  xmlDocPtr doc = xmlReadMemory(data.c_str(), data_size, "", NULL, 0);
-  // If the document is malformed, we just use the settings that were there.
-  if (!doc) {
-    VLOG(1) << "METRICS: reading xml from server response data failed";
-    return;
-  }
-
-  xmlNodePtr top_node = xmlDocGetRootElement(doc), chrome_config_node = NULL;
-  // Here, we find the chrome_config node by name.
-  for (xmlNodePtr p = top_node->children; p; p = p->next) {
-    if (xmlStrEqual(p->name, BAD_CAST "chrome_config")) {
-      chrome_config_node = p;
-      break;
-    }
-  }
-  // If the server data is formatted wrong and there is no
-  // config node where we expect, we just drop out.
-  if (chrome_config_node != NULL)
-    GetSettingsFromChromeConfigNode(chrome_config_node);
-  xmlFreeDoc(doc);
-}
-
-void MetricsService::GetSettingsFromChromeConfigNode(
-    xmlNodePtr chrome_config_node) {
-  // Iterate through all children of the config node.
-  for (xmlNodePtr current_node = chrome_config_node->children;
-       current_node;
-       current_node = current_node->next) {
-    // If we find the upload tag, we appeal to another function
-    // GetSettingsFromUploadNode to read all the data in it.
-    if (xmlStrEqual(current_node->name, BAD_CAST "upload")) {
-      GetSettingsFromUploadNode(current_node);
-      continue;
-    }
-  }
-}
-
-void MetricsService::InheritedProperties::OverwriteWhereNeeded(
-    xmlNodePtr node) {
-  xmlChar* salt_value = xmlGetProp(node, BAD_CAST "salt");
-  if (salt_value)  // If the property isn't there, xmlGetProp returns NULL.
-      salt = atoi(reinterpret_cast<char*>(salt_value));
-  // If the property isn't there, we keep the value the property had before
-
-  xmlChar* denominator_value = xmlGetProp(node, BAD_CAST "denominator");
-  if (denominator_value)
-     denominator = atoi(reinterpret_cast<char*>(denominator_value));
-}
-
-void MetricsService::GetSettingsFromUploadNode(xmlNodePtr upload_node) {
-  InheritedProperties props;
-  GetSettingsFromUploadNodeRecursive(upload_node, props, "", true);
-}
-
-void MetricsService::GetSettingsFromUploadNodeRecursive(
-    xmlNodePtr node,
-    InheritedProperties props,
-    std::string path_prefix,
-    bool uploadOn) {
-  props.OverwriteWhereNeeded(node);
-
-  // The bool uploadOn is set to true if the data represented by current
-  // node should be uploaded. This gets inherited in the tree; the children
-  // of a node that has already been rejected for upload get rejected for
-  // upload.
-  uploadOn = uploadOn && NodeProbabilityTest(node, props);
-
-  // The path is a / separated list of the node names ancestral to the current
-  // one. So, if you want to check if the current node has a certain name,
-  // compare to name.  If you want to check if it is a certan tag at a certain
-  // place in the tree, compare to the whole path.
-  std::string name = std::string(reinterpret_cast<const char*>(node->name));
-  std::string path = path_prefix + "/" + name;
-
-  if (path == "/upload") {
-    xmlChar* upload_interval_val = xmlGetProp(node, BAD_CAST "interval");
-    if (upload_interval_val) {
-      interlog_duration_ = TimeDelta::FromSeconds(
-          atoi(reinterpret_cast<char*>(upload_interval_val)));
-    }
-
-    server_permits_upload_ = uploadOn;
-  } else if (path == "/upload/logs") {
-    xmlChar* log_event_limit_val = xmlGetProp(node, BAD_CAST "event_limit");
-    if (log_event_limit_val)
-      log_event_limit_ = atoi(reinterpret_cast<char*>(log_event_limit_val));
-  }
-
-  // Recursive call.  If the node is a leaf i.e. if it ends in a "/>", then it
-  // doesn't have children, so node->children is NULL, and this loop doesn't
-  // call (that's how the recursion ends).
-  for (xmlNodePtr child_node = node->children;
-       child_node;
-       child_node = child_node->next) {
-    GetSettingsFromUploadNodeRecursive(child_node, props, path, uploadOn);
-  }
-}
-
-bool MetricsService::NodeProbabilityTest(xmlNodePtr node,
-                                         InheritedProperties props) const {
-  // Default value of probability on any node is 1, but recall that
-  // its parents can already have been rejected for upload.
-  double probability = 1;
-
-  // If a probability is specified in the node, we use it instead.
-  xmlChar* probability_value = xmlGetProp(node, BAD_CAST "probability");
-  if (probability_value)
-    probability = atoi(reinterpret_cast<char*>(probability_value));
-
-  return ProbabilityTest(probability, props.salt, props.denominator);
-}
-
-bool MetricsService::ProbabilityTest(double probability,
-                                     int salt,
-                                     int denominator) const {
-  // Okay, first we figure out how many of the digits of the
-  // client_id_ we need in order to make a nice pseudorandomish
-  // number in the range [0,denominator).  Too many digits is
-  // fine.
-
-  // n is the length of the client_id_ string
-  size_t n = client_id_.size();
-
-  // idnumber is a positive integer generated from the client_id_.
-  // It plus salt is going to give us our pseudorandom number.
-  int idnumber = 0;
-  const char* client_id_c_str = client_id_.c_str();
-
-  // Here we hash the relevant digits of the client_id_
-  // string somehow to get a big integer idnumber (could be negative
-  // from wraparound)
-  int big = 1;
-  int last_pos = n - 1;
-  for (size_t j = 0; j < n; ++j) {
-    idnumber += static_cast<int>(client_id_c_str[last_pos - j]) * big;
-    big *= 10;
-  }
-
-  // Mod id number by denominator making sure to get a non-negative
-  // answer.
-  idnumber = ((idnumber % denominator) + denominator) % denominator;
-
-  // ((idnumber + salt) % denominator) / denominator is in the range [0,1]
-  // if it's less than probability we call that an affirmative coin
-  // toss.
-  return static_cast<double>((idnumber + salt) % denominator) <
-      probability * denominator;
 }
 
 void MetricsService::LogWindowChange(NotificationType type,
@@ -1729,6 +1553,10 @@ void MetricsService::LogRendererHang() {
   IncrementPrefValue(prefs::kStabilityRendererHangCount);
 }
 
+void MetricsService::LogCleanShutdown() {
+  RecordBooleanPrefValue(prefs::kStabilityExitedCleanly, true);
+}
+
 #if defined(OS_CHROMEOS)
 void MetricsService::LogChromeOSCrash(const std::string &crash_type) {
   if (crash_type == "user")
@@ -1791,7 +1619,7 @@ static void CountBookmarks(const BookmarkNode* node,
     (*bookmarks)++;
   else
     (*folders)++;
-  for (int i = 0; i < node->GetChildCount(); ++i)
+  for (int i = 0; i < node->child_count(); ++i)
     CountBookmarks(node->GetChild(i), bookmarks, folders);
 }
 
@@ -1832,7 +1660,8 @@ void MetricsService::LogKeywords(const TemplateURLModel* url_model) {
 }
 
 void MetricsService::RecordPluginChanges(PrefService* pref) {
-  ListValue* plugins = pref->GetMutableList(prefs::kStabilityPluginStats);
+  ListPrefUpdate update(pref, prefs::kStabilityPluginStats);
+  ListValue* plugins = update.Get();
   DCHECK(plugins);
 
   for (ListValue::iterator value_iter = plugins->begin();
@@ -1910,7 +1739,7 @@ void MetricsService::RecordPluginChanges(PrefService* pref) {
 bool MetricsService::CanLogNotification(NotificationType type,
                                         const NotificationSource& source,
                                         const NotificationDetails& details) {
-  // We simply don't log anything to UMA if there is a single off the record
+  // We simply don't log anything to UMA if there is a single incognito
   // session visible. The problem is that we always notify using the orginal
   // profile in order to simplify notification processing.
   return !BrowserList::IsOffTheRecordSessionActive();

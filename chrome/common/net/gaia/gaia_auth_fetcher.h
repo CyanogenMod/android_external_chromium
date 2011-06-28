@@ -9,7 +9,7 @@
 #include <string>
 
 #include "base/gtest_prod_util.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/common/net/gaia/gaia_auth_consumer.h"
 #include "chrome/common/net/url_fetcher.h"
 #include "googleurl/src/gurl.h"
@@ -46,7 +46,7 @@ class GaiaAuthFetcher : public URLFetcher::Delegate {
   // tokens.
   GaiaAuthFetcher(GaiaAuthConsumer* consumer,
                   const std::string& source,
-                  URLRequestContextGetter* getter);
+                  net::URLRequestContextGetter* getter);
   virtual ~GaiaAuthFetcher();
 
   // GaiaAuthConsumer will be called on the original thread
@@ -168,7 +168,7 @@ class GaiaAuthFetcher : public URLFetcher::Delegate {
   static std::string MakeGetUserInfoBody(const std::string& lsid);
 
   // Create a fetcher useable for making any Gaia request.
-  static URLFetcher* CreateGaiaFetcher(URLRequestContextGetter* getter,
+  static URLFetcher* CreateGaiaFetcher(net::URLRequestContextGetter* getter,
                                        const std::string& body,
                                        const GURL& gaia_gurl_,
                                        URLFetcher::Delegate* delegate);
@@ -176,7 +176,7 @@ class GaiaAuthFetcher : public URLFetcher::Delegate {
 
   // These fields are common to GaiaAuthFetcher, same every request
   GaiaAuthConsumer* const consumer_;
-  URLRequestContextGetter* const getter_;
+  net::URLRequestContextGetter* const getter_;
   std::string source_;
   const GURL client_login_gurl_;
   const GURL issue_auth_token_gurl_;

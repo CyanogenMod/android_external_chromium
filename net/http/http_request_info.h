@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #pragma once
 
 #include <string>
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
 #include "googleurl/src/gurl.h"
 #include "net/base/request_priority.h"
 #include "net/base/upload_data.h"
@@ -52,6 +52,10 @@ struct HttpRequestInfo {
 
   // The motivation behind this request.
   RequestMotivation motivation;
+
+  // An optional globally unique identifier for this request for use by the
+  // consumer. 0 is invalid.
+  uint64 request_id;
 };
 
 }  // namespace net

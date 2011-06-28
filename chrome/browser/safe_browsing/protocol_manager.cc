@@ -19,10 +19,10 @@
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
 #include "chrome/common/chrome_version_info.h"
 #include "chrome/common/env_vars.h"
-#include "chrome/common/net/url_request_context_getter.h"
 #include "content/browser/browser_thread.h"
 #include "net/base/escape.h"
 #include "net/base/load_flags.h"
+#include "net/url_request/url_request_context_getter.h"
 #include "net/url_request/url_request_status.h"
 
 using base::Time;
@@ -47,7 +47,7 @@ class SBProtocolManagerFactoryImpl : public SBProtocolManagerFactory {
       const std::string& client_name,
       const std::string& client_key,
       const std::string& wrapped_key,
-      URLRequestContextGetter* request_context_getter,
+      net::URLRequestContextGetter* request_context_getter,
       const std::string& info_url_prefix,
       const std::string& mackey_url_prefix,
       bool disable_auto_update) {
@@ -71,7 +71,7 @@ SafeBrowsingProtocolManager* SafeBrowsingProtocolManager::Create(
     const std::string& client_name,
     const std::string& client_key,
     const std::string& wrapped_key,
-    URLRequestContextGetter* request_context_getter,
+    net::URLRequestContextGetter* request_context_getter,
     const std::string& info_url_prefix,
     const std::string& mackey_url_prefix,
     bool disable_auto_update) {
@@ -89,7 +89,7 @@ SafeBrowsingProtocolManager::SafeBrowsingProtocolManager(
     const std::string& client_name,
     const std::string& client_key,
     const std::string& wrapped_key,
-    URLRequestContextGetter* request_context_getter,
+    net::URLRequestContextGetter* request_context_getter,
     const std::string& http_url_prefix,
     const std::string& https_url_prefix,
     bool disable_auto_update)
@@ -649,13 +649,17 @@ void SafeBrowsingProtocolManager::ReportSafeBrowsingHit(
     const GURL& page_url,
     const GURL& referrer_url,
     bool is_subresource,
-    SafeBrowsingService::UrlCheckResult threat_type) {
+    SafeBrowsingService::UrlCheckResult threat_type,
+    const std::string& post_data) {
   GURL report_url = SafeBrowsingHitUrl(malicious_url, page_url,
                                        referrer_url, is_subresource,
                                        threat_type);
-  URLFetcher* report = new URLFetcher(report_url, URLFetcher::GET, this);
+  URLFetcher* report = new URLFetcher(
+      report_url, post_data.empty() ? URLFetcher::GET : URLFetcher::POST, this);
   report->set_load_flags(net::LOAD_DISABLE_CACHE);
   report->set_request_context(request_context_getter_);
+  if (!post_data.empty())
+    report->set_upload_data("text/plain", post_data);
   report->Start();
   safebrowsing_reports_.insert(report);
 }
@@ -763,7 +767,8 @@ GURL SafeBrowsingProtocolManager::SafeBrowsingHitUrl(
     SafeBrowsingService::UrlCheckResult threat_type) const {
   DCHECK(threat_type == SafeBrowsingService::URL_MALWARE ||
          threat_type == SafeBrowsingService::URL_PHISHING ||
-         threat_type == SafeBrowsingService::BINARY_MALWARE_URL);
+         threat_type == SafeBrowsingService::BINARY_MALWARE_URL ||
+         threat_type == SafeBrowsingService::BINARY_MALWARE_HASH);
   // The malware and phishing hits go over HTTP.
   std::string url = ComposeUrl(http_url_prefix_, "report", client_name_,
                                version_, additional_query_);
@@ -777,6 +782,9 @@ GURL SafeBrowsingProtocolManager::SafeBrowsingHitUrl(
       break;
     case SafeBrowsingService::BINARY_MALWARE_URL:
       threat_list = "binurlhit";
+      break;
+    case SafeBrowsingService::BINARY_MALWARE_HASH:
+      threat_list = "binhashhit";
       break;
     default:
       NOTREACHED();

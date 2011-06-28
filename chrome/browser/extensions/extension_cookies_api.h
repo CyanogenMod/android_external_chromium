@@ -11,18 +11,21 @@
 
 #include <string>
 
-#include "base/ref_counted.h"
-#include "base/singleton.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/singleton.h"
 #include "base/time.h"
 #include "chrome/browser/extensions/extension_function.h"
 #include "chrome/browser/net/chrome_cookie_notification_details.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
 #include "googleurl/src/gurl.h"
 #include "net/base/cookie_monster.h"
 
 class DictionaryValue;
+
+namespace net {
 class URLRequestContextGetter;
+}
 
 // Observes CookieMonster notifications and routes them as events to the
 // extension system.
@@ -86,7 +89,7 @@ class CookiesFunction : public AsyncExtensionFunction {
   // At least one of the output parameters store and store_id should be
   // non-NULL.
   bool ParseStoreContext(const DictionaryValue* details,
-                         URLRequestContextGetter** context,
+                         net::URLRequestContextGetter** context,
                          std::string* store_id);
 };
 
@@ -94,7 +97,7 @@ class CookiesFunction : public AsyncExtensionFunction {
 class GetCookieFunction : public CookiesFunction {
  public:
   GetCookieFunction();
-  ~GetCookieFunction();
+  virtual ~GetCookieFunction();
   virtual bool RunImpl();
   DECLARE_EXTENSION_FUNCTION_NAME("cookies.get")
 
@@ -105,14 +108,14 @@ class GetCookieFunction : public CookiesFunction {
   std::string name_;
   GURL url_;
   std::string store_id_;
-  scoped_refptr<URLRequestContextGetter> store_context_;
+  scoped_refptr<net::URLRequestContextGetter> store_context_;
 };
 
 // Implements the cookies.getAll() extension function.
 class GetAllCookiesFunction : public CookiesFunction {
  public:
   GetAllCookiesFunction();
-  ~GetAllCookiesFunction();
+  virtual ~GetAllCookiesFunction();
   virtual bool RunImpl();
   DECLARE_EXTENSION_FUNCTION_NAME("cookies.getAll")
 
@@ -123,14 +126,14 @@ class GetAllCookiesFunction : public CookiesFunction {
   DictionaryValue* details_;
   GURL url_;
   std::string store_id_;
-  scoped_refptr<URLRequestContextGetter> store_context_;
+  scoped_refptr<net::URLRequestContextGetter> store_context_;
 };
 
 // Implements the cookies.set() extension function.
 class SetCookieFunction : public CookiesFunction {
  public:
   SetCookieFunction();
-  ~SetCookieFunction();
+  virtual ~SetCookieFunction();
   virtual bool RunImpl();
   DECLARE_EXTENSION_FUNCTION_NAME("cookies.set")
 
@@ -148,16 +151,26 @@ class SetCookieFunction : public CookiesFunction {
   base::Time expiration_time_;
   bool success_;
   std::string store_id_;
-  scoped_refptr<URLRequestContextGetter> store_context_;
+  scoped_refptr<net::URLRequestContextGetter> store_context_;
 };
 
 // Implements the cookies.remove() extension function.
 class RemoveCookieFunction : public CookiesFunction {
  public:
+  RemoveCookieFunction();
+  virtual ~RemoveCookieFunction();
   virtual bool RunImpl();
-  // RemoveCookieFunction is sync.
-  virtual void Run();
   DECLARE_EXTENSION_FUNCTION_NAME("cookies.remove")
+
+ private:
+  void RemoveCookieOnIOThread();
+  void RespondOnUIThread();
+
+  GURL url_;
+  std::string name_;
+  bool success_;
+  std::string store_id_;
+  scoped_refptr<net::URLRequestContextGetter> store_context_;
 };
 
 // Implements the cookies.getAllCookieStores() extension function.

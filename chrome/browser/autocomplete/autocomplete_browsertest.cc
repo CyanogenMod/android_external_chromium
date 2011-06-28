@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,16 +10,16 @@
 #include "chrome/browser/autocomplete/autocomplete_edit_view.h"
 #include "chrome/browser/autocomplete/autocomplete_match.h"
 #include "chrome/browser/autocomplete/autocomplete_popup_model.h"
-#include "chrome/browser/browser_window.h"
 #include "chrome/browser/history/history.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/omnibox/location_bar.h"
-#include "chrome/common/notification_type.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/in_process_browser_test.h"
 #include "chrome/test/ui_test_utils.h"
 #include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/notification_type.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 // Autocomplete test is flaky on ChromeOS.
@@ -106,15 +106,19 @@ IN_PROC_BROWSER_TEST_F(AutocompleteBrowserTest, MAYBE_Autocomplete) {
   AutocompleteController* autocomplete_controller = GetAutocompleteController();
 
   {
-    autocomplete_controller->Start(ASCIIToUTF16("chrome"), string16(),
-                                   true, false, true, true);
+    autocomplete_controller->Start(
+        ASCIIToUTF16("chrome"), string16(), true, false, true,
+        AutocompleteInput::SYNCHRONOUS_MATCHES);
 
     EXPECT_TRUE(autocomplete_controller->done());
     EXPECT_TRUE(location_bar->GetInputString().empty());
     EXPECT_TRUE(location_bar->location_entry()->GetText().empty());
     EXPECT_TRUE(location_bar->location_entry()->IsSelectAll());
     const AutocompleteResult& result = autocomplete_controller->result();
-    ASSERT_EQ(1U, result.size()) << AutocompleteResultAsString(result);
+    // We get two matches because we have a provider for extension apps and the
+    // Chrome Web Store is a built-in Extension app. For this test, we only care
+    // about the other match existing.
+    ASSERT_GE(result.size(), 1U) << AutocompleteResultAsString(result);
     AutocompleteMatch match = result.match_at(0);
     EXPECT_EQ(AutocompleteMatch::SEARCH_WHAT_YOU_TYPED, match.type);
     EXPECT_FALSE(match.deletable);

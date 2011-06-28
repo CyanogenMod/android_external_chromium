@@ -9,13 +9,13 @@
 
 #include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/memory/singleton.h"
 #include "base/path_service.h"
-#include "base/singleton.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
-#include "chrome/browser/browser_list.h"
 #include "chrome/browser/printing/cloud_print/cloud_print_url.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/webui/chrome_url_data_manager.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/url_constants.h"
@@ -199,9 +199,10 @@ class PrintDialogCloudTest : public InProcessBrowserTest {
         test_data_directory_.AppendASCII("printing/cloud_print_uitest.pdf");
     BrowserThread::PostTask(
         BrowserThread::UI, FROM_HERE,
-        NewRunnableFunction(&PrintDialogCloud::CreateDialogImpl,
+        NewRunnableFunction(&internal_cloud_print_helpers::CreateDialogImpl,
                             path_to_pdf,
                             string16(),
+                            std::string("application/pdf"),
                             true));
   }
 

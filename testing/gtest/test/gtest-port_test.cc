@@ -36,7 +36,7 @@
 #include <stdio.h>
 
 #if GTEST_OS_MAC
-#include <time.h>
+# include <time.h>
 #endif  // GTEST_OS_MAC
 
 #include <utility>  // For std::pair and std::make_pair.
@@ -209,6 +209,44 @@ TEST(GtestCheckSyntaxTest, WorksWithSwitch) {
       GTEST_CHECK_(true) << "Check failed in switch case";
 }
 
+// Verifies behavior of FormatFileLocation.
+TEST(FormatFileLocationTest, FormatsFileLocation) {
+  EXPECT_PRED_FORMAT2(IsSubstring, "foo.cc", FormatFileLocation("foo.cc", 42));
+  EXPECT_PRED_FORMAT2(IsSubstring, "42", FormatFileLocation("foo.cc", 42));
+}
+
+TEST(FormatFileLocationTest, FormatsUnknownFile) {
+  EXPECT_PRED_FORMAT2(
+      IsSubstring, "unknown file", FormatFileLocation(NULL, 42));
+  EXPECT_PRED_FORMAT2(IsSubstring, "42", FormatFileLocation(NULL, 42));
+}
+
+TEST(FormatFileLocationTest, FormatsUknownLine) {
+  EXPECT_EQ("foo.cc:", FormatFileLocation("foo.cc", -1));
+}
+
+TEST(FormatFileLocationTest, FormatsUknownFileAndLine) {
+  EXPECT_EQ("unknown file:", FormatFileLocation(NULL, -1));
+}
+
+// Verifies behavior of FormatCompilerIndependentFileLocation.
+TEST(FormatCompilerIndependentFileLocationTest, FormatsFileLocation) {
+  EXPECT_EQ("foo.cc:42", FormatCompilerIndependentFileLocation("foo.cc", 42));
+}
+
+TEST(FormatCompilerIndependentFileLocationTest, FormatsUknownFile) {
+  EXPECT_EQ("unknown file:42",
+            FormatCompilerIndependentFileLocation(NULL, 42));
+}
+
+TEST(FormatCompilerIndependentFileLocationTest, FormatsUknownLine) {
+  EXPECT_EQ("foo.cc", FormatCompilerIndependentFileLocation("foo.cc", -1));
+}
+
+TEST(FormatCompilerIndependentFileLocationTest, FormatsUknownFileAndLine) {
+  EXPECT_EQ("unknown file", FormatCompilerIndependentFileLocation(NULL, -1));
+}
+
 #if GTEST_OS_MAC
 void* ThreadFunc(void* data) {
   pthread_mutex_t* mutex = static_cast<pthread_mutex_t*>(data);
@@ -290,15 +328,19 @@ TEST(GtestCheckDeathTest, LivesSilentlyOnSuccess) {
 // For simplicity, we only cover the most important platforms here.
 TEST(RegexEngineSelectionTest, SelectsCorrectRegexEngine) {
 #if GTEST_HAS_POSIX_RE
+
   EXPECT_TRUE(GTEST_USES_POSIX_RE);
+
 #else
+
   EXPECT_TRUE(GTEST_USES_SIMPLE_RE);
+
 #endif
 }
 
 #if GTEST_USES_POSIX_RE
 
-#if GTEST_HAS_TYPED_TEST
+# if GTEST_HAS_TYPED_TEST
 
 template <typename Str>
 class RETest : public ::testing::Test {};
@@ -307,9 +349,9 @@ class RETest : public ::testing::Test {};
 // supports.
 typedef testing::Types<
     ::std::string,
-#if GTEST_HAS_GLOBAL_STRING
+#  if GTEST_HAS_GLOBAL_STRING
     ::string,
-#endif  // GTEST_HAS_GLOBAL_STRING
+#  endif  // GTEST_HAS_GLOBAL_STRING
     const char*> StringTypes;
 
 TYPED_TEST_CASE(RETest, StringTypes);
@@ -360,7 +402,7 @@ TYPED_TEST(RETest, PartialMatchWorks) {
   EXPECT_FALSE(RE::PartialMatch(TypeParam("zza"), re));
 }
 
-#endif  // GTEST_HAS_TYPED_TEST
+# endif  // GTEST_HAS_TYPED_TEST
 
 #elif GTEST_USES_SIMPLE_RE
 

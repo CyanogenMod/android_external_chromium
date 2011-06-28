@@ -13,14 +13,13 @@
 #include "chrome/browser/notifications/desktop_notification_service.h"
 #include "chrome/browser/notifications/notification.h"
 #include "chrome/browser/notifications/notification_options_menu_model.h"
-#include "chrome/browser/themes/browser_theme_provider.h"
-#include "chrome/browser/ui/views/bubble_border.h"
+#include "chrome/browser/ui/views/bubble/bubble_border.h"
 #include "chrome/browser/ui/views/notifications/balloon_view_host.h"
-#include "chrome/common/notification_details.h"
-#include "chrome/common/notification_source.h"
-#include "chrome/common/notification_type.h"
 #include "content/browser/renderer_host/render_view_host.h"
 #include "content/browser/renderer_host/render_widget_host_view.h"
+#include "content/common/notification_details.h"
+#include "content/common/notification_source.h"
+#include "content/common/notification_type.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "ui/base/animation/slide_animation.h"
@@ -139,11 +138,11 @@ void BalloonViewImpl::RunMenu(views::View* source, const gfx::Point& pt) {
   RunOptionsMenu(pt);
 }
 
-void BalloonViewImpl::DisplayChanged() {
+void BalloonViewImpl::OnDisplayChanged() {
   collection_->DisplayChanged();
 }
 
-void BalloonViewImpl::WorkAreaChanged() {
+void BalloonViewImpl::OnWorkAreaChanged() {
   collection_->DisplayChanged();
 }
 
@@ -165,10 +164,6 @@ void BalloonViewImpl::DelayedClose(bool by_user) {
   balloon_->OnClose(by_user);
 }
 
-void BalloonViewImpl::OnBoundsChanged() {
-  SizeContentsWindow();
-}
-
 gfx::Size BalloonViewImpl::GetPreferredSize() {
   return gfx::Size(1000, 1000);
 }
@@ -179,7 +174,7 @@ void BalloonViewImpl::SizeContentsWindow() {
 
   gfx::Rect contents_rect = GetContentsRectangle();
   html_container_->SetBounds(contents_rect);
-  html_container_->MoveAbove(frame_container_);
+  html_container_->MoveAboveWidget(frame_container_);
 
   gfx::Path path;
   GetContentsMask(contents_rect, &path);
@@ -320,24 +315,21 @@ void BalloonViewImpl::Show(Balloon* balloon) {
   gfx::Rect contents_rect = GetContentsRectangle();
   html_contents_.reset(new BalloonViewHost(balloon));
   html_contents_->SetPreferredSize(gfx::Size(10000, 10000));
-  html_container_ = Widget::CreatePopupWidget(Widget::NotTransparent,
-                                              Widget::AcceptEvents,
-                                              Widget::DeleteOnDestroy,
-                                              Widget::DontMirrorOriginInRTL);
+  Widget::CreateParams params(Widget::CreateParams::TYPE_POPUP);
+  params.mirror_origin_in_rtl = false;
+  html_container_ = Widget::CreateWidget(params);
   html_container_->SetAlwaysOnTop(true);
   html_container_->Init(NULL, contents_rect);
   html_container_->SetContentsView(html_contents_->view());
 
   gfx::Rect balloon_rect(x(), y(), GetTotalWidth(), GetTotalHeight());
-  frame_container_ = Widget::CreatePopupWidget(Widget::Transparent,
-                                               Widget::AcceptEvents,
-                                               Widget::DeleteOnDestroy,
-                                               Widget::DontMirrorOriginInRTL);
+  params.transparent = true;
+  frame_container_ = Widget::CreateWidget(params);
   frame_container_->set_widget_delegate(this);
   frame_container_->SetAlwaysOnTop(true);
   frame_container_->Init(NULL, balloon_rect);
   frame_container_->SetContentsView(this);
-  frame_container_->MoveAbove(html_container_);
+  frame_container_->MoveAboveWidget(html_container_);
 
   close_button_->SetImage(views::CustomButton::BS_NORMAL,
                           rb.GetBitmapNamed(IDR_TAB_CLOSE));
@@ -491,6 +483,10 @@ void BalloonViewImpl::OnPaint(gfx::Canvas* canvas) {
 
   View::OnPaint(canvas);
   OnPaintBorder(canvas);
+}
+
+void BalloonViewImpl::OnBoundsChanged(const gfx::Rect& previous_bounds) {
+  SizeContentsWindow();
 }
 
 void BalloonViewImpl::Observe(NotificationType type,

@@ -12,6 +12,7 @@
 #include "chrome/browser/geolocation/geolocation_content_settings_map.h"
 #include "chrome/browser/metrics/metrics_service.h"
 #include "chrome/browser/notifications/desktop_notification_service.h"
+#include "chrome/browser/notifications/desktop_notification_service_factory.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/pref_names.h"
@@ -37,12 +38,13 @@ void OptionsUtil::ResetToDefaults(Profile* profile) {
     prefs::kDeleteDownloadHistory,
     prefs::kDeleteFormData,
     prefs::kDeletePasswords,
-    prefs::kDnsPrefetchingEnabled,
-#if defined(OS_LINUX) || defined(OS_FREEBSD) || defined(OS_OPENBSD)
+    prefs::kNetworkPredictionEnabled,
+    // TODO(rtenneti): Remove ssl preferences from user_prefs when we stop
+    // migrating user_prefs to local_state after 6 months (after we delete
+    // migration code).
     prefs::kCertRevocationCheckingEnabled,
     prefs::kSSL3Enabled,
     prefs::kTLS1Enabled,
-#endif
 #if defined(OS_CHROMEOS)
     prefs::kTapToClickEnabled,
     prefs::kTouchpadSensitivity,
@@ -52,8 +54,8 @@ void OptionsUtil::ResetToDefaults(Profile* profile) {
     prefs::kSavingBrowserHistoryDisabled,
     prefs::kEnableSpellCheck,
     prefs::kEnableTranslate,
-    prefs::kAutoFillEnabled,
-    prefs::kAutoFillAuxiliaryProfilesEnabled,
+    prefs::kAutofillEnabled,
+    prefs::kAutofillAuxiliaryProfilesEnabled,
     prefs::kHomePage,
     prefs::kHomePageIsNewTabPage,
     prefs::kPromptForDownload,
@@ -82,7 +84,8 @@ void OptionsUtil::ResetToDefaults(Profile* profile) {
   profile->GetHostContentSettingsMap()->ResetToDefaults();
   profile->GetGeolocationContentSettingsMap()->ResetToDefault();
   profile->GetHostZoomMap()->ResetToDefaults();
-  profile->GetDesktopNotificationService()->ResetToDefaultContentSetting();
+  DesktopNotificationServiceFactory::GetForProfile(profile)->
+      ResetToDefaultContentSetting();
   for (size_t i = 0; i < arraysize(kUserPrefs); ++i)
     prefs->ClearPref(kUserPrefs[i]);
 
@@ -96,6 +99,9 @@ void OptionsUtil::ResetToDefaults(Profile* profile) {
   // don't reset it.
   const char* kLocalStatePrefs[] = {
     prefs::kApplicationLocale,
+    prefs::kCertRevocationCheckingEnabled,
+    prefs::kSSL3Enabled,
+    prefs::kTLS1Enabled,
   };
   for (size_t i = 0; i < arraysize(kLocalStatePrefs); ++i)
     local_state->ClearPref(kLocalStatePrefs[i]);
@@ -121,7 +127,6 @@ bool OptionsUtil::ResolveMetricsReportingEnabled(bool enabled) {
   MetricsService* metrics = g_browser_process->metrics_service();
   DCHECK(metrics);
   if (metrics) {
-    metrics->SetUserPermitsUpload(enabled);
     if (enabled)
       metrics->Start();
     else

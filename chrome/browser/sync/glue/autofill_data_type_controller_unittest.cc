@@ -1,13 +1,13 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "testing/gtest/include/gtest/gtest.h"
 
 #include "base/callback.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/message_loop.h"
-#include "base/ref_counted.h"
-#include "base/scoped_ptr.h"
 #include "base/synchronization/waitable_event.h"
 #include "chrome/browser/autofill/personal_data_manager.h"
 #include "chrome/browser/sync/glue/autofill_data_type_controller.h"
@@ -17,10 +17,10 @@
 #include "chrome/browser/sync/profile_sync_service_mock.h"
 #include "chrome/browser/sync/profile_sync_test_util.h"
 #include "chrome/browser/webdata/web_data_service.h"
-#include "chrome/common/notification_source.h"
-#include "chrome/common/notification_type.h"
 #include "chrome/test/profile_mock.h"
 #include "content/browser/browser_thread.h"
+#include "content/common/notification_source.h"
+#include "content/common/notification_type.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
 using base::WaitableEvent;
@@ -46,7 +46,8 @@ ACTION_P(SignalEvent, event) {
 
 class StartCallback {
  public:
-  MOCK_METHOD1(Run, void(DataTypeController::StartResult result));
+  MOCK_METHOD2(Run, void(DataTypeController::StartResult result,
+      const tracked_objects::Location& location));
 };
 
 class PersonalDataManagerMock : public PersonalDataManager {
@@ -118,7 +119,8 @@ class AutofillDataTypeControllerTest : public testing::Test {
         WillOnce(Return(
             ProfileSyncFactory::SyncComponents(model_associator_,
                                                change_processor_)));
-
+    EXPECT_CALL(*model_associator_, CryptoReadyIfNecessary()).
+        WillRepeatedly(Return(true));
     EXPECT_CALL(*model_associator_, SyncModelHasUserCreatedNodes(_)).
         WillRepeatedly(DoAll(SetArgumentPointee<0>(true), Return(true)));
     EXPECT_CALL(*model_associator_, AssociateModels()).
@@ -160,7 +162,7 @@ TEST_F(AutofillDataTypeControllerTest, StartPDMAndWDSReady) {
   SetStartExpectations();
   SetAssociateExpectations();
   EXPECT_EQ(DataTypeController::NOT_RUNNING, autofill_dtc_->state());
-  EXPECT_CALL(start_callback_, Run(DataTypeController::OK)).
+  EXPECT_CALL(start_callback_, Run(DataTypeController::OK, _)).
       WillOnce(QuitUIMessageLoop());
   autofill_dtc_->Start(NewCallback(&start_callback_, &StartCallback::Run));
   MessageLoop::current()->Run();
@@ -179,7 +181,7 @@ TEST_F(AutofillDataTypeControllerTest, AbortWhilePDMStarting) {
   EXPECT_EQ(DataTypeController::MODEL_STARTING, autofill_dtc_->state());
 
   EXPECT_CALL(service_, DeactivateDataType(_, _)).Times(0);
-  EXPECT_CALL(start_callback_, Run(DataTypeController::ABORTED));
+  EXPECT_CALL(start_callback_, Run(DataTypeController::ABORTED, _));
   autofill_dtc_->Stop();
   EXPECT_EQ(DataTypeController::NOT_RUNNING, autofill_dtc_->state());
 }
@@ -197,7 +199,7 @@ TEST_F(AutofillDataTypeControllerTest, AbortWhileWDSStarting) {
   EXPECT_EQ(DataTypeController::MODEL_STARTING, autofill_dtc_->state());
 
   EXPECT_CALL(service_, DeactivateDataType(_, _)).Times(0);
-  EXPECT_CALL(start_callback_, Run(DataTypeController::ABORTED));
+  EXPECT_CALL(start_callback_, Run(DataTypeController::ABORTED, _));
   autofill_dtc_->Stop();
   EXPECT_EQ(DataTypeController::NOT_RUNNING, autofill_dtc_->state());
 }
@@ -221,6 +223,8 @@ TEST_F(AutofillDataTypeControllerTest, AbortWhileAssociatingNotActivated) {
   // that signals the event and lets the DB thread continue.
   WaitableEvent pause_db_thread(false, false);
   WaitableEvent wait_for_db_thread_pause(false, false);
+  EXPECT_CALL(*model_associator_, CryptoReadyIfNecessary()).
+      WillRepeatedly(Return(true));
   EXPECT_CALL(*model_associator_, SyncModelHasUserCreatedNodes(_)).
       WillOnce(DoAll(
           SignalEvent(&wait_for_db_thread_pause),
@@ -235,7 +239,7 @@ TEST_F(AutofillDataTypeControllerTest, AbortWhileAssociatingNotActivated) {
   EXPECT_EQ(DataTypeController::ASSOCIATING, autofill_dtc_->state());
 
   EXPECT_CALL(service_, DeactivateDataType(_, _)).Times(0);
-  EXPECT_CALL(start_callback_, Run(DataTypeController::ABORTED));
+  EXPECT_CALL(start_callback_, Run(DataTypeController::ABORTED, _));
   autofill_dtc_->Stop();
   EXPECT_EQ(DataTypeController::NOT_RUNNING, autofill_dtc_->state());
 }
@@ -250,6 +254,8 @@ TEST_F(AutofillDataTypeControllerTest, AbortWhileAssociatingActivated) {
       WillOnce(Return(
           ProfileSyncFactory::SyncComponents(model_associator_,
                                              change_processor_)));
+  EXPECT_CALL(*model_associator_, CryptoReadyIfNecessary()).
+      WillRepeatedly(Return(true));
   EXPECT_CALL(*model_associator_, SyncModelHasUserCreatedNodes(_)).
       WillRepeatedly(DoAll(SetArgumentPointee<0>(true), Return(true)));
   EXPECT_CALL(*model_associator_, AssociateModels()).
@@ -273,7 +279,7 @@ TEST_F(AutofillDataTypeControllerTest, AbortWhileAssociatingActivated) {
   EXPECT_EQ(DataTypeController::ASSOCIATING, autofill_dtc_->state());
 
   SetStopExpectations();
-  EXPECT_CALL(start_callback_, Run(DataTypeController::ABORTED));
+  EXPECT_CALL(start_callback_, Run(DataTypeController::ABORTED, _));
   autofill_dtc_->Stop();
   EXPECT_EQ(DataTypeController::NOT_RUNNING, autofill_dtc_->state());
 }

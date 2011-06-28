@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 #include <string>
 
 #include "base/basictypes.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/synchronization/waitable_event.h"
 #include "chrome/browser/autofill/personal_data_manager.h"
 #include "chrome/browser/sync/profile_sync_factory.h"
@@ -43,13 +43,13 @@ class AutofillDataTypeController : public DataTypeController,
 
   virtual bool enabled();
 
-  virtual syncable::ModelType type();
+  virtual syncable::ModelType type() const;
 
-  virtual browser_sync::ModelSafeGroup model_safe_group();
+  virtual browser_sync::ModelSafeGroup model_safe_group() const;
 
-  virtual const char* name() const;
+  virtual std::string name() const;
 
-  virtual State state();
+  virtual State state() const;
 
   // UnrecoverableHandler implementation
   virtual void OnUnrecoverableError(const tracked_objects::Location& from_here,
@@ -74,7 +74,8 @@ class AutofillDataTypeController : public DataTypeController,
  private:
   void StartImpl();
   void StartDone(StartResult result, State state);
-  void StartDoneImpl(StartResult result, State state);
+  void StartDoneImpl(StartResult result, State state,
+      const tracked_objects::Location& location);
   void StopImpl();
   void StartFailed(StartResult result);
   void OnUnrecoverableErrorImpl(const tracked_objects::Location& from_here,

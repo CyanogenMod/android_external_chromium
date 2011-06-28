@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -39,16 +39,19 @@
 #include <string>
 
 #include "base/gtest_prod_util.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/webdata/web_data_service.h"
 #include "chrome/common/net/gaia/gaia_auth_consumer.h"
 #include "chrome/common/net/gaia/gaia_auth_fetcher.h"
 #include "chrome/common/net/gaia/google_service_auth_error.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
 
-class URLRequestContextGetter;
 class Profile;
+
+namespace net {
+class URLRequestContextGetter;
+}
 
 // The TokenService is a Profile member, so all calls are expected
 // from the UI thread.
@@ -163,7 +166,7 @@ class TokenService : public GaiaAuthConsumer,
   // Web data service to access tokens from.
   scoped_refptr<WebDataService> web_data_service_;
   // Getter to use for fetchers.
-  scoped_refptr<URLRequestContextGetter> getter_;
+  scoped_refptr<net::URLRequestContextGetter> getter_;
   // Request handle to load Gaia tokens from DB.
   WebDataService::Handle token_loading_query_;
 

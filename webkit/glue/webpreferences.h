@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -74,10 +74,12 @@ struct WebPreferences {
   bool show_fps_counter;
   bool asynchronous_spell_checking_enabled;
   bool accelerated_compositing_enabled;
+  bool force_compositing_mode;
   bool composite_to_texture_enabled;
   bool accelerated_layers_enabled;
   bool accelerated_video_enabled;
   bool accelerated_2d_canvas_enabled;
+  bool accelerated_drawing_enabled;
   bool accelerated_plugins_enabled;
   bool memory_info_enabled;
   bool interactive_form_validation_enabled;

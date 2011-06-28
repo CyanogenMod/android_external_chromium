@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,14 +7,15 @@
 #include <cert.h>
 #include <cms.h>
 #include <hasht.h>
-#include <pk11pub.h>
+#include <keyhi.h>  // SECKEY_DestroyPrivateKey
+#include <keythi.h>  // SECKEYPrivateKey
+#include <pk11pub.h>  // PK11_FindKeyByAnyCert
+#include <seccomon.h>  // SECItem
 #include <sechash.h>
 
-#include <pk11pub.h>
-
 #include "base/logging.h"
-#include "base/nss_util.h"
 #include "base/string_number_conversions.h"
+#include "crypto/nss_util.h"
 #include "net/base/x509_certificate.h"
 #include "chrome/third_party/mozilla_security_manager/nsNSSCertHelper.h"
 #include "chrome/third_party/mozilla_security_manager/nsNSSCertificate.h"
@@ -100,7 +101,14 @@ using std::string;
 string GetCertNameOrNickname(X509Certificate::OSCertHandle cert_handle) {
   string name = ProcessIDN(Stringize(CERT_GetCommonName(&cert_handle->subject),
                                      ""));
-  if (name.empty() && cert_handle->nickname) {
+  if (!name.empty())
+    return name;
+  return GetNickname(cert_handle);
+}
+
+string GetNickname(X509Certificate::OSCertHandle cert_handle) {
+  string name;
+  if (cert_handle->nickname) {
     name = cert_handle->nickname;
     // Hack copied from mozilla: Cut off text before first :, which seems to
     // just be the token name.
@@ -190,8 +198,8 @@ bool GetTimes(X509Certificate::OSCertHandle cert_handle,
               base::Time* issued, base::Time* expires) {
   PRTime pr_issued, pr_expires;
   if (CERT_GetCertTimes(cert_handle, &pr_issued, &pr_expires) == SECSuccess) {
-    *issued = base::PRTimeToBaseTime(pr_issued);
-    *expires = base::PRTimeToBaseTime(pr_expires);
+    *issued = crypto::PRTimeToBaseTime(pr_issued);
+    *expires = crypto::PRTimeToBaseTime(pr_expires);
     return true;
   }
   return false;
@@ -247,6 +255,29 @@ void GetNicknameStringsFromCertList(
 
   CERT_FreeNicknames(cert_nicknames);
   CERT_DestroyCertList(cert_list);
+}
+
+// For background see this discussion on dev-tech-crypto.lists.mozilla.org:
+// http://web.archiveorange.com/archive/v/6JJW7E40sypfZGtbkzxX
+//
+// NOTE: This function relies on the convention that the same PKCS#11 ID
+// is shared between a certificate and its associated private and public
+// keys.  I tried to implement this with PK11_GetLowLevelKeyIDForCert(),
+// but that always returns NULL on Chrome OS for me.
+std::string GetPkcs11Id(net::X509Certificate::OSCertHandle cert_handle) {
+  std::string pkcs11_id;
+  SECKEYPrivateKey *priv_key = PK11_FindKeyByAnyCert(cert_handle,
+                                                     NULL /* wincx */);
+  if (priv_key) {
+    // Get the CKA_ID attribute for a key.
+    SECItem* sec_item = PK11_GetLowLevelKeyIDForPrivateKey(priv_key);
+    if (sec_item) {
+      pkcs11_id = base::HexEncode(sec_item->data, sec_item->len);
+      SECITEM_FreeItem(sec_item, PR_TRUE);
+    }
+    SECKEY_DestroyPrivateKey(priv_key);
+  }
+  return pkcs11_id;
 }
 
 void GetExtensions(

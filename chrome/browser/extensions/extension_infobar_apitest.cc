@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,11 @@
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/common/chrome_switches.h"
 
-#if defined(OS_WIN)
+#if defined(TOOLKIT_VIEWS)
 #define MAYBE_Infobars Infobars
 #else
 // Need to finish port to Linux. See http://crbug.com/39916 for details.
-// Temporarily marked as DISABLED on OSX too. See http://crbug.com/60990 for details.
+// Also disabled on mac.  See http://crbug.com/60990.
 #define MAYBE_Infobars DISABLED_Infobars
 #endif
 

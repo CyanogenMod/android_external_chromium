@@ -9,8 +9,8 @@
 #include <string>
 
 #include "base/file_path.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/observer_list.h"
-#include "base/scoped_ptr.h"
 #include "base/task.h"
 #include "base/time.h"
 #include "chrome/browser/policy/cloud_policy_identity_strategy.h"
@@ -23,7 +23,7 @@ class TokenService;
 
 namespace policy {
 
-class CloudPolicyCache;
+class CloudPolicyCacheBase;
 class DeviceManagementBackend;
 
 // Coordinates the actions of DeviceTokenFetcher, CloudPolicyIdentityStrategy,
@@ -35,14 +35,22 @@ class CloudPolicyController
       public CloudPolicyIdentityStrategy::Observer {
  public:
   // Takes ownership of |backend|; the other parameters are weak pointers.
-  CloudPolicyController(CloudPolicyCache* cache,
-                        DeviceManagementBackend* backend,
+  CloudPolicyController(DeviceManagementService* service,
+                        CloudPolicyCacheBase* cache,
                         DeviceTokenFetcher* token_fetcher,
-                        CloudPolicyIdentityStrategy* identity_strategy);
+                        CloudPolicyIdentityStrategy* identity_strategy,
+                        PolicyNotifier* notifier);
   virtual ~CloudPolicyController();
 
   // Sets the refresh rate at which to re-fetch policy information.
   void SetRefreshRate(int64 refresh_rate_milliseconds);
+
+  // Triggers an immediate retry of of the current operation.
+  void Retry();
+
+  // Stops all auto-retrying error handling behavior inside the policy
+  // subsystem.
+  void StopAutoRetry();
 
   // DevicePolicyResponseDelegate implementation:
   virtual void HandlePolicyResponse(
@@ -61,31 +69,39 @@ class CloudPolicyController
   enum ControllerState {
     // The controller is initializing, policy information not yet available.
     STATE_TOKEN_UNAVAILABLE,
+    // The device is not managed. Should retry fetching the token after delay.
+    STATE_TOKEN_UNMANAGED,
+    // The token is not valid and should be refetched with exponential back-off.
+    STATE_TOKEN_ERROR,
     // The token is valid, but policy is yet to be fetched.
     STATE_TOKEN_VALID,
     // Policy information is available and valid.
     STATE_POLICY_VALID,
-    // The service returned an error when requesting policy, ask again later.
+    // The service returned an error when requesting policy, will retry.
     STATE_POLICY_ERROR,
+    // The service returned an error that is not going to go away soon.
+    STATE_POLICY_UNAVAILABLE
   };
 
   friend class CloudPolicyControllerTest;
 
   // More configurable constructor for use by test cases.
-  CloudPolicyController(CloudPolicyCache* cache,
-                        DeviceManagementBackend* backend,
+  CloudPolicyController(DeviceManagementService* service,
+                        CloudPolicyCacheBase* cache,
                         DeviceTokenFetcher* token_fetcher,
                         CloudPolicyIdentityStrategy* identity_strategy,
+                        PolicyNotifier* notifier,
                         int64 policy_refresh_rate_ms,
                         int policy_refresh_deviation_factor_percent,
                         int64 policy_refresh_deviation_max_ms,
                         int64 policy_refresh_error_delay_ms);
 
   // Called by constructors to perform shared initialization.
-  void Initialize(CloudPolicyCache* cache,
-                  DeviceManagementBackend* backend,
+  void Initialize(DeviceManagementService* service,
+                  CloudPolicyCacheBase* cache,
                   DeviceTokenFetcher* token_fetcher,
                   CloudPolicyIdentityStrategy* identity_strategy,
+                  PolicyNotifier* notifier,
                   int64 policy_refresh_rate_ms,
                   int policy_refresh_deviation_factor_percent,
                   int64 policy_refresh_deviation_max_ms,
@@ -98,9 +114,12 @@ class CloudPolicyController
   // isn't already outstanding.
   void SendPolicyRequest();
 
-  // Called back from the delayed work task. Performs whatever action is
-  // required in the current state, e.g. refreshing policy.
+  // Called back from the delayed work task. Calls |DoWork()|.
   void DoDelayedWork();
+
+  // Performs whatever action is required in the current state,
+  // e.g. refreshing policy.
+  void DoWork();
 
   // Cancels the delayed work task.
   void CancelDelayedWork();
@@ -111,12 +130,13 @@ class CloudPolicyController
   // Computes the policy refresh delay to use.
   int64 GetRefreshDelay();
 
-  CloudPolicyCache* cache_;
-  scoped_ptr<DeviceManagementBackend> backend_;
+  DeviceManagementService* service_;
+  CloudPolicyCacheBase* cache_;
   CloudPolicyIdentityStrategy* identity_strategy_;
   DeviceTokenFetcher* token_fetcher_;
+  scoped_ptr<DeviceManagementBackend> backend_;
   ControllerState state_;
-  bool initial_fetch_done_;
+  PolicyNotifier* notifier_;
 
   int64 policy_refresh_rate_ms_;
   int policy_refresh_deviation_factor_percent_;

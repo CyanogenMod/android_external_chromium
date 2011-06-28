@@ -4,26 +4,38 @@
 
 #include "chrome/browser/printing/print_view_manager.h"
 
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/printing/print_job.h"
 #include "chrome/browser/printing/print_job_manager.h"
+#include "chrome/browser/printing/print_preview_tab_controller.h"
 #include "chrome/browser/printing/printer_query.h"
-#include "chrome/common/notification_details.h"
-#include "chrome/common/notification_source.h"
-#include "chrome/common/render_messages.h"
-#include "chrome/common/render_messages_params.h"
+#include "chrome/browser/ui/webui/print_preview_ui.h"
+#include "chrome/common/print_messages.h"
 #include "content/browser/renderer_host/render_view_host.h"
 #include "content/browser/tab_contents/navigation_entry.h"
 #include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/notification_details.h"
+#include "content/common/notification_source.h"
 #include "grit/generated_resources.h"
-#include "printing/native_metafile_factory.h"
-#include "printing/native_metafile.h"
+#include "printing/metafile.h"
+#include "printing/metafile_impl.h"
 #include "printing/printed_document.h"
 #include "ui/base/l10n/l10n_util.h"
 
 using base::TimeDelta;
+
+namespace {
+
+string16 GenerateRenderSourceName(TabContents* tab_contents) {
+  string16 name(tab_contents->GetTitle());
+  if (name.empty())
+    name = l10n_util::GetStringUTF16(IDS_DEFAULT_PRINT_DOCUMENT_TITLE);
+  return name;
+}
+
+}  // namespace
 
 namespace printing {
 
@@ -32,7 +44,8 @@ PrintViewManager::PrintViewManager(TabContents* tab_contents)
       number_pages_(0),
       waiting_to_print_(false),
       printing_succeeded_(false),
-      inside_inner_message_loop_(false) {
+      inside_inner_message_loop_(false),
+      is_title_overridden_(false) {
 #if defined(OS_POSIX) && !defined(OS_MACOSX)
   expecting_first_page_ = true;
 #endif
@@ -42,17 +55,22 @@ PrintViewManager::~PrintViewManager() {
   DisconnectFromCurrentPrintJob();
 }
 
-void PrintViewManager::Stop() {
+bool PrintViewManager::PrintNow() {
+  // Don't print interstitials.
+  if (tab_contents()->showing_interstitial_page())
+    return false;
+
+  return Send(new PrintMsg_PrintPages(routing_id()));
+}
+
+void PrintViewManager::StopNavigation() {
   // Cancel the current job, wait for the worker to finish.
   TerminatePrintJob(true);
 }
 
-bool PrintViewManager::OnRenderViewGone(RenderViewHost* render_view_host) {
+void PrintViewManager::RenderViewGone() {
   if (!print_job_.get())
-    return true;
-
-  if (render_view_host != tab_contents()->render_view_host())
-    return false;
+    return;
 
   scoped_refptr<PrintedDocument> document(print_job_->document());
   if (document) {
@@ -61,22 +79,24 @@ bool PrintViewManager::OnRenderViewGone(RenderViewHost* render_view_host) {
     // the print job may finish without problem.
     TerminatePrintJob(!document->IsComplete());
   }
-  return true;
+}
+
+void PrintViewManager::OverrideTitle(TabContents* tab_contents) {
+  is_title_overridden_ = true;
+  overridden_title_ = GenerateRenderSourceName(tab_contents);
 }
 
 string16 PrintViewManager::RenderSourceName() {
-  string16 name(tab_contents()->GetTitle());
-  if (name.empty())
-    name = l10n_util::GetStringUTF16(IDS_DEFAULT_PRINT_DOCUMENT_TITLE);
-  return name;
+  if (is_title_overridden_)
+    return overridden_title_;
+  return GenerateRenderSourceName(tab_contents());
 }
 
 GURL PrintViewManager::RenderSourceUrl() {
   NavigationEntry* entry = tab_contents()->controller().GetActiveEntry();
   if (entry)
     return entry->virtual_url();
-  else
-    return GURL();
+  return GURL();
 }
 
 void PrintViewManager::OnDidGetPrintedPagesCount(int cookie, int number_pages) {
@@ -95,7 +115,7 @@ void PrintViewManager::OnDidGetPrintedPagesCount(int cookie, int number_pages) {
 }
 
 void PrintViewManager::OnDidPrintPage(
-    const ViewHostMsg_DidPrintPage_Params& params) {
+    const PrintHostMsg_DidPrintPage_Params& params) {
   if (!OpportunisticallyCreatePrintJob(params.document_cookie))
     return;
 
@@ -134,9 +154,9 @@ void PrintViewManager::OnDidPrintPage(
     }
   }
 
-  scoped_ptr<NativeMetafile> metafile(NativeMetafileFactory::CreateMetafile());
+  scoped_ptr<Metafile> metafile(new NativeMetafile);
   if (metafile_must_be_valid) {
-    if (!metafile->Init(shared_buf.memory(), params.data_size)) {
+    if (!metafile->InitFromData(shared_buf.memory(), params.data_size)) {
       NOTREACHED() << "Invalid metafile header";
       tab_contents()->Stop();
       return;
@@ -157,9 +177,9 @@ void PrintViewManager::OnDidPrintPage(
 bool PrintViewManager::OnMessageReceived(const IPC::Message& message) {
   bool handled = true;
   IPC_BEGIN_MESSAGE_MAP(PrintViewManager, message)
-    IPC_MESSAGE_HANDLER(ViewHostMsg_DidGetPrintedPagesCount,
+    IPC_MESSAGE_HANDLER(PrintHostMsg_DidGetPrintedPagesCount,
                         OnDidGetPrintedPagesCount)
-    IPC_MESSAGE_HANDLER(ViewHostMsg_DidPrintPage, OnDidPrintPage)
+    IPC_MESSAGE_HANDLER(PrintHostMsg_DidPrintPage, OnDidPrintPage)
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
   return handled;
@@ -332,7 +352,10 @@ void PrintViewManager::DisconnectFromCurrentPrintJob() {
 void PrintViewManager::PrintingDone(bool success) {
   if (!print_job_.get() || !tab_contents())
     return;
-  tab_contents()->PrintingDone(print_job_->cookie(), success);
+  RenderViewHost* rvh = tab_contents()->render_view_host();
+  rvh->Send(new PrintMsg_PrintingDone(rvh->routing_id(),
+                                      print_job_->cookie(),
+                                      success));
 }
 
 void PrintViewManager::TerminatePrintJob(bool cancel) {

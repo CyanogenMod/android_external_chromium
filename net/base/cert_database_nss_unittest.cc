@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,16 +7,16 @@
 
 #include <algorithm>
 
-#include "base/crypto/scoped_nss_types.h"
 #include "base/file_path.h"
 #include "base/file_util.h"
 #include "base/lazy_instance.h"
-#include "base/nss_util.h"
-#include "base/nss_util_internal.h"
+#include "base/memory/scoped_temp_dir.h"
 #include "base/path_service.h"
-#include "base/scoped_temp_dir.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
+#include "crypto/nss_util.h"
+#include "crypto/nss_util_internal.h"
+#include "crypto/scoped_nss_types.h"
 #include "net/base/cert_database.h"
 #include "net/base/cert_status_flags.h"
 #include "net/base/cert_verify_result.h"
@@ -108,11 +108,11 @@ class CertDatabaseNSSTest : public testing::Test {
     if (!temp_db_initialized_) {
       ASSERT_TRUE(temp_db_dir_.Get().CreateUniqueTempDir());
       ASSERT_TRUE(
-          base::OpenTestNSSDB(temp_db_dir_.Get().path(),
-                              "CertDatabaseNSSTest db"));
+          crypto::OpenTestNSSDB(temp_db_dir_.Get().path(),
+                                "CertDatabaseNSSTest db"));
       temp_db_initialized_ = true;
     }
-    slot_ = cert_db_.GetDefaultModule();
+    slot_ = cert_db_.GetPublicModule();
 
     // Test db should be empty at start of test.
     EXPECT_EQ(0U, ListCertsInSlot(slot_->os_module_handle()).size());

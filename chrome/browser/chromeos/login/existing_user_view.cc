@@ -5,12 +5,14 @@
 #include "chrome/browser/chromeos/login/existing_user_view.h"
 
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/chromeos/login/user_controller.h"
 #include "chrome/browser/chromeos/login/textfield_with_margin.h"
+#include "chrome/browser/chromeos/login/user_controller.h"
 #include "chrome/browser/chromeos/login/wizard_accessibility_helper.h"
 #include "grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
 #include "views/background.h"
+#include "views/controls/textfield/textfield.h"
 #include "views/focus/focus_manager.h"
 #include "views/layout/fill_layout.h"
 
@@ -64,10 +66,13 @@ class UserEntryTextfield : public TextfieldWithMargin {
 ExistingUserView::ExistingUserView(UserController* user_controller)
     : user_controller_(user_controller),
       password_field_(NULL),
+      accel_enterprise_enrollment_(
+          views::Accelerator(ui::VKEY_E, false, true, true)),
       accel_login_off_the_record_(
-        views::Accelerator(ui::VKEY_B, false, false, true)),
+          views::Accelerator(ui::VKEY_B, false, false, true)),
       accel_toggle_accessibility_(
           WizardAccessibilityHelper::GetAccelerator()) {
+  AddAccelerator(accel_enterprise_enrollment_);
   AddAccelerator(accel_login_off_the_record_);
   AddAccelerator(accel_toggle_accessibility_);
 }
@@ -84,6 +89,9 @@ void ExistingUserView::RecreateFields() {
     password_field_->SetController(this);
     AddChildView(password_field_);
   }
+  const gfx::Font& base_font = ResourceBundle::GetSharedInstance().GetFont(
+      ResourceBundle::BaseFont);
+  SetAndCorrectTextfieldFont(password_field_, base_font);
   password_field_->set_text_to_display_when_empty(
       l10n_util::GetStringUTF16(IDS_LOGIN_POD_EMPTY_PASSWORD_TEXT));
   Layout();
@@ -92,7 +100,10 @@ void ExistingUserView::RecreateFields() {
 
 bool ExistingUserView::AcceleratorPressed(
     const views::Accelerator& accelerator) {
-  if (accelerator == accel_login_off_the_record_) {
+  if (accelerator == accel_enterprise_enrollment_) {
+    user_controller_->OnStartEnterpriseEnrollment();
+    return true;
+  } else if (accelerator == accel_login_off_the_record_) {
     user_controller_->OnLoginAsGuest();
     return true;
   } else if (accelerator == accel_toggle_accessibility_) {

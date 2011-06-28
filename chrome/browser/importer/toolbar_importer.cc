@@ -9,50 +9,16 @@
 #include "base/rand_util.h"
 #include "base/string_number_conversions.h"
 #include "base/string_split.h"
-#include "base/string_util.h"
 #include "base/utf_string_conversions.h"
-#include "base/values.h"
 #include "chrome/browser/first_run/first_run.h"
 #include "chrome/browser/importer/importer_bridge.h"
 #include "chrome/browser/importer/importer_data_types.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/libxml_utils.h"
-#include "chrome/common/net/url_request_context_getter.h"
 #include "content/browser/browser_thread.h"
 #include "grit/generated_resources.h"
-#include "net/base/cookie_monster.h"
-#include "net/base/data_url.h"
-#include "net/url_request/url_request_context.h"
 
-//
-// ToolbarImporterUtils
-//
-static const char* kGoogleDomainUrl = "http://.google.com/";
-static const wchar_t kSplitStringToken = L';';
-static const char* kGoogleDomainSecureCookieId = "SID=";
-
-bool toolbar_importer_utils::IsGoogleGAIACookieInstalled() {
-  net::CookieStore* store =
-      Profile::GetDefaultRequestContext()->GetCookieStore();
-  GURL url(kGoogleDomainUrl);
-  net::CookieOptions options;
-  options.set_include_httponly();  // The SID cookie might be httponly.
-  std::string cookies = store->GetCookiesWithOptions(url, options);
-  std::vector<std::string> cookie_list;
-  base::SplitString(cookies, kSplitStringToken, &cookie_list);
-  for (std::vector<std::string>::iterator current = cookie_list.begin();
-       current != cookie_list.end();
-       ++current) {
-    size_t position = (*current).find(kGoogleDomainSecureCookieId);
-    if (0 == position)
-      return true;
-  }
-  return false;
-}
-
-//
 // Toolbar5Importer
-//
 const char Toolbar5Importer::kXmlApiReplyXmlTag[] = "xml_api_reply";
 const char Toolbar5Importer::kBookmarksXmlTag[] = "bookmarks";
 const char Toolbar5Importer::kBookmarkXmlTag[] = "bookmark";
@@ -77,9 +43,6 @@ const char Toolbar5Importer::kT5FrontEndUrlTemplate[] =
     "http://www.google.com/notebook/toolbar?cmd=list&tok={auth_token}&"
     "num={max_num}&min={max_timestamp}&all=0&zx={random_number}";
 
-// Importer methods.
-
-// The constructor should set the initial state to NOT_USED.
 Toolbar5Importer::Toolbar5Importer()
     : state_(NOT_USED),
       items_to_import_(importer::NONE),
@@ -95,9 +58,10 @@ Toolbar5Importer::~Toolbar5Importer() {
   DCHECK(!data_fetcher_);
 }
 
-void Toolbar5Importer::StartImport(const importer::ProfileInfo& profile_info,
-                                   uint16 items,
-                                   ImporterBridge* bridge) {
+void Toolbar5Importer::StartImport(
+    const importer::SourceProfile& source_profile,
+    uint16 items,
+    ImporterBridge* bridge) {
   DCHECK(bridge);
 
   bridge_ = bridge;
@@ -108,13 +72,13 @@ void Toolbar5Importer::StartImport(const importer::ProfileInfo& profile_info,
   ContinueImport();
 }
 
-// The public cancel method serves two functions, as a callback from the UI
-// as well as an internal callback in case of cancel.  An internal callback
-// is required since the URLFetcher must be destroyed from the thread it was
+// The public cancel method serves two functions, as a callback from the UI as
+// well as an internal callback in case of cancel.  An internal callback is
+// required since the URLFetcher must be destroyed from the thread it was
 // created.
 void Toolbar5Importer::Cancel() {
-  // In the case when the thread is not importing messages we are to
-  // cancel as soon as possible.
+  // In the case when the thread is not importing messages we are to cancel as
+  // soon as possible.
   Importer::Cancel();
 
   // If we are conducting network operations, post a message to the importer
@@ -293,8 +257,7 @@ void Toolbar5Importer::GetBookmarksFromServerDataResponse(
     // Construct Bookmarks
     std::vector<ProfileWriter::BookmarkEntry> bookmarks;
     if (ParseBookmarksFromReader(&reader, &bookmarks,
-        WideToUTF16(bridge_->GetLocalizedString(
-            IDS_BOOKMARK_GROUP_FROM_GOOGLE_TOOLBAR))))
+        bridge_->GetLocalizedString(IDS_BOOKMARK_GROUP_FROM_GOOGLE_TOOLBAR)))
       AddBookmarksToChrome(bookmarks);
   }
   EndImportBookmarks();
@@ -489,7 +452,7 @@ bool Toolbar5Importer::ExtractTitleFromXmlReader(
   if (!ExtractNamedValueFromXmlReader(reader, kTitleXmlTag, &buffer)) {
     return false;
   }
-  entry->title = UTF8ToWide(buffer);
+  entry->title = UTF8ToUTF16(buffer);
   return true;
 }
 
@@ -545,20 +508,20 @@ bool Toolbar5Importer::ExtractFoldersFromXmlReader(
   if (!reader->Read() || !LocateNextOpenTag(reader))
     return false;
 
-  std::vector<std::wstring> label_vector;
+  std::vector<string16> label_vector;
   while (kLabelXmlTag == reader->NodeName()) {
     std::string label_buffer;
     if (!reader->ReadElementContent(&label_buffer)) {
       label_buffer = "";
     }
-    label_vector.push_back(UTF8ToWide(label_buffer));
+    label_vector.push_back(UTF8ToUTF16(label_buffer));
     LocateNextOpenTag(reader);
   }
 
   if (0 == label_vector.size()) {
     if (!FirstRun::IsChromeFirstRun()) {
       bookmark_folders->resize(1);
-      (*bookmark_folders)[0].push_back(UTF16ToWide(bookmark_group_string));
+      (*bookmark_folders)[0].push_back(bookmark_group_string);
     }
     return true;
   }
@@ -570,14 +533,14 @@ bool Toolbar5Importer::ExtractFoldersFromXmlReader(
     // If this is the first run then we place favorites with no labels
     // in the title bar.  Else they are placed in the "Google Toolbar" folder.
     if (!FirstRun::IsChromeFirstRun() || !label_vector[index].empty()) {
-      (*bookmark_folders)[index].push_back(UTF16ToWide(bookmark_group_string));
+      (*bookmark_folders)[index].push_back(bookmark_group_string);
     }
 
     // If the label and is in the form "xxx:yyy:zzz" this was created from an
     // IE or Firefox folder.  We undo the label creation and recreate the
     // correct folder.
-    std::vector<std::wstring> folder_names;
-    base::SplitString(label_vector[index], L':', &folder_names);
+    std::vector<string16> folder_names;
+    base::SplitString(label_vector[index], ':', &folder_names);
     (*bookmark_folders)[index].insert((*bookmark_folders)[index].end(),
         folder_names.begin(), folder_names.end());
   }
@@ -585,11 +548,10 @@ bool Toolbar5Importer::ExtractFoldersFromXmlReader(
   return true;
 }
 
-// Bookmark creation
 void  Toolbar5Importer::AddBookmarksToChrome(
     const std::vector<ProfileWriter::BookmarkEntry>& bookmarks) {
   if (!bookmarks.empty() && !cancelled()) {
-    const std::wstring& first_folder_name =
+    const string16& first_folder_name =
         bridge_->GetLocalizedString(IDS_BOOKMARK_GROUP_FROM_GOOGLE_TOOLBAR);
     int options = ProfileWriter::ADD_IF_UNIQUE |
         (import_to_bookmark_bar() ? ProfileWriter::IMPORT_TO_BOOKMARK_BAR : 0);

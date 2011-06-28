@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -126,7 +126,7 @@ class BookmarkEditorBaseControllerBridge : public BookmarkModelObserver {
       [controller_ modelChangedPreserveSelection:YES];
   }
 
-  virtual void BookmarkNodeFavIconLoaded(BookmarkModel* model,
+  virtual void BookmarkNodeFaviconLoaded(BookmarkModel* model,
                                          const BookmarkNode* node) {
     // I care nothing for these 'favicons': I only show folders.
   }
@@ -364,7 +364,7 @@ class BookmarkEditorBaseControllerBridge : public BookmarkModelObserver {
   while (node != rootNode) {
     DCHECK(node);
     nodeStack.push(node);
-    node = node->GetParent();
+    node = node->parent();
   }
   NSUInteger stackSize = nodeStack.size();
 
@@ -392,7 +392,7 @@ class BookmarkEditorBaseControllerBridge : public BookmarkModelObserver {
 
 - (NSMutableArray*)addChildFoldersFromNode:(const BookmarkNode*)node {
   NSMutableArray* childFolders = nil;
-  int childCount = node->GetChildCount();
+  int childCount = node->child_count();
   for (int i = 0; i < childCount; ++i) {
     const BookmarkNode* childNode = node->GetChild(i);
     if (childNode->type() != BookmarkNode::URL) {
@@ -463,8 +463,8 @@ class BookmarkEditorBaseControllerBridge : public BookmarkModelObserver {
     if ([subFolderInfo newFolder]) {
       BookmarkModel* model = [self bookmarkModel];
       const BookmarkNode* newFolder =
-      model->AddGroup(parentNode, i,
-                      base::SysNSStringToUTF16([subFolderInfo folderName]));
+      model->AddFolder(parentNode, i,
+                       base::SysNSStringToUTF16([subFolderInfo folderName]));
       // Update our dictionary with the actual folder node just created.
       [subFolderInfo setFolderNode:newFolder];
       [subFolderInfo setNewFolder:NO];

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,7 +20,7 @@
 #include "chrome/browser/keychain_mac.h"
 #include "chrome/browser/password_manager/login_database.h"
 #include "chrome/browser/password_manager/password_store_change.h"
-#include "chrome/common/notification_service.h"
+#include "content/common/notification_service.h"
 
 using webkit_glue::PasswordForm;
 
@@ -886,7 +886,7 @@ void PasswordStoreMac::GetLoginsImpl(GetLoginsRequest* request,
   std::vector<PasswordForm*> database_forms;
   login_metadata_db_->GetLogins(form, &database_forms);
 
-  std::vector<PasswordForm*> merged_forms;
+  std::vector<PasswordForm*>& merged_forms = request->value;
   internal_keychain_helpers::MergePasswordForms(&keychain_forms,
                                                 &database_forms,
                                                 &merged_forms);
@@ -904,19 +904,17 @@ void PasswordStoreMac::GetLoginsImpl(GetLoginsRequest* request,
   RemoveDatabaseForms(database_forms);
   STLDeleteElements(&database_forms);
 
-  NotifyConsumer(request, merged_forms);
+  ForwardLoginsResult(request);
 }
 
 void PasswordStoreMac::GetBlacklistLoginsImpl(GetLoginsRequest* request) {
-  std::vector<PasswordForm*> database_forms;
-  FillBlacklistLogins(&database_forms);
-  NotifyConsumer(request, database_forms);
+  FillBlacklistLogins(&request->value);
+  ForwardLoginsResult(request);
 }
 
 void PasswordStoreMac::GetAutofillableLoginsImpl(GetLoginsRequest* request) {
-  std::vector<PasswordForm*> database_forms;
-  FillAutofillableLogins(&database_forms);
-  NotifyConsumer(request, database_forms);
+  FillAutofillableLogins(&request->value);
+  ForwardLoginsResult(request);
 }
 
 bool PasswordStoreMac::FillAutofillableLogins(

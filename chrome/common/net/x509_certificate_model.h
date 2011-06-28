@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,6 +19,8 @@ namespace x509_certificate_model {
 
 std::string GetCertNameOrNickname(
     net::X509Certificate::OSCertHandle cert_handle);
+
+std::string GetNickname(net::X509Certificate::OSCertHandle cert_handle);
 
 std::string GetTokenName(net::X509Certificate::OSCertHandle cert_handle);
 
@@ -76,6 +78,10 @@ void GetNicknameStringsFromCertList(const net::CertificateList& certs,
                                     const std::string& cert_expired,
                                     const std::string& cert_not_yet_valid,
                                     std::vector<std::string>* nick_names);
+
+// Returns the PKCS#11 attribute CKA_ID for a certificate as an upper-case
+// hex string, or the empty string if none is found.
+std::string GetPkcs11Id(net::X509Certificate::OSCertHandle cert_handle);
 
 struct Extension {
   std::string name;

@@ -6,7 +6,7 @@
 
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/defaults.h"
-#include "chrome/browser/themes/browser_theme_provider.h"
+#include "chrome/browser/themes/theme_service.h"
 #include "grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "views/controls/label.h"
@@ -86,8 +86,9 @@ void BookmarkBarInstructionsView::ViewHierarchyChanged(bool is_add,
     UpdateColors();
 }
 
-AccessibilityTypes::Role BookmarkBarInstructionsView::GetAccessibleRole() {
-  return AccessibilityTypes::ROLE_GROUPING;
+void BookmarkBarInstructionsView::GetAccessibleState(
+    ui::AccessibleViewState* state) {
+  state->role = ui::AccessibilityTypes::ROLE_GROUPING;
 }
 
 void BookmarkBarInstructionsView::LinkActivated(views::Link* source,
@@ -102,7 +103,7 @@ void BookmarkBarInstructionsView::UpdateColors() {
     return;
   updated_colors_ = true;
   SkColor text_color =
-      theme_provider->GetColor(BrowserThemeProvider::COLOR_BOOKMARK_TEXT);
+      theme_provider->GetColor(ThemeService::COLOR_BOOKMARK_TEXT);
   instructions_->SetColor(text_color);
   if (import_link_)
     import_link_->SetColor(text_color);

@@ -7,10 +7,10 @@
 #include <algorithm>
 #include <vector>
 
-#include "base/linked_ptr.h"
+#include "base/memory/linked_ptr.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/wm_ipc.h"
-#include "chrome/browser/chromeos/wm_overview_fav_icon.h"
+#include "chrome/browser/chromeos/wm_overview_favicon.h"
 #include "chrome/browser/chromeos/wm_overview_snapshot.h"
 #include "chrome/browser/chromeos/wm_overview_title.h"
 #include "chrome/browser/tab_contents/thumbnail_generator.h"
@@ -56,7 +56,7 @@ static const double kSnapshotMaxSizeRatio = 0.77;
 static const int kTitleHeight = 32;
 
 // The number of additional padding pixels to remove from the title width.
-static const int kFavIconPadding = 5;
+static const int kFaviconPadding = 5;
 
 class BrowserListener : public TabStripModelObserver {
  public:
@@ -108,7 +108,7 @@ class BrowserListener : public TabStripModelObserver {
   int ConfigureNextUnconfiguredSnapshot(int start_from);
 
   // Saves the currently selected tab.
-  void SaveCurrentTab() { original_selected_tab_ = browser_->selected_index(); }
+  void SaveCurrentTab() { original_selected_tab_ = browser_->active_index(); }
 
   // Reverts the selected browser tab to the tab that was selected
   // when This BrowserListener was created, or the last time
@@ -165,7 +165,7 @@ class BrowserListener : public TabStripModelObserver {
   struct SnapshotNode {
     WmOverviewSnapshot* snapshot;  // Not owned
     WmOverviewTitle* title;  // Not owned
-    WmOverviewFavIcon* fav_icon;  // Not owned
+    WmOverviewFavicon* favicon;  // Not owned
   };
   typedef std::vector<SnapshotNode> SnapshotVector;
   SnapshotVector snapshots_;
@@ -208,12 +208,12 @@ void BrowserListener::TabInsertedAt(TabContentsWrapper* contents,
                                     bool foreground) {
   InsertSnapshot(index);
   RenumberSnapshots(index);
-  UpdateSelectedIndex(browser_->selected_index());
+  UpdateSelectedIndex(browser_->active_index());
 }
 
 void BrowserListener::TabDetachedAt(TabContentsWrapper* contents, int index) {
   ClearSnapshot(index);
-  UpdateSelectedIndex(browser_->selected_index());
+  UpdateSelectedIndex(browser_->active_index());
   RenumberSnapshots(index);
 }
 
@@ -228,7 +228,7 @@ void BrowserListener::TabMoved(TabContentsWrapper* contents,
   snapshots_.insert(snapshots_.begin() + to_index, node);
 
   RenumberSnapshots(std::min(to_index, from_index));
-  UpdateSelectedIndex(browser_->selected_index());
+  UpdateSelectedIndex(browser_->active_index());
 }
 
 void BrowserListener::TabChangedAt(
@@ -238,8 +238,8 @@ void BrowserListener::TabChangedAt(
   if (change_type != TabStripModelObserver::LOADING_ONLY) {
     snapshots_[index].title->SetTitle(contents->tab_contents()->GetTitle());
     snapshots_[index].title->SetUrl(contents->tab_contents()->GetURL());
-    snapshots_[index].fav_icon->SetFavIcon(
-        contents->tab_contents()->GetFavIcon());
+    snapshots_[index].favicon->SetFavicon(
+        contents->tab_contents()->GetFavicon());
     if (change_type != TabStripModelObserver::TITLE_NOT_LOADING)
       MarkSnapshotAsDirty(index);
   }
@@ -304,8 +304,8 @@ int BrowserListener::ConfigureNextUnconfiguredSnapshot(int start_from) {
 
 void BrowserListener::RestoreOriginalSelectedTab() {
   if (original_selected_tab_ >= 0) {
-    browser_->SelectTabContentsAt(original_selected_tab_, false);
-    UpdateSelectedIndex(browser_->selected_index());
+    browser_->ActivateTabAt(original_selected_tab_, false);
+    UpdateSelectedIndex(browser_->active_index());
   }
 }
 
@@ -316,8 +316,8 @@ void BrowserListener::ShowSnapshots() {
       node.snapshot->Show();
     if (!snapshots_[i].title->IsVisible())
       node.title->Show();
-    if (!snapshots_[i].fav_icon->IsVisible())
-      node.fav_icon->Show();
+    if (!snapshots_[i].favicon->IsVisible())
+      node.favicon->Show();
   }
 }
 
@@ -330,7 +330,7 @@ void BrowserListener::SelectTab(int index, uint32 timestamp) {
 
   uint32 old_value = select_tab_timestamp_;
   select_tab_timestamp_ = timestamp;
-  browser_->SelectTabContentsAt(index, true);
+  browser_->ActivateTabAt(index, true);
   select_tab_timestamp_ = old_value;
 }
 
@@ -422,14 +422,14 @@ void BrowserListener::InsertSnapshot(int index) {
   gfx::Size cell_size = CalculateCellSize();
   node.snapshot->Init(cell_size, browser_, index);
 
-  node.fav_icon = new WmOverviewFavIcon;
-  node.fav_icon->Init(node.snapshot);
-  node.fav_icon->SetFavIcon(browser_->GetTabContentsAt(index)->GetFavIcon());
+  node.favicon = new WmOverviewFavicon;
+  node.favicon->Init(node.snapshot);
+  node.favicon->SetFavicon(browser_->GetTabContentsAt(index)->GetFavicon());
 
   node.title = new WmOverviewTitle;
   node.title->Init(gfx::Size(std::max(0, cell_size.width() -
-                                      WmOverviewFavIcon::kIconSize -
-                                      kFavIconPadding),
+                                      WmOverviewFavicon::kIconSize -
+                                      kFaviconPadding),
                              kTitleHeight), node.snapshot);
   node.title->SetTitle(browser_->GetTabContentsAt(index)->GetTitle());
 
@@ -442,7 +442,7 @@ void BrowserListener::InsertSnapshot(int index) {
 void BrowserListener::ClearSnapshot(int index) {
   snapshots_[index].snapshot->CloseNow();
   snapshots_[index].title->CloseNow();
-  snapshots_[index].fav_icon->CloseNow();
+  snapshots_[index].favicon->CloseNow();
   snapshots_.erase(snapshots_.begin() + index);
 }
 

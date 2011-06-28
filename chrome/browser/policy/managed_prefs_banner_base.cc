@@ -7,9 +7,9 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/prefs/pref_set_observer.h"
-#include "chrome/common/notification_details.h"
-#include "chrome/common/notification_type.h"
 #include "chrome/common/pref_names.h"
+#include "content/common/notification_details.h"
+#include "content/common/notification_type.h"
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/cros_settings_names.h"
@@ -76,7 +76,7 @@ void ManagedPrefsBannerBase::Init(PrefService* local_state,
       break;
     case OPTIONS_PAGE_CONTENT:
       AddUserPref(prefs::kSyncManaged);
-      AddUserPref(prefs::kAutoFillEnabled);
+      AddUserPref(prefs::kAutofillEnabled);
       AddUserPref(prefs::kPasswordManagerEnabled);
 #if defined(OS_CHROMEOS)
       AddUserPref(prefs::kEnableScreenLock);
@@ -85,7 +85,7 @@ void ManagedPrefsBannerBase::Init(PrefService* local_state,
     case OPTIONS_PAGE_ADVANCED:
       AddUserPref(prefs::kAlternateErrorPagesEnabled);
       AddUserPref(prefs::kSearchSuggestEnabled);
-      AddUserPref(prefs::kDnsPrefetchingEnabled);
+      AddUserPref(prefs::kNetworkPredictionEnabled);
       AddUserPref(prefs::kDisableSpdy);
       AddUserPref(prefs::kSafeBrowsingEnabled);
 #if defined(GOOGLE_CHROME_BUILD)
@@ -94,6 +94,7 @@ void ManagedPrefsBannerBase::Init(PrefService* local_state,
       AddUserPref(prefs::kProxy);
       AddUserPref(prefs::kCloudPrintProxyEnabled);
       AddUserPref(prefs::kDownloadDefaultDirectory);
+      AddUserPref(prefs::kEnableTranslate);
       break;
 #if defined(OS_CHROMEOS)
     case OPTIONS_PAGE_ACCOUNTS:

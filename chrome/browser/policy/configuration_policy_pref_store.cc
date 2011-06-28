@@ -20,15 +20,15 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/policy/browser_policy_connector.h"
 #include "chrome/browser/policy/configuration_policy_provider.h"
-#include "chrome/browser/policy/profile_policy_connector.h"
 #include "chrome/browser/policy/policy_path_parser.h"
+#include "chrome/browser/policy/profile_policy_connector.h"
 #include "chrome/browser/prefs/pref_value_map.h"
 #include "chrome/browser/prefs/proxy_config_dictionary.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/search_terms_data.h"
 #include "chrome/browser/search_engines/template_url.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
+#include "content/common/notification_service.h"
 #include "policy/policy_constants.h"
 
 namespace policy {
@@ -42,7 +42,8 @@ class ConfigurationPolicyPrefKeeper
   virtual ~ConfigurationPolicyPrefKeeper();
 
   // Get a preference value.
-  PrefStore::ReadResult GetValue(const std::string& key, Value** result) const;
+  PrefStore::ReadResult GetValue(const std::string& key,
+                                 const Value** result) const;
 
   // Compute the set of preference names that are different in |keeper|. This
   // includes preferences that are missing in either one.
@@ -61,12 +62,6 @@ class ConfigurationPolicyPrefKeeper
     ConfigurationPolicyType policy_type;
     const char* preference_path;  // A DictionaryValue path, not a file path.
   };
-
-  // Returns the map entry that corresponds to |policy| in the map.
-  const PolicyToPreferenceMapEntry* FindPolicyInMap(
-      ConfigurationPolicyType policy,
-      const PolicyToPreferenceMapEntry* map,
-      int size) const;
 
   // Remove the preferences found in the map from |prefs_|. Returns true if any
   // such preferences were found and removed.
@@ -87,9 +82,9 @@ class ConfigurationPolicyPrefKeeper
   // Assumes ownership of |value| in that case.
   bool ApplySyncPolicy(ConfigurationPolicyType policy, Value* value);
 
-  // Handles policies that affect AutoFill. Returns true if the policy was
+  // Handles policies that affect Autofill. Returns true if the policy was
   // handled and assumes ownership of |value| in that case.
-  bool ApplyAutoFillPolicy(ConfigurationPolicyType policy, Value* value);
+  bool ApplyAutofillPolicy(ConfigurationPolicyType policy, Value* value);
 
   // Processes download directory policy. Returns true if the specified policy
   // is the download directory policy. ApplyDownloadDirPolicy assumes the
@@ -126,28 +121,9 @@ class ConfigurationPolicyPrefKeeper
   // is called.
   std::map<ConfigurationPolicyType, Value*> proxy_policies_;
 
-  // Set to false until the first proxy-relevant policy is applied. At that
-  // time, default values are provided for all proxy-relevant prefs
-  // to override any values set from stores with a lower priority.
-  bool lower_priority_proxy_settings_overridden_;
-
-  // The following are used to track what proxy-relevant policy has been applied
-  // accross calls to Apply to provide a warning if a policy specifies a
-  // contradictory proxy configuration. |proxy_disabled_| is set to true if and
-  // only if the kPolicyNoProxyServer has been applied,
-  // |proxy_configuration_specified_| is set to true if and only if any other
-  // proxy policy other than kPolicyNoProxyServer has been applied.
-  bool proxy_disabled_;
-  bool proxy_configuration_specified_;
-
-  // Set to true if a the proxy mode policy has been set to force Chrome
-  // to use the system proxy.
-  bool use_system_proxy_;
-
   PrefValueMap prefs_;
 
   static const PolicyToPreferenceMapEntry kSimplePolicyMap[];
-  static const PolicyToPreferenceMapEntry kProxyPolicyMap[];
   static const PolicyToPreferenceMapEntry kDefaultSearchPolicyMap[];
 
   DISALLOW_COPY_AND_ASSIGN(ConfigurationPolicyPrefKeeper);
@@ -167,9 +143,11 @@ const ConfigurationPolicyPrefKeeper::PolicyToPreferenceMapEntry
   { Value::TYPE_BOOLEAN, kPolicySearchSuggestEnabled,
     prefs::kSearchSuggestEnabled },
   { Value::TYPE_BOOLEAN, kPolicyDnsPrefetchingEnabled,
-    prefs::kDnsPrefetchingEnabled },
+    prefs::kNetworkPredictionEnabled },
   { Value::TYPE_BOOLEAN, kPolicyDisableSpdy,
     prefs::kDisableSpdy },
+  { Value::TYPE_LIST, kPolicyDisabledSchemes,
+    prefs::kDisabledSchemes },
   { Value::TYPE_BOOLEAN, kPolicySafeBrowsingEnabled,
     prefs::kSafeBrowsingEnabled },
   { Value::TYPE_BOOLEAN, kPolicyPasswordManagerEnabled,
@@ -261,12 +239,20 @@ const ConfigurationPolicyPrefKeeper::PolicyToPreferenceMapEntry
   { Value::TYPE_BOOLEAN, kPolicyDisablePluginFinder,
     prefs::kDisablePluginFinder },
   { Value::TYPE_INTEGER, kPolicyPolicyRefreshRate,
-    prefs::kPolicyUserPolicyRefreshRate },
+    prefs::kPolicyRefreshRate },
   { Value::TYPE_BOOLEAN, kPolicyInstantEnabled, prefs::kInstantEnabled },
   { Value::TYPE_BOOLEAN, kPolicyDefaultBrowserSettingEnabled,
     prefs::kDefaultBrowserSettingEnabled },
   { Value::TYPE_BOOLEAN, kPolicyCloudPrintProxyEnabled,
     prefs::kCloudPrintProxyEnabled },
+  { Value::TYPE_BOOLEAN, kPolicyTranslateEnabled, prefs::kEnableTranslate },
+  { Value::TYPE_BOOLEAN, kPolicyBookmarkBarEnabled, prefs::kEnableBookmarkBar },
+  { Value::TYPE_BOOLEAN, kPolicyAllowOutdatedPlugins,
+    prefs::kPluginsAllowOutdated },
+  { Value::TYPE_BOOLEAN, kPolicyEditBookmarksEnabled,
+    prefs::kEditBookmarksEnabled },
+  { Value::TYPE_BOOLEAN, kPolicyAllowFileSelectionDialogs,
+    prefs::kAllowFileSelectionDialogs },
 
 #if defined(OS_CHROMEOS)
   { Value::TYPE_BOOLEAN, kPolicyChromeOsLockOnIdleSuspend,
@@ -293,11 +279,7 @@ const ConfigurationPolicyPrefKeeper::PolicyToPreferenceMapEntry
 };
 
 ConfigurationPolicyPrefKeeper::ConfigurationPolicyPrefKeeper(
-    ConfigurationPolicyProvider* provider)
-  : lower_priority_proxy_settings_overridden_(false),
-    proxy_disabled_(false),
-    proxy_configuration_specified_(false),
-    use_system_proxy_(false) {
+    ConfigurationPolicyProvider* provider) {
   if (!provider->Provide(this))
     LOG(WARNING) << "Failed to get policy from provider.";
   FinalizeProxyPolicySettings();
@@ -310,8 +292,8 @@ ConfigurationPolicyPrefKeeper::~ConfigurationPolicyPrefKeeper() {
 
 PrefStore::ReadResult
 ConfigurationPolicyPrefKeeper::GetValue(const std::string& key,
-                                        Value** result) const {
-  Value* stored_value = NULL;
+                                        const Value** result) const {
+  const Value* stored_value = NULL;
   if (!prefs_.GetValue(key, &stored_value))
     return PrefStore::READ_NO_VALUE;
 
@@ -338,7 +320,7 @@ void ConfigurationPolicyPrefKeeper::Apply(ConfigurationPolicyType policy,
   if (ApplySyncPolicy(policy, value))
     return;
 
-  if (ApplyAutoFillPolicy(policy, value))
+  if (ApplyAutofillPolicy(policy, value))
     return;
 
   if (ApplyDownloadDirPolicy(policy, value))
@@ -355,18 +337,6 @@ void ConfigurationPolicyPrefKeeper::Apply(ConfigurationPolicyType policy,
   // Other policy implementations go here.
   NOTIMPLEMENTED();
   delete value;
-}
-
-const ConfigurationPolicyPrefKeeper::PolicyToPreferenceMapEntry*
-ConfigurationPolicyPrefKeeper::FindPolicyInMap(
-    ConfigurationPolicyType policy,
-    const PolicyToPreferenceMapEntry* map,
-    int table_size) const {
-  for (int i = 0; i < table_size; ++i) {
-    if (map[i].policy_type == policy)
-      return map + i;
-  }
-  return NULL;
 }
 
 bool ConfigurationPolicyPrefKeeper::RemovePreferencesOfMap(
@@ -429,12 +399,12 @@ bool ConfigurationPolicyPrefKeeper::ApplySyncPolicy(
   return false;
 }
 
-bool ConfigurationPolicyPrefKeeper::ApplyAutoFillPolicy(
+bool ConfigurationPolicyPrefKeeper::ApplyAutofillPolicy(
     ConfigurationPolicyType policy, Value* value) {
   if (policy == kPolicyAutoFillEnabled) {
     bool auto_fill_enabled;
     if (value->GetAsBoolean(&auto_fill_enabled) && !auto_fill_enabled)
-      prefs_.SetValue(prefs::kAutoFillEnabled,
+      prefs_.SetValue(prefs::kAutofillEnabled,
                        Value::CreateBooleanValue(false));
     delete value;
     return true;
@@ -710,6 +680,11 @@ void ConfigurationPolicyPrefKeeper::ApplyProxySettings() {
       prefs_.SetValue(prefs::kProxy, ProxyConfigDictionary::CreateAutoDetect());
       break;
     case ProxyPrefs::MODE_PAC_SCRIPT: {
+      if (!HasProxyPolicy(kPolicyProxyPacUrl)) {
+        LOG(WARNING) << "A centrally-administered policy specifies to use a "
+                     << "PAC script, but doesn't supply the PAC script URL.";
+        return;
+      }
       std::string pac_url;
       proxy_policies_[kPolicyProxyPacUrl]->GetAsString(&pac_url);
       prefs_.SetValue(prefs::kProxy,
@@ -717,6 +692,11 @@ void ConfigurationPolicyPrefKeeper::ApplyProxySettings() {
       break;
     }
     case ProxyPrefs::MODE_FIXED_SERVERS: {
+      if (!HasProxyPolicy(kPolicyProxyServer)) {
+        LOG(WARNING) << "A centrally-administered policy specifies to use a "
+                     << "fixed server, but doesn't supply the server address.";
+        return;
+      }
       std::string proxy_server;
       proxy_policies_[kPolicyProxyServer]->GetAsString(&proxy_server);
       std::string bypass_list;
@@ -740,8 +720,16 @@ bool ConfigurationPolicyPrefKeeper::HasProxyPolicy(
     ConfigurationPolicyType policy) const {
   std::map<ConfigurationPolicyType, Value*>::const_iterator iter;
   iter = proxy_policies_.find(policy);
-  return iter != proxy_policies_.end() &&
-         iter->second && !iter->second->IsType(Value::TYPE_NULL);
+  std::string tmp;
+  if (iter == proxy_policies_.end() ||
+      !iter->second ||
+      iter->second->IsType(Value::TYPE_NULL) ||
+      (iter->second->IsType(Value::TYPE_STRING) &&
+       iter->second->GetAsString(&tmp) &&
+       tmp.empty())) {
+    return false;
+  }
+  return true;
 }
 
 ConfigurationPolicyPrefStore::ConfigurationPolicyPrefStore(
@@ -776,7 +764,7 @@ bool ConfigurationPolicyPrefStore::IsInitializationComplete() const {
 
 PrefStore::ReadResult
 ConfigurationPolicyPrefStore::GetValue(const std::string& key,
-                                       Value** value) const {
+                                       const Value** value) const {
   if (policy_keeper_.get())
     return policy_keeper_->GetValue(key, value);
 
@@ -881,6 +869,7 @@ ConfigurationPolicyPrefStore::GetChromePolicyDefinitionList() {
     { kPolicyDnsPrefetchingEnabled, Value::TYPE_BOOLEAN,
       key::kDnsPrefetchingEnabled },
     { kPolicyDisableSpdy, Value::TYPE_BOOLEAN, key::kDisableSpdy },
+    { kPolicyDisabledSchemes, Value::TYPE_LIST, key::kDisabledSchemes },
     { kPolicySafeBrowsingEnabled, Value::TYPE_BOOLEAN,
       key::kSafeBrowsingEnabled },
     { kPolicyMetricsReportingEnabled, Value::TYPE_BOOLEAN,
@@ -975,6 +964,15 @@ ConfigurationPolicyPrefStore::GetChromePolicyDefinitionList() {
       key::kCloudPrintProxyEnabled },
     { kPolicyDownloadDirectory, Value::TYPE_STRING,
       key::kDownloadDirectory },
+    { kPolicyTranslateEnabled, Value::TYPE_BOOLEAN, key::kTranslateEnabled },
+    { kPolicyAllowOutdatedPlugins, Value::TYPE_BOOLEAN,
+      key::kAllowOutdatedPlugins },
+    { kPolicyBookmarkBarEnabled, Value::TYPE_BOOLEAN,
+      key::kBookmarkBarEnabled },
+    { kPolicyEditBookmarksEnabled, Value::TYPE_BOOLEAN,
+      key::kEditBookmarksEnabled },
+    { kPolicyAllowFileSelectionDialogs, Value::TYPE_BOOLEAN,
+      key::kAllowFileSelectionDialogs },
 
 #if defined(OS_CHROMEOS)
     { kPolicyChromeOsLockOnIdleSuspend, Value::TYPE_BOOLEAN,

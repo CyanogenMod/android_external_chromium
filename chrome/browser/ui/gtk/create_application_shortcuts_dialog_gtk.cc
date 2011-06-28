@@ -10,7 +10,8 @@
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/shell_integration.h"
 #include "chrome/browser/ui/gtk/gtk_util.h"
-#include "chrome/browser/web_applications/web_app.h"
+#include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
+#include "chrome/browser/ui/web_applications/web_app_ui.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_resource.h"
 #include "content/browser/browser_thread.h"
@@ -33,8 +34,8 @@ const int kDescriptionLabelHeightLines = 3;
 }  // namespace
 
 // static
-void CreateWebApplicationShortcutsDialogGtk::Show(GtkWindow* parent,
-                                                  TabContents* tab_contents) {
+void CreateWebApplicationShortcutsDialogGtk::Show(
+    GtkWindow* parent, TabContentsWrapper* tab_contents) {
   new CreateWebApplicationShortcutsDialogGtk(parent, tab_contents);
 }
 
@@ -47,6 +48,10 @@ void CreateChromeApplicationShortcutsDialogGtk::Show(GtkWindow* parent,
 CreateApplicationShortcutsDialogGtk::CreateApplicationShortcutsDialogGtk(
     GtkWindow* parent)
   : parent_(parent),
+    desktop_checkbox_(NULL),
+    menu_checkbox_(NULL),
+    favicon_pixbuf_(NULL),
+    create_dialog_(NULL),
     error_dialog_(NULL) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
@@ -83,11 +88,12 @@ void CreateApplicationShortcutsDialogGtk::CreateDialogBox(GtkWindow* parent) {
       l10n_util::GetStringUTF8(IDS_CREATE_SHORTCUTS_TITLE).c_str(),
       parent,
       (GtkDialogFlags) (GTK_DIALOG_MODAL | GTK_DIALOG_NO_SEPARATOR),
-      GTK_STOCK_CANCEL,
-      GTK_RESPONSE_REJECT,
       NULL);
   gtk_widget_realize(create_dialog_);
   gtk_window_set_resizable(GTK_WINDOW(create_dialog_), false);
+  gtk_util::AddButtonToDialog(create_dialog_,
+      l10n_util::GetStringUTF8(IDS_CANCEL).c_str(),
+      GTK_STOCK_CANCEL, GTK_RESPONSE_REJECT);
   gtk_util::AddButtonToDialog(create_dialog_,
       l10n_util::GetStringUTF8(IDS_CREATE_SHORTCUTS_COMMIT).c_str(),
       GTK_STOCK_APPLY, GTK_RESPONSE_ACCEPT);
@@ -267,7 +273,7 @@ void CreateApplicationShortcutsDialogGtk::OnToggleCheckbox(GtkWidget* sender) {
 
 CreateWebApplicationShortcutsDialogGtk::CreateWebApplicationShortcutsDialogGtk(
     GtkWindow* parent,
-    TabContents* tab_contents)
+    TabContentsWrapper* tab_contents)
   : CreateApplicationShortcutsDialogGtk(parent),
     tab_contents_(tab_contents) {
 
@@ -279,8 +285,9 @@ CreateWebApplicationShortcutsDialogGtk::CreateWebApplicationShortcutsDialogGtk(
 }
 
 void CreateWebApplicationShortcutsDialogGtk::OnCreatedShortcut() {
-  if (tab_contents_->delegate())
-    tab_contents_->delegate()->ConvertContentsToApplication(tab_contents_);
+  if (tab_contents_->tab_contents()->delegate())
+    tab_contents_->tab_contents()->delegate()->ConvertContentsToApplication(
+        tab_contents_->tab_contents());
 }
 
 CreateChromeApplicationShortcutsDialogGtk::
@@ -316,7 +323,7 @@ CreateChromeApplicationShortcutsDialogGtk::
 
 // Called by tracker_ when the app's icon is loaded.
 void CreateChromeApplicationShortcutsDialogGtk::OnImageLoaded(
-    SkBitmap* image, ExtensionResource resource, int index) {
+    SkBitmap* image, const ExtensionResource& resource, int index) {
   if (image->isNull()) {
     NOTREACHED() << "Corrupt image in profile?";
     return;

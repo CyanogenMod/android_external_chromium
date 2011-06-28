@@ -7,9 +7,10 @@
 #include <vector>
 
 #include "base/logging.h"
-#include "base/scoped_ptr.h"
-#include "base/singleton.h"
+#include "base/memory/scoped_ptr.h"
+#include "base/memory/singleton.h"
 #include "base/string_util.h"
+#include "base/time.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/chromeos/wm_ipc.h"
 #include "content/common/notification_service.h"
@@ -27,7 +28,7 @@
 #include "views/events/event.h"
 #include "views/painter.h"
 #include "views/view.h"
-#include "views/widget/widget_gtk.h"
+#include "views/widget/widget.h"
 #include "views/window/window.h"
 
 namespace chromeos {
@@ -51,12 +52,21 @@ const int kTitleCornerRadius = 4;
 const int kTitleCloseButtonPad = 6;
 const SkColor kTitleActiveGradientStart = SK_ColorWHITE;
 const SkColor kTitleActiveGradientEnd = 0xffe7edf1;
+const SkColor kTitleUrgentGradientStart = 0xfffea044;
+const SkColor kTitleUrgentGradientEnd = 0xfffa983a;
 const SkColor kTitleActiveColor = SK_ColorBLACK;
 const SkColor kTitleInactiveColor = SK_ColorBLACK;
 const SkColor kTitleCloseButtonColor = SK_ColorBLACK;
+// Delay before the urgency can be set after it has been cleared.
+const base::TimeDelta kSetUrgentDelay = base::TimeDelta::FromMilliseconds(500);
 
 // Used to draw the background of the panel title window.
 class TitleBackgroundPainter : public views::Painter {
+ public:
+  explicit TitleBackgroundPainter(PanelController* controller)
+      : panel_controller_(controller) { }
+
+ private:
   virtual void Paint(int w, int h, gfx::Canvas* canvas) {
     SkRect rect = {0, 0, w, h};
     SkPath path;
@@ -72,6 +82,10 @@ class TitleBackgroundPainter : public views::Painter {
     paint.setFlags(SkPaint::kAntiAlias_Flag);
     SkPoint p[2] = { {0, 0}, {0, h} };
     SkColor colors[2] = {kTitleActiveGradientStart, kTitleActiveGradientEnd};
+    if (panel_controller_->urgent()) {
+      colors[0] = kTitleUrgentGradientStart;
+      colors[1] = kTitleUrgentGradientEnd;
+    }
     SkShader* s = SkGradientShader::CreateLinear(
         p, colors, NULL, 2, SkShader::kClamp_TileMode, NULL);
     paint.setShader(s);
@@ -79,6 +93,8 @@ class TitleBackgroundPainter : public views::Painter {
     s->unref();
     canvas->AsCanvasSkia()->drawPath(path, paint);
   }
+
+  PanelController* panel_controller_;
 };
 
 static bool resources_initialized;
@@ -114,7 +130,9 @@ PanelController::PanelController(Delegate* delegate,
        expanded_(true),
        mouse_down_(false),
        dragging_(false),
-       client_event_handler_id_(0) {
+       client_event_handler_id_(0),
+       focused_(false),
+       urgent_(false) {
 }
 
 void PanelController::Init(bool initial_focus,
@@ -123,8 +141,9 @@ void PanelController::Init(bool initial_focus,
                            WmIpcPanelUserResizeType resize_type) {
   gfx::Rect title_bounds(0, 0, window_bounds.width(), kTitleHeight);
 
-  title_window_ = new views::WidgetGtk(views::WidgetGtk::TYPE_WINDOW);
-  title_window_->MakeTransparent();
+  views::Widget::CreateParams params(views::Widget::CreateParams::TYPE_WINDOW);
+  params.transparent = true;
+  title_window_ = views::Widget::CreateWidget(params);
   title_window_->Init(NULL, title_bounds);
   gtk_widget_set_size_request(title_window_->GetNativeView(),
                               title_bounds.width(), title_bounds.height());
@@ -158,16 +177,30 @@ void PanelController::Init(bool initial_focus,
 void PanelController::UpdateTitleBar() {
   if (!delegate_ || !title_window_)
     return;
-  DCHECK(title_content_);
   title_content_->title_label()->SetText(
       UTF16ToWideHack(delegate_->GetPanelTitle()));
   title_content_->title_icon()->SetImage(delegate_->GetPanelIcon());
 }
 
-bool PanelController::TitleMousePressed(const views::MouseEvent& event) {
-  if (!event.IsOnlyLeftMouseButton()) {
-    return false;
+void PanelController::SetUrgent(bool urgent) {
+  if (!urgent)
+    urgent_cleared_time_ = base::TimeTicks::Now();
+  if (urgent == urgent_)
+    return;
+  if (urgent && focused_)
+    return;  // Don't set urgency for focused panels.
+  if (urgent && base::TimeTicks::Now() < urgent_cleared_time_ + kSetUrgentDelay)
+    return;  // Don't set urgency immediately after clearing it.
+  urgent_ = urgent;
+  if (title_window_) {
+    gtk_window_set_urgency_hint(panel_, urgent ? TRUE : FALSE);
+    title_content_->SchedulePaint();
   }
+}
+
+bool PanelController::TitleMousePressed(const views::MouseEvent& event) {
+  if (!event.IsOnlyLeftMouseButton())
+    return false;
   GdkEvent* gdk_event = gtk_get_current_event();
   if (gdk_event->type != GDK_BUTTON_PRESS) {
     gdk_event_free(gdk_event);
@@ -193,20 +226,32 @@ bool PanelController::TitleMousePressed(const views::MouseEvent& event) {
   return true;
 }
 
-void PanelController::TitleMouseReleased(
-    const views::MouseEvent& event, bool canceled) {
-  if (!event.IsLeftMouseButton()) {
-    return;
-  }
+void PanelController::TitleMouseReleased(const views::MouseEvent& event) {
+  if (event.IsLeftMouseButton())
+    TitleMouseCaptureLost();
+}
+
+void PanelController::TitleMouseCaptureLost() {
   // Only handle clicks that started in our window.
-  if (!mouse_down_) {
+  if (!mouse_down_)
     return;
-  }
 
   mouse_down_ = false;
   if (!dragging_) {
-    SetState(expanded_ ?
-             PanelController::MINIMIZED : PanelController::EXPANDED);
+    if (expanded_) {
+      // Always activate the panel here, even if we are about to minimize it.
+      // This lets panels like GTalk know that they have been acknowledged, so
+      // they don't change the title again (which would trigger SetUrgent).
+      // Activating the panel also clears the urgent state.
+      delegate_->ActivatePanel();
+      SetState(PanelController::MINIMIZED);
+    } else {
+      // If we're expanding the panel, do so before focusing it.  This lets the
+      // window manager know that the panel is being expanded in response to a
+      // user action; see http://crosbug.com/14735.
+      SetState(PanelController::EXPANDED);
+      delegate_->ActivatePanel();
+    }
   } else {
     WmIpc::Message msg(WM_IPC_MESSAGE_WM_NOTIFY_PANEL_DRAG_COMPLETE);
     msg.set_param(0, panel_xid_);
@@ -223,10 +268,8 @@ void PanelController::SetState(State state) {
 }
 
 bool PanelController::TitleMouseDragged(const views::MouseEvent& event) {
-  if (!mouse_down_) {
+  if (!mouse_down_)
     return false;
-  }
-
   GdkEvent* gdk_event = gtk_get_current_event();
   if (gdk_event->type != GDK_MOTION_NOTIFY) {
     gdk_event_free(gdk_event);
@@ -263,9 +306,13 @@ bool PanelController::OnPanelClientEvent(
 void PanelController::OnFocusIn() {
   if (title_window_)
     title_content_->OnFocusIn();
+  focused_ = true;
+  // Clear urgent when focused.
+  SetUrgent(false);
 }
 
 void PanelController::OnFocusOut() {
+  focused_ = false;
   if (title_window_)
     title_content_->OnFocusOut();
 }
@@ -335,7 +382,7 @@ PanelController::TitleContentView::TitleContentView(
 
   set_background(
       views::Background::CreateBackgroundPainter(
-          true, new TitleBackgroundPainter()));
+          true, new TitleBackgroundPainter(panel_controller)));
   OnFocusOut();
 }
 
@@ -362,19 +409,20 @@ void PanelController::TitleContentView::Layout() {
 
 bool PanelController::TitleContentView::OnMousePressed(
     const views::MouseEvent& event) {
-  DCHECK(panel_controller_) << "OnMousePressed after Close";
   return panel_controller_->TitleMousePressed(event);
 }
 
 void PanelController::TitleContentView::OnMouseReleased(
-    const views::MouseEvent& event, bool canceled) {
-  DCHECK(panel_controller_) << "MouseReleased after Close";
-  return panel_controller_->TitleMouseReleased(event, canceled);
+    const views::MouseEvent& event) {
+  panel_controller_->TitleMouseReleased(event);
+}
+
+void PanelController::TitleContentView::OnMouseCaptureLost() {
+  panel_controller_->TitleMouseCaptureLost();
 }
 
 bool PanelController::TitleContentView::OnMouseDragged(
     const views::MouseEvent& event) {
-  DCHECK(panel_controller_) << "MouseDragged after Close";
   return panel_controller_->TitleMouseDragged(event);
 }
 

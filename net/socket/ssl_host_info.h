@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,8 @@
 #include <string>
 #include <vector>
 
-#include "base/ref_counted.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/time.h"
 #include "net/base/cert_verifier.h"
 #include "net/base/cert_verify_result.h"
@@ -69,14 +69,6 @@ class SSLHostInfo {
     // certs is a vector of DER encoded X.509 certificates, as the server
     // returned them and in the same order.
     std::vector<std::string> certs;
-    // server_hello contains the bytes of the ServerHello message (or may be
-    // empty if the server doesn't support Snap Start.)
-    std::string server_hello;
-    // npn_valid is true iff |npn_status| and |npn_protocol| is successful.
-    bool npn_valid;
-    // these members contain the NPN result of a connection to the server.
-    SSLClientSocket::NextProtoStatus npn_status;
-    std::string npn_protocol;
 
    private:
     DISALLOW_COPY_AND_ASSIGN(State);

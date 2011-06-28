@@ -7,36 +7,54 @@
 #pragma once
 
 #include <list>
+#include <map>
 #include <string>
 #include <vector>
 
+#include "base/basictypes.h"
+#include "base/compiler_specific.h"
 #include "base/gtest_prod_util.h"
-#include "base/scoped_ptr.h"
-#include "base/scoped_vector.h"
-#include "chrome/browser/autofill/autofill_dialog.h"
+#include "base/memory/scoped_ptr.h"
+#include "base/memory/scoped_vector.h"
+#include "base/string16.h"
 #include "chrome/browser/autofill/autofill_download.h"
-#include "chrome/browser/autofill/personal_data_manager.h"
+#include "chrome/browser/autofill/field_types.h"
+#include "chrome/browser/autofill/form_structure.h"
+#include "content/browser/tab_contents/navigation_controller.h"
 #include "content/browser/tab_contents/tab_contents_observer.h"
 
+<<<<<<< HEAD
 #ifndef ANDROID
 class AutoFillCCInfoBarDelegate;
 #endif
 class AutoFillProfile;
+=======
+class AutofillField;
+class AutofillProfile;
+>>>>>>> chromium.org at r12.0.742.93
 class AutofillMetrics;
 class CreditCard;
-class FormStructure;
+class PersonalDataManager;
 class PrefService;
 class RenderViewHost;
 class TabContents;
 
+<<<<<<< HEAD
 #ifdef ANDROID
 class AutoFillHost;
 #endif
+=======
+struct ViewHostMsg_FrameNavigate_Params;
+
+namespace IPC {
+class Message;
+}
+>>>>>>> chromium.org at r12.0.742.93
 
 namespace webkit_glue {
 struct FormData;
-class FormField;
-}  // namespace webkit_glue
+struct FormField;
+}
 
 // Manages saving and restoring the user's personal information entered into web
 // forms.
@@ -64,10 +82,6 @@ class AutofillManager : public TabContentsObserver,
   virtual bool OnMessageReceived(const IPC::Message& message);
 #endif
 
-  // Called by the AutoFillCCInfoBarDelegate when the user interacts with the
-  // infobar.
-  virtual void OnInfoBarClosed(bool should_save);
-
   // AutofillDownloadManager::Observer implementation:
   virtual void OnLoadedAutofillHeuristics(const std::string& heuristic_xml);
   virtual void OnUploadedAutofillHeuristics(const std::string& form_signature);
@@ -76,8 +90,8 @@ class AutofillManager : public TabContentsObserver,
       AutofillDownloadManager::AutofillRequestType request_type,
       int http_error);
 
-  // Returns the value of the AutoFillEnabled pref.
-  virtual bool IsAutoFillEnabled() const;
+  // Returns the value of the AutofillEnabled pref.
+  virtual bool IsAutofillEnabled() const;
 
   // Imports the form data, submitted by the user, into |personal_data_|.
   void ImportFormData(const FormStructure& submitted_form);
@@ -107,7 +121,13 @@ class AutofillManager : public TabContentsObserver,
 #endif
 
  protected:
-  // For tests.
+  // For tests:
+
+  // The string/int pair is composed of the guid string and variant index
+  // respectively.  The variant index is an index into the multi-valued item
+  // (where applicable).
+  typedef std::pair<std::string, size_t> GUIDPair;
+
   AutofillManager(TabContents* tab_contents,
                   PersonalDataManager* personal_data);
 
@@ -115,26 +135,25 @@ class AutofillManager : public TabContentsObserver,
     personal_data_ = personal_data;
   }
 
-  const AutofillMetrics* metric_logger() const {
-    return metric_logger_.get();
-  }
+  const AutofillMetrics* metric_logger() const { return metric_logger_.get(); }
   void set_metric_logger(const AutofillMetrics* metric_logger);
 
   ScopedVector<FormStructure>* form_structures() { return &form_structures_; }
 
   // Maps GUIDs to and from IDs that are used to identify profiles and credit
   // cards sent to and from the renderer process.
-  virtual int GUIDToID(const std::string& guid);
-  virtual const std::string IDToGUID(int id);
+  virtual int GUIDToID(const GUIDPair& guid);
+  virtual const GUIDPair IDToGUID(int id);
 
   // Methods for packing and unpacking credit card and profile IDs for sending
   // and receiving to and from the renderer process.
-  int PackGUIDs(const std::string& cc_guid, const std::string& profile_guid);
-  void UnpackGUIDs(int id, std::string* cc_guid, std::string* profile_guid);
+  int PackGUIDs(const GUIDPair& cc_guid, const GUIDPair& profile_guid);
+  void UnpackGUIDs(int id, GUIDPair* cc_guid, GUIDPair* profile_guid);
 
  private:
   void OnFormSubmitted(const webkit_glue::FormData& form);
   void OnFormsSeen(const std::vector<webkit_glue::FormData>& forms);
+<<<<<<< HEAD
 #ifdef ANDROID
   bool OnQueryFormFieldAutoFill(int query_id,
                                 const webkit_glue::FormData& form,
@@ -145,27 +164,37 @@ class AutofillManager : public TabContentsObserver,
                                 const webkit_glue::FormField& field);
 #endif
   void OnFillAutoFillFormData(int query_id,
+=======
+  void OnQueryFormFieldAutofill(int query_id,
+                                const webkit_glue::FormData& form,
+                                const webkit_glue::FormField& field);
+  void OnFillAutofillFormData(int query_id,
+>>>>>>> chromium.org at r12.0.742.93
                               const webkit_glue::FormData& form,
                               const webkit_glue::FormField& field,
                               int unique_id);
-  void OnShowAutoFillDialog();
-  void OnDidFillAutoFillFormData();
-  void OnDidShowAutoFillSuggestions();
+  void OnShowAutofillDialog();
+  void OnDidFillAutofillFormData();
+  void OnDidShowAutofillSuggestions();
 
   // Fills |host| with the RenderViewHost for this tab.
   // Returns false if Autofill is disabled or if the host is unavailable.
-  bool GetHost(const std::vector<AutoFillProfile*>& profiles,
+  bool GetHost(const std::vector<AutofillProfile*>& profiles,
                const std::vector<CreditCard*>& credit_cards,
+<<<<<<< HEAD
 #ifdef ANDROID
                AutoFillHost** host) WARN_UNUSED_RESULT;
 #else
                RenderViewHost** host) WARN_UNUSED_RESULT;
 #endif
+=======
+               RenderViewHost** host) const WARN_UNUSED_RESULT;
+>>>>>>> chromium.org at r12.0.742.93
 
   // Fills |form_structure| cached element corresponding to |form|.
   // Returns false if the cached element was not found.
   bool FindCachedForm(const webkit_glue::FormData& form,
-                      FormStructure** form_structure) WARN_UNUSED_RESULT;
+                      FormStructure** form_structure) const WARN_UNUSED_RESULT;
 
   // Fills |form_structure| and |autofill_field| with the cached elements
   // corresponding to |form| and |field|. Returns false if the cached elements
@@ -181,7 +210,7 @@ class AutofillManager : public TabContentsObserver,
   // is filled with the Profile label.
   void GetProfileSuggestions(FormStructure* form,
                              const webkit_glue::FormField& field,
-                             AutofillType type,
+                             AutofillFieldType type,
                              std::vector<string16>* values,
                              std::vector<string16>* labels,
                              std::vector<string16>* icons,
@@ -191,7 +220,7 @@ class AutofillManager : public TabContentsObserver,
   // the value of |field| and returns the labels of the matching credit cards.
   void GetCreditCardSuggestions(FormStructure* form,
                                 const webkit_glue::FormField& field,
-                                AutofillType type,
+                                AutofillFieldType type,
                                 std::vector<string16>* values,
                                 std::vector<string16>* labels,
                                 std::vector<string16>* icons,
@@ -200,18 +229,22 @@ class AutofillManager : public TabContentsObserver,
   // Set |field| argument's value based on |type| and contents of the
   // |credit_card|.
   void FillCreditCardFormField(const CreditCard* credit_card,
-                               AutofillType type,
+                               AutofillFieldType type,
                                webkit_glue::FormField* field);
 
   // Set |field| argument's value based on |type| and contents of the |profile|.
-  void FillFormField(const AutoFillProfile* profile,
-                     AutofillType type,
+  // The |variant| parameter specifies which value in a multi-valued profile.
+  void FillFormField(const AutofillProfile* profile,
+                     AutofillFieldType type,
+                     size_t variant,
                      webkit_glue::FormField* field);
 
   // Set |field| argument's value for phone/fax number based on contents of the
   // |profile|. |type| is the type of the phone.
-  void FillPhoneNumberField(const AutoFillProfile* profile,
-                            AutofillType type,
+  // The |variant| parameter specifies which value in a multi-valued profile.
+  void FillPhoneNumberField(const AutofillProfile* profile,
+                            AutofillFieldType type,
+                            size_t variant,
                             webkit_glue::FormField* field);
 
   // Parses the forms using heuristic matching and querying the Autofill server.
@@ -220,9 +253,6 @@ class AutofillManager : public TabContentsObserver,
   // Uses existing personal data to determine possible field types for the
   // |submitted_form|.
   void DeterminePossibleFieldTypesForUpload(FormStructure* submitted_form);
-
-  void LogMetricsAboutSubmittedForm(const webkit_glue::FormData& form,
-                                    const FormStructure* submitted_form);
 
   // The personal data manager, used to save and load personal data to/from the
   // web database.  This is overridden by the AutofillManagerTest.
@@ -243,9 +273,10 @@ class AutofillManager : public TabContentsObserver,
   // For logging UMA metrics. Overridden by metrics tests.
   scoped_ptr<const AutofillMetrics> metric_logger_;
 
-  // Our copy of the form data.
-  ScopedVector<FormStructure> form_structures_;
+  // Have we logged whether Autofill is enabled for this page load?
+  bool has_logged_autofill_enabled_;
 
+<<<<<<< HEAD
 #ifdef ANDROID
   // To minimize merge conflicts, we keep this pointer around, but never use it.
   void* cc_infobar_;
@@ -254,14 +285,17 @@ class AutofillManager : public TabContentsObserver,
   // Deletes itself when closed.
   AutoFillCCInfoBarDelegate* cc_infobar_;
 #endif
+=======
+  // Have we logged an address suggestions count metric for this page?
+  bool has_logged_address_suggestions_count_;
+>>>>>>> chromium.org at r12.0.742.93
 
-  // The imported credit card that should be saved if the user accepts the
-  // infobar.
-  scoped_ptr<const CreditCard> imported_credit_card_;
+  // Our copy of the form data.
+  ScopedVector<FormStructure> form_structures_;
 
   // GUID to ID mapping.  We keep two maps to convert back and forth.
-  std::map<std::string, int> guid_id_map_;
-  std::map<int, std::string> id_guid_map_;
+  std::map<GUIDPair, int> guid_id_map_;
+  std::map<int, GUIDPair> id_guid_map_;
 
   friend class AutofillManagerTest;
   friend class FormStructureBrowserTest;
@@ -274,16 +308,21 @@ class AutofillManager : public TabContentsObserver,
   FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest, FillAddressForm);
   FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest, FillAddressAndCreditCardForm);
   FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest, FillFormWithMultipleSections);
-  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest, FillAutoFilledForm);
+  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest, FillFormWithMultipleEmails);
+  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest, FillAutofilledForm);
   FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest, FillPhoneNumber);
   FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest, FormChangesRemoveField);
   FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest, FormChangesAddField);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest, QualityMetrics);
+  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest, FormSubmitted);
+  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest, FormSubmittedServerTypes);
+  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest, AddressSuggestionsCount);
+  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest, AutofillIsEnabledAtPageLoad);
   FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest,
                            NoQualityMetricsForNonAutofillableForms);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest, SaneMetricsWithCacheMismatch);
+  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest, QualityMetrics);
   FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest, QualityMetricsForFailure);
   FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest, QualityMetricsWithExperimentId);
+  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest, SaneMetricsWithCacheMismatch);
 
   DISALLOW_COPY_AND_ASSIGN(AutofillManager);
 };

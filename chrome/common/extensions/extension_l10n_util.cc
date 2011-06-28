@@ -1,24 +1,25 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/common/extensions/extension_l10n_util.h"
 
+#include <algorithm>
 #include <set>
 #include <string>
 #include <vector>
 
 #include "base/file_util.h"
-#include "base/linked_ptr.h"
 #include "base/logging.h"
+#include "base/memory/linked_ptr.h"
 #include "base/string_util.h"
 #include "base/values.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/extensions/extension_file_util.h"
 #include "chrome/common/extensions/extension_message_bundle.h"
-#include "chrome/common/json_value_serializer.h"
 #include "chrome/common/url_constants.h"
+#include "content/common/json_value_serializer.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "unicode/uloc.h"
 
@@ -111,6 +112,20 @@ bool LocalizeManifest(const ExtensionMessageBundle& messages,
   if (!LocalizeManifestValue(keys::kOmniboxKeyword, messages, manifest, error))
     return false;
 
+  ListValue* file_handlers = NULL;
+  if (manifest->GetList(keys::kFileBrowserHandlers, &file_handlers)) {
+    key.assign(keys::kFileBrowserHandlers);
+    for (size_t i = 0; i < file_handlers->GetSize(); i++) {
+      DictionaryValue* handler = NULL;
+      if (!file_handlers->GetDictionary(i, &handler)) {
+        *error = errors::kInvalidFileBrowserHandler;
+        return false;
+      }
+      if (!LocalizeManifestValue(keys::kPageActionDefaultTitle, messages,
+                                 handler, error))
+        return false;
+    }
+  }
   // Add current locale key to the manifest, so we can overwrite prefs
   // with new manifest when chrome locale changes.
   manifest->SetString(keys::kCurrentLocale, CurrentLocaleOrDefault());

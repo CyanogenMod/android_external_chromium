@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,9 +9,10 @@
 #include <string>
 #include <utility>
 
+#include "app/sql/init_status.h"
 #include "base/file_path.h"
 #include "base/gtest_prod_util.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/history/archived_database.h"
 #include "chrome/browser/history/expire_history_backend.h"
 #include "chrome/browser/history/history_database.h"
@@ -21,7 +22,7 @@
 #include "chrome/browser/history/thumbnail_database.h"
 #include "chrome/browser/history/visit_tracker.h"
 #include "chrome/browser/search_engines/template_url_id.h"
-#include "chrome/common/mru_cache.h"
+#include "content/common/mru_cache.h"
 
 class BookmarkService;
 struct DownloadCreateInfo;
@@ -56,7 +57,7 @@ class HistoryBackend : public base::RefCountedThreadSafe<HistoryBackend>,
     virtual ~Delegate() {}
 
     // Called when the database cannot be read correctly for some reason.
-    virtual void NotifyProfileError(int message_id) = 0;
+    virtual void NotifyProfileError(sql::InitStatus init_status) = 0;
 
     // Sets the in-memory history backend. The in-memory backend is created by
     // the main backend. For non-unit tests, this happens on the background
@@ -209,19 +210,28 @@ class HistoryBackend : public base::RefCountedThreadSafe<HistoryBackend>,
 
   // Favicon -------------------------------------------------------------------
 
-  void GetFavIcon(scoped_refptr<GetFavIconRequest> request,
-                  const GURL& icon_url);
-  void GetFavIconForURL(scoped_refptr<GetFavIconRequest> request,
-                        const GURL& page_url);
-  void SetFavIcon(const GURL& page_url,
+  void GetFavicon(scoped_refptr<GetFaviconRequest> request,
                   const GURL& icon_url,
-                  scoped_refptr<RefCountedMemory> data);
-  void UpdateFavIconMappingAndFetch(scoped_refptr<GetFavIconRequest> request,
+                  int icon_types);
+
+  void GetFaviconForURL(scoped_refptr<GetFaviconRequest> request,
+                        const GURL& page_url,
+                        int icon_types);
+
+  void SetFavicon(const GURL& page_url,
+                  const GURL& icon_url,
+                  scoped_refptr<RefCountedMemory> data,
+                  IconType icon_type);
+
+  void UpdateFaviconMappingAndFetch(scoped_refptr<GetFaviconRequest> request,
                                     const GURL& page_url,
-                                    const GURL& icon_url);
-  void SetFavIconOutOfDateForPage(const GURL& page_url);
+                                    const GURL& icon_url,
+                                    IconType icon_type);
+
+  void SetFaviconOutOfDateForPage(const GURL& page_url);
+
   void SetImportedFavicons(
-      const std::vector<ImportedFavIconUsage>& favicon_usage);
+      const std::vector<ImportedFaviconUsage>& favicon_usage);
 
   // Downloads -----------------------------------------------------------------
 
@@ -320,6 +330,7 @@ class HistoryBackend : public base::RefCountedThreadSafe<HistoryBackend>,
  private:
   friend class base::RefCountedThreadSafe<HistoryBackend>;
   friend class CommitLaterTask;  // The commit task needs to call Commit().
+  friend class HistoryBackendTest;
   friend class HistoryTest;  // So the unit tests can poke our innards.
   FRIEND_TEST_ALL_PREFIXES(HistoryBackendTest, DeleteAll);
   FRIEND_TEST_ALL_PREFIXES(HistoryBackendTest, ImportedFaviconsTest);
@@ -331,6 +342,10 @@ class HistoryBackend : public base::RefCountedThreadSafe<HistoryBackend>,
   FRIEND_TEST_ALL_PREFIXES(HistoryBackendTest, AddVisitsSource);
   FRIEND_TEST_ALL_PREFIXES(HistoryBackendTest, RemoveVisitsSource);
   FRIEND_TEST_ALL_PREFIXES(HistoryBackendTest, MigrationVisitSource);
+  FRIEND_TEST_ALL_PREFIXES(HistoryBackendTest, MigrationIconMapping);
+  FRIEND_TEST_ALL_PREFIXES(HistoryBackendTest, SetFaviconMapping);
+  FRIEND_TEST_ALL_PREFIXES(HistoryBackendTest, AddOrUpdateIconMapping);
+
   friend class ::TestingProfile;
 
   // Computes the name of the specified database on disk.
@@ -429,18 +444,32 @@ class HistoryBackend : public base::RefCountedThreadSafe<HistoryBackend>,
 
   // Favicons ------------------------------------------------------------------
 
-  // Used by both UpdateFavIconMappingAndFetch and GetFavIcon.
-  // If page_url is non-null and SetFavIcon has previously been invoked for
+  // Used by both UpdateFaviconMappingAndFetch and GetFavicon.
+  // If page_url is non-null and SetFavicon has previously been invoked for
   // icon_url the favicon url for page_url (and all redirects) is set to
   // icon_url.
-  void UpdateFavIconMappingAndFetchImpl(
+  // Only a single type can be given in icon_type when page_url is specified.
+  void UpdateFaviconMappingAndFetchImpl(
       const GURL* page_url,
       const GURL& icon_url,
-      scoped_refptr<GetFavIconRequest> request);
+      scoped_refptr<GetFaviconRequest> request,
+      int icon_type);
 
   // Sets the favicon url id for page_url to id. This will also broadcast
   // notifications as necessary.
-  void SetFavIconMapping(const GURL& page_url, FavIconID id);
+  void SetFaviconMapping(const GURL& page_url,
+                         FaviconID id,
+                         IconType icon_type);
+
+  // Updates the FaviconID associated with the url of a page. If there is an
+  // existing mapping between |page_url| and |id| this does nothing and returns
+  // false. If the mapping needs to be added or updated, true is returned. If
+  // there is an existing mapping but it does not map to |id|, then the |id| of
+  // the replaced FaviconID is set in |replaced_icon_id|.
+  bool AddOrUpdateIconMapping(const GURL& page_url,
+                              FaviconID id,
+                              IconType icon_type,
+                              FaviconID* replaced_icon_id);
 
   // Generic stuff -------------------------------------------------------------
 

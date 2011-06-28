@@ -5,6 +5,28 @@
 cr.define('options', function() {
 
   var Preferences = options.Preferences;
+
+  /**
+   * Helper function update element's state from pref change event.
+   * @private
+   * @param {!HTMLElement} el The element to update.
+   * @param {!Event} event The pref change event.
+   */
+  function updateElementState_(el, event) {
+    el.managed = event.value && event.value['managed'] != undefined ?
+        event.value['managed'] : false;
+
+    // Managed UI elements can only be disabled as a result of being
+    // managed. They cannot be enabled as a result of a pref being
+    // unmanaged.
+    if (el.managed)
+      el.disabled = true;
+
+    // Disable UI elements if backend says so.
+    if (!el.disabled && event.value && event.value['disabled'])
+      el.disabled = true;
+  }
+
   /////////////////////////////////////////////////////////////////////////////
   // PrefCheckbox class:
   // TODO(jhawkins): Refactor all this copy-pasted code!
@@ -38,14 +60,7 @@ cr.define('options', function() {
             else
               self.checked = Boolean(value);
 
-            self.managed = event.value && event.value['managed'] != undefined ?
-                event.value['managed'] : false;
-
-            // Managed UI elements can only be disabled as a result of being
-            // managed. They cannot be enabled as a result of a pref being
-            // unmanaged.
-            if (self.managed)
-              self.disabled = true;
+            updateElementState_(self, event);
           });
 
       // Listen to user events.
@@ -115,19 +130,17 @@ cr.define('options', function() {
           function(event) {
             var value = event.value && event.value['value'] != undefined ?
                 event.value['value'] : event.value;
-            self.managed = event.value && event.value['managed'] != undefined ?
-                event.value['managed'] : false;
             self.checked = String(value) == self.value;
 
-            // Managed UI elements can only be disabled as a result of being
-            // managed. They cannot be enabled as a result of a pref being
-            // unmanaged.
-            if (self.managed)
-              self.disabled = true;
+            updateElementState_(self, event);
           });
 
       // Listen to user events.
-      this.addEventListener('change',
+      // Use the 'click' event instead of 'change', because of a bug in WebKit
+      // which prevents 'change' from being sent when the user changes selection
+      // using the keyboard.
+      // https://bugs.webkit.org/show_bug.cgi?id=32013
+      this.addEventListener('click',
           function(e) {
             if(self.value == 'true' || self.value == 'false') {
               Preferences.setBooleanPref(self.pref,
@@ -172,14 +185,8 @@ cr.define('options', function() {
           function(event) {
             self.value = event.value && event.value['value'] != undefined ?
                 event.value['value'] : event.value;
-            self.managed = event.value && event.value['managed'] != undefined ?
-                event.value['managed'] : false;
 
-            // Managed UI elements can only be disabled as a result of being
-            // managed. They cannot be enabled as a result of a pref being
-            // unmanaged.
-            if (self.managed)
-              self.disabled = true;
+            updateElementState_(self, event);
           });
 
       // Listen to user events.
@@ -376,14 +383,7 @@ cr.define('options', function() {
             // string in the HTMLOptionElement.
             value = value.toString();
 
-            self.managed = event.value && event.value['managed'] != undefined ?
-                event.value['managed'] : false;
-
-            // Managed UI elements can only be disabled as a result of being
-            // managed. They cannot be enabled as a result of a pref being
-            // unmanaged.
-            if (self.managed)
-              self.disabled = true;
+            updateElementState_(self, event);
 
             var found = false;
             for (var i = 0; i < self.options.length; i++) {
@@ -474,20 +474,24 @@ cr.define('options', function() {
           function(event) {
             self.value = event.value && event.value['value'] != undefined ?
                 event.value['value'] : event.value;
-            self.managed = event.value && event.value['managed'] != undefined ?
-                event.value['managed'] : false;
 
-            // Managed UI elements can only be disabled as a result of being
-            // managed. They cannot be enabled as a result of a pref being
-            // unmanaged.
-            if (self.managed)
-              self.disabled = true;
+            updateElementState_(self, event);
           });
 
       // Listen to user events.
       this.addEventListener('change',
           function(e) {
-            Preferences.setStringPref(self.pref, self.value, self.metric);
+            switch(self.dataType) {
+              case 'number':
+                Preferences.setIntegerPref(self.pref, self.value, self.metric);
+                break;
+              case 'double':
+                Preferences.setDoublePref(self.pref, self.value, self.metric);
+                break;
+              default:
+                Preferences.setStringPref(self.pref, self.value, self.metric);
+                break;
+            }
           });
 
       window.addEventListener('unload',
@@ -509,6 +513,12 @@ cr.define('options', function() {
    * @type {string}
    */
   cr.defineProperty(PrefTextField, 'metric', cr.PropertyKind.ATTR);
+
+  /**
+   * The data type for the preference options.
+   * @type {string}
+   */
+  cr.defineProperty(PrefTextField, 'dataType', cr.PropertyKind.ATTR);
 
   // Export
   return {

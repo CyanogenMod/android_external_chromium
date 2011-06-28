@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,8 +13,8 @@
 #include <string>
 
 #include "base/gtest_prod_util.h"
-#include "base/linked_ptr.h"
-#include "base/ref_counted.h"
+#include "base/memory/linked_ptr.h"
+#include "base/memory/ref_counted.h"
 #include "base/task.h"
 #include "net/base/io_buffer.h"
 #include "net/base/load_states.h"
@@ -25,7 +25,6 @@
 #include "net/base/upload_data_stream.h"
 #include "net/socket/client_socket.h"
 #include "net/socket/client_socket_handle.h"
-#include "net/socket/tcp_client_socket_pool.h"
 #include "net/spdy/spdy_framer.h"
 #include "net/spdy/spdy_io_buffer.h"
 #include "net/spdy/spdy_protocol.h"
@@ -96,6 +95,13 @@ class SpdySession : public base::RefCounted<SpdySession>,
   net::Error InitializeWithSocket(ClientSocketHandle* connection,
                                   bool is_secure,
                                   int certificate_error_code);
+
+  // Check to see if this SPDY session can support an additional domain.
+  // If the session is un-authenticated, then this call always returns true.
+  // For SSL-based sessions, verifies that the certificate in use by this
+  // session provides authentication for the domain.
+  // NOTE:  This function can have false negatives on some platforms.
+  bool VerifyDomainAuthentication(const std::string& domain);
 
   // Send the SYN frame for |stream_id|.
   int WriteSynStream(
@@ -192,9 +198,8 @@ class SpdySession : public base::RefCounted<SpdySession>,
 
   const BoundNetLog& net_log() const { return net_log_; }
 
-  int GetPeerAddress(AddressList* address) const {
-    return connection_->socket()->GetPeerAddress(address);
-  }
+  int GetPeerAddress(AddressList* address) const;
+  int GetLocalAddress(IPEndPoint* address) const;
 
  private:
   friend class base::RefCounted<SpdySession>;

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,8 +25,8 @@ class TabContents;
 class ExtensionInstallUI : public ImageLoadingTracker::Observer {
  public:
   enum PromptType {
+    UNSET_PROMPT_TYPE = -1,
     INSTALL_PROMPT = 0,
-    UNINSTALL_PROMPT,
     RE_ENABLE_PROMPT,
     NUM_PROMPT_TYPES
   };
@@ -39,12 +39,10 @@ class ExtensionInstallUI : public ImageLoadingTracker::Observer {
 
   class Delegate {
    public:
-    // We call this method after ConfirmInstall()/ConfirmUninstall() to signal
-    // that the installation/uninstallation should continue.
+    // We call this method to signal that the installation should continue.
     virtual void InstallUIProceed() = 0;
 
-    // We call this method after ConfirmInstall()/ConfirmUninstall() to signal
-    // that the installation/uninstallation should stop.
+    // We call this method to signal that the installation should stop.
     virtual void InstallUIAbort() = 0;
 
    protected:
@@ -52,22 +50,13 @@ class ExtensionInstallUI : public ImageLoadingTracker::Observer {
   };
 
   explicit ExtensionInstallUI(Profile* profile);
-
   virtual ~ExtensionInstallUI();
 
   // This is called by the installer to verify whether the installation should
   // proceed. This is declared virtual for testing.
   //
-  // We *MUST* eventually call either Proceed() or Abort()
-  // on |delegate|.
+  // We *MUST* eventually call either Proceed() or Abort() on |delegate|.
   virtual void ConfirmInstall(Delegate* delegate, const Extension* extension);
-
-  // This is called by the extensions management page to verify whether the
-  // uninstallation should proceed. This is declared virtual for testing.
-  //
-  // We *MUST* eventually call either Proceed() or Abort()
-  // on |delegate|.
-  virtual void ConfirmUninstall(Delegate* delegate, const Extension* extension);
 
   // This is called by the app handler launcher to verify whether the app
   // should be re-enabled. This is declared virtual for testing.
@@ -81,9 +70,9 @@ class ExtensionInstallUI : public ImageLoadingTracker::Observer {
   // Installation failed. This is declared virtual for testing.
   virtual void OnInstallFailure(const std::string& error);
 
-  // ImageLoadingTracker::Observer overrides.
+  // ImageLoadingTracker::Observer:
   virtual void OnImageLoaded(
-      SkBitmap* image, ExtensionResource resource, int index);
+      SkBitmap* image, const ExtensionResource& resource, int index);
 
   // Show an infobar for a newly-installed theme.  previous_theme_id
   // should be empty if the previous theme was the system/default
@@ -108,21 +97,10 @@ class ExtensionInstallUI : public ImageLoadingTracker::Observer {
   // Returns the delegate to control the browser's info bar. This is
   // within its own function due to its platform-specific nature.
   static InfoBarDelegate* GetNewThemeInstalledInfoBarDelegate(
-      TabContents* tab_contents, const Extension* new_theme,
-      const std::string& previous_theme_id, bool previous_use_system_theme);
-
-  // Implements the showing of the install/uninstall dialog prompt.
-  // NOTE: The implementations of this function is platform-specific.
-  static void ShowExtensionInstallUIPromptImpl(
-      Profile* profile, Delegate* delegate, const Extension* extension,
-      SkBitmap* icon, PromptType type);
-
-  // Implements the showing of the new install dialog. The implementations of
-  // this function are platform-specific.
-  static void ShowExtensionInstallUIPrompt2Impl(
-      Profile* profile, Delegate* delegate, const Extension* extension,
-      SkBitmap* icon, const std::vector<string16>& permissions,
-      PromptType type);
+      TabContents* tab_contents,
+      const Extension* new_theme,
+      const std::string& previous_theme_id,
+      bool previous_use_system_theme);
 
   Profile* profile_;
   MessageLoop* ui_loop_;
@@ -131,11 +109,17 @@ class ExtensionInstallUI : public ImageLoadingTracker::Observer {
   std::string previous_theme_id_;
   bool previous_use_system_theme_;
 
-  SkBitmap icon_;  // The extensions installation icon.
-  const Extension* extension_;  // The extension we are showing the UI for.
-  Delegate* delegate_;    // The delegate we will call Proceed/Abort on after
-                          // confirmation UI.
-  PromptType prompt_type_;  // The type of prompt we are going to show.
+  // The extensions installation icon.
+  SkBitmap icon_;
+
+  // The extension we are showing the UI for.
+  const Extension* extension_;
+
+  // The delegate we will call Proceed/Abort on after confirmation UI.
+  Delegate* delegate_;
+
+  // The type of prompt we are going to show.
+  PromptType prompt_type_;
 
   // Keeps track of extension images being loaded on the File thread for the
   // purpose of showing the install UI.

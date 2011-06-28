@@ -5,7 +5,7 @@
 #import "chrome/browser/ui/cocoa/html_dialog_window_controller.h"
 
 #include "base/logging.h"
-#include "base/scoped_nsobject.h"
+#include "base/memory/scoped_nsobject.h"
 #include "base/sys_string_conversions.h"
 #include "chrome/browser/profiles/profile.h"
 #import "chrome/browser/ui/browser_dialogs.h"
@@ -13,8 +13,8 @@
 #import "chrome/browser/ui/cocoa/chrome_event_processing_window.h"
 #include "chrome/browser/ui/webui/html_dialog_tab_contents_delegate.h"
 #include "chrome/browser/ui/webui/html_dialog_ui.h"
-#include "chrome/common/native_web_keyboard_event.h"
 #include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/native_web_keyboard_event.h"
 #include "ui/base/keycodes/keyboard_codes.h"
 #include "ui/gfx/size.h"
 
@@ -48,7 +48,6 @@ public:
 
   // HtmlDialogTabContentsDelegate declarations.
   virtual void MoveContents(TabContents* source, const gfx::Rect& pos);
-  virtual void ToolbarSizeChanged(TabContents* source, bool is_animating);
   virtual void HandleKeyboardEvent(const NativeWebKeyboardEvent& event);
 
 private:
@@ -169,11 +168,6 @@ void HtmlDialogWindowDelegateBridge::OnDialogClosed(
 void HtmlDialogWindowDelegateBridge::MoveContents(TabContents* source,
                                                   const gfx::Rect& pos) {
   // TODO(akalin): Actually set the window bounds.
-}
-
-void HtmlDialogWindowDelegateBridge::ToolbarSizeChanged(
-    TabContents* source, bool is_animating) {
-  // TODO(akalin): Figure out what to do here.
 }
 
 // A simplified version of BrowserWindowCocoa::HandleKeyboardEvent().

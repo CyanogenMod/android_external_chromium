@@ -5,13 +5,13 @@
 #include "chrome/browser/ui/search_engines/template_url_fetcher_ui_callbacks.h"
 
 #include "base/logging.h"
-#include "base/scoped_ptr.h"
-#include "chrome/common/notification_source.h"
-#include "chrome/common/notification_type.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/ui/search_engines/search_engine_tab_helper.h"
 #include "chrome/browser/ui/search_engines/search_engine_tab_helper_delegate.h"
 #include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/notification_source.h"
+#include "content/common/notification_type.h"
 
 TemplateURLFetcherUICallbacks::TemplateURLFetcherUICallbacks(
     SearchEngineTabHelper* tab_helper,

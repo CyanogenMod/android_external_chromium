@@ -6,12 +6,13 @@
 
 #include <algorithm>   // For max().
 
+#include "base/compiler_specific.h"
 #include "base/environment.h"
 #include "base/event_recorder.h"
 #include "base/file_path.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/metrics/histogram.h"
 #include "base/path_service.h"
-#include "base/scoped_ptr.h"
 #include "base/string_number_conversions.h"
 #include "base/string_split.h"
 #include "base/threading/thread_restrictions.h"
@@ -20,9 +21,7 @@
 #include "chrome/browser/automation/automation_provider_list.h"
 #include "chrome/browser/automation/chrome_frame_automation_provider.h"
 #include "chrome/browser/automation/testing_automation_provider.h"
-#include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/browser_window.h"
 #include "chrome/browser/defaults.h"
 #include "chrome/browser/extensions/extension_creator.h"
 #include "chrome/browser/extensions/extension_service.h"
@@ -31,27 +30,30 @@
 #include "chrome/browser/net/predictor_api.h"
 #include "chrome/browser/net/url_fixer_upper.h"
 #include "chrome/browser/notifications/desktop_notification_service.h"
+#include "chrome/browser/platform_util.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/prefs/session_startup_pref.h"
 #include "chrome/browser/printing/cloud_print/cloud_print_proxy_service.h"
+#include "chrome/browser/printing/print_dialog_cloud.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/browser/sessions/session_restore.h"
 #include "chrome/browser/sessions/session_service.h"
 #include "chrome/browser/shell_integration.h"
-#include "chrome/browser/tab_contents/confirm_infobar_delegate.h"
+#include "chrome/browser/tab_contents/link_infobar_delegate.h"
 #include "chrome/browser/tab_contents/simple_alert_infobar_delegate.h"
 #include "chrome/browser/tabs/pinned_tab_codec.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_navigator.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/pref_names.h"
-#include "chrome/common/result_codes.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/installer/util/browser_distribution.h"
 #include "content/browser/browser_thread.h"
@@ -60,6 +62,7 @@
 #include "content/browser/tab_contents/navigation_controller.h"
 #include "content/browser/tab_contents/tab_contents.h"
 #include "content/browser/tab_contents/tab_contents_view.h"
+#include "content/common/result_codes.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
@@ -74,12 +77,11 @@
 #include "chrome/browser/ui/cocoa/keystone_infobar.h"
 #endif
 
-#if defined(TOOLKIT_GTK)
+#if defined(TOOLKIT_USES_GTK)
 #include "chrome/browser/ui/gtk/gtk_util.h"
 #endif
 
 #if defined(OS_CHROMEOS)
-#include "chrome/browser/chromeos/brightness_observer.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/cros/mount_library.h"
 #include "chrome/browser/chromeos/cros/network_library.h"
@@ -89,9 +91,8 @@
 #include "chrome/browser/chromeos/low_battery_observer.h"
 #include "chrome/browser/chromeos/network_message_observer.h"
 #include "chrome/browser/chromeos/network_state_notifier.h"
-#include "chrome/browser/chromeos/system_key_event_listener.h"
+#include "chrome/browser/chromeos/sms_observer.h"
 #include "chrome/browser/chromeos/update_observer.h"
-#include "chrome/browser/chromeos/usb_mount_observer.h"
 #include "chrome/browser/chromeos/wm_message_listener.h"
 #include "chrome/browser/chromeos/wm_overview_controller.h"
 #include "chrome/browser/ui/webui/mediaplayer_ui.h"
@@ -141,14 +142,14 @@ class DefaultBrowserInfoBarDelegate : public ConfirmInfoBarDelegate {
 
   // ConfirmInfoBarDelegate:
   virtual bool ShouldExpire(
-      const NavigationController::LoadCommittedDetails& details) const;
-  virtual void InfoBarClosed();
-  virtual SkBitmap* GetIcon() const;
-  virtual string16 GetMessageText() const;
-  virtual string16 GetButtonLabel(InfoBarButton button) const;
-  virtual bool NeedElevation(InfoBarButton button) const;
-  virtual bool Accept();
-  virtual bool Cancel();
+      const NavigationController::LoadCommittedDetails& details) const OVERRIDE;
+  virtual void InfoBarClosed() OVERRIDE;
+  virtual SkBitmap* GetIcon() const OVERRIDE;
+  virtual string16 GetMessageText() const OVERRIDE;
+  virtual string16 GetButtonLabel(InfoBarButton button) const OVERRIDE;
+  virtual bool NeedElevation(InfoBarButton button) const OVERRIDE;
+  virtual bool Accept() OVERRIDE;
+  virtual bool Cancel() OVERRIDE;
 
   // The Profile that we restore sessions from.
   Profile* profile_;
@@ -283,12 +284,10 @@ CheckDefaultBrowserTask::~CheckDefaultBrowserTask() {
 }
 
 void CheckDefaultBrowserTask::Run() {
-  if (ShellIntegration::IsDefaultBrowser())
+  if (ShellIntegration::IsDefaultBrowser() ||
+      !platform_util::CanSetAsDefaultBrowser()) {
     return;
-#if defined(OS_WIN)
-  if (!BrowserDistribution::GetDistribution()->CanSetAsDefault())
-    return;
-#endif
+  }
   BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
                           new NotifyNotDefaultBrowserTask());
 }
@@ -305,13 +304,12 @@ class SessionCrashedInfoBarDelegate : public ConfirmInfoBarDelegate {
   virtual ~SessionCrashedInfoBarDelegate();
 
   // ConfirmInfoBarDelegate:
-  virtual void InfoBarClosed();
-  virtual SkBitmap* GetIcon() const;
-  virtual Type GetInfoBarType() const;
-  virtual string16 GetMessageText() const;
-  virtual int GetButtons() const;
-  virtual string16 GetButtonLabel(InfoBarButton button) const;
-  virtual bool Accept();
+  virtual void InfoBarClosed() OVERRIDE;
+  virtual SkBitmap* GetIcon() const OVERRIDE;
+  virtual string16 GetMessageText() const OVERRIDE;
+  virtual int GetButtons() const OVERRIDE;
+  virtual string16 GetButtonLabel(InfoBarButton button) const OVERRIDE;
+  virtual bool Accept() OVERRIDE;
 
   // The Profile that we restore sessions from.
   Profile* profile_;
@@ -335,10 +333,6 @@ void SessionCrashedInfoBarDelegate::InfoBarClosed() {
 SkBitmap* SessionCrashedInfoBarDelegate::GetIcon() const {
   return ResourceBundle::GetSharedInstance().GetBitmapNamed(
       IDR_INFOBAR_RESTORE_SESSION);
-}
-
-InfoBarDelegate::Type SessionCrashedInfoBarDelegate::GetInfoBarType() const {
-  return PAGE_ACTION_TYPE;
 }
 
 string16 SessionCrashedInfoBarDelegate::GetMessageText() const {
@@ -540,7 +534,7 @@ bool BrowserInit::LaunchBrowser(const CommandLine& command_line,
   }
 #endif
 
-  // Continue with the off-the-record profile from here on if --incognito
+  // Continue with the incognito profile from here on if --incognito
   if (command_line.HasSwitch(switches::kIncognito) &&
       profile->GetPrefs()->GetBoolean(prefs::kIncognitoEnabled)) {
     profile = profile->GetOffTheRecordProfile();
@@ -562,7 +556,7 @@ bool BrowserInit::LaunchBrowser(const CommandLine& command_line,
 #if defined(OS_CHROMEOS)
   // Initialize Chrome OS preferences like touch pad sensitivity. For the
   // preferences to work in the guest mode, the initialization has to be
-  // done after |profile| is switched to the off-the-record profile (which
+  // done after |profile| is switched to the incognito profile (which
   // is actually GuestSessionProfile in the guest mode). See the
   // GetOffTheRecordProfile() call above.
   profile->InitChromeOSPreferences();
@@ -570,10 +564,6 @@ bool BrowserInit::LaunchBrowser(const CommandLine& command_line,
   // Create the WmMessageListener so that it can listen for messages regardless
   // of what window has focus.
   chromeos::WmMessageListener::GetInstance();
-
-  // Create the SystemKeyEventListener so it can listen for system keyboard
-  // messages regardless of focus.
-  chromeos::SystemKeyEventListener::GetInstance();
 
   // Create the WmOverviewController so it can register with the listener.
   chromeos::WmOverviewController::GetInstance();
@@ -585,16 +575,6 @@ bool BrowserInit::LaunchBrowser(const CommandLine& command_line,
     chromeos::GViewRequestInterceptor::GetInstance();
   }
   if (process_startup) {
-    // TODO(dhg): Try to make this just USBMountObserver::Get()->set_profile
-    // and have the constructor take care of everything else.
-    chromeos::MountLibrary* lib =
-        chromeos::CrosLibrary::Get()->GetMountLibrary();
-    chromeos::USBMountObserver* observe =
-        chromeos::USBMountObserver::GetInstance();
-    lib->AddObserver(observe);
-    observe->ScanForDevices(lib);
-    // Connect the chromeos notifications
-
     // This observer is a singleton. It is never deleted but the pointer is kept
     // in a static so that it isn't reported as a leak.
     static chromeos::LowBatteryObserver* low_battery_observer =
@@ -616,10 +596,10 @@ bool BrowserInit::LaunchBrowser(const CommandLine& command_line,
     chromeos::CrosLibrary::Get()->GetNetworkLibrary()
         ->AddUserActionObserver(network_message_observer);
 
-    static chromeos::BrightnessObserver* brightness_observer =
-        new chromeos::BrightnessObserver();
-    chromeos::CrosLibrary::Get()->GetBrightnessLibrary()
-        ->AddObserver(brightness_observer);
+    static chromeos::SmsObserver* sms_observer =
+        new chromeos::SmsObserver(profile);
+    chromeos::CrosLibrary::Get()->GetNetworkLibrary()
+        ->AddNetworkManagerObserver(sms_observer);
 
     profile->SetupChromeOSEnterpriseExtensionObserver();
   }
@@ -847,7 +827,14 @@ bool BrowserInit::LaunchWithProfile::OpenApplicationWindow(Profile* profile) {
     if (policy->IsWebSafeScheme(url.scheme()) ||
         url.SchemeIs(chrome::kFileScheme)) {
 
-      RecordCmdLineAppHistogram();
+      if (profile->GetExtensionService()->IsInstalledApp(url)) {
+        RecordCmdLineAppHistogram();
+      } else {
+        UMA_HISTOGRAM_ENUMERATION(
+            extension_misc::kAppLaunchHistogram,
+            extension_misc::APP_LAUNCH_CMD_LINE_APP_LEGACY,
+            extension_misc::APP_LAUNCH_BUCKET_BOUNDARY);
+      }
       TabContents* app_tab = Browser::OpenAppShortcutWindow(
           profile,
           url,
@@ -890,7 +877,8 @@ void BrowserInit::LaunchWithProfile::ProcessLaunchURLs(
     browser = BrowserList::GetLastActiveWithProfile(profile_);
 
   browser = OpenURLsInBrowser(browser, process_startup, adjust_urls);
-  AddInfoBarsIfNecessary(browser);
+  if (process_startup)
+    AddInfoBarsIfNecessary(browser);
 }
 
 bool BrowserInit::LaunchWithProfile::ProcessStartupURLs(
@@ -930,8 +918,9 @@ bool BrowserInit::LaunchWithProfile::ProcessStartupURLs(
     UrlsToTabs(urls_to_open, &tabs);
   } else if (pref.type == SessionStartupPref::URLS && !pref.urls.empty()) {
     // Only use the set of urls specified in preferences if nothing was
-    // specified on the command line.
-    UrlsToTabs(pref.urls, &tabs);
+    // specified on the command line. Filter out any urls that are to be
+    // restored by virtue of having been previously pinned.
+    AddUniqueURLs(pref.urls, &tabs);
   } else if (pref.type == SessionStartupPref::DEFAULT && !tabs.empty()) {
     // Make sure the home page is opened even if there are pinned tabs.
     std::vector<GURL> urls;
@@ -945,6 +934,27 @@ bool BrowserInit::LaunchWithProfile::ProcessStartupURLs(
   Browser* browser = OpenTabsInBrowser(NULL, true, tabs);
   AddInfoBarsIfNecessary(browser);
   return true;
+}
+
+void BrowserInit::LaunchWithProfile::AddUniqueURLs(
+    const std::vector<GURL>& urls,
+    std::vector<Tab>* tabs) {
+  size_t num_existing_tabs = tabs->size();
+  for (size_t i = 0; i < urls.size(); ++i) {
+    bool in_tabs = false;
+    for (size_t j = 0; j < num_existing_tabs; ++j) {
+      if (urls[i] == (*tabs)[j].url) {
+        in_tabs = true;
+        break;
+      }
+    }
+    if (!in_tabs) {
+      BrowserInit::LaunchWithProfile::Tab tab;
+      tab.is_pinned = false;
+      tab.url = urls[i];
+      tabs->push_back(tab);
+    }
+  }
 }
 
 Browser* BrowserInit::LaunchWithProfile::OpenURLsInBrowser(
@@ -993,7 +1003,7 @@ Browser* BrowserInit::LaunchWithProfile::OpenTabsInBrowser(
     if (!process_startup && !net::URLRequest::IsHandledURL(tabs[i].url))
       continue;
 
-    int add_types = first_tab ? TabStripModel::ADD_SELECTED :
+    int add_types = first_tab ? TabStripModel::ADD_ACTIVE :
                                 TabStripModel::ADD_NONE;
     add_types |= TabStripModel::ADD_FORCE_INDEX;
     if (tabs[i].is_pinned)
@@ -1026,6 +1036,7 @@ void BrowserInit::LaunchWithProfile::AddInfoBarsIfNecessary(Browser* browser) {
   AddCrashedInfoBarIfNecessary(tab_contents);
   AddBadFlagsInfoBarIfNecessary(tab_contents);
   AddDNSCertProvenanceCheckingWarningInfoBarIfNecessary(tab_contents);
+  AddObsoleteSystemInfoBarIfNecessary(tab_contents);
 }
 
 void BrowserInit::LaunchWithProfile::AddCrashedInfoBarIfNecessary(
@@ -1072,50 +1083,93 @@ void BrowserInit::LaunchWithProfile::AddBadFlagsInfoBarIfNecessary(
   }
 }
 
-class DNSCertProvenanceCheckingInfoBar : public ConfirmInfoBarDelegate {
+class LearnMoreInfoBar : public LinkInfoBarDelegate {
  public:
-  explicit DNSCertProvenanceCheckingInfoBar(TabContents* tab_contents)
-      : ConfirmInfoBarDelegate(tab_contents),
-        tab_contents_(tab_contents) {
-  }
+  explicit LearnMoreInfoBar(TabContents* tab_contents,
+                            const string16& message,
+                            const GURL& url);
+  virtual ~LearnMoreInfoBar();
 
-  virtual string16 GetMessageText() const {
-    return l10n_util::GetStringUTF16(
-        IDS_DNS_CERT_PROVENANCE_CHECKING_WARNING_MESSAGE);
-  }
-
-  virtual int GetButtons() const {
-    return BUTTON_OK;
-  }
-
-  virtual string16 GetButtonLabel(InfoBarButton button) const {
-    return l10n_util::GetStringUTF16(IDS_OPTIONS_LEARN_MORE_LABEL);
-  }
-
-  virtual bool Accept() {
-    tab_contents_->OpenURL(GURL(kLearnMoreURL), GURL(), NEW_FOREGROUND_TAB,
-                           PageTransition::AUTO_BOOKMARK);
-    return true;
-  }
+  virtual string16 GetMessageTextWithOffset(size_t* link_offset) const OVERRIDE;
+  virtual string16 GetLinkText() const OVERRIDE;
+  virtual bool LinkClicked(WindowOpenDisposition disposition) OVERRIDE;
 
  private:
-  DISALLOW_COPY_AND_ASSIGN(DNSCertProvenanceCheckingInfoBar);
-
-  static const char kLearnMoreURL[];
   TabContents* const tab_contents_;
+  string16 message_;
+  GURL learn_more_url_;
+
+  DISALLOW_COPY_AND_ASSIGN(LearnMoreInfoBar);
 };
+
+LearnMoreInfoBar::LearnMoreInfoBar(TabContents* tab_contents,
+                                   const string16& message,
+                                   const GURL& url)
+    : LinkInfoBarDelegate(tab_contents),
+      tab_contents_(tab_contents),
+      message_(message),
+      learn_more_url_(url) {
+}
+
+LearnMoreInfoBar::~LearnMoreInfoBar() {
+}
+
+string16 LearnMoreInfoBar::GetMessageTextWithOffset(size_t* link_offset) const {
+  string16 text = message_;
+  text.push_back(' ');  // Add a space before the following link.
+  *link_offset = text.size();
+  return text;
+}
+
+string16 LearnMoreInfoBar::GetLinkText() const {
+  return l10n_util::GetStringUTF16(IDS_LEARN_MORE);
+}
+
+bool LearnMoreInfoBar::LinkClicked(WindowOpenDisposition disposition) {
+  tab_contents_->OpenURL(learn_more_url_, GURL(), disposition,
+                         PageTransition::LINK);
+  return false;
+}
 
 // This is the page which provides information on DNS certificate provenance
 // checking.
-const char DNSCertProvenanceCheckingInfoBar::kLearnMoreURL[] =
-    "http://dev.chromium.org/dnscertprovenancechecking";
-
 void BrowserInit::LaunchWithProfile::
     AddDNSCertProvenanceCheckingWarningInfoBarIfNecessary(TabContents* tab) {
   if (!command_line_.HasSwitch(switches::kEnableDNSCertProvenanceChecking))
     return;
 
-  tab->AddInfoBar(new DNSCertProvenanceCheckingInfoBar(tab));
+  const char* kLearnMoreURL =
+      "http://dev.chromium.org/dnscertprovenancechecking";
+  string16 message = l10n_util::GetStringUTF16(
+      IDS_DNS_CERT_PROVENANCE_CHECKING_WARNING_MESSAGE);
+  tab->AddInfoBar(new LearnMoreInfoBar(tab,
+                                       message,
+                                       GURL(kLearnMoreURL)));
+}
+
+void BrowserInit::LaunchWithProfile::AddObsoleteSystemInfoBarIfNecessary(
+    TabContents* tab) {
+#if defined(TOOLKIT_USES_GTK)
+  // We've deprecated support for Ubuntu Hardy.  Rather than attempting to
+  // determine whether you're using that, we instead key off the GTK version;
+  // this will also deprecate other distributions (including variants of Ubuntu)
+  // that are of a similar age.
+  // Version key:
+  //   Ubuntu Hardy: GTK 2.12
+  //   RHEL 6:       GTK 2.18
+  //   Ubuntu Lucid: GTK 2.20
+  if (gtk_check_version(2, 18, 0)) {
+    string16 message =
+        l10n_util::GetStringFUTF16(IDS_SYSTEM_OBSOLETE_MESSAGE,
+                                   l10n_util::GetStringUTF16(IDS_PRODUCT_NAME));
+    // Link to an article in the help center on minimum system requirements.
+    const char* kLearnMoreURL =
+        "http://www.google.com/support/chrome/bin/answer.py?answer=95411";
+    tab->AddInfoBar(new LearnMoreInfoBar(tab,
+                                         message,
+                                         GURL(kLearnMoreURL)));
+  }
+#endif
 }
 
 void BrowserInit::LaunchWithProfile::AddStartupURLs(
@@ -1194,44 +1248,46 @@ std::vector<GURL> BrowserInit::GetURLsFromCommandLine(
   for (size_t i = 0; i < params.size(); ++i) {
     FilePath param = FilePath(params[i]);
     // Handle Vista way of searching - "? <search-term>"
-    if (param.value().find(FILE_PATH_LITERAL("? ")) == 0) {
+    if (param.value().size() > 2 &&
+        param.value()[0] == '?' && param.value()[1] == ' ') {
       const TemplateURL* default_provider =
           profile->GetTemplateURLModel()->GetDefaultSearchProvider();
-      if (!default_provider || !default_provider->url()) {
-        // No search provider available. Just treat this as regular URL.
-        urls.push_back(URLFixerUpper::FixupRelativeFile(cur_dir, param));
+      if (default_provider && default_provider->url()) {
+        const TemplateURLRef* search_url = default_provider->url();
+        DCHECK(search_url->SupportsReplacement());
+        string16 search_term = param.LossyDisplayName().substr(2);
+        urls.push_back(GURL(search_url->ReplaceSearchTerms(
+                                *default_provider, search_term,
+                                TemplateURLRef::NO_SUGGESTIONS_AVAILABLE,
+                                string16())));
         continue;
       }
-      const TemplateURLRef* search_url = default_provider->url();
-      DCHECK(search_url->SupportsReplacement());
-      std::wstring search_term = param.ToWStringHack().substr(2);
-      urls.push_back(GURL(search_url->ReplaceSearchTerms(
-          *default_provider, WideToUTF16Hack(search_term),
-          TemplateURLRef::NO_SUGGESTIONS_AVAILABLE, string16())));
-    } else {
-      // This will create a file URL or a regular URL.
-      // This call can (in rare circumstances) block the UI thread.
-      // Allow it until this bug is fixed.
-      //  http://code.google.com/p/chromium/issues/detail?id=60641
-      GURL url;
-      {
-        base::ThreadRestrictions::ScopedAllowIO allow_io;
-        url = URLFixerUpper::FixupRelativeFile(cur_dir, param);
-      }
-      // Exclude dangerous schemes.
-      if (url.is_valid()) {
-        ChildProcessSecurityPolicy *policy =
-            ChildProcessSecurityPolicy::GetInstance();
-        if (policy->IsWebSafeScheme(url.scheme()) ||
-            url.SchemeIs(chrome::kFileScheme) ||
+    }
+
+    // Otherwise, fall through to treating it as a URL.
+
+    // This will create a file URL or a regular URL.
+    // This call can (in rare circumstances) block the UI thread.
+    // Allow it until this bug is fixed.
+    //  http://code.google.com/p/chromium/issues/detail?id=60641
+    GURL url;
+    {
+      base::ThreadRestrictions::ScopedAllowIO allow_io;
+      url = URLFixerUpper::FixupRelativeFile(cur_dir, param);
+    }
+    // Exclude dangerous schemes.
+    if (url.is_valid()) {
+      ChildProcessSecurityPolicy *policy =
+          ChildProcessSecurityPolicy::GetInstance();
+      if (policy->IsWebSafeScheme(url.scheme()) ||
+          url.SchemeIs(chrome::kFileScheme) ||
 #if defined(OS_CHROMEOS)
-            // In ChromeOS, allow a settings page to be specified on the
-            // command line. See ExistingUserController::OnLoginSuccess.
-            (url.spec().find(chrome::kChromeUISettingsURL) == 0) ||
+          // In ChromeOS, allow a settings page to be specified on the
+          // command line. See ExistingUserController::OnLoginSuccess.
+          (url.spec().find(chrome::kChromeUISettingsURL) == 0) ||
 #endif
-            (url.spec().compare(chrome::kAboutBlankURL) == 0)) {
-          urls.push_back(url);
-        }
+          (url.spec().compare(chrome::kAboutBlankURL) == 0)) {
+        urls.push_back(url);
       }
     }
   }
@@ -1315,12 +1371,12 @@ bool BrowserInit::ProcessCmdLineImpl(const CommandLine& command_line,
     silent_launch = true;
     profile->GetCloudPrintProxyService()->ShowTokenExpiredNotification();
   }
+
   // If we are just displaying a print dialog we shouldn't open browser
   // windows.
-  if (!command_line.GetSwitchValuePath(switches::kCloudPrintFile).empty()) {
+  if (print_dialog_cloud::CreatePrintDialogFromCommandLine(command_line)) {
     silent_launch = true;
   }
-
 
   if (command_line.HasSwitch(switches::kExplicitlyAllowedPorts)) {
     std::string allowed_ports =

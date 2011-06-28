@@ -146,10 +146,9 @@ if ('mode' in hashParams) {
 
   <div class="maxiview" id="apps-maxiview">
     <div id="apps-promo">
-      <button id="apps-promo-hide" i18n-content="appspromohide"></button>
-      <h3 i18n-content="appspromoheader"></h3>
-      <p id="apps-promo-text1" i18n-values=".innerHTML:appspromotext1"></p>
-      <p id="apps-promo-text2" i18n-content="appspromotext2"></p>
+      <p id="apps-promo-heading"></p>
+      <a class="g-button-basic" id="apps-promo-link" href=""></a><br>
+      <button id="apps-promo-hide"></button>
     </div>
     <div id="apps-content"></div>
   </div>
@@ -279,6 +278,7 @@ i18nTemplate.process(document, templateData);
 <script src="shared/js/parse_html_subset.js"></script>
 
 <script src="shared/js/cr.js"></script>
+<script src="shared/js/event_tracker.js"></script>
 <script src="shared/js/cr/ui.js"></script>
 <script src="shared/js/cr/ui/command.js"></script>
 <script src="shared/js/cr/ui/menu_item.js"></script>

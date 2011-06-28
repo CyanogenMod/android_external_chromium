@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,8 @@
 
 #include "base/basictypes.h"
 #include "base/gtest_prod_util.h"
-#include "base/ref_counted.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "googleurl/src/gurl.h"
 #include "net/base/address_list.h"
 #include "net/base/completion_callback.h"
@@ -70,6 +70,7 @@ class SOCKSClientSocket : public ClientSocket {
   virtual bool SetSendBufferSize(int32 size);
 
   virtual int GetPeerAddress(AddressList* address) const;
+  virtual int GetLocalAddress(IPEndPoint* address) const;
 
  private:
   FRIEND_TEST_ALL_PREFIXES(SOCKSClientSocketTest, CompleteHandshake);
@@ -84,16 +85,6 @@ class SOCKSClientSocket : public ClientSocket {
     STATE_HANDSHAKE_READ,
     STATE_HANDSHAKE_READ_COMPLETE,
     STATE_NONE,
-  };
-
-  // The SOCKS proxy connection either has the hostname resolved via the
-  // client or via the server. This enum stores the state of the SOCKS
-  // connection. If the client can resolve the hostname, the connection is
-  // SOCKS4, otherwise it is SOCKS4A.
-  enum SocksVersion {
-    kSOCKS4Unresolved,
-    kSOCKS4,
-    kSOCKS4a,
   };
 
   void DoCallback(int result);
@@ -115,7 +106,6 @@ class SOCKSClientSocket : public ClientSocket {
   scoped_ptr<ClientSocketHandle> transport_;
 
   State next_state_;
-  SocksVersion socks_version_;
 
   // Stores the callback to the layer above, called on completing Connect().
   CompletionCallback* user_callback_;

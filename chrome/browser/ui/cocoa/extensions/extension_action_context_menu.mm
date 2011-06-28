@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,13 +6,13 @@
 
 #include "base/sys_string_conversions.h"
 #include "base/task.h"
-#include "chrome/browser/browser_list.h"
-#include "chrome/browser/extensions/extension_install_ui.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_tabs_module.h"
+#include "chrome/browser/extensions/extension_uninstall_dialog.h"
 #include "chrome/browser/prefs/pref_change_registrar.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/cocoa/browser_window_cocoa.h"
 #include "chrome/browser/ui/cocoa/browser_window_controller.h"
 #include "chrome/browser/ui/cocoa/extensions/browser_actions_controller.h"
@@ -23,36 +23,35 @@
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_action.h"
 #include "chrome/common/extensions/extension_constants.h"
-#include "chrome/common/notification_details.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_source.h"
-#include "chrome/common/notification_type.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
+#include "content/common/notification_details.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_source.h"
+#include "content/common/notification_type.h"
 #include "grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util_mac.h"
 
 // A class that loads the extension icon on the I/O thread before showing the
 // confirmation dialog to uninstall the given extension.
 // Also acts as the extension's UI delegate in order to display the dialog.
-class AsyncUninstaller : public ExtensionInstallUI::Delegate {
+class AsyncUninstaller : public ExtensionUninstallDialog::Delegate {
  public:
   AsyncUninstaller(const Extension* extension, Profile* profile)
       : extension_(extension),
         profile_(profile) {
-    install_ui_.reset(new ExtensionInstallUI(profile));
-    install_ui_->ConfirmUninstall(this, extension_);
+    extension_uninstall_dialog_.reset(new ExtensionUninstallDialog(profile));
+    extension_uninstall_dialog_->ConfirmUninstall(this, extension_);
   }
 
   ~AsyncUninstaller() {}
 
-  // Overridden by ExtensionInstallUI::Delegate.
-  virtual void InstallUIProceed() {
+  // ExtensionUninstallDialog::Delegate:
+  virtual void ExtensionDialogAccepted() {
     profile_->GetExtensionService()->
-        UninstallExtension(extension_->id(), false);
+        UninstallExtension(extension_->id(), false, NULL);
   }
-
-  virtual void InstallUIAbort() {}
+  virtual void ExtensionDialogCanceled() {}
 
  private:
   // The extension that we're loading the icon for. Weak.
@@ -61,7 +60,7 @@ class AsyncUninstaller : public ExtensionInstallUI::Delegate {
   // The current profile. Weak.
   Profile* profile_;
 
-  scoped_ptr<ExtensionInstallUI> install_ui_;
+  scoped_ptr<ExtensionUninstallDialog> extension_uninstall_dialog_;
 
   DISALLOW_COPY_AND_ASSIGN(AsyncUninstaller);
 };

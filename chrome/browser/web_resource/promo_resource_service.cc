@@ -9,14 +9,16 @@
 #include "base/time.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/extensions/apps_promo.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/sync_ui_util.h"
-#include "chrome/common/notification_service.h"
-#include "chrome/common/notification_type.h"
 #include "chrome/common/pref_names.h"
 #include "content/browser/browser_thread.h"
+#include "content/common/notification_service.h"
+#include "content/common/notification_type.h"
+#include "googleurl/src/gurl.h"
 
 namespace {
 
@@ -34,22 +36,61 @@ static const int kNTPPromoGroupSize = 16;
 // Maximum number of hours for each time slice (4 weeks).
 static const int kMaxTimeSliceHours = 24 * 7 * 4;
 
-// Used to determine which build type should be shown a given promo.
-enum BuildType {
-  DEV_BUILD = 1,
-  BETA_BUILD = 1 << 1,
-  STABLE_BUILD = 1 << 2,
-};
+// The version of the service (used to expire the cache when upgrading Chrome
+// to versions with different types of promos).
+static const int kPromoServiceVersion = 1;
+
+// Properties used by the server.
+static const char kAnswerIdProperty[] = "answer_id";
+static const char kWebStoreHeaderProperty[] = "question";
+static const char kWebStoreButtonProperty[] = "inproduct_target";
+static const char kWebStoreLinkProperty[] = "inproduct";
+static const char kWebStoreExpireProperty[] = "tooltip";
 
 }  // namespace
-
-const char* PromoResourceService::kCurrentTipPrefName = "current_tip";
-const char* PromoResourceService::kTipCachePrefName = "tips";
 
 // Server for dynamically loaded NTP HTML elements. TODO(mirandac): append
 // locale for future usage, when we're serving localizable strings.
 const char* PromoResourceService::kDefaultPromoResourceServer =
     "https://www.google.com/support/chrome/bin/topic/1142433/inproduct?hl=";
+
+// static
+void PromoResourceService::RegisterPrefs(PrefService* local_state) {
+  local_state->RegisterIntegerPref(prefs::kNTPPromoVersion, 0);
+  local_state->RegisterStringPref(prefs::kNTPPromoLocale, std::string());
+}
+
+// static
+void PromoResourceService::RegisterUserPrefs(PrefService* prefs) {
+  prefs->RegisterDoublePref(prefs::kNTPCustomLogoStart, 0);
+  prefs->RegisterDoublePref(prefs::kNTPCustomLogoEnd, 0);
+  prefs->RegisterDoublePref(prefs::kNTPPromoStart, 0);
+  prefs->RegisterDoublePref(prefs::kNTPPromoEnd, 0);
+  prefs->RegisterStringPref(prefs::kNTPPromoLine, std::string());
+  prefs->RegisterBooleanPref(prefs::kNTPPromoClosed, false);
+  prefs->RegisterIntegerPref(prefs::kNTPPromoGroup, -1);
+  prefs->RegisterIntegerPref(prefs::kNTPPromoBuild,
+       CANARY_BUILD | DEV_BUILD | BETA_BUILD | STABLE_BUILD);
+  prefs->RegisterIntegerPref(prefs::kNTPPromoGroupTimeSlice, 0);
+}
+
+// static
+bool PromoResourceService::IsBuildTargeted(const std::string& channel,
+                                           int builds_allowed) {
+  if (builds_allowed == NO_BUILD)
+    return false;
+  if (channel == "canary" || channel == "canary-m") {
+    return (CANARY_BUILD & builds_allowed) != 0;
+  } else if (channel == "dev" || channel == "dev-m") {
+    return (DEV_BUILD & builds_allowed) != 0;
+  } else if (channel == "beta" || channel == "beta-m") {
+    return (BETA_BUILD & builds_allowed) != 0;
+  } else if (channel == "" || channel == "m") {
+    return (STABLE_BUILD & builds_allowed) != 0;
+  } else {
+    return false;
+  }
+}
 
 PromoResourceService::PromoResourceService(Profile* profile)
     : WebResourceService(profile,
@@ -60,34 +101,30 @@ PromoResourceService::PromoResourceService(Profile* profile)
                          prefs::kNTPPromoResourceCacheUpdate,
                          kStartResourceFetchDelay,
                          kCacheUpdateDelay),
-      web_resource_cache_(NULL) {
+      web_resource_cache_(NULL),
+      channel_(NULL) {
   Init();
 }
 
 PromoResourceService::~PromoResourceService() { }
 
 void PromoResourceService::Init() {
-  prefs_->RegisterDoublePref(prefs::kNTPCustomLogoStart, 0);
-  prefs_->RegisterDoublePref(prefs::kNTPCustomLogoEnd, 0);
-  prefs_->RegisterDoublePref(prefs::kNTPPromoStart, 0);
-  prefs_->RegisterDoublePref(prefs::kNTPPromoEnd, 0);
-  prefs_->RegisterStringPref(prefs::kNTPPromoLine, std::string());
-  prefs_->RegisterBooleanPref(prefs::kNTPPromoClosed, false);
-  prefs_->RegisterIntegerPref(prefs::kNTPPromoGroup, -1);
-  prefs_->RegisterIntegerPref(prefs::kNTPPromoBuild,
-                              DEV_BUILD | BETA_BUILD | STABLE_BUILD);
-  prefs_->RegisterIntegerPref(prefs::kNTPPromoGroupTimeSlice, 0);
+  ScheduleNotificationOnInit();
+}
 
-  // If the promo start is in the future, set a notification task to invalidate
-  // the NTP cache at the time of the promo start.
-  double promo_start = prefs_->GetDouble(prefs::kNTPPromoStart);
-  double promo_end = prefs_->GetDouble(prefs::kNTPPromoEnd);
-  ScheduleNotification(promo_start, promo_end);
+bool PromoResourceService::IsThisBuildTargeted(int builds_targeted) {
+  if (channel_ == NULL) {
+    base::ThreadRestrictions::ScopedAllowIO allow_io;
+    channel_ = platform_util::GetVersionStringModifier().c_str();
+  }
+
+  return IsBuildTargeted(channel_, builds_targeted);
 }
 
 void PromoResourceService::Unpack(const DictionaryValue& parsed_json) {
   UnpackLogoSignal(parsed_json);
   UnpackPromoSignal(parsed_json);
+  UnpackWebStoreSignal(parsed_json);
 }
 
 void PromoResourceService::ScheduleNotification(double promo_start,
@@ -111,44 +148,35 @@ void PromoResourceService::ScheduleNotification(double promo_start,
   }
 }
 
-void PromoResourceService::UnpackTips(const DictionaryValue& parsed_json) {
-  // Get dictionary of cached preferences.
-  web_resource_cache_ =
-      prefs_->GetMutableDictionary(prefs::kNTPPromoResourceCache);
-
-  // The list of individual tips.
-  ListValue* tip_holder = new ListValue();
-  web_resource_cache_->Set(PromoResourceService::kTipCachePrefName, tip_holder);
-
-  DictionaryValue* topic_dict;
-  ListValue* answer_list;
-  std::string topic_id;
-  std::string answer_id;
-  std::string inproduct;
-  int tip_counter = 0;
-
-  if (parsed_json.GetDictionary("topic", &topic_dict)) {
-    if (topic_dict->GetString("topic_id", &topic_id))
-      web_resource_cache_->SetString("topic_id", topic_id);
-    if (topic_dict->GetList("answers", &answer_list)) {
-      for (ListValue::const_iterator tip_iter = answer_list->begin();
-           tip_iter != answer_list->end(); ++tip_iter) {
-        if (!(*tip_iter)->IsType(Value::TYPE_DICTIONARY))
-          continue;
-        DictionaryValue* a_dic =
-            static_cast<DictionaryValue*>(*tip_iter);
-        if (a_dic->GetString("inproduct", &inproduct)) {
-          tip_holder->Append(Value::CreateStringValue(inproduct));
-        }
-        tip_counter++;
-      }
-      // If tips exist, set current index to 0.
-      if (!inproduct.empty()) {
-        web_resource_cache_->SetInteger(
-            PromoResourceService::kCurrentTipPrefName, 0);
-      }
-    }
+void PromoResourceService::ScheduleNotificationOnInit() {
+  std::string locale = g_browser_process->GetApplicationLocale();
+  if ((GetPromoServiceVersion() != kPromoServiceVersion) ||
+      (GetPromoLocale() != locale)) {
+    // If the promo service has been upgraded or Chrome switched locales,
+    // refresh the promos.
+    PrefService* local_state = g_browser_process->local_state();
+    local_state->SetInteger(prefs::kNTPPromoVersion, kPromoServiceVersion);
+    local_state->SetString(prefs::kNTPPromoLocale, locale);
+    prefs_->ClearPref(prefs::kNTPPromoResourceCacheUpdate);
+    AppsPromo::ClearPromo();
+    PostNotification(0);
+  } else {
+    // If the promo start is in the future, set a notification task to
+    // invalidate the NTP cache at the time of the promo start.
+    double promo_start = prefs_->GetDouble(prefs::kNTPPromoStart);
+    double promo_end = prefs_->GetDouble(prefs::kNTPPromoEnd);
+    ScheduleNotification(promo_start, promo_end);
   }
+}
+
+int PromoResourceService::GetPromoServiceVersion() {
+  PrefService* local_state = g_browser_process->local_state();
+  return local_state->GetInteger(prefs::kNTPPromoVersion);
+}
+
+std::string PromoResourceService::GetPromoLocale() {
+  PrefService* local_state = g_browser_process->local_state();
+  return local_state->GetString(prefs::kNTPPromoLocale);
 }
 
 void PromoResourceService::UnpackPromoSignal(
@@ -176,12 +204,12 @@ void PromoResourceService::UnpackPromoSignal(
       std::string promo_build = "";
       int promo_build_type = 0;
       int time_slice_hrs = 0;
-      for (ListValue::const_iterator tip_iter = answer_list->begin();
-           tip_iter != answer_list->end(); ++tip_iter) {
-        if (!(*tip_iter)->IsType(Value::TYPE_DICTIONARY))
+      for (ListValue::const_iterator answer_iter = answer_list->begin();
+           answer_iter != answer_list->end(); ++answer_iter) {
+        if (!(*answer_iter)->IsType(Value::TYPE_DICTIONARY))
           continue;
         DictionaryValue* a_dic =
-            static_cast<DictionaryValue*>(*tip_iter);
+            static_cast<DictionaryValue*>(*answer_iter);
         std::string promo_signal;
         if (a_dic->GetString("name", &promo_signal)) {
           if (promo_signal == "promo_start") {
@@ -200,10 +228,8 @@ void PromoResourceService::UnpackPromoSignal(
               prefs_->SetInteger(prefs::kNTPPromoGroupTimeSlice,
                                  time_slice_hrs);
             } else {
-              // If no time data or bad time data are set, show promo on all
-              // builds with no time slicing.
-              prefs_->SetInteger(prefs::kNTPPromoBuild,
-                                 DEV_BUILD | BETA_BUILD | STABLE_BUILD);
+              // If no time data or bad time data are set, do not show promo.
+              prefs_->SetInteger(prefs::kNTPPromoBuild, NO_BUILD);
               prefs_->SetInteger(prefs::kNTPPromoGroupTimeSlice, 0);
             }
             a_dic->GetString("inproduct", &promo_start_string);
@@ -252,6 +278,72 @@ void PromoResourceService::UnpackPromoSignal(
   }
 }
 
+void PromoResourceService::UnpackWebStoreSignal(
+    const DictionaryValue& parsed_json) {
+  DictionaryValue* topic_dict;
+  ListValue* answer_list;
+
+  bool signal_found = false;
+  std::string promo_id = "";
+  std::string promo_header = "";
+  std::string promo_button = "";
+  std::string promo_link = "";
+  std::string promo_expire = "";
+  int target_builds = 0;
+
+  if (!parsed_json.GetDictionary("topic", &topic_dict) ||
+      !topic_dict->GetList("answers", &answer_list))
+    return;
+
+  for (ListValue::const_iterator answer_iter = answer_list->begin();
+       answer_iter != answer_list->end(); ++answer_iter) {
+    if (!(*answer_iter)->IsType(Value::TYPE_DICTIONARY))
+      continue;
+    DictionaryValue* a_dic =
+        static_cast<DictionaryValue*>(*answer_iter);
+    std::string name;
+    if (!a_dic->GetString("name", &name))
+      continue;
+
+    size_t split = name.find(":");
+    if (split == std::string::npos)
+      continue;
+
+    std::string promo_signal = name.substr(0, split);
+
+    if (promo_signal != "webstore_promo" ||
+        !base::StringToInt(name.substr(split+1), &target_builds))
+      continue;
+
+    if (!a_dic->GetString(kAnswerIdProperty, &promo_id) ||
+        !a_dic->GetString(kWebStoreHeaderProperty, &promo_header) ||
+        !a_dic->GetString(kWebStoreButtonProperty, &promo_button) ||
+        !a_dic->GetString(kWebStoreLinkProperty, &promo_link) ||
+        !a_dic->GetString(kWebStoreExpireProperty, &promo_expire))
+      continue;
+
+    if (IsThisBuildTargeted(target_builds)) {
+      // Store the first web store promo that targets the current build.
+      AppsPromo::SetPromo(
+          promo_id, promo_header, promo_button, GURL(promo_link), promo_expire);
+      signal_found = true;
+      break;
+    }
+  }
+
+  if (!signal_found) {
+    // If no web store promos target this build, then clear all the prefs.
+    AppsPromo::ClearPromo();
+  }
+
+  NotificationService::current()->Notify(
+      NotificationType::WEB_STORE_PROMO_LOADED,
+      Source<PromoResourceService>(this),
+      NotificationService::NoDetails());
+
+  return;
+}
+
 void PromoResourceService::UnpackLogoSignal(
     const DictionaryValue& parsed_json) {
   DictionaryValue* topic_dict;
@@ -273,12 +365,12 @@ void PromoResourceService::UnpackLogoSignal(
     if (topic_dict->GetList("answers", &answer_list)) {
       std::string logo_start_string = "";
       std::string logo_end_string = "";
-      for (ListValue::const_iterator tip_iter = answer_list->begin();
-           tip_iter != answer_list->end(); ++tip_iter) {
-        if (!(*tip_iter)->IsType(Value::TYPE_DICTIONARY))
+      for (ListValue::const_iterator answer_iter = answer_list->begin();
+           answer_iter != answer_list->end(); ++answer_iter) {
+        if (!(*answer_iter)->IsType(Value::TYPE_DICTIONARY))
           continue;
         DictionaryValue* a_dic =
-            static_cast<DictionaryValue*>(*tip_iter);
+            static_cast<DictionaryValue*>(*answer_iter);
         std::string logo_signal;
         if (a_dic->GetString("name", &logo_signal)) {
           if (logo_signal == "custom_logo_start") {
@@ -334,25 +426,16 @@ bool CanShowPromo(Profile* profile) {
           sync_ui_util::GetStatus(
               profile->GetProfileSyncService()) == sync_ui_util::SYNCED);
 
-  // GetVersionStringModifier hits the registry. See http://crbug.com/70898.
-  base::ThreadRestrictions::ScopedAllowIO allow_io;
-  const std::string channel = platform_util::GetVersionStringModifier();
   bool is_promo_build = false;
   if (prefs->HasPrefPath(prefs::kNTPPromoBuild)) {
-    int builds_allowed = prefs->GetInteger(prefs::kNTPPromoBuild);
-    if (channel == "dev") {
-      is_promo_build = (DEV_BUILD & builds_allowed) != 0;
-    } else if (channel == "beta") {
-      is_promo_build = (BETA_BUILD & builds_allowed) != 0;
-    } else if (channel == "stable") {
-      is_promo_build = (STABLE_BUILD & builds_allowed) != 0;
-    } else {
-      is_promo_build = true;
-    }
+    // GetVersionStringModifier hits the registry. See http://crbug.com/70898.
+    base::ThreadRestrictions::ScopedAllowIO allow_io;
+    const std::string channel = platform_util::GetVersionStringModifier();
+    is_promo_build = PromoResourceService::IsBuildTargeted(
+        channel, prefs->GetInteger(prefs::kNTPPromoBuild));
   }
 
   return !promo_closed && !is_synced && is_promo_build;
 }
 
 }  // namespace PromoResourceServiceUtil
-

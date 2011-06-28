@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,9 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
 #include "chrome/browser/chromeos/login/owner_manager.h"
 
 // There are two categories of operations that can be performed on the
@@ -29,6 +30,12 @@
 // and then call the appropriate method of the Delegate you passed in
 // -- again, on the UI thread.
 
+namespace enterprise_management {
+class PolicyFetchResponse;
+class PolicyData;
+}  // namespace enterprise_management
+namespace em = enterprise_management;
+
 namespace chromeos {
 class OwnershipService;
 
@@ -37,9 +44,10 @@ class SignedSettings : public base::RefCountedThreadSafe<SignedSettings>,
  public:
   enum ReturnCode {
     SUCCESS,
-    NOT_FOUND,        // Email address or property name not found.
-    KEY_UNAVAILABLE,  // Owner key not yet configured.
-    OPERATION_FAILED  // Signature op or IPC to signed settings daemon failed.
+    NOT_FOUND,         // Email address or property name not found.
+    KEY_UNAVAILABLE,   // Owner key not yet configured.
+    OPERATION_FAILED,  // IPC to signed settings daemon failed.
+    BAD_SIGNATURE      // Signature verification failed.
   };
 
   template <class T>
@@ -73,22 +81,61 @@ class SignedSettings : public base::RefCountedThreadSafe<SignedSettings>,
       const std::string& name,
       SignedSettings::Delegate<std::string>* d);
 
+  // These are both "policy" operations, and only one instance of
+  // one type can be in flight at a time.
+  static SignedSettings* CreateStorePolicyOp(
+      em::PolicyFetchResponse* policy,
+      SignedSettings::Delegate<bool>* d);
+
+  static SignedSettings* CreateRetrievePolicyOp(
+      SignedSettings::Delegate<const em::PolicyFetchResponse&>* d);
+
+  static bool EnumerateWhitelist(std::vector<std::string>* whitelisted);
+
   static ReturnCode MapKeyOpCode(OwnerManager::KeyOpCode code);
 
   virtual void Execute() = 0;
 
-  // Implementation of OwnerManager::Delegate::OnKeyOpComplete()
+  virtual void Fail(ReturnCode code) = 0;
+
+  // Implementation of OwnerManager::Delegate
   void OnKeyOpComplete(const OwnerManager::KeyOpCode return_code,
                        const std::vector<uint8>& payload) = 0;
 
  protected:
+  static bool PolicyIsSane(const em::PolicyFetchResponse& value,
+                           em::PolicyData* poldata);
+
+  void set_service(OwnershipService* service) { service_ = service; }
+
+  void TryToFetchPolicyAndCallBack();
+
   OwnershipService* service_;
 
  private:
   friend class SignedSettingsTest;
   friend class SignedSettingsHelperTest;
 
-  void set_service(OwnershipService* service) { service_ = service; }
+  class Relay
+      : public SignedSettings::Delegate<const em::PolicyFetchResponse&> {
+   public:
+    // |s| must outlive your Relay instance.
+    explicit Relay(SignedSettings* s);
+    virtual ~Relay();
+    // Implementation of SignedSettings::Delegate
+    virtual void OnSettingsOpCompleted(SignedSettings::ReturnCode code,
+                                       const em::PolicyFetchResponse& value);
+   private:
+    SignedSettings* settings_;
+    DISALLOW_COPY_AND_ASSIGN(Relay);
+  };
+
+  // Format of this string is documented in device_management_backend.proto.
+  static const char kDevicePolicyType[];
+
+  scoped_ptr<Relay> relay_;
+  scoped_refptr<SignedSettings> polfetcher_;
+  DISALLOW_COPY_AND_ASSIGN(SignedSettings);
 };
 
 }  // namespace chromeos

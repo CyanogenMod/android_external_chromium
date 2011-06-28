@@ -12,6 +12,7 @@
 #include "chrome/browser/chromeos/notifications/notification_panel.h"
 #include "chrome/browser/notifications/balloon.h"
 #include "chrome/browser/notifications/desktop_notification_service.h"
+#include "chrome/browser/notifications/desktop_notification_service_factory.h"
 #include "chrome/browser/notifications/notification.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/views/notifications/balloon_view_host.h"
@@ -266,12 +267,14 @@ void BalloonViewImpl::Layout() {
 void BalloonViewImpl::ViewHierarchyChanged(
     bool is_add, View* parent, View* child) {
   if (is_add && GetWidget() && !control_view_host_.get() && controls_) {
-    control_view_host_.reset(
-        new views::WidgetGtk(views::WidgetGtk::TYPE_CHILD));
-    control_view_host_->EnableDoubleBuffer(true);
+    views::Widget::CreateParams params(
+        views::Widget::CreateParams::TYPE_CONTROL);
+    params.delete_on_destroy = false;
+    control_view_host_.reset(views::Widget::CreateWidget(params));
+    static_cast<views::WidgetGtk*>(control_view_host_.get())->
+        EnableDoubleBuffer(true);
     control_view_host_->Init(GetParentNativeView(), gfx::Rect());
     NotificationControlView* control = new NotificationControlView(this);
-    control_view_host_->set_delete_on_destroy(false);
     control_view_host_->SetContentsView(control);
   }
   if (!is_add && this == child && control_view_host_.get() && controls_) {
@@ -336,7 +339,7 @@ void BalloonViewImpl::DelayedClose(bool by_user) {
 
 void BalloonViewImpl::DenyPermission() {
   DesktopNotificationService* service =
-      balloon_->profile()->GetDesktopNotificationService();
+      DesktopNotificationServiceFactory::GetForProfile(balloon_->profile());
   service->DenyPermission(balloon_->notification().origin_url());
 }
 

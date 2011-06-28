@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@
 #include <vector>
 
 #include "base/observer_list.h"
-#include "chrome/browser/sync/util/channel.h"
+#include "chrome/browser/sync/syncable/model_type.h"
 
 namespace syncable {
 class BaseTransaction;
@@ -83,30 +83,6 @@ struct SyncEngineEvent {
     SYNC_CYCLE_ENDED,
 
     ////////////////////////////////////////////////////////////////
-    // SyncerThread generated events.
-
-    // This event is sent when the thread is paused in response to a
-    // pause request.
-    // TODO(tim): Deprecated.
-    SYNCER_THREAD_PAUSED,
-
-    // This event is sent when the thread is resumed in response to a
-    // resume request.
-    // TODO(tim): Deprecated.
-    SYNCER_THREAD_RESUMED,
-
-    // This event is sent when the thread is waiting for a connection
-    // to be established.
-    SYNCER_THREAD_WAITING_FOR_CONNECTION,
-
-    // This event is sent when a connection has been established and
-    // the thread continues.
-    SYNCER_THREAD_CONNECTED,
-
-    // Sent when the main syncer loop finishes.
-    SYNCER_THREAD_EXITING,
-
-    ////////////////////////////////////////////////////////////////
     // Generated in response to specific protocol actions or events.
 
     // New token in updated_token.
@@ -124,9 +100,8 @@ struct SyncEngineEvent {
     CLEAR_SERVER_DATA_FAILED,
   };
 
-  explicit SyncEngineEvent(EventCause cause) : what_happened(cause),
-                                               snapshot(NULL) {
-}
+  explicit SyncEngineEvent(EventCause cause);
+  ~SyncEngineEvent();
 
   EventCause what_happened;
 

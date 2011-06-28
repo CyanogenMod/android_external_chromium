@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/param.h>
 #include <sys/stat.h>
 #if !defined(OS_NACL)
 #include <sys/sysctl.h>
@@ -33,8 +34,8 @@
 #include "base/basictypes.h"
 #include "base/eintr_wrapper.h"
 #include "base/logging.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/safe_strerror_posix.h"
-#include "base/scoped_ptr.h"
 #include "base/string_piece.h"
 #include "base/stringprintf.h"
 

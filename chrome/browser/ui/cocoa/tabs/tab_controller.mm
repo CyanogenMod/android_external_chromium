@@ -3,8 +3,7 @@
 // found in the LICENSE file.
 
 #include "base/mac/mac_util.h"
-#include "chrome/browser/accessibility/browser_accessibility_state.h"
-#import "chrome/browser/themes/browser_theme_provider.h"
+#import "chrome/browser/themes/theme_service.h"
 #import "chrome/browser/ui/cocoa/menu_controller.h"
 #import "chrome/browser/ui/cocoa/tabs/tab_controller.h"
 #import "chrome/browser/ui/cocoa/tabs/tab_controller_target.h"
@@ -12,6 +11,7 @@
 #import "chrome/browser/ui/cocoa/themed_window.h"
 #import "chrome/common/extensions/extension.h"
 #include "grit/generated_resources.h"
+#import "third_party/GTM/AppKit/GTMFadeTruncatingTextFieldCell.h"
 #include "ui/base/l10n/l10n_util_mac.h"
 
 @implementation TabController
@@ -22,6 +22,7 @@
 @synthesize mini = mini_;
 @synthesize pinned = pinned_;
 @synthesize target = target_;
+@synthesize url = url_;
 @synthesize iconView = iconView_;
 @synthesize titleView = titleView_;
 @synthesize closeButton = closeButton_;
@@ -222,12 +223,6 @@ class MenuDelegate : public ui::SimpleMenuModel::Delegate {
 // Returns YES if we should be showing the close button. The selected tab
 // always shows the close button.
 - (BOOL)shouldShowCloseButton {
-  // Accessibility: When VoiceOver is active, it is desirable for us to hide the
-  // close button, so that VoiceOver does not encounter it.
-  // TODO(dtseng): http://crbug.com/59978
-  if (BrowserAccessibilityState::GetInstance()->IsAccessibleBrowser())
-    return NO;
-
   if ([self mini])
     return NO;
   return ([self selected] || [self iconCapacity] >= 3);
@@ -278,12 +273,12 @@ class MenuDelegate : public ui::SimpleMenuModel::Delegate {
   ui::ThemeProvider* theme = [[[self view] window] themeProvider];
   if (theme && ![self selected]) {
     titleColor =
-        theme->GetNSColor(BrowserThemeProvider::COLOR_BACKGROUND_TAB_TEXT,
+        theme->GetNSColor(ThemeService::COLOR_BACKGROUND_TAB_TEXT,
                           true);
   }
   // Default to the selected text color unless told otherwise.
   if (theme && !titleColor) {
-    titleColor = theme->GetNSColor(BrowserThemeProvider::COLOR_TAB_TEXT,
+    titleColor = theme->GetNSColor(ThemeService::COLOR_TAB_TEXT,
                                    true);
   }
   [titleView_ setTextColor:titleColor ? titleColor : [NSColor textColor]];

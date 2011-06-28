@@ -4,29 +4,39 @@
 
 #include "chrome/browser/autofill/autofill_country.h"
 
+#include <stddef.h>
+#include <stdint.h>
 #include <map>
 #include <utility>
 
-#include "base/scoped_ptr.h"
-#include "base/singleton.h"
+#include "base/logging.h"
+#include "base/memory/scoped_ptr.h"
+#include "base/memory/singleton.h"
+#include "base/stl_util-inl.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #ifndef ANDROID
 #include "chrome/browser/browser_process.h"
 #endif
 #include "grit/generated_resources.h"
+<<<<<<< HEAD
 #ifndef ANDROID
 #include "ui/base/l10n/l10n_util_collator.h"
 #endif
+=======
+>>>>>>> chromium.org at r12.0.742.93
 #include "ui/base/l10n/l10n_util.h"
 #include "unicode/coll.h"
 #include "unicode/locid.h"
 #include "unicode/ucol.h"
 #include "unicode/uloc.h"
+#include "unicode/unistr.h"
+#include "unicode/urename.h"
+#include "unicode/utypes.h"
 
 namespace {
 
-struct AutofillCountryData {
+struct CountryData {
   std::string country_code;
   int postal_code_label_id;
   int state_label_id;
@@ -37,7 +47,7 @@ const size_t kLocaleCapacity =
     ULOC_LANG_CAPACITY + ULOC_SCRIPT_CAPACITY + ULOC_COUNTRY_CAPACITY + 1;
 
 // Maps country codes to localized label string identifiers.
-const AutofillCountryData kCountryData[] = {
+const CountryData kCountryData[] = {
   {"AD", IDS_AUTOFILL_DIALOG_POSTAL_CODE, IDS_AUTOFILL_DIALOG_PARISH},
   {"AE", IDS_AUTOFILL_DIALOG_POSTAL_CODE, IDS_AUTOFILL_DIALOG_EMIRATE},
   {"AF", IDS_AUTOFILL_DIALOG_POSTAL_CODE, IDS_AUTOFILL_DIALOG_PROVINCE},
@@ -282,54 +292,272 @@ const AutofillCountryData kCountryData[] = {
 };
 
 // A singleton class that encapsulates a map from country codes to country data.
-class AutofillCountries {
+class CountryDataMap {
  public:
-  // Map type from country codes to country data.
-  typedef std::map<std::string, AutofillCountryData> MapType;
+  // A const iterator over the wrapped map data.
+  typedef std::map<std::string, CountryData>::const_iterator Iterator;
 
-  static AutofillCountries* GetInstance();
-  static const MapType& countries();
+  static CountryDataMap* GetInstance();
+  static const Iterator Begin();
+  static const Iterator End();
+  static const Iterator Find(const std::string& country_code);
 
  private:
-  AutofillCountries();
-  friend struct DefaultSingletonTraits<AutofillCountries>;
+  CountryDataMap();
+  friend struct DefaultSingletonTraits<CountryDataMap>;
 
-  MapType countries_;
+  std::map<std::string, CountryData> country_data_;
 
-  DISALLOW_COPY_AND_ASSIGN(AutofillCountries);
+  DISALLOW_COPY_AND_ASSIGN(CountryDataMap);
 };
 
 // static
-AutofillCountries* AutofillCountries::GetInstance() {
-  return Singleton<AutofillCountries>::get();
+CountryDataMap* CountryDataMap::GetInstance() {
+  return Singleton<CountryDataMap>::get();
 }
 
-AutofillCountries::AutofillCountries() {
+CountryDataMap::CountryDataMap() {
   // Add all the countries we have explicit data for.
   for (size_t i = 0; i < arraysize(kCountryData); ++i) {
-    const AutofillCountryData& data = kCountryData[i];
-    countries_.insert(std::make_pair(data.country_code, data));
+    const CountryData& data = kCountryData[i];
+    country_data_.insert(std::make_pair(data.country_code, data));
   }
 
   // Add any other countries that ICU knows about, falling back to default data
   // values.
-  for (const char* const* country_pointer = Locale::getISOCountries();
+  for (const char* const* country_pointer = icu::Locale::getISOCountries();
        *country_pointer;
        ++country_pointer) {
     std::string country_code = *country_pointer;
-    if (!countries_.count(country_code)) {
-      AutofillCountryData data = {
+    if (!country_data_.count(country_code)) {
+      CountryData data = {
         country_code,
         IDS_AUTOFILL_DIALOG_POSTAL_CODE,
         IDS_AUTOFILL_DIALOG_PROVINCE
       };
-      countries_.insert(std::make_pair(country_code, data));
+      country_data_.insert(std::make_pair(country_code, data));
     }
   }
 }
 
-const AutofillCountries::MapType& AutofillCountries::countries() {
-  return GetInstance()->countries_;
+const CountryDataMap::Iterator CountryDataMap::Begin() {
+  return GetInstance()->country_data_.begin();
+}
+
+const CountryDataMap::Iterator CountryDataMap::End() {
+  return GetInstance()->country_data_.end();
+}
+
+const CountryDataMap::Iterator CountryDataMap::Find(
+    const std::string& country_code) {
+  return GetInstance()->country_data_.find(country_code);
+}
+
+// A singleton class that encapsulates mappings from country names to their
+// corresponding country codes.
+class CountryNames {
+ public:
+  static CountryNames* GetInstance();
+
+  // Returns the country code corresponding to |country|, which should be a
+  // country code or country name localized to |locale|.
+  const std::string GetCountryCode(const string16& country,
+                                   const std::string& locale);
+
+ private:
+  CountryNames();
+  ~CountryNames();
+  friend struct DefaultSingletonTraits<CountryNames>;
+
+  // Populates |locales_to_localized_names_| with the mapping of country names
+  // localized to |locale| to their corresponding country codes.
+  void AddLocalizedNamesForLocale(const std::string& locale);
+
+  // Interprets |country_name| as a full country name localized to the given
+  // |locale| and returns the corresponding country code stored in
+  // |locales_to_localized_names_|, or an empty string if there is none.
+  const std::string GetCountryCodeForLocalizedName(const string16& country_name,
+                                                   const std::string& locale);
+
+  // Returns an ICU collator -- i.e. string comparator -- appropriate for the
+  // given |locale|.
+  icu::Collator* GetCollatorForLocale(const std::string& locale);
+
+  // Returns the ICU sort key corresponding to |str| for the given |collator|.
+  // Uses |buffer| as temporary storage, and might resize |buffer| as a side-
+  // effect. |buffer_size| should specify the |buffer|'s size, and is updated if
+  // the |buffer| is resized.
+  const std::string GetSortKey(const icu::Collator& collator,
+                               const icu::UnicodeString& str,
+                               scoped_array<uint8_t>* buffer,
+                               int32_t* buffer_size) const;
+
+
+  // Maps from common country names, including 2- and 3-letter country codes,
+  // to the corresponding 2-letter country codes. The keys are uppercase ASCII
+  // strings.
+  std::map<std::string, std::string> common_names_;
+
+  // The outer map keys are ICU locale identifiers.
+  // The inner maps map from localized country names to their corresponding
+  // country codes. The inner map keys are ICU collation sort keys corresponding
+  // to the target localized country name.
+  std::map<std::string, std::map<std::string, std::string> >
+      locales_to_localized_names_;
+
+  // Maps ICU locale names to their corresponding collators.
+  std::map<std::string, icu::Collator*> collators_;
+
+  DISALLOW_COPY_AND_ASSIGN(CountryNames);
+};
+
+// static
+CountryNames* CountryNames::GetInstance() {
+  return Singleton<CountryNames>::get();
+}
+
+CountryNames::CountryNames() {
+  // Add 2- and 3-letter ISO country codes.
+  for (CountryDataMap::Iterator it = CountryDataMap::Begin();
+       it != CountryDataMap::End();
+       ++it) {
+    const std::string& country_code = it->first;
+    std::string iso3_country_code =
+    icu::Locale(NULL, country_code.c_str()).getISO3Country();
+
+    common_names_.insert(std::make_pair(country_code, country_code));
+    common_names_.insert(std::make_pair(iso3_country_code, country_code));
+  }
+
+  // Add a few other common synonyms.
+  common_names_.insert(std::make_pair("UNITED STATES OF AMERICA", "US"));
+  common_names_.insert(std::make_pair("GREAT BRITAIN", "GB"));
+  common_names_.insert(std::make_pair("UK", "GB"));
+  common_names_.insert(std::make_pair("BRASIL", "BR"));
+  common_names_.insert(std::make_pair("DEUTSCHLAND", "DE"));
+}
+
+CountryNames::~CountryNames() {
+  STLDeleteContainerPairSecondPointers(collators_.begin(),
+                                       collators_.end());
+}
+
+const std::string CountryNames::GetCountryCode(const string16& country,
+                                               const std::string& locale) {
+  // First, check common country names, including 2- and 3-letter country codes.
+  std::string country_utf8 = UTF16ToUTF8(StringToUpperASCII(country));
+  std::map<std::string, std::string>::const_iterator result =
+      common_names_.find(country_utf8);
+  if (result != common_names_.end())
+    return result->second;
+
+  // Next, check country names localized to |locale|.
+  std::string country_code = GetCountryCodeForLocalizedName(country, locale);
+  if (!country_code.empty())
+    return country_code;
+
+  // Finally, check country names localized to US English.
+  return GetCountryCodeForLocalizedName(country, "en_US");
+}
+
+void CountryNames::AddLocalizedNamesForLocale(const std::string& locale) {
+  // Nothing to do if we've previously added the localized names for the given
+  // |locale|.
+  if (locales_to_localized_names_.count(locale))
+    return;
+
+  std::map<std::string, std::string> localized_names;
+
+  icu::Locale icu_locale(locale.c_str());
+  const icu::Collator* collator = GetCollatorForLocale(locale);
+
+  int32_t buffer_size = 1000;
+  scoped_array<uint8_t> buffer(new uint8_t[buffer_size]);
+
+  for (CountryDataMap::Iterator it = CountryDataMap::Begin();
+       it != CountryDataMap::End();
+       ++it) {
+    const std::string& country_code = it->first;
+
+    icu::Locale country_locale(NULL, country_code.c_str());
+    icu::UnicodeString country_name;
+    country_locale.getDisplayName(icu_locale, country_name);
+    std::string sort_key = GetSortKey(*collator,
+                                      country_name,
+                                      &buffer,
+                                      &buffer_size);
+
+    localized_names.insert(std::make_pair(sort_key, country_code));
+  }
+
+  locales_to_localized_names_.insert(std::make_pair(locale, localized_names));
+}
+
+const std::string CountryNames::GetCountryCodeForLocalizedName(
+    const string16& country_name,
+    const std::string& locale) {
+  AddLocalizedNamesForLocale(locale);
+
+  icu::Collator* collator = GetCollatorForLocale(locale);
+
+  // As recommended[1] by ICU, initialize the buffer size to four times the
+  // source string length.
+  // [1] http://userguide.icu-project.org/collation/api#TOC-Examples
+  int32_t buffer_size = country_name.size() * 4;
+  scoped_array<uint8_t> buffer(new uint8_t[buffer_size]);
+  std::string sort_key = GetSortKey(*collator,
+                                    country_name.c_str(),
+                                    &buffer,
+                                    &buffer_size);
+
+  const std::map<std::string, std::string>& localized_names =
+      locales_to_localized_names_[locale];
+  std::map<std::string, std::string>::const_iterator result =
+      localized_names.find(sort_key);
+
+  if (result != localized_names.end())
+    return result->second;
+
+  return std::string();
+}
+
+icu::Collator* CountryNames::GetCollatorForLocale(const std::string& locale) {
+  if (!collators_.count(locale)) {
+    icu::Locale icu_locale(locale.c_str());
+    UErrorCode ignored = U_ZERO_ERROR;
+    icu::Collator* collator(icu::Collator::createInstance(icu_locale, ignored));
+
+    // Compare case-insensitively and ignoring punctuation.
+    ignored = U_ZERO_ERROR;
+    collator->setAttribute(UCOL_STRENGTH, UCOL_SECONDARY, ignored);
+    ignored = U_ZERO_ERROR;
+    collator->setAttribute(UCOL_ALTERNATE_HANDLING, UCOL_SHIFTED, ignored);
+
+    collators_.insert(std::make_pair(locale, collator));
+  }
+
+  return collators_[locale];
+}
+
+const std::string CountryNames::GetSortKey(const icu::Collator& collator,
+                                           const icu::UnicodeString& str,
+                                           scoped_array<uint8_t>* buffer,
+                                           int32_t* buffer_size) const {
+  DCHECK(buffer);
+  DCHECK(buffer_size);
+
+  int32_t expected_size = collator.getSortKey(str, buffer->get(), *buffer_size);
+  if (expected_size > *buffer_size) {
+    // If there wasn't enough space, grow the buffer and try again.
+    *buffer_size = expected_size;
+    buffer->reset(new uint8_t[*buffer_size]);
+    DCHECK(buffer->get());
+
+    expected_size = collator.getSortKey(str, buffer->get(), *buffer_size);
+    DCHECK_EQ(*buffer_size, expected_size);
+  }
+
+  return std::string(reinterpret_cast<const char*>(buffer->get()));
 }
 
 // Returns the country name corresponding to |country_code|, localized to the
@@ -348,9 +576,9 @@ string16 GetDisplayName(const std::string& country_code,
 
 AutofillCountry::AutofillCountry(const std::string& country_code,
                                  const std::string& locale) {
-  const AutofillCountries::MapType& countries = AutofillCountries::countries();
-  DCHECK(countries.count(country_code));
-  const AutofillCountryData& data = countries.find(country_code)->second;
+  const CountryDataMap::Iterator result = CountryDataMap::Find(country_code);
+  DCHECK(result != CountryDataMap::End());
+  const CountryData& data = result->second;
 
   country_code_ = country_code;
   name_ = GetDisplayName(country_code, icu::Locale(locale.c_str()));
@@ -366,10 +594,8 @@ void AutofillCountry::GetAvailableCountries(
     std::vector<std::string>* country_codes) {
   DCHECK(country_codes);
 
-  const AutofillCountries::MapType& country_data =
-      AutofillCountries::countries();
-  for (AutofillCountries::MapType::const_iterator it = country_data.begin();
-       it != country_data.end();
+  for (CountryDataMap::Iterator it = CountryDataMap::Begin();
+       it != CountryDataMap::End();
        ++it) {
     country_codes->push_back(it->first);
   }
@@ -390,43 +616,12 @@ const std::string AutofillCountry::CountryCodeForLocale(
   // Extract the country code.
   std::string country_code = icu::Locale(likely_locale.c_str()).getCountry();
 
+  // TODO(isherman): Return an empty string and update the clients instead.
   // Default to the United States if we have no better guess.
-  return !country_code.empty() ? country_code : "US";
-}
-
-// static
-const std::string AutofillCountry::GetCountryCode(
-    const string16& country, const std::string& locale) {
-  // First, check for a few common synonyms.
-  if (country == ASCIIToUTF16("United States of America"))
+  if (CountryDataMap::Find(country_code) == CountryDataMap::End())
     return "US";
-  if (country == ASCIIToUTF16("Great Britain") ||
-      country == ASCIIToUTF16("UK"))
-    return "GB";
-  if (country == ASCIIToUTF16("Brasil"))
-    return "BR";
-  if (country == ASCIIToUTF16("Deutschland"))
-    return "DE";
 
-  const AutofillCountries::MapType& country_data =
-      AutofillCountries::countries();
-
-  // Check to see if |country| is actually a country code, in which case we can
-  // short-circuit a lot of the hard work.
-  std::string country_utf8 = UTF16ToUTF8(StringToUpperASCII(country));
-  if (country_data.count(country_utf8))
-    return country_utf8;
-
-  const icu::Locale icu_locale(locale.c_str());
-
-  // Compare case-insensitively and ignoring punctuation.
-  UErrorCode ignored = U_ZERO_ERROR;
-  scoped_ptr<icu::Collator> collator(
-      icu::Collator::createInstance(icu_locale, ignored));
-  collator->setStrength(icu::Collator::SECONDARY);
-  ignored = U_ZERO_ERROR;
-  collator->setAttribute(UCOL_ALTERNATE_HANDLING, UCOL_SHIFTED, ignored);
-
+<<<<<<< HEAD
   for (AutofillCountries::MapType::const_iterator it = country_data.begin();
        it != country_data.end();
        ++it) {
@@ -450,8 +645,15 @@ const std::string AutofillCountry::GetCountryCode(
   // As a fallback, try assuming the country named is localized to US English.
   if (locale != "en_US")
     return GetCountryCode(country, "en_US");
+=======
+  return country_code;
+}
+>>>>>>> chromium.org at r12.0.742.93
 
-  return std::string();
+// static
+const std::string AutofillCountry::GetCountryCode(const string16& country,
+                                                  const std::string& locale) {
+  return CountryNames::GetInstance()->GetCountryCode(country, locale);
 }
 
 // static

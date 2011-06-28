@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,12 +23,12 @@
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/net/url_request_context_getter.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "content/browser/browser_thread.h"
 #include "content/browser/tab_contents/tab_contents.h"
 #include "net/base/registry_controlled_domain.h"
+#include "net/url_request/url_request_context_getter.h"
 
 #if defined(OS_WIN)
 #include "chrome/installer/util/browser_distribution.h"
@@ -120,8 +120,7 @@ SafeBrowsingService::UnsafeResource::UnsafeResource()
 SafeBrowsingService::UnsafeResource::~UnsafeResource() {}
 
 SafeBrowsingService::SafeBrowsingCheck::SafeBrowsingCheck()
-    : url(NULL),
-      full_hash(NULL),
+    : full_hash(NULL),
       client(NULL),
       need_get_hash(false),
       result(SAFE),
@@ -133,12 +132,19 @@ SafeBrowsingService::SafeBrowsingCheck::~SafeBrowsingCheck() {}
 
 void SafeBrowsingService::Client::OnSafeBrowsingResult(
     const SafeBrowsingCheck& check) {
-  if (check.url.get()) {
+  if (!check.urls.empty()) {
+
     DCHECK(!check.full_hash.get());
-    OnBrowseUrlCheckResult(*(check.url), check.result);
-    OnDownloadUrlCheckResult(*(check.url), check.result);
+    if (!check.is_download) {
+      DCHECK_EQ(1U, check.urls.size());
+      OnBrowseUrlCheckResult(check.urls[0], check.result);
+    } else {
+      OnDownloadUrlCheckResult(check.urls, check.result);
+    }
   } else if (check.full_hash.get()) {
-    OnDownloadHashCheckResult(check.full_hash->full_hash, check.result);
+    OnDownloadHashCheckResult(
+        safe_browsing_util::SBFullHashToString(*check.full_hash),
+        check.result);
   } else {
     NOTREACHED();
   }
@@ -156,6 +162,7 @@ SafeBrowsingService::SafeBrowsingService()
       protocol_manager_(NULL),
       enabled_(false),
       enable_download_protection_(false),
+      enable_csd_whitelist_(false),
       update_in_progress_(false),
       database_update_in_progress_(false),
       closing_database_(false),
@@ -196,7 +203,7 @@ bool SafeBrowsingService::DownloadBinHashNeeded() const {
   return enable_download_protection_ && CanReportStats();
 }
 
-bool SafeBrowsingService::CheckDownloadUrl(const GURL& url,
+bool SafeBrowsingService::CheckDownloadUrl(const std::vector<GURL>& url_chain,
                                            Client* client) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
   if (!enabled_ || !enable_download_protection_)
@@ -205,7 +212,7 @@ bool SafeBrowsingService::CheckDownloadUrl(const GURL& url,
   // We need to check the database for url prefix, and later may fetch the url
   // from the safebrowsing backends. These need to be asynchronous.
   SafeBrowsingCheck* check = new SafeBrowsingCheck();
-  check->url.reset(new GURL(url));
+  check->urls = url_chain;
   StartDownloadCheck(
       check,
       client,
@@ -236,6 +243,18 @@ bool SafeBrowsingService::CheckDownloadHash(const std::string& full_hash,
                         check),
       download_hashcheck_timeout_ms_);
   return false;
+}
+
+bool SafeBrowsingService::MatchCsdWhitelistUrl(const GURL& url) {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  if (!enabled_ || !enable_csd_whitelist_ || !MakeDatabaseAvailable()) {
+    // There is something funky going on here -- for example, perhaps the user
+    // has not restarted since enabling metrics reporting, so we haven't
+    // enabled the csd whitelist yet.  Just to be safe we return true in this
+    // case.
+    return true;
+  }
+  return database_->ContainsCsdWhitelistedUrl(url);
 }
 
 bool SafeBrowsingService::CheckBrowseUrl(const GURL& url,
@@ -273,7 +292,7 @@ bool SafeBrowsingService::CheckBrowseUrl(const GURL& url,
   // Needs to be asynchronous, since we could be in the constructor of a
   // ResourceDispatcherHost event handler which can't pause there.
   SafeBrowsingCheck* check = new SafeBrowsingCheck();
-  check->url.reset(new GURL(url));
+  check->urls.push_back(url);
   check->client = client;
   check->result = SAFE;
   check->is_download = false;
@@ -519,13 +538,9 @@ SafeBrowsingService::~SafeBrowsingService() {
 void SafeBrowsingService::OnIOInitialize(
     const std::string& client_key,
     const std::string& wrapped_key,
-    URLRequestContextGetter* request_context_getter) {
+    net::URLRequestContextGetter* request_context_getter) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
   enabled_ = true;
-
-  CommandLine* cmdline = CommandLine::ForCurrentProcess();
-  enable_download_protection_ =
-      cmdline->HasSwitch(switches::kSbEnableDownloadProtection);
 
   MakeDatabaseAvailable();
 
@@ -542,6 +557,7 @@ void SafeBrowsingService::OnIOInitialize(
   std::string client_name("chromium");
 #endif
 #endif
+  CommandLine* cmdline = CommandLine::ForCurrentProcess();
   bool disable_auto_update =
       cmdline->HasSwitch(switches::kSbDisableAutoUpdate) ||
       cmdline->HasSwitch(switches::kDisableBackgroundNetworking);
@@ -585,7 +601,7 @@ void SafeBrowsingService::OnIOShutdown() {
     QueuedCheck queued = queued_checks_.front();
     if (queued.client) {
       SafeBrowsingCheck sb_check;
-      sb_check.url.reset(new GURL(queued.url));
+      sb_check.urls.push_back(queued.url);
       sb_check.client = queued.client;
       sb_check.result = SAFE;
       queued.client->OnSafeBrowsingResult(sb_check);
@@ -658,7 +674,8 @@ SafeBrowsingDatabase* SafeBrowsingService::GetDatabase() {
   const base::TimeTicks before = base::TimeTicks::Now();
 
   SafeBrowsingDatabase* database =
-      SafeBrowsingDatabase::Create(enable_download_protection_);
+      SafeBrowsingDatabase::Create(enable_download_protection_,
+                                   enable_csd_whitelist_);
 
   database->Init(path);
   {
@@ -775,7 +792,7 @@ void SafeBrowsingService::DatabaseLoadComplete() {
     // the client).  Since we're not the client, we have to convey this result.
     if (check.client && CheckBrowseUrl(check.url, check.client)) {
       SafeBrowsingCheck sb_check;
-      sb_check.url.reset(new GURL(check.url));
+      sb_check.urls.push_back(check.url);
       sb_check.client = check.client;
       sb_check.result = SAFE;
       check.client->OnSafeBrowsingResult(sb_check);
@@ -840,6 +857,7 @@ void SafeBrowsingService::DatabaseUpdateFinished(bool update_succeeded) {
 }
 
 void SafeBrowsingService::Start() {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   DCHECK(!safe_browsing_thread_.get());
   safe_browsing_thread_.reset(new base::Thread("Chrome_SafeBrowsingThread"));
   if (!safe_browsing_thread_->Start())
@@ -847,6 +865,7 @@ void SafeBrowsingService::Start() {
 
   // Retrieve client MAC keys.
   PrefService* local_state = g_browser_process->local_state();
+  DCHECK(local_state);
   std::string client_key, wrapped_key;
   if (local_state) {
     client_key =
@@ -856,8 +875,26 @@ void SafeBrowsingService::Start() {
   }
 
   // We will issue network fetches using the default profile's request context.
-  scoped_refptr<URLRequestContextGetter> request_context_getter(
+  scoped_refptr<net::URLRequestContextGetter> request_context_getter(
       GetDefaultProfile()->GetRequestContext());
+
+  CommandLine* cmdline = CommandLine::ForCurrentProcess();
+  enable_download_protection_ =
+      !cmdline->HasSwitch(switches::kSbDisableDownloadProtection);
+
+  // We only download the csd-whitelist if client-side phishing detection is
+  // enabled and if the user has opted in with stats collection.  Note: we
+  // cannot check whether the metrics_service() object is created because it
+  // may be initialized after this method is called.
+#ifdef OS_CHROMEOS
+  // Client-side detection is disabled on ChromeOS for now, so don't bother
+  // downloading the whitelist.
+  enable_csd_whitelist_ = false;
+#else
+  enable_csd_whitelist_ =
+      (!cmdline->HasSwitch(switches::kDisableClientSidePhishingDetection) &&
+       local_state && local_state->GetBoolean(prefs::kMetricsReportingEnabled));
+#endif
 
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
@@ -929,10 +966,15 @@ bool SafeBrowsingService::HandleOneCheck(
 
   // Always calculate the index, for recording hits.
   int index = -1;
-  if (check->url.get() != NULL)
-    index = safe_browsing_util::GetUrlHashIndex(*(check->url), full_hashes);
-  else
+  if (!check->urls.empty()) {
+    for (size_t i = 0; i < check->urls.size(); ++i) {
+      index = safe_browsing_util::GetUrlHashIndex(check->urls[i], full_hashes);
+      if (index != -1)
+        break;
+    }
+  } else {
     index = safe_browsing_util::GetHashIndex(*(check->full_hash), full_hashes);
+  }
 
   // |client| is NULL if the request was cancelled.
   if (check->client) {
@@ -984,7 +1026,7 @@ void SafeBrowsingService::DoDisplayBlockingPage(
       page_url = resource.original_url;
     }
     ReportSafeBrowsingHit(resource.url, page_url, referrer_url, is_subresource,
-                          resource.threat_type);
+                          resource.threat_type, std::string() /* post_data */);
   }
 
   SafeBrowsingBlockingPage::ShowBlockingPage(this, resource);
@@ -997,7 +1039,8 @@ void SafeBrowsingService::ReportSafeBrowsingHit(
     const GURL& page_url,
     const GURL& referrer_url,
     bool is_subresource,
-    SafeBrowsingService::UrlCheckResult threat_type) {
+    SafeBrowsingService::UrlCheckResult threat_type,
+    const std::string& post_data) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   if (!CanReportStats())
     return;
@@ -1011,7 +1054,8 @@ void SafeBrowsingService::ReportSafeBrowsingHit(
           page_url,
           referrer_url,
           is_subresource,
-          threat_type));
+          threat_type,
+          post_data));
 }
 
 void SafeBrowsingService::ReportSafeBrowsingHitOnIOThread(
@@ -1019,7 +1063,8 @@ void SafeBrowsingService::ReportSafeBrowsingHitOnIOThread(
     const GURL& page_url,
     const GURL& referrer_url,
     bool is_subresource,
-    SafeBrowsingService::UrlCheckResult threat_type) {
+    SafeBrowsingService::UrlCheckResult threat_type,
+    const std::string& post_data) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
   if (!enabled_)
     return;
@@ -1029,18 +1074,17 @@ void SafeBrowsingService::ReportSafeBrowsingHitOnIOThread(
            << threat_type;
   protocol_manager_->ReportSafeBrowsingHit(malicious_url, page_url,
                                            referrer_url, is_subresource,
-                                           threat_type);
+                                           threat_type, post_data);
 }
 
 // If the user had opted-in to send MalwareDetails, this gets called
-// at the time that the blocking page is going away.
-void SafeBrowsingService::ReportMalwareDetails(
-    scoped_refptr<MalwareDetails> details) {
+// when the report is ready.
+void SafeBrowsingService::SendSerializedMalwareDetails(
+    const std::string& serialized) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
-  scoped_ptr<const std::string> serialized(details->GetSerializedReport());
-  if (!serialized->empty()) {
+  if (!serialized.empty()) {
     DVLOG(1) << "Sending serialized malware details.";
-    protocol_manager_->ReportMalwareDetails(*serialized);
+    protocol_manager_->ReportMalwareDetails(serialized);
   }
 }
 
@@ -1071,9 +1115,9 @@ void SafeBrowsingService::CheckDownloadUrlOnSBThread(SafeBrowsingCheck* check) {
   DCHECK_EQ(MessageLoop::current(), safe_browsing_thread_->message_loop());
   DCHECK(enable_download_protection_);
 
-  SBPrefix prefix_hit;
+  std::vector<SBPrefix> prefix_hits;
 
-  if (!database_->ContainsDownloadUrl(*(check->url), &prefix_hit)) {
+  if (!database_->ContainsDownloadUrl(check->urls, &prefix_hits)) {
     // Good, we don't have hash for this url prefix.
     check->result = SAFE;
     BrowserThread::PostTask(
@@ -1086,7 +1130,7 @@ void SafeBrowsingService::CheckDownloadUrlOnSBThread(SafeBrowsingCheck* check) {
 
   check->need_get_hash = true;
   check->prefix_hits.clear();
-  check->prefix_hits.push_back(prefix_hit);
+  check->prefix_hits = prefix_hits;
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(this, &SafeBrowsingService::OnCheckDone, check));

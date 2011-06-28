@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include "testing/gtest/include/gtest/gtest.h"
 
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
 #include "base/string16.h"
 #include "base/threading/thread.h"
 #include "base/time.h"
@@ -28,10 +28,10 @@
 #include "chrome/browser/sync/syncable/directory_manager.h"
 #include "chrome/browser/sync/test_profile_sync_service.h"
 #include "chrome/common/net/gaia/gaia_constants.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/test/profile_mock.h"
 #include "chrome/test/sync/engine/test_id_factory.h"
 #include "chrome/test/testing_profile.h"
+#include "content/common/notification_service.h"
 #include "googleurl/src/gurl.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
@@ -130,6 +130,7 @@ class ProfileSyncServiceTypedUrlTest : public AbstractProfileSyncServiceTest {
   }
 
   virtual void SetUp() {
+    profile_.CreateRequestContext();
     history_backend_ = new HistoryBackendMock();
     history_service_ = new HistoryServiceMock();
     EXPECT_CALL((*history_service_.get()), ScheduleDBTask(_, _))
@@ -148,6 +149,12 @@ class ProfileSyncServiceTypedUrlTest : public AbstractProfileSyncServiceTest {
     service_.reset();
     notification_service_->TearDown();
     history_thread_.Stop();
+    {
+      // The request context gets deleted on the I/O thread. To prevent a leak
+      // supply one here.
+      BrowserThread io_thread(BrowserThread::IO, MessageLoop::current());
+      profile_.ResetRequestContext();
+    }
     MessageLoop::current()->RunAllPending();
   }
 

@@ -6,7 +6,7 @@
 
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/printing/cloud_print/cloud_print_setup_flow.h"
 
 WebUIMessageHandler* CloudPrintSetupMessageHandler::Attach(WebUI* web_ui) {
@@ -27,7 +27,7 @@ void CloudPrintSetupMessageHandler::RegisterMessages() {
 void CloudPrintSetupMessageHandler::HandleSubmitAuth(const ListValue* args) {
   std::string json;
   args->GetString(0, &json);
-  std::string username, password, captcha;
+  std::string username, password, captcha, access_code;
   if (json.empty()) {
     NOTREACHED() << "Empty json string";
     return;
@@ -42,14 +42,15 @@ void CloudPrintSetupMessageHandler::HandleSubmitAuth(const ListValue* args) {
   DictionaryValue* result = static_cast<DictionaryValue*>(parsed_value.get());
   if (!result->GetString("user", &username) ||
       !result->GetString("pass", &password) ||
-      !result->GetString("captcha", &captcha)) {
+      !result->GetString("captcha", &captcha) ||
+      !result->GetString("access_code", &access_code)) {
     NOTREACHED() << "Unable to parse auth data";
     return;
   }
 
   // Pass the information to the flow.
   if (flow_)
-    flow_->OnUserSubmittedAuth(username, password, captcha);
+    flow_->OnUserSubmittedAuth(username, password, captcha, access_code);
 }
 
 void CloudPrintSetupMessageHandler::HandlePrintTestPage(const ListValue* args) {

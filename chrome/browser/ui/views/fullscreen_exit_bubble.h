@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 #define CHROME_BROWSER_UI_VIEWS_FULLSCREEN_EXIT_BUBBLE_H__
 #pragma once
 
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/timer.h"
 #include "chrome/browser/command_updater.h"
 #include "ui/base/animation/animation_delegate.h"
@@ -36,7 +36,6 @@ class FullscreenExitBubble : public views::LinkController,
 
  private:
   class FullscreenExitView;
-  class FullscreenExitPopup;
 
   static const double kOpacity;          // Opacity of the bubble, 0.0 - 1.0
   static const int kInitialDelayMs;      // Initial time bubble remains onscreen
@@ -74,13 +73,7 @@ class FullscreenExitBubble : public views::LinkController,
   // it.
   CommandUpdater::CommandUpdaterDelegate* delegate_;
 
-#if defined(OS_WIN)
-  // The popup itself, which is a slightly modified WidgetWin.  We need to use
-  // a WidgetWin (and thus an HWND) to make the popup float over other HWNDs.
-  FullscreenExitPopup* popup_;
-#elif defined(OS_LINUX)
-  views::WidgetGtk* popup_;
-#endif
+  views::Widget* popup_;
 
   // The contents of the popup.
   FullscreenExitView* view_;

@@ -5,9 +5,9 @@
 #include "chrome/browser/ui/views/update_recommended_message_box.h"
 
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/views/window.h"
 #include "chrome/common/pref_names.h"
 #include "grit/chromium_strings.h"
@@ -60,6 +60,14 @@ std::wstring UpdateRecommendedMessageBox::GetDialogButtonLabel(
       UTF16ToWide(l10n_util::GetStringUTF16(IDS_NOT_NOW));
 }
 
+bool UpdateRecommendedMessageBox::ShouldShowWindowTitle() const {
+#if defined(OS_CHROMEOS)
+  return false;
+#else
+  return true;
+#endif
+}
+
 std::wstring UpdateRecommendedMessageBox::GetWindowTitle() const {
   return UTF16ToWide(l10n_util::GetStringUTF16(IDS_PRODUCT_NAME));
 }
@@ -89,7 +97,7 @@ UpdateRecommendedMessageBox::UpdateRecommendedMessageBox(
 #endif
   const string16 product_name = l10n_util::GetStringUTF16(kProductNameId);
   // Also deleted when the window closes.
-  message_box_view_ = new MessageBoxView(
+  message_box_view_ = new views::MessageBoxView(
       ui::MessageBoxFlags::kFlagHasMessage |
           ui::MessageBoxFlags::kFlagHasOKButton,
       UTF16ToWide(l10n_util::GetStringFUTF16(IDS_UPDATE_RECOMMENDED,

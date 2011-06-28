@@ -8,12 +8,12 @@
 #include "chrome/browser/extensions/user_script_listener.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/extensions/extension_file_util.h"
-#include "chrome/common/notification_service.h"
-#include "chrome/common/notification_type.h"
 #include "content/browser/renderer_host/global_request_id.h"
 #include "content/browser/renderer_host/resource_dispatcher_host_request_info.h"
 #include "content/browser/renderer_host/resource_handler.h"
 #include "content/browser/renderer_host/resource_queue.h"
+#include "content/common/notification_service.h"
+#include "content/common/notification_type.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_test_job.h"
 #include "net/url_request/url_request_test_util.h"
@@ -89,7 +89,7 @@ class DummyResourceHandler : public ResourceHandler {
 ResourceDispatcherHostRequestInfo* CreateRequestInfo(int request_id) {
   return new ResourceDispatcherHostRequestInfo(
       new DummyResourceHandler(), ChildProcessInfo::RENDER_PROCESS, 0, 0,
-      request_id, ResourceType::MAIN_FRAME, 0, false, false, false, -1, -1);
+      request_id, ResourceType::MAIN_FRAME, 0, false, false, false);
 }
 
 // A simple test net::URLRequestJob. We don't care what it does, only that
@@ -121,7 +121,7 @@ class UserScriptListenerTest
     service_->Init();
     MessageLoop::current()->RunAllPending();
 
-    listener_ = new UserScriptListener(&resource_queue_);
+    listener_ = new UserScriptListener();
 
     ResourceQueue::DelegateSet delegates;
     delegates.insert(listener_.get());

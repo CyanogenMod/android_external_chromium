@@ -1,9 +1,10 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/sync/engine/build_and_process_conflict_sets_command.h"
 
+#include <set>
 #include <string>
 #include <sstream>
 #include <vector>
@@ -47,7 +48,7 @@ bool BuildAndProcessConflictSetsCommand::BuildAndProcessConflictSets(
         session->status_controller()->mutable_conflict_progress());
     had_single_direction_sets = ProcessSingleDirectionConflictSets(&trans,
         session->context()->resolver(),
-        session->context()->directory_manager()->cryptographer(),
+        session->context()->directory_manager()->GetCryptographer(&trans),
         session->status_controller(), session->routing_info());
     // We applied some updates transactionally, lets try syncing again.
     if (had_single_direction_sets)
@@ -65,7 +66,7 @@ bool BuildAndProcessConflictSetsCommand::ProcessSingleDirectionConflictSets(
   for (all_sets_iterator = status->conflict_progress().ConflictSetsBegin();
        all_sets_iterator != status->conflict_progress().ConflictSetsEnd();) {
     const ConflictSet* conflict_set = *all_sets_iterator;
-    CHECK(conflict_set->size() >= 2);
+    CHECK_GE(conflict_set->size(), 2U);
     // We scan the set to see if it consists of changes of only one type.
     ConflictSet::const_iterator i;
     size_t unsynced_count = 0, unapplied_count = 0;
@@ -312,8 +313,8 @@ class ServerDeletedPathChecker {
 
   // returns 0 if we should stop investigating the path.
   static syncable::Id GetAndExamineParent(syncable::BaseTransaction* trans,
-                                          syncable::Id id,
-                                          syncable::Id check_id,
+                                          const syncable::Id& id,
+                                          const syncable::Id& check_id,
                                           const syncable::Entry& log_entry) {
     syncable::Entry parent(trans, syncable::GET_BY_ID, id);
     CHECK(parent.good()) << "Tree inconsitency, missing id" << id << " "
@@ -334,8 +335,8 @@ class LocallyDeletedPathChecker {
 
   // returns 0 if we should stop investigating the path.
   static syncable::Id GetAndExamineParent(syncable::BaseTransaction* trans,
-                                          syncable::Id id,
-                                          syncable::Id check_id,
+                                          const syncable::Id& id,
+                                          const syncable::Id& check_id,
                                           const syncable::Entry& log_entry) {
     syncable::Entry parent(trans, syncable::GET_BY_ID, id);
     if (!parent.good())

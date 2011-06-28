@@ -1,15 +1,15 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/speech/speech_input_bubble_controller.h"
 
 #include "chrome/browser/tab_contents/tab_util.h"
-#include "chrome/common/notification_registrar.h"
-#include "chrome/common/notification_source.h"
-#include "chrome/common/notification_type.h"
 #include "content/browser/browser_thread.h"
 #include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/notification_registrar.h"
+#include "content/common/notification_source.h"
+#include "content/common/notification_type.h"
 #include "ui/gfx/rect.h"
 
 namespace speech_input {
@@ -53,6 +53,11 @@ void SpeechInputBubbleController::CreateBubble(int caller_id,
 
 void SpeechInputBubbleController::CloseBubble(int caller_id) {
   ProcessRequestInUiThread(caller_id, REQUEST_CLOSE, string16(), 0, 0);
+}
+
+void SpeechInputBubbleController::SetBubbleWarmUpMode(int caller_id) {
+  ProcessRequestInUiThread(caller_id, REQUEST_SET_WARM_UP_MODE,
+                           string16(), 0, 0);
 }
 
 void SpeechInputBubbleController::SetBubbleRecordingMode(int caller_id) {
@@ -146,7 +151,7 @@ void SpeechInputBubbleController::ProcessRequestInUiThread(
   if (!bubbles_.count(caller_id))
     return;
 
-  bool change_active_bubble = (type == REQUEST_SET_RECORDING_MODE ||
+  bool change_active_bubble = (type == REQUEST_SET_WARM_UP_MODE ||
                                type == REQUEST_SET_MESSAGE);
   if (change_active_bubble) {
     if (current_bubble_caller_id_ && current_bubble_caller_id_ != caller_id)
@@ -156,6 +161,9 @@ void SpeechInputBubbleController::ProcessRequestInUiThread(
 
   SpeechInputBubble* bubble = bubbles_[caller_id];
   switch (type) {
+    case REQUEST_SET_WARM_UP_MODE:
+      bubble->SetWarmUpMode();
+      break;
     case REQUEST_SET_RECORDING_MODE:
       bubble->SetRecordingMode();
       break;

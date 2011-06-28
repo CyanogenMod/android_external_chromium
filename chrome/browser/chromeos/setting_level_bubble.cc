@@ -7,12 +7,14 @@
 #include <gdk/gdk.h>
 
 #include "base/timer.h"
-#include "chrome/browser/browser_list.h"
-#include "chrome/browser/browser_window.h"
+#include "chrome/browser/chromeos/login/background_view.h"
+#include "chrome/browser/chromeos/login/login_utils.h"
 #include "chrome/browser/chromeos/setting_level_bubble_view.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/browser/ui/views/info_bubble.h"
+#include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/views/bubble/bubble.h"
 #include "views/widget/root_view.h"
 
 namespace {
@@ -26,15 +28,26 @@ const double kBubbleXRatio = 0.5;
 // Vertical gap from the bottom of the screen in pixels.
 const int kBubbleBottomGap = 30;
 
+int LimitPercent(int percent) {
+  if (percent < 0)
+    percent = 0;
+  else if (percent > 100)
+    percent = 100;
+  return percent;
+}
+
 }  // namespace
 
 namespace chromeos {
 
-// Temporary helper routine. Returns the widget from the most-recently-focused
-// normal browser window or NULL.
-// TODO(glotov): remove this in favor of enabling InfoBubble class act
+// Temporary helper routine. Tries to first return the widget from the
+// most-recently-focused normal browser window, then from a login
+// background, and finally NULL if both of those fail.
+// TODO(glotov): remove this in favor of enabling Bubble class act
 // without |parent| specified. crosbug.com/4025
 static views::Widget* GetToplevelWidget() {
+  GtkWindow* window = NULL;
+
   // We just use the default profile here -- this gets overridden as needed
   // in Chrome OS depending on whether the user is logged in or not.
   Browser* browser =
@@ -42,12 +55,20 @@ static views::Widget* GetToplevelWidget() {
           ProfileManager::GetDefaultProfile(),
           Browser::TYPE_NORMAL,
           true);  // match_incognito
-  if (!browser)
+  if (browser) {
+    window = GTK_WINDOW(browser->window()->GetNativeHandle());
+  } else {
+    // Otherwise, see if there's a background window that we can use.
+    BackgroundView* background = LoginUtils::Get()->GetBackgroundView();
+    if (background)
+      window = GTK_WINDOW(background->GetNativeWindow());
+  }
+
+  if (!window)
     return NULL;
 
   views::NativeWidget* native_widget =
-      views::NativeWidget::GetNativeWidgetForNativeWindow(
-          GTK_WINDOW(browser->window()->GetNativeHandle()));
+      views::NativeWidget::GetNativeWidgetForNativeWindow(window);
   return native_widget->GetWidget();
 }
 
@@ -67,10 +88,7 @@ SettingLevelBubble::SettingLevelBubble(SkBitmap* increase_icon,
 }
 
 void SettingLevelBubble::ShowBubble(int percent) {
-  if (percent < 0)
-    percent = 0;
-  if (percent > 100)
-    percent = 100;
+  percent = LimitPercent(percent);
   if (previous_percent_ == -1)
     previous_percent_ = percent;
   current_percent_ = percent;
@@ -95,12 +113,12 @@ void SettingLevelBubble::ShowBubble(int percent) {
     const int x = view_size.width() / 2 +
         kBubbleXRatio * (bounds.width() - view_size.width());
     const int y = bounds.height() - view_size.height() / 2 - kBubbleBottomGap;
-    bubble_ = InfoBubble::ShowFocusless(widget,  // parent
-                                        gfx::Rect(x, y, 0, 20),
-                                        BubbleBorder::FLOAT,
-                                        view_,  // contents
-                                        this,   // delegate
-                                        true);  // show while screen is locked
+    bubble_ = Bubble::ShowFocusless(widget,  // parent
+                                    gfx::Rect(x, y, 0, 20),
+                                    BubbleBorder::FLOAT,
+                                    view_,  // contents
+                                    this,   // delegate
+                                    true);  // show while screen is locked
   } else {
     DCHECK(view_);
     timeout_timer_.Stop();
@@ -119,12 +137,29 @@ void SettingLevelBubble::HideBubble() {
     bubble_->Close();
 }
 
+void SettingLevelBubble::UpdateWithoutShowingBubble(int percent) {
+  percent = LimitPercent(percent);
+
+  previous_percent_ =
+      animation_.is_animating() ?
+      animation_.GetCurrentValue() :
+      current_percent_;
+  if (previous_percent_ < 0)
+    previous_percent_ = percent;
+  current_percent_ = percent;
+
+  if (animation_.is_animating())
+    animation_.End();
+  animation_.Reset();
+  animation_.Show();
+}
+
 void SettingLevelBubble::OnTimeout() {
   HideBubble();
 }
 
-void SettingLevelBubble::InfoBubbleClosing(InfoBubble* info_bubble, bool) {
-  DCHECK(info_bubble == bubble_);
+void SettingLevelBubble::BubbleClosing(Bubble* bubble, bool) {
+  DCHECK(bubble == bubble_);
   timeout_timer_.Stop();
   animation_.Stop();
   bubble_ = NULL;

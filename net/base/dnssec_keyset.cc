@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,11 +8,10 @@
 #include <cryptoht.h>
 #include <keyhi.h>
 
-#include "base/crypto/signature_verifier.h"
 #include "base/logging.h"
-#include "base/nss_util.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/time.h"
+#include "crypto/nss_util.h"
 #include "net/base/dns_util.h"
 
 namespace {
@@ -194,13 +193,13 @@ bool DNSSECKeySet::VerifySignature(
     base::StringPiece public_key,
     base::StringPiece signed_data) {
   // This code is largely a copy-and-paste from
-  // base/crypto/signature_verifier_nss.cc. We can't change
-  // base::SignatureVerifier to always use NSS because we want the ability to
-  // be FIPS 140-2 compliant. However, we can't use base::SignatureVerifier
+  // crypto/signature_verifier_nss.cc. We can't change
+  // crypto::SignatureVerifier to always use NSS because we want the ability to
+  // be FIPS 140-2 compliant. However, we can't use crypto::SignatureVerifier
   // here because some platforms don't support SHA256 signatures. Therefore, we
   // use NSS directly.
 
-  base::EnsureNSSInit();
+  crypto::EnsureNSSInit();
 
   CERTSubjectPublicKeyInfo* spki = NULL;
   SECItem spki_der;

@@ -9,8 +9,8 @@
 
 #include "base/callback.h"
 #include "base/i18n/time_formatting.h"
+#include "base/memory/singleton.h"
 #include "base/message_loop.h"
-#include "base/singleton.h"
 #include "base/string16.h"
 #include "base/string_number_conversions.h"
 #include "base/string_piece.h"
@@ -26,7 +26,6 @@
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/webui/favicon_source.h"
 #include "chrome/common/jstemplate_builder.h"
-#include "chrome/common/notification_source.h"
 #include "chrome/common/time_format.h"
 #include "chrome/common/url_constants.h"
 #include "content/browser/browser_thread.h"
@@ -56,7 +55,7 @@ HistoryUIHTMLSource::HistoryUIHTMLSource()
 }
 
 void HistoryUIHTMLSource::StartDataRequest(const std::string& path,
-                                           bool is_off_the_record,
+                                           bool is_incognito,
                                            int request_id) {
   DictionaryValue localized_strings;
   localized_strings.SetString("loading",
@@ -131,11 +130,8 @@ WebUIMessageHandler* BrowsingHistoryHandler::Attach(WebUI* web_ui) {
   // Create our favicon data source.
   Profile* profile = web_ui->GetProfile();
   profile->GetChromeURLDataManager()->AddDataSource(
-      new FavIconSource(profile));
+      new FaviconSource(profile));
 
-  // Get notifications when history is cleared.
-  registrar_.Add(this, NotificationType::HISTORY_URLS_DELETED,
-      Source<Profile>(profile->GetOriginalProfile()));
   return WebUIMessageHandler::Attach(web_ui);
 }
 
@@ -203,7 +199,7 @@ void BrowsingHistoryHandler::HandleSearchHistory(const ListValue* args) {
 
 void BrowsingHistoryHandler::HandleRemoveURLsOnOneDay(const ListValue* args) {
   if (cancelable_delete_consumer_.HasPendingRequests()) {
-    web_ui_->CallJavascriptFunction(L"deleteFailed");
+    web_ui_->CallJavascriptFunction("deleteFailed");
     return;
   }
 
@@ -296,12 +292,12 @@ void BrowsingHistoryHandler::QueryComplete(
   info_value.SetString("term", search_text_);
   info_value.SetBoolean("finished", results->reached_beginning());
 
-  web_ui_->CallJavascriptFunction(L"historyResult", info_value, results_value);
+  web_ui_->CallJavascriptFunction("historyResult", info_value, results_value);
 }
 
 void BrowsingHistoryHandler::RemoveComplete() {
   // Some Visits were deleted from history. Reload the list.
-  web_ui_->CallJavascriptFunction(L"deleteComplete");
+  web_ui_->CallJavascriptFunction("deleteComplete");
 }
 
 void BrowsingHistoryHandler::ExtractSearchHistoryArguments(
@@ -359,18 +355,6 @@ history::QueryOptions BrowsingHistoryHandler::CreateMonthQueryOptions(
   }
 
   return options;
-}
-
-void BrowsingHistoryHandler::Observe(NotificationType type,
-                                     const NotificationSource& source,
-                                     const NotificationDetails& details) {
-  if (type != NotificationType::HISTORY_URLS_DELETED) {
-    NOTREACHED();
-    return;
-  }
-
-  // Some URLs were deleted from history. Reload the list.
-  web_ui_->CallJavascriptFunction(L"historyDeleted");
 }
 
 ////////////////////////////////////////////////////////////////////////////////

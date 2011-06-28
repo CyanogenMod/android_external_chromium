@@ -15,13 +15,14 @@
 #include "base/process_util.h"
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
+#include "base/synchronization/waitable_event.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/time.h"
 #include "build/build_config.h"
 #include "chrome/browser/about_flags.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/first_run/first_run.h"
+#include "chrome/browser/first_run/upgrade_util.h"
 #include "chrome/browser/jankometer.h"
 #include "chrome/browser/metrics/metrics_service.h"
 #include "chrome/browser/prefs/pref_service.h"
@@ -30,7 +31,6 @@
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/webui/chrome_url_data_manager.h"
 #include "chrome/common/chrome_paths.h"
-#include "chrome/common/chrome_plugin_lib.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/switch_utils.h"
@@ -43,6 +43,8 @@
 #include "ui/base/resource/resource_bundle.h"
 
 #if defined(OS_WIN)
+#include "chrome/browser/browser_util_win.h"
+#include "chrome/browser/first_run/upgrade_util_win.h"
 #include "chrome/browser/rlz/rlz.h"
 #endif
 
@@ -121,11 +123,6 @@ void Shutdown() {
   // shutdown.
   base::ThreadRestrictions::SetIOAllowed(true);
 
-  // Unload plugins. This needs to happen on the IO thread.
-  BrowserThread::PostTask(
-        BrowserThread::IO, FROM_HERE,
-        NewRunnableFunction(&ChromePluginLib::UnloadAllPlugins));
-
   // Shutdown all IPC channels to service processes.
   ServiceProcessControlManager::GetInstance()->Shutdown();
 
@@ -150,10 +147,8 @@ void Shutdown() {
   chrome_browser_net::SavePredictorStateForNextStartupAndTrim(user_prefs);
 
   MetricsService* metrics = g_browser_process->metrics_service();
-  if (metrics) {
-    metrics->RecordCleanShutdown();
+  if (metrics)
     metrics->RecordCompletedSessionEnd();
-  }
 
   if (shutdown_type_ > NOT_VALID && shutdown_num_processes_ > 0) {
     // Record the shutdown info so that we can put it into a histogram at next
@@ -196,9 +191,9 @@ void Shutdown() {
     ResourceBundle::CleanupSharedInstance();
 
 #if defined(OS_WIN)
-  if (!Upgrade::IsBrowserAlreadyRunning() &&
+  if (!browser_util::IsBrowserAlreadyRunning() &&
       shutdown_type_ != browser_shutdown::END_SESSION) {
-    Upgrade::SwapNewChromeExeIfPresent();
+    upgrade_util::SwapNewChromeExeIfPresent();
   }
 #endif
 
@@ -232,7 +227,7 @@ void Shutdown() {
       new_cl->AppendSwitch(switches::kRestoreLastSession);
 
 #if defined(OS_WIN) || defined(OS_LINUX)
-    Upgrade::RelaunchChromeBrowser(*new_cl.get());
+    upgrade_util::RelaunchChromeBrowser(*new_cl.get());
 #endif  // defined(OS_WIN) || defined(OS_LINUX)
 
 #if defined(OS_MACOSX)

@@ -39,7 +39,9 @@ class ExtensionLocalizationPeer
   virtual void OnReceivedResponse(
       const webkit_glue::ResourceResponseInfo& info);
   virtual void OnDownloadedData(int len) {}
-  virtual void OnReceivedData(const char* data, int len);
+  virtual void OnReceivedData(const char* data,
+                              int data_length,
+                              int encoded_data_length);
   virtual void OnCompletedRequest(const net::URLRequestStatus& status,
                                   const std::string& security_info,
                                   const base::Time& completion_time);
@@ -63,7 +65,7 @@ class ExtensionLocalizationPeer
   // We just pass though the response info. This holds the copy of the original.
   webkit_glue::ResourceResponseInfo response_info_;
 
-  // Sends ViewHostMsg_GetExtensionMessageBundle message to the browser to fetch
+  // Sends ExtensionHostMsg_GetMessageBundle message to the browser to fetch
   // message catalog.
   IPC::Message::Sender* message_sender_;
 

@@ -10,12 +10,12 @@
 
 #include <vector>
 
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/ui/gtk/focus_store_gtk.h"
 #include "chrome/browser/ui/gtk/owned_widget_gtk.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
 #include "content/browser/tab_contents/tab_contents_view.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
 #include "ui/base/gtk/gtk_signal.h"
 
 class ConstrainedWindowGtk;
@@ -96,10 +96,6 @@ class TabContentsViewGtk : public TabContentsView,
   // Handle focus traversal on the render widget native view.
   CHROMEGTK_CALLBACK_1(TabContentsViewGtk, gboolean, OnFocus, GtkDirectionType);
 
-  // We keep track of the timestamp of the latest mousedown event.
-  CHROMEGTK_CALLBACK_1(TabContentsViewGtk, gboolean, OnMouseDown,
-                       GdkEventButton*);
-
   // Used to adjust the size of its children when the size of |expanded_| is
   // changed.
   CHROMEGTK_CALLBACK_2(TabContentsViewGtk, void, OnChildSizeRequest,
@@ -123,10 +119,6 @@ class TabContentsViewGtk : public TabContentsView,
   // The context menu is reset every time we show it, but we keep a pointer to
   // between uses so that it won't go out of scope before we're done with it.
   scoped_ptr<RenderViewContextMenuGtk> context_menu_;
-
-  // The event for the last mouse down we handled. We need this for context
-  // menus and drags.
-  GdkEventButton last_mouse_down_;
 
   // Used to get notifications about renderers coming and going.
   NotificationRegistrar registrar_;

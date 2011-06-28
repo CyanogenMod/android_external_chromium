@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 #define NET_HTTP_HTTP_NETWORK_SESSION_PEER_H_
 #pragma once
 
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
 
 namespace net {
 
@@ -17,7 +17,7 @@ class HttpStreamFactory;
 class ProxyService;
 class SOCKSClientSocketPool;
 class SSLClientSocketPool;
-class TCPClientSocketPool;
+class TransportClientSocketPool;
 
 class HttpNetworkSessionPeer {
  public:
@@ -25,7 +25,7 @@ class HttpNetworkSessionPeer {
       const scoped_refptr<HttpNetworkSession>& session);
   ~HttpNetworkSessionPeer();
 
-  void SetTCPSocketPool(TCPClientSocketPool* pool);
+  void SetTransportSocketPool(TransportClientSocketPool* pool);
 
   void SetSocketPoolForSOCKSProxy(
       const HostPortPair& socks_proxy,

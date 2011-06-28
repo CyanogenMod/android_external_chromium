@@ -8,7 +8,7 @@
 
 #include <vector>
 
-#include "base/scoped_callback_factory.h"
+#include "base/memory/scoped_callback_factory.h"
 #include "chrome/browser/download/download_item.h"
 #include "chrome/browser/download/download_manager.h"
 #include "content/browser/webui/web_ui.h"
@@ -31,7 +31,6 @@ class DownloadsDOMHandler : public WebUIMessageHandler,
 
   // DownloadItem::Observer interface
   virtual void OnDownloadUpdated(DownloadItem* download);
-  virtual void OnDownloadFileCompleted(DownloadItem* download) { }
   virtual void OnDownloadOpened(DownloadItem* download) { }
 
   // DownloadManager::Observer interface

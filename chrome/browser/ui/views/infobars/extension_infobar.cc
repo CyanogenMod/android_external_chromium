@@ -43,8 +43,7 @@ ExtensionInfoBar::ExtensionInfoBar(ExtensionInfoBarDelegate* delegate)
 
   ExtensionView* extension_view = delegate->extension_host()->view();
   int height = extension_view->GetPreferredSize().height();
-  set_target_height((height > 0) ?
-      (height + InfoBarBackground::kSeparatorLineHeight) : height);
+  SetBarTargetHeight((height > 0) ? (height + kSeparatorLineHeight) : 0);
 
   // Get notified of resize events for the ExtensionView.
   extension_view->SetContainer(this);
@@ -130,14 +129,14 @@ void ExtensionInfoBar::OnExtensionPreferredSizeChanged(ExtensionView* view) {
     animation()->Reset(0.0);
 
   // Clamp height to a min and a max size of between 1 and 2 InfoBars.
-  set_target_height(std::min(2 * kDefaultTargetHeight,
-      std::max(kDefaultTargetHeight, view->GetPreferredSize().height())));
+  SetBarTargetHeight(std::min(2 * kDefaultBarTargetHeight,
+      std::max(kDefaultBarTargetHeight, view->GetPreferredSize().height())));
 
   animation()->Show();
 }
 
 void ExtensionInfoBar::OnImageLoaded(SkBitmap* image,
-                                     ExtensionResource resource,
+                                     const ExtensionResource& resource,
                                      int index) {
   if (!GetDelegate())
     return;  // The delegate can go away while we asynchronously load images.

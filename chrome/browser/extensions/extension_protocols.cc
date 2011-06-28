@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -46,7 +46,16 @@ class URLRequestResourceBundleJob : public net::URLRequestSimpleJob {
                        std::string* data) const {
     const ResourceBundle& rb = ResourceBundle::GetSharedInstance();
     *data = rb.GetRawDataResource(resource_id_).as_string();
-    bool result = net::GetMimeTypeFromFile(filename_, mime_type);
+
+    // Requests should not block on the disk!  On Windows this goes to the
+    // registry.
+    //   http://code.google.com/p/chromium/issues/detail?id=59849
+    bool result;
+    {
+      base::ThreadRestrictions::ScopedAllowIO allow_io;
+      result = net::GetMimeTypeFromFile(filename_, mime_type);
+    }
+
     if (StartsWithASCII(*mime_type, "text/", false)) {
       // All of our HTML files should be UTF-8 and for other resource types
       // (like images), charset doesn't matter.
@@ -86,7 +95,7 @@ bool AllowExtensionResourceLoad(net::URLRequest* request,
   // Don't allow toplevel navigations to extension resources in incognito mode.
   // This is because an extension must run in a single process, and an
   // incognito tab prevents that.
-  if (context->is_off_the_record() &&
+  if (context->is_incognito() &&
       info->resource_type() == ResourceType::MAIN_FRAME &&
       !context->extension_info_map()->
           ExtensionCanLoadInIncognito(request->url().host())) {
@@ -119,8 +128,13 @@ static net::URLRequestJob* CreateExtensionURLRequestJob(
   FilePath directory_path = context->extension_info_map()->
       GetPathForExtension(extension_id);
   if (directory_path.value().empty()) {
-    LOG(WARNING) << "Failed to GetPathForExtension: " << extension_id;
-    return NULL;
+    if (context->extension_info_map()->URLIsForExtensionIcon(request->url()))
+      directory_path = context->extension_info_map()->
+          GetPathForDisabledExtension(extension_id);
+    if (directory_path.value().empty()) {
+      LOG(WARNING) << "Failed to GetPathForExtension: " << extension_id;
+      return NULL;
+    }
   }
 
   FilePath resources_path;

@@ -34,24 +34,50 @@ const char kApplicationXCompress[] = "application/x-compress";
 const char kApplicationCompress[]  = "application/compress";
 const char kTextHtml[]             = "text/html";
 
+// Buffer size allocated when de-compressing data.
+const int kFilterBufSize = 32 * 1024;
+
 }  // namespace
+
+namespace net {
 
 FilterContext::~FilterContext() {
 }
 
 Filter::~Filter() {}
 
+// static
 Filter* Filter::Factory(const std::vector<FilterType>& filter_types,
                         const FilterContext& filter_context) {
-  DCHECK_GT(filter_context.GetInputStreamBufferSize(), 0);
-  if (filter_types.empty() || filter_context.GetInputStreamBufferSize() <= 0)
+  if (filter_types.empty())
     return NULL;
-
 
   Filter* filter_list = NULL;  // Linked list of filters.
   for (size_t i = 0; i < filter_types.size(); i++) {
     filter_list = PrependNewFilter(filter_types[i], filter_context,
-                                   filter_list);
+                                   kFilterBufSize, filter_list);
+    if (!filter_list)
+      return NULL;
+  }
+  return filter_list;
+}
+
+// static
+Filter* Filter::GZipFactory() {
+  return InitGZipFilter(FILTER_TYPE_GZIP, kFilterBufSize);
+}
+
+// static
+Filter* Filter::FactoryForTests(const std::vector<FilterType>& filter_types,
+                                const FilterContext& filter_context,
+                                int buffer_size) {
+  if (filter_types.empty())
+    return NULL;
+
+  Filter* filter_list = NULL;  // Linked list of filters.
+  for (size_t i = 0; i < filter_types.size(); i++) {
+    filter_list = PrependNewFilter(filter_types[i], filter_context,
+                                   buffer_size, filter_list);
     if (!filter_list)
       return NULL;
   }
@@ -174,7 +200,7 @@ void Filter::FixupEncodingTypes(
       // download it, and in that case, don't decompress .gz/.tgz files.
       if ((EndsWith(extension, FILE_PATH_LITERAL(".gz"), false) ||
            LowerCaseEqualsASCII(extension, ".tgz")) &&
-          !net::IsSupportedMimeType(mime_type))
+          !IsSupportedMimeType(mime_type))
         encoding_types->clear();
     }
   }
@@ -184,13 +210,13 @@ void Filter::FixupEncodingTypes(
     // It was not an SDCH request, so we'll just record stats.
     if (1 < encoding_types->size()) {
       // Multiple filters were intended to only be used for SDCH (thus far!)
-      net::SdchManager::SdchErrorRecovery(
-          net::SdchManager::MULTIENCODING_FOR_NON_SDCH_REQUEST);
+      SdchManager::SdchErrorRecovery(
+          SdchManager::MULTIENCODING_FOR_NON_SDCH_REQUEST);
     }
     if ((1 == encoding_types->size()) &&
         (FILTER_TYPE_SDCH == encoding_types->front())) {
-        net::SdchManager::SdchErrorRecovery(
-            net::SdchManager::SDCH_CONTENT_ENCODE_FOR_NON_SDCH_REQUEST);
+        SdchManager::SdchErrorRecovery(
+            SdchManager::SDCH_CONTENT_ENCODE_FOR_NON_SDCH_REQUEST);
     }
     return;
   }
@@ -210,8 +236,8 @@ void Filter::FixupEncodingTypes(
     // no-op pass through filter if it doesn't get gzip headers where expected.
     if (1 == encoding_types->size()) {
       encoding_types->push_back(FILTER_TYPE_GZIP_HELPING_SDCH);
-      net::SdchManager::SdchErrorRecovery(
-          net::SdchManager::OPTIONAL_GUNZIP_ENCODING_ADDED);
+      SdchManager::SdchErrorRecovery(
+          SdchManager::OPTIONAL_GUNZIP_ENCODING_ADDED);
     }
     return;
   }
@@ -245,14 +271,14 @@ void Filter::FixupEncodingTypes(
     // Suspicious case: Advertised dictionary, but server didn't use sdch, and
     // we're HTML tagged.
     if (encoding_types->empty()) {
-      net::SdchManager::SdchErrorRecovery(
-          net::SdchManager::ADDED_CONTENT_ENCODING);
+      SdchManager::SdchErrorRecovery(
+          SdchManager::ADDED_CONTENT_ENCODING);
     } else if (1 == encoding_types->size()) {
-      net::SdchManager::SdchErrorRecovery(
-          net::SdchManager::FIXED_CONTENT_ENCODING);
+      SdchManager::SdchErrorRecovery(
+          SdchManager::FIXED_CONTENT_ENCODING);
     } else {
-      net::SdchManager::SdchErrorRecovery(
-          net::SdchManager::FIXED_CONTENT_ENCODINGS);
+      SdchManager::SdchErrorRecovery(
+          SdchManager::FIXED_CONTENT_ENCODINGS);
     }
   } else {
     // Remarkable case!?!  We advertised an SDCH dictionary, content-encoding
@@ -264,14 +290,14 @@ void Filter::FixupEncodingTypes(
     // start with "text/html" for some other reason??  We'll report this as a
     // fixup to a binary file, but it probably really is text/html (some how).
     if (encoding_types->empty()) {
-      net::SdchManager::SdchErrorRecovery(
-          net::SdchManager::BINARY_ADDED_CONTENT_ENCODING);
+      SdchManager::SdchErrorRecovery(
+          SdchManager::BINARY_ADDED_CONTENT_ENCODING);
     } else if (1 == encoding_types->size()) {
-      net::SdchManager::SdchErrorRecovery(
-          net::SdchManager::BINARY_FIXED_CONTENT_ENCODING);
+      SdchManager::SdchErrorRecovery(
+          SdchManager::BINARY_FIXED_CONTENT_ENCODING);
     } else {
-      net::SdchManager::SdchErrorRecovery(
-          net::SdchManager::BINARY_FIXED_CONTENT_ENCODINGS);
+      SdchManager::SdchErrorRecovery(
+          SdchManager::BINARY_FIXED_CONTENT_ENCODINGS);
     }
   }
 
@@ -290,19 +316,13 @@ void Filter::FixupEncodingTypes(
   return;
 }
 
-Filter::Filter(const FilterContext& filter_context)
+Filter::Filter()
     : stream_buffer_(NULL),
       stream_buffer_size_(0),
       next_stream_data_(NULL),
       stream_data_len_(0),
       next_filter_(NULL),
-      last_status_(FILTER_NEED_MORE_DATA),
-      filter_context_(filter_context) {
-}
-
-Filter::FilterStatus Filter::ReadFilteredData(char* dest_buffer,
-                                              int* dest_len) {
-  return Filter::FILTER_ERROR;
+      last_status_(FILTER_NEED_MORE_DATA) {
 }
 
 Filter::FilterStatus Filter::CopyOut(char* dest_buffer, int* dest_len) {
@@ -327,69 +347,61 @@ Filter::FilterStatus Filter::CopyOut(char* dest_buffer, int* dest_len) {
 }
 
 // static
+Filter* Filter::InitGZipFilter(FilterType type_id, int buffer_size) {
+  scoped_ptr<GZipFilter> gz_filter(new GZipFilter());
+  gz_filter->InitBuffer(buffer_size);
+  return gz_filter->InitDecoding(type_id) ? gz_filter.release() : NULL;
+}
+
+// static
+Filter* Filter::InitSdchFilter(FilterType type_id,
+                               const FilterContext& filter_context,
+                               int buffer_size) {
+  scoped_ptr<SdchFilter> sdch_filter(new SdchFilter(filter_context));
+  sdch_filter->InitBuffer(buffer_size);
+  return sdch_filter->InitDecoding(type_id) ? sdch_filter.release() : NULL;
+}
+
+// static
 Filter* Filter::PrependNewFilter(FilterType type_id,
                                  const FilterContext& filter_context,
+                                 int buffer_size,
                                  Filter* filter_list) {
-  Filter* first_filter = NULL;  // Soon to be start of chain.
+  scoped_ptr<Filter> first_filter;  // Soon to be start of chain.
   switch (type_id) {
     case FILTER_TYPE_GZIP_HELPING_SDCH:
     case FILTER_TYPE_DEFLATE:
-    case FILTER_TYPE_GZIP: {
-      scoped_ptr<net::GZipFilter> gz_filter(
-          new net::GZipFilter(filter_context));
-      if (gz_filter->InitBuffer()) {
-        if (gz_filter->InitDecoding(type_id)) {
-          first_filter = gz_filter.release();
-        }
-      }
+    case FILTER_TYPE_GZIP:
+      first_filter.reset(InitGZipFilter(type_id, buffer_size));
       break;
-    }
     case FILTER_TYPE_SDCH:
-    case FILTER_TYPE_SDCH_POSSIBLE: {
-      scoped_ptr<net::SdchFilter> sdch_filter(
-          new net::SdchFilter(filter_context));
-      if (sdch_filter->InitBuffer()) {
-        if (sdch_filter->InitDecoding(type_id)) {
-          first_filter = sdch_filter.release();
-        }
-      }
+    case FILTER_TYPE_SDCH_POSSIBLE:
+      first_filter.reset(InitSdchFilter(type_id, filter_context, buffer_size));
       break;
-    }
-    default: {
+    default:
       break;
-    }
   }
 
-  if (!first_filter) {
-    // Cleanup and exit, since we can't construct this filter list.
-    delete filter_list;
+  if (!first_filter.get())
     return NULL;
-  }
 
   first_filter->next_filter_.reset(filter_list);
-  return first_filter;
+  return first_filter.release();
 }
 
-bool Filter::InitBuffer() {
-  int buffer_size = filter_context_.GetInputStreamBufferSize();
+void Filter::InitBuffer(int buffer_size) {
+  DCHECK(!stream_buffer());
   DCHECK_GT(buffer_size, 0);
-  if (buffer_size <= 0 || stream_buffer())
-    return false;
-
-  stream_buffer_ = new net::IOBuffer(buffer_size);
-
-  if (stream_buffer()) {
-    stream_buffer_size_ = buffer_size;
-    return true;
-  }
-
-  return false;
+  stream_buffer_ = new IOBuffer(buffer_size);
+  stream_buffer_size_ = buffer_size;
 }
 
 void Filter::PushDataIntoNextFilter() {
-  net::IOBuffer* next_buffer = next_filter_->stream_buffer();
+  IOBuffer* next_buffer = next_filter_->stream_buffer();
   int next_size = next_filter_->stream_buffer_size();
   last_status_ = ReadFilteredData(next_buffer->data(), &next_size);
   if (FILTER_ERROR != last_status_)
     next_filter_->FlushStreamBuffer(next_size);
 }
+
+}  // namespace net

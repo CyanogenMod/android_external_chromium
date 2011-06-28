@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 #define CHROME_BROWSER_POLICY_FILE_BASED_POLICY_LOADER_H_
 #pragma once
 
-#include "chrome/browser/file_path_watcher/file_path_watcher.h"
+#include "base/files/file_path_watcher.h"
 #include "chrome/browser/policy/asynchronous_policy_loader.h"
 #include "chrome/browser/policy/file_based_policy_provider.h"
 
@@ -25,7 +25,7 @@ class FileBasedPolicyLoader : public AsynchronousPolicyLoader {
   virtual void Reload();
 
   void OnFilePathChanged(const FilePath& path);
-  void OnError();
+  void OnFilePathError(const FilePath& path);
 
  protected:
   // FileBasedPolicyLoader objects should only be deleted by
@@ -56,7 +56,7 @@ class FileBasedPolicyLoader : public AsynchronousPolicyLoader {
   // it possible to destroy the watcher before the loader's destructor is called
   // (e.g. during Stop), since |watcher_| internally holds a reference to the
   // loader and keeps it alive.
-  scoped_ptr<FilePathWatcher> watcher_;
+  scoped_ptr<base::files::FilePathWatcher> watcher_;
 
   // Settle interval.
   const base::TimeDelta settle_interval_;

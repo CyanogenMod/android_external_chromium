@@ -7,11 +7,12 @@
 
 #include <vector>
 
+#include "base/base_api.h"
 #include "base/callback.h"
 #include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/memory/ref_counted.h"
 #include "base/platform_file.h"
-#include "base/ref_counted.h"
 #include "base/tracked_objects.h"
 
 namespace base {
@@ -20,7 +21,7 @@ class MessageLoopProxy;
 class Time;
 
 // This class provides asynchronous access to common file routines.
-class FileUtilProxy {
+class BASE_API FileUtilProxy {
  public:
   // Holds metadata for file or directory entry. Used by ReadDirectoryCallback.
   struct Entry {

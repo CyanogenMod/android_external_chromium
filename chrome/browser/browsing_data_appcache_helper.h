@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,11 @@
 #define CHROME_BROWSER_BROWSING_DATA_APPCACHE_HELPER_H_
 #pragma once
 
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/task.h"
-#include "chrome/common/net/url_request_context_getter.h"
 #include "content/browser/appcache/chrome_appcache_service.h"
 #include "googleurl/src/gurl.h"
+#include "net/url_request/url_request_context_getter.h"
 
 class Profile;
 
@@ -41,7 +41,7 @@ class BrowsingDataAppCacheHelper
   void OnFetchComplete(int rv);
   ChromeAppCacheService* GetAppCacheService();
 
-  scoped_refptr<URLRequestContextGetter> request_context_getter_;
+  scoped_refptr<net::URLRequestContextGetter> request_context_getter_;
   bool is_fetching_;
   scoped_refptr<net::CancelableCompletionCallback<BrowsingDataAppCacheHelper> >
       appcache_info_callback_;
@@ -55,6 +55,11 @@ class BrowsingDataAppCacheHelper
 class CannedBrowsingDataAppCacheHelper : public BrowsingDataAppCacheHelper {
  public:
   explicit CannedBrowsingDataAppCacheHelper(Profile* profile);
+
+  // Return a copy of the appcache helper. Only one consumer can use the
+  // StartFetching method at a time, so we need to create a copy of the helper
+  // everytime we instantiate a cookies tree model for it.
+  CannedBrowsingDataAppCacheHelper* Clone();
 
   // Add an appcache to the set of canned caches that is returned by this
   // helper.
@@ -72,6 +77,8 @@ class CannedBrowsingDataAppCacheHelper : public BrowsingDataAppCacheHelper {
 
  private:
   virtual ~CannedBrowsingDataAppCacheHelper();
+
+  Profile* profile_;
 
   DISALLOW_COPY_AND_ASSIGN(CannedBrowsingDataAppCacheHelper);
 };

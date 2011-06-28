@@ -9,18 +9,18 @@
 #include "base/i18n/rtl.h"
 #include "base/message_loop.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/browser_window.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/views/browser_actions_container.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
 #include "chrome/browser/ui/views/toolbar_view.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_action.h"
-#include "chrome/common/notification_details.h"
-#include "chrome/common/notification_source.h"
-#include "chrome/common/notification_type.h"
+#include "content/common/notification_details.h"
+#include "content/common/notification_source.h"
+#include "content/common/notification_type.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -37,7 +37,7 @@ const int kIconSize = 43;
 
 const int kRightColumnWidth = 285;
 
-// The InfoBubble uses a BubbleBorder which adds about 6 pixels of whitespace
+// The Bubble uses a BubbleBorder which adds about 6 pixels of whitespace
 // around the content view. We compensate by reducing our outer borders by this
 // amount + 4px.
 const int kOuterMarginInset = 10;
@@ -67,7 +67,7 @@ namespace browser {
 void ShowExtensionInstalledBubble(
     const Extension* extension,
     Browser* browser,
-    SkBitmap icon,
+    const SkBitmap& icon,
     Profile* profile) {
   ExtensionInstalledBubble::Show(extension, browser, icon);
 }
@@ -83,7 +83,7 @@ class InstalledBubbleContent : public views::View,
   InstalledBubbleContent(const Extension* extension,
                          ExtensionInstalledBubble::BubbleType type,
                          SkBitmap* icon)
-      : info_bubble_(NULL),
+      : bubble_(NULL),
         type_(type),
         info_(NULL) {
     ResourceBundle& rb = ResourceBundle::GetSharedInstance();
@@ -144,13 +144,13 @@ class InstalledBubbleContent : public views::View,
     AddChildView(close_button_);
   }
 
-  void set_info_bubble(InfoBubble* info_bubble) { info_bubble_ = info_bubble; }
+  void set_bubble(Bubble* bubble) { bubble_ = bubble; }
 
   virtual void ButtonPressed(
       views::Button* sender,
       const views::Event& event) {
     if (sender == close_button_) {
-      info_bubble_->set_fade_away_on_close(true);
+      bubble_->set_fade_away_on_close(true);
       GetWidget()->Close();
     } else {
       NOTREACHED() << "Unknown view";
@@ -220,8 +220,8 @@ class InstalledBubbleContent : public views::View,
     close_button_->SetBounds(x - 1, y - 1, sz.width(), sz.height());
   }
 
-  // The InfoBubble showing us.
-  InfoBubble* info_bubble_;
+  // The Bubble showing us.
+  Bubble* bubble_;
 
   ExtensionInstalledBubble::BubbleType type_;
   views::ImageView* icon_;
@@ -235,18 +235,18 @@ class InstalledBubbleContent : public views::View,
 
 void ExtensionInstalledBubble::Show(const Extension* extension,
                                     Browser *browser,
-                                    SkBitmap icon) {
+                                    const SkBitmap& icon) {
   new ExtensionInstalledBubble(extension, browser, icon);
 }
 
 ExtensionInstalledBubble::ExtensionInstalledBubble(const Extension* extension,
                                                    Browser *browser,
-                                                   SkBitmap icon)
+                                                   const SkBitmap& icon)
     : extension_(extension),
       browser_(browser),
       icon_(icon),
       animation_wait_retries_(0) {
-  AddRef();  // Balanced in InfoBubbleClosing.
+  AddRef();  // Balanced in BubbleClosing.
 
   if (!extension_->omnibox_keyword().empty()) {
     type_ = OMNIBOX_KEYWORD;
@@ -353,15 +353,14 @@ void ExtensionInstalledBubble::ShowInternal() {
   }
 
   bubble_content_ = new InstalledBubbleContent(extension_, type_, &icon_);
-  InfoBubble* info_bubble =
-      InfoBubble::Show(browser_view->GetWidget(), bounds, arrow_location,
-                       bubble_content_, this);
-  bubble_content_->set_info_bubble(info_bubble);
+  Bubble* bubble = Bubble::Show(browser_view->GetWidget(), bounds,
+                                arrow_location, bubble_content_, this);
+  bubble_content_->set_bubble(bubble);
 }
 
-// InfoBubbleDelegate
-void ExtensionInstalledBubble::InfoBubbleClosing(InfoBubble* info_bubble,
-                                                 bool closed_by_escape) {
+// BubbleDelegate
+void ExtensionInstalledBubble::BubbleClosing(Bubble* bubble,
+                                             bool closed_by_escape) {
   if (extension_ && type_ == PAGE_ACTION) {
     BrowserView* browser_view = BrowserView::GetBrowserViewForNativeWindow(
         browser_->window()->GetNativeHandle());

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,8 @@
 #include <list>
 #include <string>
 
+#include "base/memory/ref_counted.h"
 #include "base/string16.h"
-#include "base/ref_counted.h"
 #include "net/base/completion_callback.h"
 #include "net/base/load_states.h"
 
@@ -135,9 +135,6 @@ class HttpStreamRequest {
   // Returns the LoadState for the request.
   virtual LoadState GetLoadState() const = 0;
 
-  // Returns true if an AlternateProtocol for this request was available.
-  virtual bool was_alternate_protocol_available() const = 0;
-
   // Returns true if TLS/NPN was negotiated for this stream.
   virtual bool was_npn_negotiated() const = 0;
 
@@ -171,8 +168,8 @@ class HttpStreamFactory {
                                  const SSLConfig& ssl_config,
                                  const BoundNetLog& net_log) = 0;
 
-  virtual void AddTLSIntolerantServer(const GURL& url) = 0;
-  virtual bool IsTLSIntolerantServer(const GURL& url) const = 0;
+  virtual void AddTLSIntolerantServer(const HostPortPair& server) = 0;
+  virtual bool IsTLSIntolerantServer(const HostPortPair& server) const = 0;
 
   // Static settings
   static GURL ApplyHostMappingRules(const GURL& url, HostPortPair* endpoint);
@@ -207,9 +204,8 @@ class HttpStreamFactory {
 
   // Add a URL to exclude from forced SPDY.
   static void add_forced_spdy_exclusion(const std::string& value);
-  static std::list<HostPortPair>* forced_spdy_exclusions() {
-    return forced_spdy_exclusions_;
-  }
+  // Check if a HostPortPair is excluded from using spdy.
+  static bool HasSpdyExclusion(const HostPortPair& endpoint);
 
   // Sets the next protocol negotiation value used during the SSL handshake.
   static void set_next_protos(const std::string& value) {

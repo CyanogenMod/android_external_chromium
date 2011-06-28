@@ -15,6 +15,7 @@
 #include "chrome/browser/custom_handlers/protocol_handler_registry.h"
 #include "chrome/browser/debugger/devtools_manager.h"
 #include "chrome/browser/download/download_prefs.h"
+#include "chrome/browser/extensions/apps_promo.h"
 #include "chrome/browser/extensions/extension_prefs.h"
 #include "chrome/browser/extensions/extension_web_ui.h"
 #include "chrome/browser/extensions/extensions_ui.h"
@@ -33,11 +34,9 @@
 #include "chrome/browser/notifications/notification_ui_manager.h"
 #include "chrome/browser/page_info_model.h"
 #include "chrome/browser/password_manager/password_manager.h"
-#include "chrome/browser/policy/browser_policy_connector.h"
-#include "chrome/browser/policy/profile_policy_connector.h"
+#include "chrome/browser/policy/cloud_policy_subsystem.h"
 #include "chrome/browser/prefs/session_startup_pref.h"
 #include "chrome/browser/profiles/profile_impl.h"
-#include "chrome/browser/renderer_host/browser_render_process_host.h"
 #include "chrome/browser/renderer_host/web_cache_manager.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
 #include "chrome/browser/search_engines/template_url_model.h"
@@ -54,8 +53,10 @@
 #include "chrome/browser/ui/webui/new_tab_ui.h"
 #include "chrome/browser/ui/webui/plugins_ui.h"
 #include "chrome/browser/upgrade_detector.h"
+#include "chrome/browser/web_resource/promo_resource_service.h"
 #include "chrome/common/pref_names.h"
 #include "content/browser/host_zoom_map.h"
+#include "content/browser/renderer_host/browser_render_process_host.h"
 
 #if defined(TOOLKIT_VIEWS)  // TODO(port): whittle this down as we port
 #include "chrome/browser/ui/views/browser_actions_container.h"
@@ -68,7 +69,7 @@
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/audio_mixer_alsa.h"
-#include "chrome/browser/chromeos/login/apply_services_customization.h"
+#include "chrome/browser/chromeos/customization_document.h"
 #include "chrome/browser/chromeos/login/signed_settings_temp_storage.h"
 #include "chrome/browser/chromeos/login/user_manager.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
@@ -81,6 +82,7 @@ namespace browser {
 
 void RegisterLocalState(PrefService* local_state) {
   // Prefs in Local State
+  AppsPromo::RegisterPrefs(local_state);
   Browser::RegisterPrefs(local_state);
   FlagsUI::RegisterPrefs(local_state);
   WebCacheManager::RegisterPrefs(local_state);
@@ -90,6 +92,7 @@ void RegisterLocalState(PrefService* local_state) {
   KeywordEditorController::RegisterPrefs(local_state);
   MetricsLog::RegisterPrefs(local_state);
   MetricsService::RegisterPrefs(local_state);
+  PromoResourceService::RegisterPrefs(local_state);
   SafeBrowsingService::RegisterPrefs(local_state);
   browser_shutdown::RegisterPrefs(local_state);
 #if defined(TOOLKIT_VIEWS)
@@ -99,23 +102,25 @@ void RegisterLocalState(PrefService* local_state) {
   TaskManager::RegisterPrefs(local_state);
   geolocation::RegisterPrefs(local_state);
   AutofillManager::RegisterBrowserPrefs(local_state);
+  BackgroundModeManager::RegisterPrefs(local_state);
   BackgroundPageTracker::RegisterPrefs(local_state);
   NotificationUIManager::RegisterPrefs(local_state);
   PrefProxyConfigService::RegisterPrefs(local_state);
-  policy::BrowserPolicyConnector::RegisterPrefs(local_state);
+  policy::CloudPolicySubsystem::RegisterPrefs(local_state);
 #if defined(OS_CHROMEOS)
   chromeos::AudioMixerAlsa::RegisterPrefs(local_state);
   chromeos::UserManager::RegisterPrefs(local_state);
   chromeos::UserCrosSettingsProvider::RegisterPrefs(local_state);
   WizardController::RegisterPrefs(local_state);
   chromeos::InputMethodMenu::RegisterPrefs(local_state);
-  chromeos::ApplyServicesCustomization::RegisterPrefs(local_state);
+  chromeos::ServicesCustomizationDocument::RegisterPrefs(local_state);
   chromeos::SignedSettingsTempStorage::RegisterPrefs(local_state);
 #endif
 }
 
 void RegisterUserPrefs(PrefService* user_prefs) {
   // User prefs
+  AppsPromo::RegisterUserPrefs(user_prefs);
   AutofillManager::RegisterUserPrefs(user_prefs);
   SessionStartupPref::RegisterUserPrefs(user_prefs);
   Browser::RegisterUserPrefs(user_prefs);
@@ -130,6 +135,7 @@ void RegisterUserPrefs(PrefService* user_prefs) {
   NewTabUI::RegisterUserPrefs(user_prefs);
   PluginsUI::RegisterUserPrefs(user_prefs);
   ProfileImpl::RegisterUserPrefs(user_prefs);
+  PromoResourceService::RegisterUserPrefs(user_prefs);
   HostContentSettingsMap::RegisterUserPrefs(user_prefs);
   HostZoomMap::RegisterUserPrefs(user_prefs);
   DevToolsManager::RegisterUserPrefs(user_prefs);
@@ -152,7 +158,7 @@ void RegisterUserPrefs(PrefService* user_prefs) {
   TemplateURLModel::RegisterUserPrefs(user_prefs);
   InstantController::RegisterUserPrefs(user_prefs);
   NetPrefObserver::RegisterPrefs(user_prefs);
-  policy::ProfilePolicyConnector::RegisterPrefs(user_prefs);
+  policy::CloudPolicySubsystem::RegisterPrefs(user_prefs);
   ProtocolHandlerRegistry::RegisterPrefs(user_prefs);
 }
 
@@ -176,9 +182,10 @@ void MigrateBrowserPrefs(PrefService* user_prefs, PrefService* local_state) {
     local_state->RegisterDictionaryPref(prefs::kBrowserWindowPlacement);
     DCHECK(user_prefs->FindPreference(prefs::kBrowserWindowPlacement));
     if (local_state->HasPrefPath(prefs::kBrowserWindowPlacement)) {
-      user_prefs->Set(prefs::kBrowserWindowPlacement,
-          *(local_state->FindPreference(prefs::kBrowserWindowPlacement)->
-              GetValue()));
+      const PrefService::Preference* pref =
+          local_state->FindPreference(prefs::kBrowserWindowPlacement);
+      DCHECK(pref);
+      user_prefs->Set(prefs::kBrowserWindowPlacement, *(pref->GetValue()));
     }
     local_state->ClearPref(prefs::kBrowserWindowPlacement);
 

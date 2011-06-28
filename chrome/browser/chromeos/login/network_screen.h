@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 #define CHROME_BROWSER_CHROMEOS_LOGIN_NETWORK_SCREEN_H_
 #pragma once
 
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
 #include "base/string16.h"
 #include "base/task.h"
 #include "base/timer.h"
@@ -16,7 +16,6 @@
 #include "chrome/browser/chromeos/login/message_bubble.h"
 #include "chrome/browser/chromeos/login/network_screen_delegate.h"
 #include "chrome/browser/chromeos/login/view_screen.h"
-#include "chrome/browser/chromeos/network_list.h"
 #include "chrome/browser/chromeos/options/network_config_view.h"
 
 class WizardScreenDelegate;
@@ -62,9 +61,10 @@ class NetworkScreen : public ViewScreen<NetworkSelectionView>,
   virtual void CreateView();
   virtual NetworkSelectionView* AllocateView();
 
-  // Overridden from views::InfoBubbleDelegate.
-  virtual void InfoBubbleClosing(InfoBubble* info_bubble,
-                                 bool closed_by_escape) { bubble_ = NULL; }
+  // Overridden from views::BubbleDelegate.
+  virtual void BubbleClosing(Bubble* bubble, bool closed_by_escape) {
+    bubble_ = NULL;
+  }
   virtual bool CloseOnEscape() { return true; }
   virtual bool FadeInOnShow() { return false; }
   virtual void OnHelpLinkActivated();

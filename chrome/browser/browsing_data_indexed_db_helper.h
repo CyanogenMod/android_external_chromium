@@ -11,8 +11,8 @@
 
 #include "base/callback.h"
 #include "base/file_path.h"
-#include "base/ref_counted.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/synchronization/lock.h"
 #include "base/time.h"
 #include "chrome/common/url_constants.h"
@@ -84,6 +84,11 @@ class CannedBrowsingDataIndexedDBHelper
     : public BrowsingDataIndexedDBHelper {
  public:
   explicit CannedBrowsingDataIndexedDBHelper(Profile* profile);
+
+  // Return a copy of the IndexedDB helper. Only one consumer can use the
+  // StartFetching method at a time, so we need to create a copy of the helper
+  // everytime we instantiate a cookies tree model for it.
+  CannedBrowsingDataIndexedDBHelper* Clone();
 
   // Add a indexed database to the set of canned indexed databases that is
   // returned by this helper.

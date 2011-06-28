@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,10 +16,10 @@
 #include "base/command_line.h"
 #include "base/file_util.h"
 #include "base/path_service.h"
-#include "base/scoped_comptr_win.h"
 #include "base/string_util.h"
 #include "base/threading/thread.h"
 #include "base/utf_string_conversions.h"
+#include "base/win/scoped_comptr.h"
 #include "base/win/windows_version.h"
 #include "chrome/browser/favicon_service.h"
 #include "chrome/browser/history/history.h"
@@ -45,7 +45,7 @@ namespace {
 
 // COM interfaces used in this file.
 // These interface declarations are copied from Windows SDK 7.0.
-// TODO(hbono): Bug 16903: to be deleted them when we use Windows SDK 7.0.
+// TODO(hbono): Bug 16903: delete them when we use Windows SDK 7.0.
 #ifndef __IObjectArray_INTERFACE_DEFINED__
 #define __IObjectArray_INTERFACE_DEFINED__
 
@@ -117,7 +117,7 @@ ICustomDestinationList : public IUnknown {
 // Class IDs used in this file.
 // These class IDs must be defined in an anonymous namespace to avoid
 // conflicts with ones defined in "shell32.lib" of Visual Studio 2008.
-// TODO(hbono): Bug 16903: to be deleted them when we use Windows SDK 7.0.
+// TODO(hbono): Bug 16903: delete them when we use Windows SDK 7.0.
 const CLSID CLSID_DestinationList = {
   0x77f10cf0, 0x3db5, 0x4966, {0xb5, 0x20, 0xb7, 0xc5, 0x4f, 0xd3, 0x5e, 0xd6}
 };
@@ -170,12 +170,12 @@ class PropVariantString {
 // An IShellLink object is almost the same as an application shortcut, and it
 // requires three items: the absolute path to an application, an argument
 // string, and a title string.
-HRESULT AddShellLink(ScopedComPtr<IObjectCollection> collection,
+HRESULT AddShellLink(base::win::ScopedComPtr<IObjectCollection> collection,
                      const std::wstring& application,
                      const std::wstring& switches,
                      scoped_refptr<ShellLinkItem> item) {
   // Create an IShellLink object.
-  ScopedComPtr<IShellLink> link;
+  base::win::ScopedComPtr<IShellLink> link;
   HRESULT result = link.CreateInstance(CLSID_ShellLink, NULL,
                                        CLSCTX_INPROC_SERVER);
   if (FAILED(result))
@@ -220,7 +220,7 @@ HRESULT AddShellLink(ScopedComPtr<IObjectCollection> collection,
   // 4. Call the IPropertyStore::SetValue() function to Set the title property
   //    of the IShellLink object.
   // 5. Commit the transaction.
-  ScopedComPtr<IPropertyStore> property_store;
+  base::win::ScopedComPtr<IPropertyStore> property_store;
   result = link.QueryInterface(property_store.Receive());
   if (FAILED(result))
     return result;
@@ -281,7 +281,7 @@ bool CreateIconFile(const SkBitmap& bitmap,
 //   switches, use an empty string.
 // * data (ShellLinkItemList)
 //   A list of ShellLinkItem objects to be added under the specified category.
-HRESULT UpdateCategory(ScopedComPtr<ICustomDestinationList> list,
+HRESULT UpdateCategory(base::win::ScopedComPtr<ICustomDestinationList> list,
                        int category_id,
                        const std::wstring& application,
                        const std::wstring& switches,
@@ -298,7 +298,7 @@ HRESULT UpdateCategory(ScopedComPtr<ICustomDestinationList> list,
   // Create an EnumerableObjectCollection object.
   // We once add the given items to this collection object and add this
   // collection to the JumpList.
-  ScopedComPtr<IObjectCollection> collection;
+  base::win::ScopedComPtr<IObjectCollection> collection;
   HRESULT result = collection.CreateInstance(CLSID_EnumerableObjectCollection,
                                              NULL, CLSCTX_INPROC_SERVER);
   if (FAILED(result))
@@ -317,7 +317,7 @@ HRESULT UpdateCategory(ScopedComPtr<ICustomDestinationList> list,
   // and use it.
   // It seems the ICustomDestinationList::AppendCategory() function just
   // replaces all items in the given category with the ones in the new list.
-  ScopedComPtr<IObjectArray> object_array;
+  base::win::ScopedComPtr<IObjectArray> object_array;
   result = collection.QueryInterface(object_array.Receive());
   if (FAILED(result))
     return false;
@@ -332,12 +332,12 @@ HRESULT UpdateCategory(ScopedComPtr<ICustomDestinationList> list,
 //   We should use AddUserTasks() instead of AppendCategory().
 // * The items in the "Task" category are static.
 //   We don't have to use a list.
-HRESULT UpdateTaskCategory(ScopedComPtr<ICustomDestinationList> list,
+HRESULT UpdateTaskCategory(base::win::ScopedComPtr<ICustomDestinationList> list,
                            const std::wstring& chrome_path,
                            const std::wstring& chrome_switches) {
   // Create an EnumerableObjectCollection object to be added items of the
   // "Task" category. (We can also use this object for the "Task" category.)
-  ScopedComPtr<IObjectCollection> collection;
+  base::win::ScopedComPtr<IObjectCollection> collection;
   HRESULT result = collection.CreateInstance(CLSID_EnumerableObjectCollection,
                                              NULL, CLSCTX_INPROC_SERVER);
   if (FAILED(result))
@@ -372,7 +372,7 @@ HRESULT UpdateTaskCategory(ScopedComPtr<ICustomDestinationList> list,
   // ICustomDestinationList::AddUserTasks() also uses the IObjectArray
   // interface to retrieve each item in the list. So, we retrieve the
   // IObjectArray interface from the EnumerableObjectCollection object.
-  ScopedComPtr<IObjectArray> object_array;
+  base::win::ScopedComPtr<IObjectArray> object_array;
   result = collection.QueryInterface(object_array.Receive());
   if (FAILED(result))
     return result;
@@ -396,7 +396,7 @@ bool UpdateJumpList(const wchar_t* app_id,
     return true;
 
   // Create an ICustomDestinationList object and attach it to our application.
-  ScopedComPtr<ICustomDestinationList> destination_list;
+  base::win::ScopedComPtr<ICustomDestinationList> destination_list;
   HRESULT result = destination_list.CreateInstance(CLSID_DestinationList, NULL,
                                                    CLSCTX_INPROC_SERVER);
   if (FAILED(result))
@@ -411,7 +411,7 @@ bool UpdateJumpList(const wchar_t* app_id,
   // It seems Windows 7 RC (Build 7100) automatically checks the items in this
   // removed list and prevent us from adding the same item.
   UINT max_slots;
-  ScopedComPtr<IObjectArray> removed;
+  base::win::ScopedComPtr<IObjectArray> removed;
   result = destination_list->BeginList(&max_slots, __uuidof(*removed),
                                        reinterpret_cast<void**>(&removed));
   if (FAILED(result))
@@ -678,18 +678,18 @@ bool JumpList::AddWindow(const TabRestoreService::Window* window,
   return true;
 }
 
-bool JumpList::StartLoadingFavIcon() {
+bool JumpList::StartLoadingFavicon() {
   if (icon_urls_.empty())
     return false;
 
-  // Ask FaviconService if it has a fav icon of a URL.
-  // When FaviocnService has one, it will call OnFavIconDataAvailable().
+  // Ask FaviconService if it has a favicon of a URL.
+  // When FaviconService has one, it will call OnFaviconDataAvailable().
   GURL url(icon_urls_.front().first);
   FaviconService* favicon_service =
       profile_->GetFaviconService(Profile::EXPLICIT_ACCESS);
   FaviconService::Handle handle = favicon_service->GetFaviconForURL(
-      url, &fav_icon_consumer_,
-      NewCallback(this, &JumpList::OnFavIconDataAvailable));
+      url, history::FAVICON, &favicon_consumer_,
+      NewCallback(this, &JumpList::OnFaviconDataAvailable));
   return true;
 }
 
@@ -707,7 +707,7 @@ void JumpList::OnSegmentUsageAvailable(
   //   The title of a PageUsageData object. If this string is empty, we use
   //   the URL as our "Most Visited" page does.
   // * icon
-  //   An empty string. This value is to be updated in OnFavIconDataAvailable().
+  //   An empty string. This value is to be updated in OnFaviconDataAvailable().
   most_visited_pages_.clear();
   for (std::vector<PageUsageData*>::const_iterator page = data->begin();
        page != data->end(); ++page) {
@@ -728,7 +728,7 @@ void JumpList::OnSegmentUsageAvailable(
   // * title
   //   The title of the last URL.
   // * icon
-  //   An empty string. This value is to be updated in OnFavIconDataAvailable().
+  //   An empty string. This value is to be updated in OnFaviconDataAvailable().
   // This code is copied from
   // RecentlyClosedTabsHandler::TabRestoreServiceChanged() to emulate it.
   const int kRecentlyClosedCount = 4;
@@ -747,30 +747,27 @@ void JumpList::OnSegmentUsageAvailable(
     }
   }
 
-  // Send a query that retrieves the first fav icon.
-  StartLoadingFavIcon();
+  // Send a query that retrieves the first favicon.
+  StartLoadingFavicon();
 }
 
-void JumpList::OnFavIconDataAvailable(
+void JumpList::OnFaviconDataAvailable(
     FaviconService::Handle handle,
-    bool know_favicon,
-    scoped_refptr<RefCountedMemory> data,
-    bool expired,
-    GURL icon_url) {
+    history::FaviconData favicon) {
   // Attach the received data to the ShellLinkItem object.
   // This data will be decoded by JumpListUpdateTask.
-  if (know_favicon && data.get() && data->size()) {
+  if (favicon.is_valid()) {
     if (!icon_urls_.empty() && icon_urls_.front().second)
-      icon_urls_.front().second->SetIconData(data);
+      icon_urls_.front().second->SetIconData(favicon.image_data);
   }
 
-  // if we need to load more fav icons, we send another query and exit.
+  // if we need to load more favicons, we send another query and exit.
   if (!icon_urls_.empty())
     icon_urls_.pop_front();
-  if (StartLoadingFavIcon())
+  if (StartLoadingFavicon())
     return;
 
-  // Finished Loading all fav icons needed by the application JumpList.
+  // Finished loading all favicons needed by the application JumpList.
   // We create a JumpListUpdateTask that creates icon files, and we post it to
   // the file thread.
   BrowserThread::PostTask(

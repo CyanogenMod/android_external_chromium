@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,7 @@
 
 #include "base/basictypes.h"
 #include "base/logging.h"
-#include "base/singleton.h"
+#include "base/memory/singleton.h"
 #include "base/synchronization/lock.h"
 
 namespace base {
@@ -174,11 +174,11 @@ StackTrace::StackTrace(EXCEPTION_POINTERS* exception_pointers) {
   }
 }
 
-void StackTrace::PrintBacktrace() {
+void StackTrace::PrintBacktrace() const {
   OutputToStream(&std::cerr);
 }
 
-void StackTrace::OutputToStream(std::ostream* os) {
+void StackTrace::OutputToStream(std::ostream* os) const {
   SymbolContext* context = SymbolContext::GetInstance();
   DWORD error = context->init_error();
   if (error != ERROR_SUCCESS) {

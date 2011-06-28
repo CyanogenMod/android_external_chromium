@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -20,7 +20,7 @@
 #include <string>
 #include <vector>
 
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/autocomplete/autocomplete.h"
 #include "chrome/browser/autocomplete/autocomplete_match.h"
 #include "chrome/browser/history/history_types.h"
@@ -233,8 +233,10 @@ class SearchProvider : public AutocompleteProvider,
   // algorithms for the different types of matches.
   int CalculateRelevanceForWhatYouTyped() const;
   // |time| is the time at which this query was last seen. |is_keyword| is true
-  // if the search is from the keyword provider.
+  // if the search is from the keyword provider. |looks_like_url| is true if the
+  // search term would be treated as a URL if typed into the omnibox.
   int CalculateRelevanceForHistory(const base::Time& time,
+                                   bool looks_like_url,
                                    bool is_keyword) const;
   // |result_number| is the index of the suggestion in the result set from the
   // server; the best suggestion is suggestion number 0.  |is_keyword| is true

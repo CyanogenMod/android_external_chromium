@@ -1,8 +1,10 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "net/base/net_util.h"
+
+#include <algorithm>
 
 #include "base/file_path.h"
 #include "base/format_macros.h"
@@ -17,10 +19,11 @@
 #include "net/base/sys_addrinfo.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
+namespace net {
+
 namespace {
 
-class NetUtilTest : public testing::Test {
-};
+static const size_t kNpos = string16::npos;
 
 struct FileCase {
   const wchar_t* file;
@@ -391,7 +394,7 @@ struct UrlTestData {
   const char* description;
   const char* input;
   const char* languages;
-  net::FormatUrlTypes format_types;
+  FormatUrlTypes format_types;
   UnescapeRule::Type escape_rules;
   const wchar_t* output;  // Use |wchar_t| to handle Unicode constants easily.
   size_t prefix_len;
@@ -458,7 +461,7 @@ void AppendLanguagesToOutputs(const wchar_t* languages,
 }
 
 // Helper to strignize an IP number (used to define expectations).
-std::string DumpIPNumber(const net::IPAddressNumber& v) {
+std::string DumpIPNumber(const IPAddressNumber& v) {
   std::string out;
   for (size_t i = 0; i < v.size(); ++i) {
     if (i != 0)
@@ -512,12 +515,12 @@ TEST(NetUtilTest, FileURLConversion) {
   FilePath output;
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(round_trip_cases); i++) {
     // convert to the file URL
-    GURL file_url(net::FilePathToFileURL(
-        FilePath::FromWStringHack(round_trip_cases[i].file)));
+    GURL file_url(FilePathToFileURL(
+                      file_util::WStringAsFilePath(round_trip_cases[i].file)));
     EXPECT_EQ(round_trip_cases[i].url, file_url.spec());
 
     // Back to the filename.
-    EXPECT_TRUE(net::FileURLToFilePath(file_url, &output));
+    EXPECT_TRUE(FileURLToFilePath(file_url, &output));
     EXPECT_EQ(round_trip_cases[i].file, file_util::FilePathAsWString(output));
   }
 
@@ -556,7 +559,7 @@ TEST(NetUtilTest, FileURLConversion) {
 #endif
   };
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(url_cases); i++) {
-    net::FileURLToFilePath(GURL(url_cases[i].url), &output);
+    FileURLToFilePath(GURL(url_cases[i].url), &output);
     EXPECT_EQ(url_cases[i].file, file_util::FilePathAsWString(output));
   }
 
@@ -566,13 +569,13 @@ TEST(NetUtilTest, FileURLConversion) {
   // the input is preserved in UTF-8
   const char invalid_utf8[] = "file:///d:/Blah/\xff.doc";
   const wchar_t invalid_wide[] = L"D:\\Blah\\\xff.doc";
-  EXPECT_TRUE(net::FileURLToFilePath(
+  EXPECT_TRUE(FileURLToFilePath(
       GURL(std::string(invalid_utf8)), &output));
   EXPECT_EQ(std::wstring(invalid_wide), output);
 #endif
 
   // Test that if a file URL is malformed, we get a failure
-  EXPECT_FALSE(net::FileURLToFilePath(GURL("filefoobar"), &output));
+  EXPECT_FALSE(FileURLToFilePath(GURL("filefoobar"), &output));
 }
 
 TEST(NetUtilTest, GetIdentityFromURL) {
@@ -623,7 +626,7 @@ TEST(NetUtilTest, GetIdentityFromURL) {
     GURL url(tests[i].input_url);
 
     string16 username, password;
-    net::GetIdentityFromURL(url, &username, &password);
+    GetIdentityFromURL(url, &username, &password);
 
     EXPECT_EQ(ASCIIToUTF16(tests[i].expected_username), username);
     EXPECT_EQ(ASCIIToUTF16(tests[i].expected_password), password);
@@ -639,7 +642,7 @@ TEST(NetUtilTest, GetIdentityFromURL_UTF8) {
 
   // Extract the unescaped identity.
   string16 username, password;
-  net::GetIdentityFromURL(url, &username, &password);
+  GetIdentityFromURL(url, &username, &password);
 
   // Verify that it was decoded as UTF8.
   EXPECT_EQ(ASCIIToUTF16("foo"), username);
@@ -680,14 +683,14 @@ TEST(NetUtilTest, GetSpecificHeader) {
 
   // Test first with google_headers.
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(tests); ++i) {
-    std::wstring result = net::GetSpecificHeader(google_headers,
+    std::wstring result = GetSpecificHeader(google_headers,
                                                  tests[i].header_name);
     EXPECT_EQ(result, tests[i].expected);
   }
 
   // Test again with empty headers.
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(tests); ++i) {
-    std::wstring result = net::GetSpecificHeader(L"", tests[i].header_name);
+    std::wstring result = GetSpecificHeader(L"", tests[i].header_name);
     EXPECT_EQ(result, std::wstring());
   }
 }
@@ -710,19 +713,19 @@ TEST(NetUtilTest, GetHeaderParamValue) {
 
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(tests); ++i) {
     std::wstring header_value =
-        net::GetSpecificHeader(google_headers, tests[i].header_name);
+        GetSpecificHeader(google_headers, tests[i].header_name);
     std::wstring result =
-        net::GetHeaderParamValue(header_value, tests[i].param_name,
-                                 net::QuoteRule::REMOVE_OUTER_QUOTES);
+        GetHeaderParamValue(header_value, tests[i].param_name,
+                            QuoteRule::REMOVE_OUTER_QUOTES);
     EXPECT_EQ(result, tests[i].expected);
   }
 
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(tests); ++i) {
     std::wstring header_value =
-        net::GetSpecificHeader(L"", tests[i].header_name);
+        GetSpecificHeader(L"", tests[i].header_name);
     std::wstring result =
-        net::GetHeaderParamValue(header_value, tests[i].param_name,
-                                 net::QuoteRule::REMOVE_OUTER_QUOTES);
+        GetHeaderParamValue(header_value, tests[i].param_name,
+                            QuoteRule::REMOVE_OUTER_QUOTES);
     EXPECT_EQ(result, std::wstring());
   }
 }
@@ -741,11 +744,11 @@ TEST(NetUtilTest, GetHeaderParamValueQuotes) {
 
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(tests); ++i) {
     std::string actual_with_quotes =
-        net::GetHeaderParamValue(tests[i].header, "filename",
-                                 net::QuoteRule::KEEP_OUTER_QUOTES);
+        GetHeaderParamValue(tests[i].header, "filename",
+                            QuoteRule::KEEP_OUTER_QUOTES);
     std::string actual_without_quotes =
-        net::GetHeaderParamValue(tests[i].header, "filename",
-                                 net::QuoteRule::REMOVE_OUTER_QUOTES);
+        GetHeaderParamValue(tests[i].header, "filename",
+                            QuoteRule::REMOVE_OUTER_QUOTES);
     EXPECT_EQ(tests[i].expected_with_quotes, actual_with_quotes)
         << "Failed while processing: " << tests[i].header;
     EXPECT_EQ(tests[i].expected_without_quotes, actual_without_quotes)
@@ -770,6 +773,8 @@ TEST(NetUtilTest, GetFileNameFromCD) {
     {"content-disposition: name=abcde.pdf", "", L"abcde.pdf"},
     {"content-disposition: inline; filename=\"abc%20de.pdf\"", "",
      L"abc de.pdf"},
+    // Unbalanced quotation mark
+    {"content-disposition: filename=\"abcdef.pdf", "", L"abcdef.pdf"},
     // Whitespaces are converted to a space.
     {"content-disposition: inline; filename=\"abc  \t\nde.pdf\"", "",
      L"abc    de.pdf"},
@@ -924,8 +929,8 @@ TEST(NetUtilTest, GetFileNameFromCD) {
   };
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(tests); ++i) {
     EXPECT_EQ(tests[i].expected,
-              UTF8ToWide(net::GetFileNameFromCD(tests[i].header_field,
-                                                tests[i].referrer_charset)))
+              UTF8ToWide(GetFileNameFromCD(tests[i].header_field,
+                                           tests[i].referrer_charset)))
         << "Failed on input: " << tests[i].header_field;
   }
 }
@@ -936,7 +941,7 @@ TEST(NetUtilTest, IDNToUnicodeFast) {
       // ja || zh-TW,en || ko,ja -> IDNToUnicodeSlow
       if (j == 3 || j == 17 || j == 18)
         continue;
-      std::wstring output(net::IDNToUnicode(idn_cases[i].input,
+      std::wstring output(IDNToUnicode(idn_cases[i].input,
           strlen(idn_cases[i].input), kLanguages[j], NULL));
       std::wstring expected(idn_cases[i].unicode_allowed[j] ?
           idn_cases[i].unicode_output : ASCIIToWide(idn_cases[i].input));
@@ -952,7 +957,7 @@ TEST(NetUtilTest, IDNToUnicodeSlow) {
       // !(ja || zh-TW,en || ko,ja) -> IDNToUnicodeFast
       if (!(j == 3 || j == 17 || j == 18))
         continue;
-      std::wstring output(net::IDNToUnicode(idn_cases[i].input,
+      std::wstring output(IDNToUnicode(idn_cases[i].input,
           strlen(idn_cases[i].input), kLanguages[j], NULL));
       std::wstring expected(idn_cases[i].unicode_allowed[j] ?
           idn_cases[i].unicode_output : ASCIIToWide(idn_cases[i].input));
@@ -983,10 +988,24 @@ TEST(NetUtilTest, IDNToUnicodeAdjustOffset) {
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(adjust_cases); ++i) {
     size_t offset = adjust_cases[i].input_offset;
     // "test.\x89c6\x9891.\x5317\x4eac\x5927\x5b78.test"
-    net::IDNToUnicode("test.xn--cy2a840a.xn--1lq90ic7f1rc.test", 39, L"zh-CN",
+    IDNToUnicode("test.xn--cy2a840a.xn--1lq90ic7f1rc.test", 39, L"zh-CN",
                       &offset);
     EXPECT_EQ(adjust_cases[i].output_offset, offset);
   }
+
+  std::vector<size_t> offsets;
+  for (size_t i = 0; i < 40; ++i)
+    offsets.push_back(i);
+  IDNToUnicodeWithOffsets("test.xn--cy2a840a.xn--1lq90ic7f1rc.test", 39,
+                          L"zh-CN", &offsets);
+  size_t expected[] = {0, 1, 2, 3, 4, 5, kNpos, kNpos, kNpos, kNpos, kNpos,
+                       kNpos, kNpos, kNpos, kNpos, kNpos, kNpos, 7, 8, kNpos,
+                       kNpos, kNpos, kNpos, kNpos, kNpos, kNpos, kNpos, kNpos,
+                       kNpos, kNpos, kNpos, kNpos, kNpos, kNpos, 12, 13, 14, 15,
+                       16, kNpos};
+  ASSERT_EQ(40U, arraysize(expected));
+  for (size_t i = 0; i < 40; ++i)
+    EXPECT_EQ(expected[i], offsets[i]);
 }
 
 TEST(NetUtilTest, CompliantHost) {
@@ -1018,16 +1037,16 @@ TEST(NetUtilTest, CompliantHost) {
 
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(compliant_host_cases); ++i) {
     EXPECT_EQ(compliant_host_cases[i].expected_output,
-        net::IsCanonicalizedHostCompliant(compliant_host_cases[i].host,
+        IsCanonicalizedHostCompliant(compliant_host_cases[i].host,
                                           compliant_host_cases[i].desired_tld));
   }
 }
 
 TEST(NetUtilTest, StripWWW) {
-  EXPECT_EQ(string16(), net::StripWWW(string16()));
-  EXPECT_EQ(string16(), net::StripWWW(ASCIIToUTF16("www.")));
-  EXPECT_EQ(ASCIIToUTF16("blah"), net::StripWWW(ASCIIToUTF16("www.blah")));
-  EXPECT_EQ(ASCIIToUTF16("blah"), net::StripWWW(ASCIIToUTF16("blah")));
+  EXPECT_EQ(string16(), StripWWW(string16()));
+  EXPECT_EQ(string16(), StripWWW(ASCIIToUTF16("www.")));
+  EXPECT_EQ(ASCIIToUTF16("blah"), StripWWW(ASCIIToUTF16("www.blah")));
+  EXPECT_EQ(ASCIIToUTF16("blah"), StripWWW(ASCIIToUTF16("blah")));
 }
 
 TEST(NetUtilTest, GetSuggestedFilename) {
@@ -1221,7 +1240,7 @@ TEST(NetUtilTest, GetSuggestedFilename) {
   };
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(test_cases); ++i) {
     std::wstring default_name = test_cases[i].default_filename;
-    string16 filename = net::GetSuggestedFilename(
+    string16 filename = GetSuggestedFilename(
         GURL(test_cases[i].url), test_cases[i].content_disp_header,
         test_cases[i].referrer_charset, WideToUTF16(default_name));
     EXPECT_EQ(std::wstring(test_cases[i].expected_filename),
@@ -1287,7 +1306,7 @@ TEST(NetUtilTest, GetDirectoryListingEntry) {
   };
 
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(test_cases); ++i) {
-    const std::string results = net::GetDirectoryListingEntry(
+    const std::string results = GetDirectoryListingEntry(
         WideToUTF16(test_cases[i].name),
         test_cases[i].raw_bytes,
         test_cases[i].is_dir,
@@ -1333,7 +1352,7 @@ TEST(NetUtilTest, ParseHostAndPort) {
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(tests); ++i) {
     std::string host;
     int port;
-    bool ok = net::ParseHostAndPort(tests[i].input, &host, &port);
+    bool ok = ParseHostAndPort(tests[i].input, &host, &port);
 
     EXPECT_EQ(tests[i].success, ok);
 
@@ -1357,7 +1376,7 @@ TEST(NetUtilTest, GetHostAndPort) {
     { GURL("http://[::a]:33/x"), "[::a]:33"},
   };
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(tests); ++i) {
-    std::string host_and_port = net::GetHostAndPort(tests[i].url);
+    std::string host_and_port = GetHostAndPort(tests[i].url);
     EXPECT_EQ(std::string(tests[i].expected_host_and_port), host_and_port);
   }
 }
@@ -1375,7 +1394,7 @@ TEST(NetUtilTest, GetHostAndOptionalPort) {
     { GURL("http://[::a]:33/x"), "[::a]:33"},
   };
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(tests); ++i) {
-    std::string host_and_port = net::GetHostAndOptionalPort(tests[i].url);
+    std::string host_and_port = GetHostAndOptionalPort(tests[i].url);
     EXPECT_EQ(std::string(tests[i].expected_host_and_port), host_and_port);
   }
 }
@@ -1393,7 +1412,7 @@ TEST(NetUtilTest, NetAddressToString_IPv4) {
 
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(tests); ++i) {
     const addrinfo* ai = GetIPv4Address(tests[i].addr, 80);
-    std::string result = net::NetAddressToString(ai);
+    std::string result = NetAddressToString(ai);
     EXPECT_EQ(std::string(tests[i].result), result);
   }
 }
@@ -1410,7 +1429,7 @@ TEST(NetUtilTest, NetAddressToString_IPv6) {
 
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(tests); ++i) {
     const addrinfo* ai = GetIPv6Address(tests[i].addr, 80);
-    std::string result = net::NetAddressToString(ai);
+    std::string result = NetAddressToString(ai);
     // Allow NetAddressToString() to fail, in case the system doesn't
     // support IPv6.
     if (!result.empty())
@@ -1421,7 +1440,7 @@ TEST(NetUtilTest, NetAddressToString_IPv6) {
 TEST(NetUtilTest, NetAddressToStringWithPort_IPv4) {
   uint8 addr[] = {127, 0, 0, 1};
   const addrinfo* ai = GetIPv4Address(addr, 166);
-  std::string result = net::NetAddressToStringWithPort(ai);
+  std::string result = NetAddressToStringWithPort(ai);
   EXPECT_EQ("127.0.0.1:166", result);
 }
 
@@ -1431,7 +1450,7 @@ TEST(NetUtilTest, NetAddressToStringWithPort_IPv6) {
       0x98, 0x76, 0x54, 0x32, 0x10
   };
   const addrinfo* ai = GetIPv6Address(addr, 361);
-  std::string result = net::NetAddressToStringWithPort(ai);
+  std::string result = NetAddressToStringWithPort(ai);
 
   // May fail on systems that don't support IPv6.
   if (!result.empty())
@@ -1442,12 +1461,12 @@ TEST(NetUtilTest, GetHostName) {
   // We can't check the result of GetHostName() directly, since the result
   // will differ across machines. Our goal here is to simply exercise the
   // code path, and check that things "look about right".
-  std::string hostname = net::GetHostName();
+  std::string hostname = GetHostName();
   EXPECT_FALSE(hostname.empty());
 }
 
 TEST(NetUtilTest, FormatUrl) {
-  net::FormatUrlTypes default_format_type = net::kFormatUrlOmitUsernamePassword;
+  FormatUrlTypes default_format_type = kFormatUrlOmitUsernamePassword;
   const UrlTestData tests[] = {
     {"Empty URL", "", "", default_format_type, UnescapeRule::NORMAL, L"", 0},
 
@@ -1494,7 +1513,7 @@ TEST(NetUtilTest, FormatUrl) {
     // -------- omit_username_password flag tests --------
     {"With username and password, omit_username_password=false",
      "http://user:passwd@example.com/foo", "",
-     net::kFormatUrlOmitNothing, UnescapeRule::NORMAL,
+     kFormatUrlOmitNothing, UnescapeRule::NORMAL,
      L"http://user:passwd@example.com/foo", 19},
 
     {"With username and password, omit_username_password=true",
@@ -1539,53 +1558,53 @@ TEST(NetUtilTest, FormatUrl) {
     /*
     {"unescape=true with some special characters",
     "http://user%3A:%40passwd@example.com/foo%3Fbar?q=b%26z", "",
-    net::kFormatUrlOmitNothing, UnescapeRule::NORMAL,
+    kFormatUrlOmitNothing, UnescapeRule::NORMAL,
     L"http://user%3A:%40passwd@example.com/foo%3Fbar?q=b%26z", 25},
     */
     // Disabled: the resultant URL becomes "...user%253A:%2540passwd...".
 
     // -------- omit http: --------
     {"omit http with user name",
-     "http://user@example.com/foo", "", net::kFormatUrlOmitAll,
+     "http://user@example.com/foo", "", kFormatUrlOmitAll,
      UnescapeRule::NORMAL, L"example.com/foo", 0},
 
     {"omit http",
-     "http://www.google.com/", "en", net::kFormatUrlOmitHTTP,
+     "http://www.google.com/", "en", kFormatUrlOmitHTTP,
      UnescapeRule::NORMAL, L"www.google.com/",
      0},
 
     {"omit http with https",
-     "https://www.google.com/", "en", net::kFormatUrlOmitHTTP,
+     "https://www.google.com/", "en", kFormatUrlOmitHTTP,
      UnescapeRule::NORMAL, L"https://www.google.com/",
      8},
 
     {"omit http starts with ftp.",
-     "http://ftp.google.com/", "en", net::kFormatUrlOmitHTTP,
+     "http://ftp.google.com/", "en", kFormatUrlOmitHTTP,
      UnescapeRule::NORMAL, L"http://ftp.google.com/",
      7},
 
     // -------- omit trailing slash on bare hostname --------
     {"omit slash when it's the entire path",
      "http://www.google.com/", "en",
-     net::kFormatUrlOmitTrailingSlashOnBareHostname, UnescapeRule::NORMAL,
+     kFormatUrlOmitTrailingSlashOnBareHostname, UnescapeRule::NORMAL,
      L"http://www.google.com", 7},
     {"omit slash when there's a ref",
      "http://www.google.com/#ref", "en",
-     net::kFormatUrlOmitTrailingSlashOnBareHostname, UnescapeRule::NORMAL,
+     kFormatUrlOmitTrailingSlashOnBareHostname, UnescapeRule::NORMAL,
      L"http://www.google.com/#ref", 7},
     {"omit slash when there's a query",
      "http://www.google.com/?", "en",
-     net::kFormatUrlOmitTrailingSlashOnBareHostname, UnescapeRule::NORMAL,
+     kFormatUrlOmitTrailingSlashOnBareHostname, UnescapeRule::NORMAL,
      L"http://www.google.com/?", 7},
     {"omit slash when it's not the entire path",
      "http://www.google.com/foo", "en",
-     net::kFormatUrlOmitTrailingSlashOnBareHostname, UnescapeRule::NORMAL,
+     kFormatUrlOmitTrailingSlashOnBareHostname, UnescapeRule::NORMAL,
      L"http://www.google.com/foo", 7},
     {"omit slash for nonstandard URLs",
-     "data:/", "en", net::kFormatUrlOmitTrailingSlashOnBareHostname,
+     "data:/", "en", kFormatUrlOmitTrailingSlashOnBareHostname,
      UnescapeRule::NORMAL, L"data:/", 5},
     {"omit slash for file URLs",
-     "file:///", "en", net::kFormatUrlOmitTrailingSlashOnBareHostname,
+     "file:///", "en", kFormatUrlOmitTrailingSlashOnBareHostname,
      UnescapeRule::NORMAL, L"file:///", 7},
 
     // -------- view-source: --------
@@ -1602,22 +1621,22 @@ TEST(NetUtilTest, FormatUrl) {
     // view-source should omit http and trailing slash where non-view-source
     // would.
     {"view-source omit http",
-     "view-source:http://a.b/c", "en", net::kFormatUrlOmitAll,
+     "view-source:http://a.b/c", "en", kFormatUrlOmitAll,
      UnescapeRule::NORMAL, L"view-source:a.b/c",
      12},
     {"view-source omit http starts with ftp.",
-     "view-source:http://ftp.b/c", "en", net::kFormatUrlOmitAll,
+     "view-source:http://ftp.b/c", "en", kFormatUrlOmitAll,
      UnescapeRule::NORMAL, L"view-source:http://ftp.b/c",
      19},
     {"view-source omit slash when it's the entire path",
-     "view-source:http://a.b/", "en", net::kFormatUrlOmitAll,
+     "view-source:http://a.b/", "en", kFormatUrlOmitAll,
      UnescapeRule::NORMAL, L"view-source:a.b",
      12},
   };
 
   for (size_t i = 0; i < arraysize(tests); ++i) {
     size_t prefix_len;
-    string16 formatted = net::FormatUrl(
+    string16 formatted = FormatUrl(
         GURL(tests[i].input), tests[i].languages, tests[i].format_types,
         tests[i].escape_rules, NULL, &prefix_len, NULL);
     EXPECT_EQ(WideToUTF16(tests[i].output), formatted) << tests[i].description;
@@ -1628,10 +1647,10 @@ TEST(NetUtilTest, FormatUrl) {
 TEST(NetUtilTest, FormatUrlParsed) {
   // No unescape case.
   url_parse::Parsed parsed;
-  string16 formatted = net::FormatUrl(
+  string16 formatted = FormatUrl(
       GURL("http://\xE3\x82\xB0:\xE3\x83\xBC@xn--qcka1pmc.jp:8080/"
            "%E3%82%B0/?q=%E3%82%B0#\xE3\x82\xB0"),
-      "ja", net::kFormatUrlOmitNothing, UnescapeRule::NONE, &parsed, NULL,
+      "ja", kFormatUrlOmitNothing, UnescapeRule::NONE, &parsed, NULL,
       NULL);
   EXPECT_EQ(WideToUTF16(
       L"http://%E3%82%B0:%E3%83%BC@\x30B0\x30FC\x30B0\x30EB.jp:8080"
@@ -1652,10 +1671,10 @@ TEST(NetUtilTest, FormatUrlParsed) {
       formatted.substr(parsed.ref.begin, parsed.ref.len));
 
   // Unescape case.
-  formatted = net::FormatUrl(
+  formatted = FormatUrl(
       GURL("http://\xE3\x82\xB0:\xE3\x83\xBC@xn--qcka1pmc.jp:8080/"
            "%E3%82%B0/?q=%E3%82%B0#\xE3\x82\xB0"),
-      "ja", net::kFormatUrlOmitNothing, UnescapeRule::NORMAL, &parsed, NULL,
+      "ja", kFormatUrlOmitNothing, UnescapeRule::NORMAL, &parsed, NULL,
       NULL);
   EXPECT_EQ(WideToUTF16(L"http://\x30B0:\x30FC@\x30B0\x30FC\x30B0\x30EB.jp:8080"
       L"/\x30B0/?q=\x30B0#\x30B0"), formatted);
@@ -1675,10 +1694,10 @@ TEST(NetUtilTest, FormatUrlParsed) {
       formatted.substr(parsed.ref.begin, parsed.ref.len));
 
   // Omit_username_password + unescape case.
-  formatted = net::FormatUrl(
+  formatted = FormatUrl(
       GURL("http://\xE3\x82\xB0:\xE3\x83\xBC@xn--qcka1pmc.jp:8080/"
            "%E3%82%B0/?q=%E3%82%B0#\xE3\x82\xB0"),
-      "ja", net::kFormatUrlOmitUsernamePassword, UnescapeRule::NORMAL, &parsed,
+      "ja", kFormatUrlOmitUsernamePassword, UnescapeRule::NORMAL, &parsed,
       NULL, NULL);
   EXPECT_EQ(WideToUTF16(L"http://\x30B0\x30FC\x30B0\x30EB.jp:8080"
       L"/\x30B0/?q=\x30B0#\x30B0"), formatted);
@@ -1696,9 +1715,9 @@ TEST(NetUtilTest, FormatUrlParsed) {
       formatted.substr(parsed.ref.begin, parsed.ref.len));
 
   // View-source case.
-  formatted = net::FormatUrl(
+  formatted = FormatUrl(
       GURL("view-source:http://user:passwd@host:81/path?query#ref"),
-      "", net::kFormatUrlOmitUsernamePassword, UnescapeRule::NORMAL, &parsed,
+      "", kFormatUrlOmitUsernamePassword, UnescapeRule::NORMAL, &parsed,
       NULL, NULL);
   EXPECT_EQ(WideToUTF16(L"view-source:http://host:81/path?query#ref"),
       formatted);
@@ -1718,9 +1737,9 @@ TEST(NetUtilTest, FormatUrlParsed) {
       formatted.substr(parsed.ref.begin, parsed.ref.len));
 
   // omit http case.
-  formatted = net::FormatUrl(
+  formatted = FormatUrl(
       GURL("http://host:8000/a?b=c#d"),
-      "", net::kFormatUrlOmitHTTP, UnescapeRule::NORMAL, &parsed, NULL, NULL);
+      "", kFormatUrlOmitHTTP, UnescapeRule::NORMAL, &parsed, NULL, NULL);
   EXPECT_EQ(WideToUTF16(L"host:8000/a?b=c#d"), formatted);
   EXPECT_FALSE(parsed.scheme.is_valid());
   EXPECT_FALSE(parsed.username.is_valid());
@@ -1737,9 +1756,9 @@ TEST(NetUtilTest, FormatUrlParsed) {
       formatted.substr(parsed.ref.begin, parsed.ref.len));
 
   // omit http starts with ftp case.
-  formatted = net::FormatUrl(
+  formatted = FormatUrl(
       GURL("http://ftp.host:8000/a?b=c#d"),
-      "", net::kFormatUrlOmitHTTP, UnescapeRule::NORMAL, &parsed, NULL, NULL);
+      "", kFormatUrlOmitHTTP, UnescapeRule::NORMAL, &parsed, NULL, NULL);
   EXPECT_EQ(WideToUTF16(L"http://ftp.host:8000/a?b=c#d"), formatted);
   EXPECT_TRUE(parsed.scheme.is_valid());
   EXPECT_FALSE(parsed.username.is_valid());
@@ -1758,9 +1777,9 @@ TEST(NetUtilTest, FormatUrlParsed) {
       formatted.substr(parsed.ref.begin, parsed.ref.len));
 
   // omit http starts with 'f' case.
-  formatted = net::FormatUrl(
+  formatted = FormatUrl(
       GURL("http://f/"),
-      "", net::kFormatUrlOmitHTTP, UnescapeRule::NORMAL, &parsed, NULL, NULL);
+      "", kFormatUrlOmitHTTP, UnescapeRule::NORMAL, &parsed, NULL, NULL);
   EXPECT_EQ(WideToUTF16(L"f/"), formatted);
   EXPECT_FALSE(parsed.scheme.is_valid());
   EXPECT_FALSE(parsed.username.is_valid());
@@ -1792,11 +1811,22 @@ TEST(NetUtilTest, FormatUrlAdjustOffset) {
   };
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(basic_cases); ++i) {
     size_t offset = basic_cases[i].input_offset;
-    net::FormatUrl(GURL("http://www.google.com/foo/"), "en",
-                   net::kFormatUrlOmitUsernamePassword, UnescapeRule::NORMAL,
+    FormatUrl(GURL("http://www.google.com/foo/"), "en",
+                   kFormatUrlOmitUsernamePassword, UnescapeRule::NORMAL,
                    NULL, NULL, &offset);
     EXPECT_EQ(basic_cases[i].output_offset, offset);
   }
+
+  size_t url_size = 26;
+  std::vector<size_t> offsets;
+  for (size_t i = 0; i < url_size + 1; ++i)
+    offsets.push_back(i);
+  FormatUrlWithOffsets(GURL("http://www.google.com/foo/"), "en",
+                       kFormatUrlOmitUsernamePassword, UnescapeRule::NORMAL,
+                       NULL, NULL, &offsets);
+  for (size_t i = 0; i < url_size; ++i)
+    EXPECT_EQ(i, offsets[i]);
+  EXPECT_EQ(kNpos, offsets[url_size]);
 
   const struct {
     const char* input_url;
@@ -1804,7 +1834,7 @@ TEST(NetUtilTest, FormatUrlAdjustOffset) {
     size_t output_offset;
   } omit_auth_cases[] = {
     {"http://foo:bar@www.google.com/", 6, 6},
-    {"http://foo:bar@www.google.com/", 7, 7},
+    {"http://foo:bar@www.google.com/", 7, string16::npos},
     {"http://foo:bar@www.google.com/", 8, string16::npos},
     {"http://foo:bar@www.google.com/", 10, string16::npos},
     {"http://foo:bar@www.google.com/", 11, string16::npos},
@@ -1816,11 +1846,25 @@ TEST(NetUtilTest, FormatUrlAdjustOffset) {
   };
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(omit_auth_cases); ++i) {
     size_t offset = omit_auth_cases[i].input_offset;
-    net::FormatUrl(GURL(omit_auth_cases[i].input_url), "en",
-                   net::kFormatUrlOmitUsernamePassword, UnescapeRule::NORMAL,
+    FormatUrl(GURL(omit_auth_cases[i].input_url), "en",
+                   kFormatUrlOmitUsernamePassword, UnescapeRule::NORMAL,
                    NULL, NULL, &offset);
     EXPECT_EQ(omit_auth_cases[i].output_offset, offset);
   }
+
+  url_size = 30;
+  offsets.clear();
+  for (size_t i = 0; i < url_size; ++i)
+    offsets.push_back(i);
+  FormatUrlWithOffsets(GURL("http://foo:bar@www.google.com/"), "en",
+                       kFormatUrlOmitUsernamePassword, UnescapeRule::NORMAL,
+                       NULL, NULL, &offsets);
+  for (size_t i = 0; i < 7; ++i)
+    EXPECT_EQ(i, offsets[i]);
+  for (size_t i = 7; i < 15; ++i)
+    EXPECT_EQ(kNpos, offsets[i]);
+  for (size_t i = 16; i < url_size; ++i)
+    EXPECT_EQ(i - 8 , offsets[i]);
 
   const AdjustOffsetCase view_source_cases[] = {
     {0, 0},
@@ -1828,7 +1872,8 @@ TEST(NetUtilTest, FormatUrlAdjustOffset) {
     {11, 11},
     {12, 12},
     {13, 13},
-    {19, 19},
+    {18, 18},
+    {19, string16::npos},
     {20, string16::npos},
     {23, 19},
     {26, 22},
@@ -1836,11 +1881,25 @@ TEST(NetUtilTest, FormatUrlAdjustOffset) {
   };
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(view_source_cases); ++i) {
     size_t offset = view_source_cases[i].input_offset;
-    net::FormatUrl(GURL("view-source:http://foo@www.google.com/"), "en",
-                   net::kFormatUrlOmitUsernamePassword, UnescapeRule::NORMAL,
+    FormatUrl(GURL("view-source:http://foo@www.google.com/"), "en",
+                   kFormatUrlOmitUsernamePassword, UnescapeRule::NORMAL,
                    NULL, NULL, &offset);
     EXPECT_EQ(view_source_cases[i].output_offset, offset);
   }
+
+  url_size = 38;
+  offsets.clear();
+  for (size_t i = 0; i < url_size; ++i)
+    offsets.push_back(i);
+  FormatUrlWithOffsets(GURL("view-source:http://foo@www.google.com/"), "en",
+                       kFormatUrlOmitUsernamePassword, UnescapeRule::NORMAL,
+                       NULL, NULL, &offsets);
+  size_t expected[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+                       17, 18, kNpos, kNpos, kNpos, kNpos, 19, 20, 21, 22, 23,
+                       24, 25, 26, 27, 28, 29, 30, 31, 32, 33};
+  ASSERT_EQ(url_size, arraysize(expected));
+  for (size_t i = 0; i < url_size; ++i)
+    EXPECT_EQ(expected[i], offsets[i]);
 
   const AdjustOffsetCase idn_hostname_cases[] = {
     {8, string16::npos},
@@ -1852,11 +1911,26 @@ TEST(NetUtilTest, FormatUrlAdjustOffset) {
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(idn_hostname_cases); ++i) {
     size_t offset = idn_hostname_cases[i].input_offset;
     // "http://\x671d\x65e5\x3042\x3055\x3072.jp/foo/"
-    net::FormatUrl(GURL("http://xn--l8jvb1ey91xtjb.jp/foo/"), "ja",
-                   net::kFormatUrlOmitUsernamePassword, UnescapeRule::NORMAL,
+    FormatUrl(GURL("http://xn--l8jvb1ey91xtjb.jp/foo/"), "ja",
+                   kFormatUrlOmitUsernamePassword, UnescapeRule::NORMAL,
                    NULL, NULL, &offset);
     EXPECT_EQ(idn_hostname_cases[i].output_offset, offset);
   }
+
+  url_size = 33;
+  offsets.clear();
+  for (size_t i = 0; i < url_size; ++i)
+    offsets.push_back(i);
+  FormatUrlWithOffsets(GURL("http://xn--l8jvb1ey91xtjb.jp/foo/"), "ja",
+                       kFormatUrlOmitUsernamePassword, UnescapeRule::NORMAL,
+                       NULL, NULL, &offsets);
+  size_t expected_1[] = {0, 1, 2, 3, 4, 5, 6, 7, kNpos, kNpos, kNpos, kNpos,
+                         kNpos, kNpos, kNpos, kNpos, kNpos, kNpos, kNpos, kNpos,
+                         kNpos, kNpos, kNpos, kNpos, kNpos, 12, 13, 14, 15, 16,
+                         17, 18, 19};
+  ASSERT_EQ(url_size, arraysize(expected_1));
+  for (size_t i = 0; i < url_size; ++i)
+    EXPECT_EQ(expected_1[i], offsets[i]);
 
   const AdjustOffsetCase unescape_cases[] = {
     {25, 25},
@@ -1873,30 +1947,66 @@ TEST(NetUtilTest, FormatUrlAdjustOffset) {
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(unescape_cases); ++i) {
     size_t offset = unescape_cases[i].input_offset;
     // "http://www.google.com/foo bar/\x30B0\x30FC\x30B0\x30EB"
-    net::FormatUrl(GURL(
+    FormatUrl(GURL(
         "http://www.google.com/foo%20bar/%E3%82%B0%E3%83%BC%E3%82%B0%E3%83%AB"),
-        "en", net::kFormatUrlOmitUsernamePassword, UnescapeRule::SPACES, NULL,
+        "en", kFormatUrlOmitUsernamePassword, UnescapeRule::SPACES, NULL,
         NULL, &offset);
     EXPECT_EQ(unescape_cases[i].output_offset, offset);
   }
+
+  url_size = 68;
+  offsets.clear();
+  for (size_t i = 0; i < url_size; ++i)
+    offsets.push_back(i);
+  FormatUrlWithOffsets(GURL(
+      "http://www.google.com/foo%20bar/%E3%82%B0%E3%83%BC%E3%82%B0%E3%83%AB"),
+      "en", kFormatUrlOmitUsernamePassword, UnescapeRule::SPACES, NULL, NULL,
+      &offsets);
+  size_t expected_2[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+                         16, 17, 18, 19, 20, 21, 22, 23, 24, 25, kNpos, kNpos,
+                         26, 27, 28, 29, 30, kNpos, kNpos, kNpos, kNpos, kNpos,
+                         kNpos, kNpos, kNpos, 31, kNpos, kNpos, kNpos, kNpos,
+                         kNpos, kNpos, kNpos, kNpos, 32, kNpos, kNpos, kNpos,
+                         kNpos, kNpos, kNpos, kNpos, kNpos, 33, kNpos, kNpos,
+                         kNpos, kNpos, kNpos, kNpos, kNpos, kNpos};
+  ASSERT_EQ(url_size, arraysize(expected_2));
+  for (size_t i = 0; i < url_size; ++i)
+    EXPECT_EQ(expected_2[i], offsets[i]);
 
   const AdjustOffsetCase ref_cases[] = {
     {30, 30},
     {31, 31},
     {32, string16::npos},
     {34, 32},
+    {35, string16::npos},
     {37, 33},
     {38, string16::npos},
   };
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(ref_cases); ++i) {
     size_t offset = ref_cases[i].input_offset;
     // "http://www.google.com/foo.html#\x30B0\x30B0z"
-    net::FormatUrl(GURL(
+    FormatUrl(GURL(
         "http://www.google.com/foo.html#\xE3\x82\xB0\xE3\x82\xB0z"), "en",
-        net::kFormatUrlOmitUsernamePassword, UnescapeRule::NORMAL, NULL, NULL,
+        kFormatUrlOmitUsernamePassword, UnescapeRule::NORMAL, NULL, NULL,
         &offset);
     EXPECT_EQ(ref_cases[i].output_offset, offset);
   }
+
+  url_size = 38;
+  offsets.clear();
+  for (size_t i = 0; i < url_size; ++i)
+    offsets.push_back(i);
+  // "http://www.google.com/foo.html#\x30B0\x30B0z"
+  FormatUrlWithOffsets(GURL(
+      "http://www.google.com/foo.html#\xE3\x82\xB0\xE3\x82\xB0z"), "en",
+      kFormatUrlOmitUsernamePassword, UnescapeRule::NORMAL, NULL, NULL,
+      &offsets);
+  size_t expected_3[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+                         16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
+                         30, 31, kNpos, kNpos, 32, kNpos, kNpos, 33};
+  ASSERT_EQ(url_size, arraysize(expected_3));
+  for (size_t i = 0; i < url_size; ++i)
+    EXPECT_EQ(expected_3[i], offsets[i]);
 
   const AdjustOffsetCase omit_http_cases[] = {
     {0, string16::npos},
@@ -1906,10 +2016,22 @@ TEST(NetUtilTest, FormatUrlAdjustOffset) {
   };
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(omit_http_cases); ++i) {
     size_t offset = omit_http_cases[i].input_offset;
-    net::FormatUrl(GURL("http://www.google.com"), "en",
-        net::kFormatUrlOmitHTTP, UnescapeRule::NORMAL, NULL, NULL, &offset);
+    FormatUrl(GURL("http://www.google.com"), "en",
+        kFormatUrlOmitHTTP, UnescapeRule::NORMAL, NULL, NULL, &offset);
     EXPECT_EQ(omit_http_cases[i].output_offset, offset);
   }
+
+  url_size = 23;
+  offsets.clear();
+  for (size_t i = 0; i < url_size; ++i)
+    offsets.push_back(i);
+  FormatUrlWithOffsets(GURL("http://www.google.com"), "en",
+      kFormatUrlOmitHTTP, UnescapeRule::NORMAL, NULL, NULL, &offsets);
+  size_t expected_4[] = {kNpos, kNpos, kNpos, kNpos, kNpos, kNpos, kNpos, 0, 1,
+                         2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, kNpos};
+  ASSERT_EQ(url_size, arraysize(expected_4));
+  for (size_t i = 0; i < url_size; ++i)
+    EXPECT_EQ(expected_4[i], offsets[i]);
 
   const AdjustOffsetCase omit_http_start_with_ftp[] = {
     {0, 0},
@@ -1918,10 +2040,22 @@ TEST(NetUtilTest, FormatUrlAdjustOffset) {
   };
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(omit_http_start_with_ftp); ++i) {
     size_t offset = omit_http_start_with_ftp[i].input_offset;
-    net::FormatUrl(GURL("http://ftp.google.com"), "en",
-        net::kFormatUrlOmitHTTP, UnescapeRule::NORMAL, NULL, NULL, &offset);
+    FormatUrl(GURL("http://ftp.google.com"), "en",
+        kFormatUrlOmitHTTP, UnescapeRule::NORMAL, NULL, NULL, &offset);
     EXPECT_EQ(omit_http_start_with_ftp[i].output_offset, offset);
   }
+
+  url_size = 23;
+  offsets.clear();
+  for (size_t i = 0; i < url_size; ++i)
+    offsets.push_back(i);
+  FormatUrlWithOffsets(GURL("http://ftp.google.com"), "en",
+      kFormatUrlOmitHTTP, UnescapeRule::NORMAL, NULL, NULL, &offsets);
+  size_t expected_5[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+                         16, 17, 18, 19, 20, 21, kNpos};
+  ASSERT_EQ(url_size, arraysize(expected_5));
+  for (size_t i = 0; i < url_size; ++i)
+    EXPECT_EQ(expected_5[i], offsets[i]);
 
   const AdjustOffsetCase omit_all_cases[] = {
     {12, 0},
@@ -1931,10 +2065,23 @@ TEST(NetUtilTest, FormatUrlAdjustOffset) {
   };
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(omit_all_cases); ++i) {
     size_t offset = omit_all_cases[i].input_offset;
-    net::FormatUrl(GURL("http://user@foo.com/"), "en", net::kFormatUrlOmitAll,
+    FormatUrl(GURL("http://user@foo.com/"), "en", kFormatUrlOmitAll,
                    UnescapeRule::NORMAL, NULL, NULL, &offset);
     EXPECT_EQ(omit_all_cases[i].output_offset, offset);
   }
+
+  url_size = 21;
+  offsets.clear();
+  for (size_t i = 0; i < url_size; ++i)
+    offsets.push_back(i);
+  FormatUrlWithOffsets(GURL("http://user@foo.com/"), "en", kFormatUrlOmitAll,
+                       UnescapeRule::NORMAL, NULL, NULL, &offsets);
+  size_t expected_6[] = {kNpos, kNpos, kNpos, kNpos, kNpos, kNpos, kNpos, kNpos,
+                         kNpos, kNpos, kNpos, kNpos, 0, 1, 2, 3, 4, 5, 6, 7,
+                         kNpos};
+  ASSERT_EQ(url_size, arraysize(expected_6));
+  for (size_t i = 0; i < url_size; ++i)
+    EXPECT_EQ(expected_6[i], offsets[i]);
 }
 
 TEST(NetUtilTest, SimplifyUrlForRequest) {
@@ -1978,7 +2125,7 @@ TEST(NetUtilTest, SimplifyUrlForRequest) {
                                     tests[i].input_url));
     GURL input_url(GURL(tests[i].input_url));
     GURL expected_url(GURL(tests[i].expected_simplified_url));
-    EXPECT_EQ(expected_url, net::SimplifyUrlForRequest(input_url));
+    EXPECT_EQ(expected_url, SimplifyUrlForRequest(input_url));
   }
 }
 
@@ -1987,58 +2134,58 @@ TEST(NetUtilTest, SetExplicitlyAllowedPortsTest) {
   std::string valid[] = { "", "1", "1,2", "1,2,3", "10,11,12,13" };
 
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(invalid); ++i) {
-    net::SetExplicitlyAllowedPorts(invalid[i]);
-    EXPECT_EQ(0, static_cast<int>(net::explicitly_allowed_ports.size()));
+    SetExplicitlyAllowedPorts(invalid[i]);
+    EXPECT_EQ(0, static_cast<int>(explicitly_allowed_ports.size()));
   }
 
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(valid); ++i) {
-    net::SetExplicitlyAllowedPorts(valid[i]);
-    EXPECT_EQ(i, net::explicitly_allowed_ports.size());
+    SetExplicitlyAllowedPorts(valid[i]);
+    EXPECT_EQ(i, explicitly_allowed_ports.size());
   }
 }
 
 TEST(NetUtilTest, GetHostOrSpecFromURL) {
   EXPECT_EQ("example.com",
-            net::GetHostOrSpecFromURL(GURL("http://example.com/test")));
+            GetHostOrSpecFromURL(GURL("http://example.com/test")));
   EXPECT_EQ("example.com",
-            net::GetHostOrSpecFromURL(GURL("http://example.com./test")));
+            GetHostOrSpecFromURL(GURL("http://example.com./test")));
   EXPECT_EQ("file:///tmp/test.html",
-            net::GetHostOrSpecFromURL(GURL("file:///tmp/test.html")));
+            GetHostOrSpecFromURL(GURL("file:///tmp/test.html")));
 }
 
 // Test that invalid IP literals fail to parse.
 TEST(NetUtilTest, ParseIPLiteralToNumber_FailParse) {
-  net::IPAddressNumber number;
+  IPAddressNumber number;
 
-  EXPECT_FALSE(net::ParseIPLiteralToNumber("bad value", &number));
-  EXPECT_FALSE(net::ParseIPLiteralToNumber("bad:value", &number));
-  EXPECT_FALSE(net::ParseIPLiteralToNumber("", &number));
-  EXPECT_FALSE(net::ParseIPLiteralToNumber("192.168.0.1:30", &number));
-  EXPECT_FALSE(net::ParseIPLiteralToNumber("  192.168.0.1  ", &number));
-  EXPECT_FALSE(net::ParseIPLiteralToNumber("[::1]", &number));
+  EXPECT_FALSE(ParseIPLiteralToNumber("bad value", &number));
+  EXPECT_FALSE(ParseIPLiteralToNumber("bad:value", &number));
+  EXPECT_FALSE(ParseIPLiteralToNumber("", &number));
+  EXPECT_FALSE(ParseIPLiteralToNumber("192.168.0.1:30", &number));
+  EXPECT_FALSE(ParseIPLiteralToNumber("  192.168.0.1  ", &number));
+  EXPECT_FALSE(ParseIPLiteralToNumber("[::1]", &number));
 }
 
 // Test parsing an IPv4 literal.
 TEST(NetUtilTest, ParseIPLiteralToNumber_IPv4) {
-  net::IPAddressNumber number;
-  EXPECT_TRUE(net::ParseIPLiteralToNumber("192.168.0.1", &number));
+  IPAddressNumber number;
+  EXPECT_TRUE(ParseIPLiteralToNumber("192.168.0.1", &number));
   EXPECT_EQ("192,168,0,1", DumpIPNumber(number));
 }
 
 // Test parsing an IPv6 literal.
 TEST(NetUtilTest, ParseIPLiteralToNumber_IPv6) {
-  net::IPAddressNumber number;
-  EXPECT_TRUE(net::ParseIPLiteralToNumber("1:abcd::3:4:ff", &number));
+  IPAddressNumber number;
+  EXPECT_TRUE(ParseIPLiteralToNumber("1:abcd::3:4:ff", &number));
   EXPECT_EQ("0,1,171,205,0,0,0,0,0,0,0,3,0,4,0,255", DumpIPNumber(number));
 }
 
 // Test mapping an IPv4 address to an IPv6 address.
 TEST(NetUtilTest, ConvertIPv4NumberToIPv6Number) {
-  net::IPAddressNumber ipv4_number;
-  EXPECT_TRUE(net::ParseIPLiteralToNumber("192.168.0.1", &ipv4_number));
+  IPAddressNumber ipv4_number;
+  EXPECT_TRUE(ParseIPLiteralToNumber("192.168.0.1", &ipv4_number));
 
-  net::IPAddressNumber ipv6_number =
-      net::ConvertIPv4NumberToIPv6Number(ipv4_number);
+  IPAddressNumber ipv6_number =
+      ConvertIPv4NumberToIPv6Number(ipv4_number);
 
   // ::ffff:192.168.1.1
   EXPECT_EQ("0,0,0,0,0,0,0,0,0,0,255,255,192,168,0,1",
@@ -2064,10 +2211,10 @@ TEST(NetUtilTest, ParseCIDRBlock_Invalid) {
   };
 
   for (size_t i = 0; i < arraysize(bad_literals); ++i) {
-    net::IPAddressNumber ip_number;
+    IPAddressNumber ip_number;
     size_t prefix_length_in_bits;
 
-    EXPECT_FALSE(net::ParseCIDRBlock(bad_literals[i],
+    EXPECT_FALSE(ParseCIDRBlock(bad_literals[i],
                                      &ip_number,
                                      &prefix_length_in_bits));
   }
@@ -2075,10 +2222,10 @@ TEST(NetUtilTest, ParseCIDRBlock_Invalid) {
 
 // Test parsing a valid CIDR notation literal.
 TEST(NetUtilTest, ParseCIDRBlock_Valid) {
-  net::IPAddressNumber ip_number;
+  IPAddressNumber ip_number;
   size_t prefix_length_in_bits;
 
-  EXPECT_TRUE(net::ParseCIDRBlock("192.168.0.1/11",
+  EXPECT_TRUE(ParseCIDRBlock("192.168.0.1/11",
                                   &ip_number,
                                   &prefix_length_in_bits));
 
@@ -2150,19 +2297,90 @@ TEST(NetUtilTest, IPNumberMatchesPrefix) {
                                     tests[i].cidr_literal,
                                     tests[i].ip_literal));
 
-    net::IPAddressNumber ip_number;
-    EXPECT_TRUE(net::ParseIPLiteralToNumber(tests[i].ip_literal, &ip_number));
+    IPAddressNumber ip_number;
+    EXPECT_TRUE(ParseIPLiteralToNumber(tests[i].ip_literal, &ip_number));
 
-    net::IPAddressNumber ip_prefix;
+    IPAddressNumber ip_prefix;
     size_t prefix_length_in_bits;
 
-    EXPECT_TRUE(net::ParseCIDRBlock(tests[i].cidr_literal,
-                                    &ip_prefix,
-                                    &prefix_length_in_bits));
+    EXPECT_TRUE(ParseCIDRBlock(tests[i].cidr_literal,
+                               &ip_prefix,
+                               &prefix_length_in_bits));
 
     EXPECT_EQ(tests[i].expected_to_match,
-              net::IPNumberMatchesPrefix(ip_number,
-                                         ip_prefix,
-                                         prefix_length_in_bits));
+              IPNumberMatchesPrefix(ip_number,
+                                    ip_prefix,
+                                    prefix_length_in_bits));
   }
 }
+
+TEST(NetUtilTest, IsLocalhost) {
+  EXPECT_TRUE(net::IsLocalhost("localhost"));
+  EXPECT_TRUE(net::IsLocalhost("localhost.localdomain"));
+  EXPECT_TRUE(net::IsLocalhost("localhost6"));
+  EXPECT_TRUE(net::IsLocalhost("localhost6.localdomain6"));
+  EXPECT_TRUE(net::IsLocalhost("127.0.0.1"));
+  EXPECT_TRUE(net::IsLocalhost("127.0.1.0"));
+  EXPECT_TRUE(net::IsLocalhost("127.1.0.0"));
+  EXPECT_TRUE(net::IsLocalhost("127.0.0.255"));
+  EXPECT_TRUE(net::IsLocalhost("127.0.255.0"));
+  EXPECT_TRUE(net::IsLocalhost("127.255.0.0"));
+  EXPECT_TRUE(net::IsLocalhost("::1"));
+  EXPECT_TRUE(net::IsLocalhost("0:0:0:0:0:0:0:1"));
+
+  EXPECT_FALSE(net::IsLocalhost("localhostx"));
+  EXPECT_FALSE(net::IsLocalhost("foo.localdomain"));
+  EXPECT_FALSE(net::IsLocalhost("localhost6x"));
+  EXPECT_FALSE(net::IsLocalhost("localhost.localdomain6"));
+  EXPECT_FALSE(net::IsLocalhost("localhost6.localdomain"));
+  EXPECT_FALSE(net::IsLocalhost("127.0.0.1.1"));
+  EXPECT_FALSE(net::IsLocalhost(".127.0.0.255"));
+  EXPECT_FALSE(net::IsLocalhost("::2"));
+  EXPECT_FALSE(net::IsLocalhost("::1:1"));
+  EXPECT_FALSE(net::IsLocalhost("0:0:0:0:1:0:0:1"));
+  EXPECT_FALSE(net::IsLocalhost("::1:1"));
+  EXPECT_FALSE(net::IsLocalhost("0:0:0:0:0:0:0:0:1"));
+}
+
+// Verify GetNetworkList().
+TEST(NetUtilTest, GetNetworkList) {
+  NetworkInterfaceList list;
+  ASSERT_TRUE(GetNetworkList(&list));
+
+  for (NetworkInterfaceList::iterator it = list.begin();
+       it != list.end(); ++it) {
+    // Verify that the name is not empty.
+    EXPECT_FALSE(it->name.empty());
+
+    // Verify that the address is correct.
+    EXPECT_TRUE(it->address.size() == kIPv4AddressSize ||
+                it->address.size() == kIPv6AddressSize)
+        << "Invalid address of size " << it->address.size();
+    bool all_zeroes = true;
+    for (size_t i = 0; i < it->address.size(); ++i) {
+      if (it->address[i] != 0) {
+        all_zeroes = false;
+        break;
+      }
+    }
+    EXPECT_FALSE(all_zeroes);
+  }
+}
+
+TEST(NetUtilTest, AdjustComponentOffset) {
+  std::vector<size_t> old_offsets;
+  for (size_t i = 0; i < 10; ++i)
+    old_offsets.push_back(i);
+  std::vector<size_t> new_offsets;
+  std::transform(old_offsets.begin(),
+                 old_offsets.end(),
+                 std::back_inserter(new_offsets),
+                 ClampComponentOffset(5));
+  size_t expected_1[] = {kNpos, kNpos, kNpos, kNpos, kNpos, 5, 6, 7, 8, 9};
+  EXPECT_EQ(new_offsets.size(), arraysize(expected_1));
+  EXPECT_EQ(new_offsets.size(), old_offsets.size());
+  for (size_t i = 0; i < arraysize(expected_1); ++i)
+    EXPECT_EQ(expected_1[i], new_offsets[i]);
+}
+
+}  // namespace net

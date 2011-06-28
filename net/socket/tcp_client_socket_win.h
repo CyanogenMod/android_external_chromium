@@ -32,7 +32,8 @@ class TCPClientSocketWin : public ClientSocket, base::NonThreadSafe {
   // AdoptSocket causes the given, connected socket to be adopted as a TCP
   // socket. This object must not be connected. This object takes ownership of
   // the given socket and then acts as if Connect() had been called. This
-  // function is intended for testing only.
+  // function is used by TCPServerSocket() to adopt accepted connections
+  // and for testing.
   void AdoptSocket(SOCKET socket);
 
   // ClientSocket methods:
@@ -45,6 +46,7 @@ class TCPClientSocketWin : public ClientSocket, base::NonThreadSafe {
   virtual bool IsConnected() const;
   virtual bool IsConnectedAndIdle() const;
   virtual int GetPeerAddress(AddressList* address) const;
+  virtual int GetLocalAddress(IPEndPoint* address) const;
   virtual const BoundNetLog& NetLog() const { return net_log_; }
   virtual void SetSubresourceSpeculation();
   virtual void SetOmniboxSpeculation();

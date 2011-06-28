@@ -7,7 +7,7 @@
 #pragma once
 
 #include <map>
-#include <set>
+#include <string>
 
 #include "base/synchronization/lock.h"
 #include "googleurl/src/gurl.h"
@@ -26,6 +26,7 @@ class ExtensionSpecialStoragePolicy : public quota::SpecialStoragePolicy {
   // data remover. These methods are safe to call on any thread.
   virtual bool IsStorageProtected(const GURL& origin);
   virtual bool IsStorageUnlimited(const GURL& origin);
+  virtual bool IsFileHandler(const std::string& extension_id);
 
   // Methods used by the ExtensionService to populate this class.
   void GrantRightsForExtension(const Extension* extension);
@@ -39,15 +40,16 @@ class ExtensionSpecialStoragePolicy : public quota::SpecialStoragePolicy {
     ~SpecialCollection();
 
     bool Contains(const GURL& origin);
+    bool ContainsExtension(const std::string& extension_id);
     void Add(const Extension* extension);
     void Remove(const Extension* extension);
     void Clear();
 
    private:
     typedef std::map<GURL, bool> CachedResults;
-    typedef std::set<const Extension*> Extensions;
+    typedef std::map<std::string, scoped_refptr<const Extension> > Extensions;
     Extensions extensions_;
-    CachedResults cached_resuts_;
+    CachedResults cached_results_;
   };
 
   virtual ~ExtensionSpecialStoragePolicy();
@@ -55,6 +57,7 @@ class ExtensionSpecialStoragePolicy : public quota::SpecialStoragePolicy {
   base::Lock lock_;  // Synchronize all access to the collections.
   SpecialCollection protected_apps_;
   SpecialCollection unlimited_extensions_;
+  SpecialCollection file_handler_extensions_;
 };
 
 #endif  // CHROME_BROWSER_EXTENSIONS_EXTENSION_SPECIAL_STORAGE_POLICY_H_

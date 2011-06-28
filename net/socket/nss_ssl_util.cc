@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,10 +13,10 @@
 
 #include "base/lazy_instance.h"
 #include "base/logging.h"
-#include "base/nss_util.h"
-#include "base/singleton.h"
+#include "base/memory/singleton.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/values.h"
+#include "crypto/nss_util.h"
 #include "net/base/net_errors.h"
 #include "net/base/net_log.h"
 
@@ -25,7 +25,7 @@ namespace net {
 class NSSSSLInitSingleton {
  public:
   NSSSSLInitSingleton() {
-    base::EnsureNSSInit();
+    crypto::EnsureNSSInit();
 
     NSS_SetDomesticPolicy();
 

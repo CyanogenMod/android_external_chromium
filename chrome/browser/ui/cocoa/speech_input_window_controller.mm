@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,6 +18,7 @@
 
 const int kBubbleControlVerticalSpacing = 10;  // Space between controls.
 const int kBubbleHorizontalMargin = 5;  // Space on either sides of controls.
+const int kInstructionLabelMaxWidth = 150;
 
 @interface SpeechInputWindowController (Private)
 - (NSSize)calculateContentSize;
@@ -35,33 +36,14 @@ const int kBubbleHorizontalMargin = 5;  // Space on either sides of controls.
                                 anchoredAt:anchoredAt])) {
     DCHECK(delegate);
     delegate_ = delegate;
-
-    [self showWindow:nil];
+    displayMode_ = SpeechInputBubbleBase::DISPLAY_MODE_WARM_UP;
   }
   return self;
 }
 
 - (void)awakeFromNib {
   [super awakeFromNib];
-
-  NSWindow* window = [self window];
   [[self bubble] setArrowLocation:info_bubble::kTopLeft];
-  NSImage* icon = ResourceBundle::GetSharedInstance().GetNativeImageNamed(
-      IDR_SPEECH_INPUT_MIC_EMPTY);
-  [iconImage_ setImage:icon];
-
-  NSSize newSize = [self calculateContentSize];
-  [[self bubble] setFrameSize:newSize];
-  NSSize windowDelta = NSMakeSize(
-      newSize.width - NSWidth([[window contentView] bounds]),
-      newSize.height - NSHeight([[window contentView] bounds]));
-  windowDelta = [[window contentView] convertSize:windowDelta toView:nil];
-  NSRect newFrame = [window frame];
-  newFrame.size.width += windowDelta.width;
-  newFrame.size.height += windowDelta.height;
-  [window setFrame:newFrame display:NO];
-
-  [self layout:newSize];  // Layout all the child controls.
 }
 
 - (IBAction)cancel:(id)sender {
@@ -87,25 +69,44 @@ const int kBubbleHorizontalMargin = 5;  // Space on either sides of controls.
   NSSize cancelSize = [cancelButton_ bounds].size;
   NSSize tryAgainSize = [tryAgainButton_ bounds].size;
   CGFloat newHeight = cancelSize.height + kBubbleControlVerticalSpacing;
-  CGFloat newWidth = cancelSize.width + tryAgainSize.width;
+  CGFloat newWidth = cancelSize.width;
+  if (![tryAgainButton_ isHidden])
+    newWidth += tryAgainSize.width;
+
+  // The size of the bubble in warm up mode is fixed to be the same as in
+  // recording mode, so from warm up it can transition to recording without any
+  // UI jank.
+  bool isWarmUp = (displayMode_ ==
+                   SpeechInputBubbleBase::DISPLAY_MODE_WARM_UP);
 
   if (![iconImage_ isHidden]) {
     NSSize size = [[iconImage_ image] size];
+    if (isWarmUp) {
+      NSImage* volumeIcon =
+          ResourceBundle::GetSharedInstance().GetNativeImageNamed(
+              IDR_SPEECH_INPUT_MIC_EMPTY);
+      size = [volumeIcon size];
+    }
     newHeight += size.height;
-    newWidth = std::max(newWidth, size.width);
+    newWidth = std::max(newWidth, size.width + 2 * kBubbleHorizontalMargin);
   }
 
-  if (![instructionLabel_ isHidden]) {
-    [GTMUILocalizerAndLayoutTweaker sizeToFitFixedWidthTextField:
-        instructionLabel_];
-    NSSize size = [instructionLabel_ bounds].size;
-    newHeight += size.height + kBubbleControlVerticalSpacing;
-    newWidth = std::max(newWidth, size.width);
+  if (![instructionLabel_ isHidden] || isWarmUp) {
+    [instructionLabel_ sizeToFit];
+    NSSize textSize = [[instructionLabel_ cell] cellSize];
+    NSRect boundsRect = NSMakeRect(0, 0, kInstructionLabelMaxWidth,
+                                   CGFLOAT_MAX);
+    NSSize multiLineSize =
+        [[instructionLabel_ cell] cellSizeForBounds:boundsRect];
+    if (textSize.width > multiLineSize.width)
+      textSize = multiLineSize;
+    newHeight += textSize.height + kBubbleControlVerticalSpacing;
+    newWidth = std::max(newWidth, textSize.width);
   }
 
   if (![micSettingsButton_ isHidden]) {
     NSSize size = [micSettingsButton_ bounds].size;
-    newHeight += size.height + kBubbleControlVerticalSpacing;
+    newHeight += size.height;
     newWidth = std::max(newWidth, size.width);
   }
 
@@ -130,9 +131,11 @@ const int kBubbleHorizontalMargin = 5;  // Space on either sides of controls.
     [tryAgainButton_ setFrame:tryAgainRect];
   }
   cancelRect.origin.y = y;
-  [cancelButton_ setFrame:cancelRect];
 
-  y += NSHeight(cancelRect) + kBubbleControlVerticalSpacing;
+  if (![cancelButton_ isHidden]) {
+    [cancelButton_ setFrame:cancelRect];
+    y += NSHeight(cancelRect) + kBubbleControlVerticalSpacing;
+  }
 
   NSRect rect;
   if (![micSettingsButton_ isHidden]) {
@@ -144,54 +147,65 @@ const int kBubbleHorizontalMargin = 5;  // Space on either sides of controls.
   }
 
   if (![instructionLabel_ isHidden]) {
-    rect = [instructionLabel_ bounds];
-    rect.origin.x = (size.width - NSWidth(rect)) / 2;
-    rect.origin.y = y;
+    int spaceForIcon = 0;
+    if (![iconImage_ isHidden]) {
+      spaceForIcon = [[iconImage_ image] size].height +
+                     kBubbleControlVerticalSpacing;
+    }
+
+    rect = NSMakeRect(0, y, size.width, size.height - y - spaceForIcon -
+                      kBubbleControlVerticalSpacing * 2);
     [instructionLabel_ setFrame:rect];
-    y += rect.size.height + kBubbleControlVerticalSpacing;
+    y = size.height - spaceForIcon - kBubbleControlVerticalSpacing;
   }
 
   if (![iconImage_ isHidden]) {
     rect.size = [[iconImage_ image] size];
+    // In warm-up mode only the icon gets displayed so center it vertically.
+    if (displayMode_ == SpeechInputBubbleBase::DISPLAY_MODE_WARM_UP)
+      y = (size.height - rect.size.height) / 2;
     rect.origin.x = (size.width - NSWidth(rect)) / 2;
     rect.origin.y = y;
     [iconImage_ setFrame:rect];
   }
-
 }
 
 - (void)updateLayout:(SpeechInputBubbleBase::DisplayMode)mode
-         messageText:(const string16&)messageText {
+         messageText:(const string16&)messageText
+           iconImage:(NSImage*)iconImage {
+  // The very first time this method is called, the child views would still be
+  // uninitialized and null. So we invoke [self window] first and that sets up
+  // the child views properly so we can do the layout calculations below.
+  NSWindow* window = [self window];
+  displayMode_ = mode;
+  BOOL is_message = (mode == SpeechInputBubbleBase::DISPLAY_MODE_MESSAGE);
+  BOOL is_recording = (mode == SpeechInputBubbleBase::DISPLAY_MODE_RECORDING);
+  BOOL is_warm_up = (mode == SpeechInputBubbleBase::DISPLAY_MODE_WARM_UP);
+  [iconImage_ setHidden:is_message];
+  [tryAgainButton_ setHidden:!is_message];
+  [micSettingsButton_ setHidden:!is_message];
+  [instructionLabel_ setHidden:!is_message && !is_recording];
+  [cancelButton_ setHidden:is_warm_up];
+
   // Get the right set of controls to be visible.
-  if (mode == SpeechInputBubbleBase::DISPLAY_MODE_MESSAGE) {
+  if (is_message) {
     [instructionLabel_ setStringValue:base::SysUTF16ToNSString(messageText)];
-    [iconImage_ setHidden:YES];
-    [tryAgainButton_ setHidden:NO];
-    [instructionLabel_ setHidden:NO];
-    [micSettingsButton_ setHidden:NO];
   } else {
-    if (mode == SpeechInputBubbleBase::DISPLAY_MODE_RECORDING) {
-      [instructionLabel_ setStringValue:l10n_util::GetNSString(
-          IDS_SPEECH_INPUT_BUBBLE_HEADING)];
-      [instructionLabel_ setHidden:NO];
-      NSImage* icon = ResourceBundle::GetSharedInstance().GetNativeImageNamed(
-          IDR_SPEECH_INPUT_MIC_EMPTY);
-      [iconImage_ setImage:icon];
-    } else {
-      [instructionLabel_ setHidden:YES];
-    }
-    [iconImage_ setHidden:NO];
-    [iconImage_ setNeedsDisplay:YES];
-    [tryAgainButton_ setHidden:YES];
-    [micSettingsButton_ setHidden:YES];
+    [iconImage_ setImage:iconImage];
+    [instructionLabel_ setStringValue:l10n_util::GetNSString(
+        IDS_SPEECH_INPUT_BUBBLE_HEADING)];
   }
 
   NSSize newSize = [self calculateContentSize];
-  NSRect rect = [[self bubble] frame];
-  rect.origin.y -= newSize.height - rect.size.height;
-  rect.size = newSize;
-  [[self bubble] setFrame:rect];
-  [self layout:newSize];
+  [[self bubble] setFrameSize:newSize];
+
+  NSSize windowDelta = [[window contentView] convertSize:newSize toView:nil];
+  NSRect newFrame = [window frame];
+  newFrame.origin.y -= windowDelta.height - newFrame.size.height;
+  newFrame.size = windowDelta;
+  [window setFrame:newFrame display:YES];
+
+  [self layout:newSize];  // Layout all the child controls.
 }
 
 - (void)windowWillClose:(NSNotification*)notification {

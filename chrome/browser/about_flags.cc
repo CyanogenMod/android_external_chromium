@@ -10,11 +10,12 @@
 #include <set>
 
 #include "base/command_line.h"
-#include "base/singleton.h"
+#include "base/memory/singleton.h"
 #include "base/string_number_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/prefs/scoped_user_pref_update.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "grit/generated_resources.h"
@@ -39,14 +40,6 @@ const unsigned kOsAll = kOsMac | kOsWin | kOsLinux | kOsCrOS;
 const char kMediaPlayerExperimentName[] = "media-player";
 const char kAdvancedFileSystemExperimentName[] = "advanced-file-system";
 const char kVerticalTabsExperimentName[] = "vertical-tabs";
-
-const Experiment::Choice kPagePrerenderChoices[] = {
-  { IDS_FLAGS_PAGE_PRERENDER_AUTOMATIC, "", "" },
-  { IDS_FLAGS_PAGE_PRERENDER_ENABLED,
-    switches::kPrerender, switches::kPrerenderSwitchValueEnabled },
-  { IDS_FLAGS_PAGE_PRERENDER_DISABLED,
-    switches::kPrerender, switches::kPrerenderSwitchValueDisabled },
-};
 
 // RECORDING USER METRICS FOR FLAGS:
 // -----------------------------------------------------------------------------
@@ -81,25 +74,13 @@ const Experiment::Choice kPagePrerenderChoices[] = {
 // When adding a new choice, add it to the end of the list.
 const Experiment kExperiments[] = {
   {
-    kMediaPlayerExperimentName,
-    IDS_FLAGS_MEDIA_PLAYER_NAME,
-    IDS_FLAGS_MEDIA_PLAYER_DESCRIPTION,
-    kOsCrOS,
-#if defined(OS_CHROMEOS)
-    // The switch exists only on Chrome OS.
-    SINGLE_VALUE_TYPE(switches::kEnableMediaPlayer)
-#else
-    SINGLE_VALUE_TYPE("")
-#endif
-  },
-  {
-    kAdvancedFileSystemExperimentName,
-    IDS_FLAGS_ADVANCED_FS_NAME,
-    IDS_FLAGS_ADVANCED_FS_DESCRIPTION,
-    kOsCrOS,
-#if defined(OS_CHROMEOS)
-    // The switch exists only on Chrome OS.
-    SINGLE_VALUE_TYPE(switches::kEnableAdvancedFileSystem)
+    "expose-for-tabs",  // FLAGS:RECORD_UMA
+    IDS_FLAGS_TABPOSE_NAME,
+    IDS_FLAGS_TABPOSE_DESCRIPTION,
+    kOsMac,
+#if defined(OS_MACOSX)
+    // The switch exists only on OS X.
+    SINGLE_VALUE_TYPE(switches::kEnableExposeForTabs)
 #else
     SINGLE_VALUE_TYPE("")
 #endif
@@ -169,20 +150,11 @@ const Experiment kExperiments[] = {
     kOsWin | kOsLinux | kOsCrOS,
     SINGLE_VALUE_TYPE(switches::kEnableAccelerated2dCanvas)
   },
-  // FIXME(scheib): Add Flags entry for WebGL,
-  // or pull it and the strings in generated_resources.grd by Dec 2010
-  // {
-  //   "webgl",
-  //   IDS_FLAGS_WEBGL_NAME,
-  //   IDS_FLAGS_WEBGL_DESCRIPTION,
-  //   kOsAll,
-  //   SINGLE_VALUE_TYPE(switches::kDisableExperimentalWebGL)
-  // }
   {
     "print-preview",  // FLAGS:RECORD_UMA
     IDS_FLAGS_PRINT_PREVIEW_NAME,
     IDS_FLAGS_PRINT_PREVIEW_DESCRIPTION,
-    kOsAll,
+    kOsMac | kOsWin | kOsLinux, // This switch is not available in CrOS.
     SINGLE_VALUE_TYPE(switches::kEnablePrintPreview)
   },
   {
@@ -198,13 +170,6 @@ const Experiment kExperiments[] = {
     IDS_FLAGS_DNS_SERVER_DESCRIPTION,
     kOsLinux,
     SINGLE_VALUE_TYPE(switches::kDnsServer)
-  },
-  {
-    "page-prerender",  // FLAGS:RECORD_UMA
-    IDS_FLAGS_PAGE_PRERENDER_NAME,
-    IDS_FLAGS_PAGE_PRERENDER_DESCRIPTION,
-    kOsAll,
-    MULTI_VALUE_TYPE(kPagePrerenderChoices)
   },
   {
     "extension-apis",  // FLAGS:RECORD_UMA
@@ -256,13 +221,6 @@ const Experiment kExperiments[] = {
     SINGLE_VALUE_TYPE(switches::kEnableWebAudio)
   },
   {
-    "enable-history-quick-provider",
-    IDS_FLAGS_ENABLE_HISTORY_QUICK_PROVIDER,
-    IDS_FLAGS_ENABLE_HISTORY_QUICK_PROVIDER_DESCRIPTION,
-    kOsAll,
-    SINGLE_VALUE_TYPE(switches::kEnableHistoryQuickProvider)
-  },
-  {
     "p2papi",
     IDS_FLAGS_P2P_API_NAME,
     IDS_FLAGS_P2P_API_DESCRIPTION,
@@ -275,6 +233,67 @@ const Experiment kExperiments[] = {
     IDS_FLAGS_FOCUS_EXISTING_TAB_ON_OPEN_DESCRIPTION,
     kOsAll,
     SINGLE_VALUE_TYPE(switches::kFocusExistingTabOnOpen)
+  },
+  {
+    "new-tab-page-4",
+    IDS_FLAGS_NEW_TAB_PAGE_4_NAME,
+    IDS_FLAGS_NEW_TAB_PAGE_4_DESCRIPTION,
+    kOsAll,
+    SINGLE_VALUE_TYPE(switches::kNewTabPage4)
+  },
+  {
+    "tab-groups-context-menu",
+    IDS_FLAGS_TAB_GROUPS_CONTEXT_MENU_NAME,
+    IDS_FLAGS_TAB_GROUPS_CONTEXT_MENU_DESCRIPTION,
+    kOsWin,
+    SINGLE_VALUE_TYPE(switches::kEnableTabGroupsContextMenu)
+  },
+  {
+    "ppapi-flash-in-process",
+    IDS_FLAGS_PPAPI_FLASH_IN_PROCESS_NAME,
+    IDS_FLAGS_PPAPI_FLASH_IN_PROCESS_DESCRIPTION,
+    kOsAll,
+    SINGLE_VALUE_TYPE(switches::kPpapiFlashInProcess)
+  },
+#if defined(TOOLKIT_GTK)
+  {
+    "global-gnome-menu",
+    IDS_FLAGS_LINUX_GLOBAL_MENUBAR_NAME,
+    IDS_FLAGS_LINUX_GLOBAL_MENUBAR_DESCRIPTION,
+    kOsLinux,
+    SINGLE_VALUE_TYPE(switches::kGlobalGnomeMenu)
+  },
+#endif
+  {
+    "enable-experimental-eap",
+    IDS_FLAGS_ENABLE_EXPERIMENTAL_EAP_NAME,
+    IDS_FLAGS_ENABLE_EXPERIMENTAL_EAP_DESCRIPTION,
+    kOsCrOS,
+#if defined(OS_CHROMEOS)
+    // The switch exists only on Chrome OS.
+    SINGLE_VALUE_TYPE(switches::kEnableExperimentalEap)
+#else
+    SINGLE_VALUE_TYPE("")
+#endif
+  },
+  {
+    "enable-vpn",
+    IDS_FLAGS_ENABLE_VPN_NAME,
+    IDS_FLAGS_ENABLE_VPN_DESCRIPTION,
+    kOsCrOS,
+#if defined(OS_CHROMEOS)
+    // The switch exists only on Chrome OS.
+    SINGLE_VALUE_TYPE(switches::kEnableVPN)
+#else
+    SINGLE_VALUE_TYPE("")
+#endif
+  },
+  {
+    "multi-profiles",
+    IDS_FLAGS_MULTI_PROFILES_NAME,
+    IDS_FLAGS_MULTI_PROFILES_DESCRIPTION,
+    kOsAll,
+    SINGLE_VALUE_TYPE(switches::kMultiProfiles)
   },
 };
 
@@ -328,10 +347,8 @@ void GetEnabledFlags(const PrefService* prefs, std::set<std::string>* result) {
 // Takes a set of enabled lab experiments
 void SetEnabledFlags(
     PrefService* prefs, const std::set<std::string>& enabled_experiments) {
-  ListValue* experiments_list = prefs->GetMutableList(
-      prefs::kEnabledLabsExperiments);
-  if (!experiments_list)
-    return;
+  ListPrefUpdate update(prefs, prefs::kEnabledLabsExperiments);
+  ListValue* experiments_list = update.Get();
 
   experiments_list->Clear();
   for (std::set<std::string>::const_iterator it = enabled_experiments.begin();

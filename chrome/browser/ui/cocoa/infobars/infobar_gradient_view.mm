@@ -4,8 +4,8 @@
 
 #include "chrome/browser/ui/cocoa/infobars/infobar_gradient_view.h"
 
-#include "base/scoped_nsobject.h"
-#import "chrome/browser/themes/browser_theme_provider.h"
+#include "base/memory/scoped_nsobject.h"
+#import "chrome/browser/themes/theme_service.h"
 #import "chrome/browser/ui/cocoa/infobars/infobar_container_controller.h"
 #import "chrome/browser/ui/cocoa/themed_window.h"
 
@@ -16,10 +16,6 @@ const double kBackgroundColorTop[3] =
 const double kBackgroundColorBottom[3] =
     {250.0 / 255.0, 230.0 / 255.0, 145.0 / 255.0};
 }
-
-@interface InfoBarGradientView (Private)
-- (void)strokePath:(NSBezierPath*)path;
-@end
 
 @implementation InfoBarGradientView
 
@@ -50,53 +46,25 @@ const double kBackgroundColorBottom[3] =
 
   BOOL active = [[self window] isMainWindow];
   return themeProvider->GetNSColor(
-      active ? BrowserThemeProvider::COLOR_TOOLBAR_STROKE :
-               BrowserThemeProvider::COLOR_TOOLBAR_STROKE_INACTIVE,
+      active ? ThemeService::COLOR_TOOLBAR_STROKE :
+               ThemeService::COLOR_TOOLBAR_STROKE_INACTIVE,
       true);
 }
 
 - (void)drawRect:(NSRect)rect {
   NSRect bounds = [self bounds];
-  bounds.size.height -= infobars::kAntiSpoofHeight;
-
-  const CGFloat tipHeight = infobars::kAntiSpoofHeight;
-  const CGFloat curveDistance = 13.0;
-  const CGFloat iconWidth = 29.0;
-  const CGFloat tipPadding = 4.0;
-  const CGFloat pathJoinShift = 2.5;
-
-  // Draw the tab bulge that acts as the anti-spoofing countermeasure.
-  NSBezierPath* bulgePath = [NSBezierPath bezierPath];
-  NSPoint startPoint = NSMakePoint(0, NSMaxY([self frame]) - tipHeight);
-  [bulgePath moveToPoint:startPoint];
-  [bulgePath relativeCurveToPoint:NSMakePoint(curveDistance, tipHeight)
-                    controlPoint1:NSMakePoint(curveDistance/2, 0)
-                    controlPoint2:NSMakePoint(curveDistance/2, tipHeight)];
-
-  // The height is too small and the control points too close for the stroke
-  // across this straight line to have enough definition. Save off the points
-  // for later to create a separate line to stroke.
-  NSPoint topStrokeStart = [bulgePath currentPoint];
-  [bulgePath relativeLineToPoint:NSMakePoint(tipPadding + iconWidth, 0)];
-  NSPoint topStrokeEnd = [bulgePath currentPoint];
-
-  [bulgePath relativeCurveToPoint:NSMakePoint(curveDistance, -tipHeight)
-                    controlPoint1:NSMakePoint(curveDistance/2, 0)
-                    controlPoint2:NSMakePoint(curveDistance/2, -tipHeight)];
+  bounds.size.height = infobars::kBaseHeight;
 
   // Around the bounds of the infobar, continue drawing the path into which the
   // gradient will be drawn.
-  scoped_nsobject<NSBezierPath> infoBarPath([bulgePath copy]);
-  [infoBarPath lineToPoint:NSMakePoint(NSMaxX(bounds), startPoint.y)];
+  NSBezierPath* infoBarPath = [NSBezierPath bezierPath];
+  [infoBarPath moveToPoint:NSMakePoint(NSMinX(bounds), NSMaxY(bounds))];
+  [infoBarPath lineToPoint:NSMakePoint(NSMaxX(bounds), NSMaxY(bounds))];
+  scoped_nsobject<NSBezierPath> topPath([infoBarPath copy]);
+
   [infoBarPath lineToPoint:NSMakePoint(NSMaxX(bounds), NSMinY(bounds))];
   [infoBarPath lineToPoint:NSMakePoint(NSMinX(bounds), NSMinY(bounds))];
-  [infoBarPath lineToPoint:NSMakePoint(NSMinX(bounds), startPoint.y)];
-  [infoBarPath lineToPoint:startPoint];
   [infoBarPath closePath];
-
-  // Stroke the bulge.
-  [bulgePath setLineCapStyle:NSSquareLineCapStyle];
-  [self strokePath:bulgePath];
 
   // Draw the gradient.
   [[self gradient] drawInBezierPath:infoBarPath angle:270];
@@ -110,13 +78,12 @@ const double kBackgroundColorBottom[3] =
     NSRectFillUsingOperation(borderRect, NSCompositeSourceOver);
   }
 
-  // Stroke the horizontal line to ensure it has enough definition.
-  topStrokeStart.x -= pathJoinShift;
-  topStrokeEnd.x += pathJoinShift;
-  NSBezierPath* topStroke = [NSBezierPath bezierPath];
-  [topStroke moveToPoint:topStrokeStart];
-  [topStroke lineToPoint:topStrokeEnd];
-  [self strokePath:topStroke];
+  // Add an inner stroke.
+  [[NSColor colorWithDeviceWhite:1.0 alpha:1.0] setStroke];
+  NSAffineTransform* transform = [NSAffineTransform transform];
+  [transform translateXBy:0.0 yBy:-1.0];
+  [topPath transformUsingAffineTransform:transform];
+  [topPath stroke];
 }
 
 - (BOOL)mouseDownCanMoveWindow {
@@ -134,22 +101,6 @@ const double kBackgroundColorBottom[3] =
     return NSAccessibilityGroupRole;
 
   return [super accessibilityAttributeValue:attribute];
-}
-
-// Private /////////////////////////////////////////////////////////////////////
-
-// Stroking paths with just |-strokeColor| will blend with the color underneath
-// it and will make it appear lighter than it should. Stroke with black first to
-// have the stroke color come out right.
-- (void)strokePath:(NSBezierPath*)path {
-  [[NSGraphicsContext currentContext] saveGraphicsState];
-
-  [[NSColor blackColor] set];
-  [path stroke];
-  [[self strokeColor] set];
-  [path stroke];
-
-  [[NSGraphicsContext currentContext] restoreGraphicsState];
 }
 
 @end

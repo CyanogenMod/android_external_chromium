@@ -7,7 +7,7 @@
 #include <string>
 
 #include "base/logging.h"
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
 #include "base/task.h"
 #include "base/tracked_objects.h"
 #include "base/values.h"
@@ -16,9 +16,10 @@
 #include "chrome/browser/sync/js_frontend.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/sync_ui_util.h"
+#include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/browser/ui/webui/chrome_url_data_manager.h"
 #include "chrome/browser/ui/webui/sync_internals_html_source.h"
-#include "chrome/common/render_messages_params.h"
+#include "chrome/common/extensions/extension_messages.h"
 #include "content/browser/browser_thread.h"
 
 SyncInternalsUI::SyncInternalsUI(TabContents* contents)
@@ -42,7 +43,7 @@ SyncInternalsUI::~SyncInternalsUI() {
 }
 
 void SyncInternalsUI::ProcessWebUIMessage(
-    const ViewHostMsg_DomMessage_Params& params) {
+    const ExtensionHostMsg_DomMessage_Params& params) {
   const std::string& name = params.name;
   browser_sync::JsArgList args(params.arguments);
   VLOG(1) << "Received message: " << name << " with args "
@@ -72,7 +73,7 @@ void SyncInternalsUI::HandleJsEvent(const std::string& name,
                                     const browser_sync::JsArgList& args) {
   VLOG(1) << "Handling event: " << name << " with args " << args.ToString();
   std::vector<const Value*> arg_list(args.Get().begin(), args.Get().end());
-  CallJavascriptFunction(UTF8ToWide(name), arg_list);
+  CallJavascriptFunction(name, arg_list);
 }
 
 browser_sync::JsFrontend* SyncInternalsUI::GetJsFrontend() {

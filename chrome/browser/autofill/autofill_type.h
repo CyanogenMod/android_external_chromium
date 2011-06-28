@@ -13,13 +13,15 @@
 #include "base/string16.h"
 #include "chrome/browser/autofill/field_types.h"
 
-// The high-level description of AutoFill types, used to categorize form fields
+// The high-level description of Autofill types, used to categorize form fields
 // and for associating form fields with form values in the Web Database.
 class AutofillType {
  public:
   enum FieldTypeGroup {
     NO_GROUP,
-    CONTACT_INFO,
+    NAME,
+    EMAIL,
+    COMPANY,
     ADDRESS_HOME,
     ADDRESS_BILLING,
     PHONE_HOME,
@@ -60,7 +62,7 @@ class AutofillType {
   FieldTypeSubGroup subgroup() const;
 
   // Maps |field_type| to a field type that can be directly stored in a profile
-  // (in the sense that it makes sense to call |AutoFillProfile::SetInfo()| with
+  // (in the sense that it makes sense to call |AutofillProfile::SetInfo()| with
   // the returned field type as the first parameter).
   static AutofillFieldType GetEquivalentFieldType(AutofillFieldType field_type);
 

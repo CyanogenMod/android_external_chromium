@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@
 #include <utility>
 #include <vector>
 
-#include "base/scoped_nsobject.h"
+#include "base/memory/scoped_nsobject.h"
 #include "chrome/browser/accessibility/browser_accessibility.h"
 
 @class BrowserAccessibilityCocoa;
@@ -19,7 +19,7 @@ class BrowserAccessibilityMac : public BrowserAccessibility {
  public:
   // Implementation of BrowserAccessibility.
   virtual void Initialize();
-  virtual void ReleaseReference();
+  virtual void NativeReleaseReference();
 
   // Overrides from BrowserAccessibility.
   // Used to know when to update the cocoa children.

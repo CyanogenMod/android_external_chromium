@@ -7,7 +7,7 @@
 #pragma once
 
 #include "base/basictypes.h"
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
 #include "chrome/browser/extensions/image_loading_tracker.h"
 #include "chrome/browser/shell_integration.h"
 #include "content/browser/browser_thread.h"
@@ -20,6 +20,7 @@ typedef struct _GtkWindow GtkWindow;
 
 class Extension;
 class TabContents;
+class TabContentsWrapper;
 
 class CreateApplicationShortcutsDialogGtk
     : public base::RefCountedThreadSafe<CreateApplicationShortcutsDialogGtk,
@@ -76,18 +77,18 @@ class CreateWebApplicationShortcutsDialogGtk
     : public CreateApplicationShortcutsDialogGtk {
  public:
   // Displays the dialog box to create application shortcuts for |tab_contents|.
-  static void Show(GtkWindow* parent, TabContents* tab_contents);
+  static void Show(GtkWindow* parent, TabContentsWrapper* tab_contents);
 
-  explicit CreateWebApplicationShortcutsDialogGtk(GtkWindow* parent,
-                                                  TabContents* tab_contents);
+  CreateWebApplicationShortcutsDialogGtk(GtkWindow* parent,
+                                         TabContentsWrapper* tab_contents);
   virtual ~CreateWebApplicationShortcutsDialogGtk() {}
 
   virtual void OnCreatedShortcut(void);
 
  private:
 
-  // TabContents for which the shortcut will be created.
-  TabContents* tab_contents_;
+  // TabContentsWrapper for which the shortcut will be created.
+  TabContentsWrapper* tab_contents_;
 
   DISALLOW_COPY_AND_ASSIGN(CreateWebApplicationShortcutsDialogGtk);
 };
@@ -107,7 +108,7 @@ class CreateChromeApplicationShortcutsDialogGtk
   // load the app's icon.  This method recieves the icon, and adds
   // it to the "Create Shortcut" dailog box.
   virtual void OnImageLoaded(SkBitmap* image,
-                             ExtensionResource resource,
+                             const ExtensionResource& resource,
                              int index);
 
  private:

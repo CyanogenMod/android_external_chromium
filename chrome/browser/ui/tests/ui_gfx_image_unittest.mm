@@ -4,7 +4,7 @@
 
 #import <AppKit/AppKit.h>
 
-#include "base/scoped_nsobject.h"
+#include "base/memory/scoped_nsobject.h"
 #import "chrome/browser/ui/cocoa/cocoa_test_helper.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -13,13 +13,11 @@
 
 namespace {
 
-using namespace gfx::test;
-
 class UiGfxImageTest : public CocoaTest {
 };
 
 TEST_F(UiGfxImageTest, CheckColor) {
-  gfx::Image image(CreateBitmap());
+  gfx::Image image(gfx::test::CreateBitmap());
   [image lockFocus];
   NSColor* color = NSReadPixel(NSMakePoint(10, 10));
   [image unlockFocus];
@@ -44,7 +42,7 @@ TEST_F(UiGfxImageTest, ImageView) {
   [[test_window() contentView] addSubview:image_view];
   [test_window() orderFront:nil];
 
-  gfx::Image image(CreateBitmap());
+  gfx::Image image(gfx::test::CreateBitmap());
   [image_view setImage:image];
 }
 

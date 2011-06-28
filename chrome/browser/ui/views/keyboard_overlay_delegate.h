@@ -6,14 +6,21 @@
 #define CHROME_BROWSER_UI_VIEWS_KEYBOARD_OVERLAY_DELEGATE_H_
 
 #include "chrome/browser/ui/webui/html_dialog_ui.h"
-#include "ui/gfx/native_widget_types.h"
+
+
+class HtmlDialogView;
 
 class KeyboardOverlayDelegate : public HtmlDialogUIDelegate {
  public:
   explicit KeyboardOverlayDelegate(const std::wstring& title);
 
-  // Shows the keyboard overlay dialog box.
-  static void ShowDialog(gfx::NativeWindow owning_window);
+  void set_view(HtmlDialogView* html_view) {
+    view_ = html_view;
+  }
+
+  HtmlDialogView* view() {
+    return view_;
+  }
 
  private:
   ~KeyboardOverlayDelegate();
@@ -29,9 +36,14 @@ class KeyboardOverlayDelegate : public HtmlDialogUIDelegate {
   virtual void OnDialogClosed(const std::string& json_retval);
   virtual void OnCloseContents(TabContents* source, bool* out_close_dialog);
   virtual bool ShouldShowDialogTitle() const;
+  virtual bool HandleContextMenu(const ContextMenuParams& params);
 
   // The dialog title.
   std::wstring title_;
+
+  // The view associated with this delegate.
+  // This class does not own the pointer.
+  HtmlDialogView* view_;
 
   DISALLOW_COPY_AND_ASSIGN(KeyboardOverlayDelegate);
 };

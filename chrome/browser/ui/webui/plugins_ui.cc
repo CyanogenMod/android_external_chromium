@@ -8,9 +8,9 @@
 #include <string>
 #include <vector>
 
+#include "base/memory/singleton.h"
 #include "base/message_loop.h"
 #include "base/path_service.h"
-#include "base/singleton.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/plugin_updater.h"
@@ -20,14 +20,14 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/webui/chrome_url_data_manager.h"
+#include "chrome/common/chrome_content_client.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/jstemplate_builder.h"
-#include "chrome/common/notification_service.h"
-#include "chrome/common/pepper_plugin_registry.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "content/browser/browser_thread.h"
 #include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/notification_service.h"
 #include "grit/browser_resources.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
@@ -51,7 +51,7 @@ class PluginsUIHTMLSource : public ChromeURLDataManager::DataSource {
   // Called when the network layer has requested a resource underneath
   // the path we registered.
   virtual void StartDataRequest(const std::string& path,
-                                bool is_off_the_record,
+                                bool is_incognito,
                                 int request_id);
   virtual std::string GetMimeType(const std::string&) const {
     return "text/html";
@@ -64,7 +64,7 @@ class PluginsUIHTMLSource : public ChromeURLDataManager::DataSource {
 };
 
 void PluginsUIHTMLSource::StartDataRequest(const std::string& path,
-                                           bool is_off_the_record,
+                                           bool is_incognito,
                                            int request_id) {
   // Strings used in the JsTemplate file.
   DictionaryValue localized_strings;
@@ -253,7 +253,8 @@ void PluginsDOMHandler::HandleEnablePluginMessage(const ListValue* args) {
       // See http://crbug.com/50105 for background.
       string16 adobereader = ASCIIToUTF16(
           webkit::npapi::PluginGroup::kAdobeReaderGroupName);
-      string16 internalpdf = ASCIIToUTF16(PepperPluginRegistry::kPDFPluginName);
+      string16 internalpdf =
+          ASCIIToUTF16(chrome::ChromeContentClient::kPDFPluginName);
       if (group_name == adobereader) {
         plugin_updater->EnablePluginGroup(false, internalpdf);
       } else if (group_name == internalpdf) {
@@ -293,7 +294,7 @@ void PluginsDOMHandler::HandleSaveShowDetailsToPrefs(const ListValue* args) {
 
 void PluginsDOMHandler::HandleGetShowDetails(const ListValue* args) {
   FundamentalValue show_details(show_details_.GetValue());
-  web_ui_->CallJavascriptFunction(L"loadShowDetailsFromPrefs", show_details);
+  web_ui_->CallJavascriptFunction("loadShowDetailsFromPrefs", show_details);
 }
 
 void PluginsDOMHandler::Observe(NotificationType type,
@@ -338,7 +339,7 @@ void PluginsDOMHandler::PluginsLoaded(ListWrapper* wrapper) {
   DictionaryValue results;
   results.Set("plugins", wrapper->list);
   wrapper->list = NULL;  // So it doesn't get deleted.
-  web_ui_->CallJavascriptFunction(L"returnPluginsData", results);
+  web_ui_->CallJavascriptFunction("returnPluginsData", results);
 }
 
 }  // namespace

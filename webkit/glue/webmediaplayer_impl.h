@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -53,9 +53,9 @@
 #ifndef WEBKIT_GLUE_WEBMEDIAPLAYER_IMPL_H_
 #define WEBKIT_GLUE_WEBMEDIAPLAYER_IMPL_H_
 
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/message_loop.h"
-#include "base/ref_counted.h"
-#include "base/scoped_ptr.h"
 #include "base/threading/thread.h"
 #include "base/synchronization/lock.h"
 #include "base/synchronization/waitable_event.h"
@@ -67,6 +67,7 @@
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebMediaPlayerClient.h"
 #include "ui/gfx/rect.h"
 #include "ui/gfx/size.h"
+#include "webkit/glue/media/web_data_source.h"
 
 class GURL;
 
@@ -77,7 +78,6 @@ class WebFrame;
 namespace webkit_glue {
 
 class MediaResourceLoaderBridgeFactory;
-class WebDataSource;
 class WebVideoRenderer;
 
 class WebMediaPlayerImpl : public WebKit::WebMediaPlayer,
@@ -99,10 +99,10 @@ class WebMediaPlayerImpl : public WebKit::WebMediaPlayer,
     // Methods for Filter -> WebMediaPlayerImpl communication.
     void Repaint();
     void SetVideoRenderer(scoped_refptr<WebVideoRenderer> video_renderer);
-    void AddDataSource(scoped_refptr<WebDataSource> data_source);
+    WebDataSourceBuildObserverHack* GetBuildObserver();
 
     // Methods for WebMediaPlayerImpl -> Filter communication.
-    void Paint(skia::PlatformCanvas* canvas, const gfx::Rect& dest_rect);
+    void Paint(SkCanvas* canvas, const gfx::Rect& dest_rect);
     void SetSize(const gfx::Rect& rect);
     void Detach();
     void GetCurrentFrame(scoped_refptr<media::VideoFrame>* frame_out);
@@ -111,11 +111,11 @@ class WebMediaPlayerImpl : public WebKit::WebMediaPlayer,
     void AbortDataSources();
 
     // Methods for PipelineImpl -> WebMediaPlayerImpl communication.
-    void PipelineInitializationCallback();
-    void PipelineSeekCallback();
-    void PipelineEndedCallback();
-    void PipelineErrorCallback();
-    void NetworkEventCallback();
+    void PipelineInitializationCallback(media::PipelineStatus status);
+    void PipelineSeekCallback(media::PipelineStatus status);
+    void PipelineEndedCallback(media::PipelineStatus status);
+    void PipelineErrorCallback(media::PipelineStatus error);
+    void NetworkEventCallback(media::PipelineStatus status);
 
     // Returns the message loop used by the proxy.
     MessageLoop* message_loop() { return render_loop_; }
@@ -125,23 +125,27 @@ class WebMediaPlayerImpl : public WebKit::WebMediaPlayer,
 
     virtual ~Proxy();
 
+    // Adds a data source to data_sources_.
+    void AddDataSource(WebDataSource* data_source);
+
     // Invoke |webmediaplayer_| to perform a repaint.
     void RepaintTask();
 
     // Notify |webmediaplayer_| that initialization has finished.
-    void PipelineInitializationTask();
+    void PipelineInitializationTask(media::PipelineStatus status);
 
     // Notify |webmediaplayer_| that a seek has finished.
-    void PipelineSeekTask();
+    void PipelineSeekTask(media::PipelineStatus status);
 
     // Notify |webmediaplayer_| that the media has ended.
-    void PipelineEndedTask();
+    void PipelineEndedTask(media::PipelineStatus status);
 
-    // Notify |webmediaplayer_| that a pipeline error has been set.
-    void PipelineErrorTask();
+    // Notify |webmediaplayer_| that a pipeline error has occurred during
+    // playback.
+    void PipelineErrorTask(media::PipelineStatus error);
 
     // Notify |webmediaplayer_| that there's a network event.
-    void NetworkEventTask();
+    void NetworkEventTask(media::PipelineStatus status);
 
     // The render message loop where WebKit lives.
     MessageLoop* render_loop_;
@@ -150,6 +154,7 @@ class WebMediaPlayerImpl : public WebKit::WebMediaPlayer,
     base::Lock data_sources_lock_;
     typedef std::list<scoped_refptr<WebDataSource> > DataSourceList;
     DataSourceList data_sources_;
+    scoped_ptr<WebDataSourceBuildObserverHack> build_observer_;
 
     scoped_refptr<WebVideoRenderer> video_renderer_;
 
@@ -203,7 +208,7 @@ class WebMediaPlayerImpl : public WebKit::WebMediaPlayer,
   virtual void setRate(float rate);
   virtual void setVolume(float volume);
   virtual void setVisible(bool visible);
-  virtual bool setAutoBuffer(bool autoBuffer);
+  virtual void setPreload(WebKit::WebMediaPlayer::Preload preload);
   virtual bool totalBytesKnown();
   virtual const WebKit::WebTimeRanges& buffered();
   virtual float maxTimeSeekable() const;
@@ -257,15 +262,15 @@ class WebMediaPlayerImpl : public WebKit::WebMediaPlayer,
 
   void Repaint();
 
-  void OnPipelineInitialize();
+  void OnPipelineInitialize(media::PipelineStatus status);
 
-  void OnPipelineSeek();
+  void OnPipelineSeek(media::PipelineStatus status);
 
-  void OnPipelineEnded();
+  void OnPipelineEnded(media::PipelineStatus status);
 
-  void OnPipelineError();
+  void OnPipelineError(media::PipelineStatus error);
 
-  void OnNetworkEvent();
+  void OnNetworkEvent(media::PipelineStatus status);
 
  private:
   // Helpers that set the network/ready state and notifies the client if
@@ -275,10 +280,6 @@ class WebMediaPlayerImpl : public WebKit::WebMediaPlayer,
 
   // Destroy resources held.
   void Destroy();
-
-  // Callback executed after |pipeline_| stops which signals Destroy()
-  // to continue.
-  void PipelineStoppedCallback();
 
   // Getter method to |client_|.
   WebKit::WebMediaPlayerClient* GetClient();
@@ -322,9 +323,6 @@ class WebMediaPlayerImpl : public WebKit::WebMediaPlayer,
   WebKit::WebMediaPlayerClient* client_;
 
   scoped_refptr<Proxy> proxy_;
-
-  // Used to block Destroy() until Pipeline::Stop() is completed.
-  base::WaitableEvent pipeline_stopped_;
 
 #if WEBKIT_USING_CG
   scoped_ptr<skia::PlatformCanvas> skia_canvas_;

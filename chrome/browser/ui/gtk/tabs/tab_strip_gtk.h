@@ -24,7 +24,7 @@
 class BrowserWindowGtk;
 class CustomDrawButton;
 class DraggedTabControllerGtk;
-class GtkThemeProvider;
+class GtkThemeService;
 
 class TabStripGtk : public TabStripModelObserver,
                     public TabGtk::TabDelegate,
@@ -260,12 +260,12 @@ class TabStripGtk : public TabStripModelObserver,
   // Returns true if |rects| are all areas that match up with tab favicons.
   // |rects| must be sorted from left to right.  |tabs_to_paint| are the tab
   // positions that match the rects.
-  bool CanPaintOnlyFavIcons(const GdkRectangle* rects,
+  bool CanPaintOnlyFavicons(const GdkRectangle* rects,
                             int num_rects,
                             std::vector<int>* tabs_to_paint);
 
   // Paints the tab favicon areas for tabs in |tabs_to_paint|.
-  void PaintOnlyFavIcons(GdkEventExpose* event,
+  void PaintOnlyFavicons(GdkEventExpose* event,
                          const std::vector<int>& tabs_to_paint);
 
   // Initializes the new tab button.
@@ -438,7 +438,7 @@ class TabStripGtk : public TabStripModelObserver,
   BrowserWindowGtk* window_;
 
   // Theme resources.
-  GtkThemeProvider* theme_provider_;
+  GtkThemeService* theme_service_;
 
   // The currently running animation.
   scoped_ptr<TabAnimation> active_animation_;

@@ -6,20 +6,39 @@
 #define CHROME_BROWSER_UI_TAB_CONTENTS_TAB_CONTENTS_WRAPPER_H_
 #pragma once
 
+#include <string>
+
 #include "base/basictypes.h"
-#include "base/scoped_ptr.h"
 #include "base/compiler_specific.h"
-#include "chrome/common/notification_registrar.h"
+#include "base/memory/scoped_ptr.h"
+#include "chrome/browser/printing/print_view_manager.h"
 #include "content/browser/tab_contents/tab_contents.h"
 #include "content/browser/tab_contents/tab_contents_observer.h"
+#include "content/common/notification_registrar.h"
 
+namespace prerender {
+class PrerenderObserver;
+}
+
+namespace printing {
+class PrintPreviewMessageHandler;
+}
+
+class AutocompleteHistoryManager;
+class AutofillManager;
+class AutomationTabHelper;
+class DownloadTabHelper;
 class Extension;
+class ExtensionTabHelper;
+class ExtensionWebNavigationTabObserver;
+class FileSelectObserver;
 class FindTabHelper;
 class NavigationController;
 class PasswordManager;
 class PasswordManagerDelegate;
 class SearchEngineTabHelper;
 class TabContentsWrapperDelegate;
+class TranslateTabHelper;
 
 // Wraps TabContents and all of its supporting objects in order to control
 // their ownership and lifetime, while allowing TabContents to remain generic
@@ -44,7 +63,7 @@ class TabContentsWrapper : public NotificationObserver,
   // Initial title assigned to NavigationEntries from Navigate.
   static string16 GetDefaultTitle();
 
-   // Returns a human-readable description the tab's loading state.
+  // Returns a human-readable description the tab's loading state.
   string16 GetStatusText() const;
 
   // Create a TabContentsWrapper with the same state as this one. The returned
@@ -53,6 +72,10 @@ class TabContentsWrapper : public NotificationObserver,
 
   // Helper to retrieve the existing instance that wraps a given TabContents.
   // Returns NULL if there is no such existing instance.
+  // NOTE: This is not intended for general use. It is intended for situations
+  // like callbacks from content/ where only a TabContents is available. In the
+  // general case, please do NOT use this; plumb TabContentsWrapper through the
+  // chrome/ code instead of TabContents.
   static TabContentsWrapper* GetCurrentWrapperForContents(
       TabContents* contents);
 
@@ -68,26 +91,43 @@ class TabContentsWrapper : public NotificationObserver,
     return tab_contents()->render_view_host();
   }
   Profile* profile() const { return tab_contents()->profile(); }
-
-  // Convenience methods until extensions are removed from TabContents.
-  void SetExtensionAppById(const std::string& extension_app_id) {
-    tab_contents()->SetExtensionAppById(extension_app_id);
-  }
-  const Extension* extension_app() const {
-    return tab_contents()->extension_app();
-  }
-  bool is_app() const { return tab_contents()->is_app(); }
-
   bool is_starred() const { return is_starred_; }
 
   // Tab Helpers ---------------------------------------------------------------
+
+  AutocompleteHistoryManager* autocomplete_history_manager() {
+    return autocomplete_history_manager_.get();
+  }
+
+  AutofillManager* autofill_manager() { return autofill_manager_.get(); }
+
+  // Used only for testing/automation.
+  AutomationTabHelper* automation_tab_helper() {
+    return automation_tab_helper_.get();
+  }
+
+  DownloadTabHelper* download_tab_helper() {
+    return download_tab_helper_.get();
+  }
+
+  ExtensionTabHelper* extension_tab_helper() {
+    return extension_tab_helper_.get();
+  }
 
   FindTabHelper* find_tab_helper() { return find_tab_helper_.get(); }
 
   PasswordManager* password_manager() { return password_manager_.get(); }
 
+  printing::PrintViewManager* print_view_manager() {
+    return print_view_manager_.get();
+  }
+
   SearchEngineTabHelper* search_engine_tab_helper() {
     return search_engine_tab_helper_.get();
+  }
+
+  TranslateTabHelper* translate_tab_helper() {
+    return translate_tab_helper_.get();
   }
 
   // Overrides -----------------------------------------------------------------
@@ -107,10 +147,16 @@ class TabContentsWrapper : public NotificationObserver,
   // Internal helpers ----------------------------------------------------------
 
   // Message handlers.
+  void OnPageContents(const GURL& url,
+                      int32 page_id,
+                      const string16& contents);
   void OnJSOutOfMemory();
   void OnRegisterProtocolHandler(const std::string& protocol,
                                  const GURL& url,
                                  const string16& title);
+  void OnMsgThumbnail(const GURL& url,
+                      const ThumbnailScore& score,
+                      const SkBitmap& bitmap);
 
   // Updates the starred state from the bookmark bar model. If the state has
   // changed, the delegate is notified.
@@ -130,7 +176,14 @@ class TabContentsWrapper : public NotificationObserver,
   bool is_starred_;
 
   // Tab Helpers ---------------------------------------------------------------
+  // (These provide API for callers and have a getter function listed in the
+  // "Tab Helpers" section in the member functions area, above.)
 
+  scoped_ptr<AutocompleteHistoryManager> autocomplete_history_manager_;
+  scoped_ptr<AutofillManager> autofill_manager_;
+  scoped_ptr<AutomationTabHelper> automation_tab_helper_;
+  scoped_ptr<DownloadTabHelper> download_tab_helper_;
+  scoped_ptr<ExtensionTabHelper> extension_tab_helper_;
   scoped_ptr<FindTabHelper> find_tab_helper_;
 
   // PasswordManager and its delegate. The delegate must outlive the manager,
@@ -138,7 +191,20 @@ class TabContentsWrapper : public NotificationObserver,
   scoped_ptr<PasswordManagerDelegate> password_manager_delegate_;
   scoped_ptr<PasswordManager> password_manager_;
 
+  // Handles print job for this contents.
+  scoped_ptr<printing::PrintViewManager> print_view_manager_;
+
   scoped_ptr<SearchEngineTabHelper> search_engine_tab_helper_;
+  scoped_ptr<TranslateTabHelper> translate_tab_helper_;
+
+  // Per-tab observers ---------------------------------------------------------
+  // (These provide no API for callers; objects that need to exist 1:1 with tabs
+  // and silently do their thing live here.)
+
+  scoped_ptr<FileSelectObserver> file_select_observer_;
+  scoped_ptr<prerender::PrerenderObserver> prerender_observer_;
+  scoped_ptr<printing::PrintPreviewMessageHandler> print_preview_;
+  scoped_ptr<ExtensionWebNavigationTabObserver> webnavigation_observer_;
 
   // TabContents (MUST BE LAST) ------------------------------------------------
 

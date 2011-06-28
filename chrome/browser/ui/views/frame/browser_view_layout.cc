@@ -9,13 +9,13 @@
 #include "chrome/browser/ui/find_bar/find_bar_controller.h"
 #include "chrome/browser/ui/view_ids.h"
 #include "chrome/browser/ui/views/bookmarks/bookmark_bar_view.h"
-#include "chrome/browser/ui/views/download_shelf_view.h"
+#include "chrome/browser/ui/views/download/download_shelf_view.h"
 #include "chrome/browser/ui/views/frame/browser_frame.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/frame/contents_container.h"
+#include "chrome/browser/ui/views/infobars/infobar_container_view.h"
 #include "chrome/browser/ui/views/tab_contents/tab_contents_container.h"
-#include "chrome/browser/ui/views/tabs/side_tab_strip.h"
-#include "chrome/browser/ui/views/tabs/tab_strip.h"
+#include "chrome/browser/ui/views/tabs/abstract_tab_strip_view.h"
 #include "chrome/browser/ui/views/toolbar_view.h"
 #include "ui/gfx/point.h"
 #include "ui/gfx/scrollbar_size.h"
@@ -34,9 +34,6 @@ namespace {
 const int kTabShadowSize = 2;
 // The vertical overlap between the TabStrip and the Toolbar.
 const int kToolbarTabStripVerticalOverlap = 3;
-// An offset distance between certain toolbars and the toolbar that preceded
-// them in layout.
-const int kSeparationLineHeight = 1;
 
 }  // namespace
 
@@ -74,8 +71,9 @@ gfx::Size BrowserViewLayout::GetMinimumSize() {
   if (active_bookmark_bar_ &&
       browser()->SupportsWindowFeature(Browser::FEATURE_BOOKMARKBAR)) {
     bookmark_bar_size = active_bookmark_bar_->GetMinimumSize();
-    bookmark_bar_size.Enlarge(0, -(kSeparationLineHeight +
-        active_bookmark_bar_->GetToolbarOverlap(true)));
+    bookmark_bar_size.Enlarge(0,
+        -(views::NonClientFrameView::kClientEdgeThickness +
+            active_bookmark_bar_->GetToolbarOverlap(true)));
   }
   gfx::Size contents_size(contents_split_->GetMinimumSize());
 
@@ -234,7 +232,7 @@ void BrowserViewLayout::ViewAdded(views::View* host, views::View* view) {
       toolbar_ = static_cast<ToolbarView*>(view);
       break;
     case VIEW_ID_TAB_STRIP:
-      tabstrip_ = static_cast<BaseTabStrip*>(view);
+      tabstrip_ = static_cast<AbstractTabStripView*>(view);
       break;
   }
 }
@@ -353,7 +351,8 @@ int BrowserViewLayout::LayoutBookmarkBar(int top) {
 
   active_bookmark_bar_->set_infobar_visible(InfobarVisible());
   int bookmark_bar_height = active_bookmark_bar_->GetPreferredSize().height();
-  y -= kSeparationLineHeight + active_bookmark_bar_->GetToolbarOverlap(false);
+  y -= views::NonClientFrameView::kClientEdgeThickness +
+      active_bookmark_bar_->GetToolbarOverlap(false);
   active_bookmark_bar_->SetVisible(true);
   active_bookmark_bar_->SetBounds(vertical_layout_rect_.x(), y,
                                   vertical_layout_rect_.width(),
@@ -362,12 +361,17 @@ int BrowserViewLayout::LayoutBookmarkBar(int top) {
 }
 
 int BrowserViewLayout::LayoutInfoBar(int top) {
-  bool visible = InfobarVisible();
-  int height = visible ? infobar_container_->GetPreferredSize().height() : 0;
-  infobar_container_->SetVisible(visible);
-  infobar_container_->SetBounds(vertical_layout_rect_.x(), top,
-                                vertical_layout_rect_.width(), height);
-  return top + height;
+  // Raise the |infobar_container_| by its vertical overlap.
+  infobar_container_->SetVisible(InfobarVisible());
+  int height;
+  int overlapped_top = top -
+      static_cast<InfoBarContainerView*>(infobar_container_)->
+          GetVerticalOverlap(&height);
+  infobar_container_->SetBounds(vertical_layout_rect_.x(),
+                                overlapped_top,
+                                vertical_layout_rect_.width(),
+                                height);
+  return overlapped_top + height;
 }
 
 // |browser_reserved_rect| is in browser_view_ coordinates.
@@ -496,7 +500,8 @@ int BrowserViewLayout::GetTopMarginForActiveContent() {
   }
 
   // Adjust for separator.
-  return active_bookmark_bar_->height() - kSeparationLineHeight;
+  return active_bookmark_bar_->height() -
+      views::NonClientFrameView::kClientEdgeThickness;
 }
 
 int BrowserViewLayout::LayoutDownloadShelf(int bottom) {

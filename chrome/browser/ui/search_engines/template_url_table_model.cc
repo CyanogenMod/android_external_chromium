@@ -51,9 +51,9 @@ class ModelEntry {
 
   SkBitmap GetIcon() {
     if (load_state_ == NOT_LOADED)
-      LoadFavIcon();
-    if (!fav_icon_.isNull())
-      return fav_icon_;
+      LoadFavicon();
+    if (!favicon_.isNull())
+      return favicon_;
     return *default_icon;
   }
 
@@ -61,7 +61,7 @@ class ModelEntry {
   // fetched again. This should be invoked if the url is modified.
   void ResetIcon() {
     load_state_ = NOT_LOADED;
-    fav_icon_ = SkBitmap();
+    favicon_ = SkBitmap();
   }
 
  private:
@@ -72,45 +72,43 @@ class ModelEntry {
     LOADED
   };
 
-  void LoadFavIcon() {
+  void LoadFavicon() {
     load_state_ = LOADED;
     FaviconService* favicon_service =
         model_->template_url_model()->profile()->GetFaviconService(
             Profile::EXPLICIT_ACCESS);
     if (!favicon_service)
       return;
-    GURL fav_icon_url = template_url().GetFavIconURL();
-    if (!fav_icon_url.is_valid()) {
+    GURL favicon_url = template_url().GetFaviconURL();
+    if (!favicon_url.is_valid()) {
       // The favicon url isn't always set. Guess at one here.
       if (template_url_.url() && template_url_.url()->IsValid()) {
         GURL url = GURL(template_url_.url()->url());
         if (url.is_valid())
-          fav_icon_url = TemplateURL::GenerateFaviconURL(url);
+          favicon_url = TemplateURL::GenerateFaviconURL(url);
       }
-      if (!fav_icon_url.is_valid())
+      if (!favicon_url.is_valid())
         return;
     }
     load_state_ = LOADING;
-    favicon_service->GetFavicon(fav_icon_url,
-                   &request_consumer_,
-                   NewCallback(this, &ModelEntry::OnFavIconDataAvailable));
+    favicon_service->GetFavicon(favicon_url, history::FAVICON,
+        &request_consumer_,
+        NewCallback(this, &ModelEntry::OnFaviconDataAvailable));
   }
 
-  void OnFavIconDataAvailable(
+  void OnFaviconDataAvailable(
       FaviconService::Handle handle,
-      bool know_favicon,
-      scoped_refptr<RefCountedMemory> data,
-      bool expired,
-      GURL icon_url) {
+      history::FaviconData favicon) {
     load_state_ = LOADED;
-    if (know_favicon && data.get() &&
-        gfx::PNGCodec::Decode(data->front(), data->size(), &fav_icon_)) {
-      model_->FavIconAvailable(this);
+    if (favicon.is_valid() && gfx::PNGCodec::Decode(favicon.image_data->front(),
+                                                    favicon.image_data->size(),
+                                                    &favicon_)) {
+      model_->FaviconAvailable(this);
     }
   }
 
   const TemplateURL& template_url_;
-  SkBitmap fav_icon_;
+  SkBitmap favicon_;
   LoadState load_state_;
   TemplateURLTableModel* model_;
   CancelableRequestConsumer request_consumer_;
@@ -177,32 +175,26 @@ int TemplateURLTableModel::RowCount() {
 string16 TemplateURLTableModel::GetText(int row, int col_id) {
   DCHECK(row >= 0 && row < RowCount());
   const TemplateURL& url = entries_[row]->template_url();
-
-  switch (col_id) {
-    case IDS_SEARCH_ENGINES_EDITOR_DESCRIPTION_COLUMN: {
-      string16 url_short_name = url.short_name();
-      // TODO(xji): Consider adding a special case if the short name is a URL,
-      // since those should always be displayed LTR. Please refer to
-      // http://crbug.com/6726 for more information.
-      base::i18n::AdjustStringForLocaleDirection(&url_short_name);
-      if (template_url_model_->GetDefaultSearchProvider() == &url) {
-        return l10n_util::GetStringFUTF16(
-            IDS_SEARCH_ENGINES_EDITOR_DEFAULT_ENGINE,
-            url_short_name);
-      }
-      return url_short_name;
+  if (col_id == IDS_SEARCH_ENGINES_EDITOR_DESCRIPTION_COLUMN) {
+    string16 url_short_name = url.short_name();
+    // TODO(xji): Consider adding a special case if the short name is a URL,
+    // since those should always be displayed LTR. Please refer to
+    // http://crbug.com/6726 for more information.
+    base::i18n::AdjustStringForLocaleDirection(&url_short_name);
+    if (template_url_model_->GetDefaultSearchProvider() == &url) {
+      return l10n_util::GetStringFUTF16(
+          IDS_SEARCH_ENGINES_EDITOR_DEFAULT_ENGINE,
+          url_short_name);
     }
-
-    case IDS_SEARCH_ENGINES_EDITOR_KEYWORD_COLUMN: {
-      // Keyword should be domain name. Force it to have LTR directionality.
-      string16 keyword = url.keyword();
-      keyword = base::i18n::GetDisplayStringInLTRDirectionality(keyword);
-      return keyword;
-    }
-
-    default:
-      NOTREACHED();
-      return string16();
+    return url_short_name;
+  } else if (col_id == IDS_SEARCH_ENGINES_EDITOR_KEYWORD_COLUMN) {
+    // Keyword should be domain name. Force it to have LTR directionality.
+    string16 keyword = url.keyword();
+    keyword = base::i18n::GetDisplayStringInLTRDirectionality(keyword);
+    return keyword;
+  } else {
+    NOTREACHED();
+    return string16();
   }
 }
 
@@ -369,7 +361,7 @@ void TemplateURLTableModel::NotifyChanged(int index) {
   }
 }
 
-void TemplateURLTableModel::FavIconAvailable(ModelEntry* entry) {
+void TemplateURLTableModel::FaviconAvailable(ModelEntry* entry) {
   std::vector<ModelEntry*>::iterator i =
       find(entries_.begin(), entries_.end(), entry);
   DCHECK(i != entries_.end());

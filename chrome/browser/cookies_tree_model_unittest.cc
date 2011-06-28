@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,11 +11,11 @@
 #include "chrome/browser/mock_browsing_data_database_helper.h"
 #include "chrome/browser/mock_browsing_data_indexed_db_helper.h"
 #include "chrome/browser/mock_browsing_data_local_storage_helper.h"
-#include "chrome/common/net/url_request_context_getter.h"
-#include "chrome/common/notification_details.h"
-#include "chrome/common/notification_type.h"
 #include "chrome/test/testing_profile.h"
+#include "content/common/notification_details.h"
+#include "content/common/notification_type.h"
 #include "net/url_request/url_request_context.h"
+#include "net/url_request/url_request_context_getter.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 
@@ -55,7 +55,8 @@ class CookiesTreeModelTest : public testing::Test {
         mock_browsing_data_local_storage_helper_,
         mock_browsing_data_session_storage_helper_,
         mock_browsing_data_appcache_helper_,
-        mock_browsing_data_indexed_db_helper_);
+        mock_browsing_data_indexed_db_helper_,
+        false);
     mock_browsing_data_database_helper_->AddDatabaseSamples();
     mock_browsing_data_database_helper_->Notify();
     mock_browsing_data_local_storage_helper_->AddLocalStorageSamples();
@@ -105,9 +106,9 @@ class CookiesTreeModelTest : public testing::Test {
   std::string GetNodesOfChildren(
       const CookieTreeNode* node,
       CookieTreeNode::DetailedInfo::NodeType node_type) {
-    if (node->GetChildCount()) {
+    if (node->child_count()) {
       std::string retval;
-      for (int i = 0; i < node->GetChildCount(); ++i) {
+      for (int i = 0; i < node->child_count(); ++i) {
         retval += GetNodesOfChildren(node->GetChild(i), node_type);
       }
       return retval;
@@ -203,15 +204,14 @@ class CookiesTreeModelTest : public testing::Test {
                              CookieTreeNode::DetailedInfo::TYPE_INDEXED_DB);
   }
 
-  // do not call on the root
+  // Do not call on the root.
   void DeleteStoredObjects(CookieTreeNode* node) {
     node->DeleteStoredObjects();
-    // find the parent and index
-    CookieTreeNode* parent_node = node->GetParent();
+    CookieTreeNode* parent_node = node->parent();
     DCHECK(parent_node);
-    int ct_node_index = parent_node->IndexOfChild(node);
-    delete parent_node->GetModel()->Remove(parent_node, ct_node_index);
+    delete parent_node->GetModel()->Remove(parent_node, node);
   }
+
  protected:
   MessageLoop message_loop_;
   BrowserThread ui_thread_;
@@ -260,7 +260,7 @@ TEST_F(CookiesTreeModelTest, RemoveAll) {
   {
     SCOPED_TRACE("After removing");
     EXPECT_EQ(1, cookies_model->GetRoot()->GetTotalNodeCount());
-    EXPECT_EQ(0, cookies_model->GetRoot()->GetChildCount());
+    EXPECT_EQ(0, cookies_model->GetRoot()->child_count());
     EXPECT_EQ(std::string(""), GetMonsterCookies(monster));
     EXPECT_EQ(GetMonsterCookies(monster),
               GetDisplayedCookies(cookies_model.get()));
@@ -468,7 +468,8 @@ TEST_F(CookiesTreeModelTest, RemoveSingleCookieNode) {
                                  mock_browsing_data_local_storage_helper_,
                                  mock_browsing_data_session_storage_helper_,
                                  mock_browsing_data_appcache_helper_,
-                                 mock_browsing_data_indexed_db_helper_);
+                                 mock_browsing_data_indexed_db_helper_,
+                                 false);
   mock_browsing_data_database_helper_->AddDatabaseSamples();
   mock_browsing_data_database_helper_->Notify();
   mock_browsing_data_local_storage_helper_->AddLocalStorageSamples();
@@ -529,7 +530,8 @@ TEST_F(CookiesTreeModelTest, RemoveSingleCookieNodeOf3) {
                                  mock_browsing_data_local_storage_helper_,
                                  mock_browsing_data_session_storage_helper_,
                                  mock_browsing_data_appcache_helper_,
-                                 mock_browsing_data_indexed_db_helper_);
+                                 mock_browsing_data_indexed_db_helper_,
+                                 false);
   mock_browsing_data_database_helper_->AddDatabaseSamples();
   mock_browsing_data_database_helper_->Notify();
   mock_browsing_data_local_storage_helper_->AddLocalStorageSamples();
@@ -591,7 +593,8 @@ TEST_F(CookiesTreeModelTest, RemoveSecondOrigin) {
                                  mock_browsing_data_local_storage_helper_,
                                  mock_browsing_data_session_storage_helper_,
                                  mock_browsing_data_appcache_helper_,
-                                 mock_browsing_data_indexed_db_helper_);
+                                 mock_browsing_data_indexed_db_helper_,
+                                 false);
   {
     SCOPED_TRACE("Initial State 5 cookies");
     // 11 because there's the root, then foo1 -> cookies -> a,
@@ -627,7 +630,8 @@ TEST_F(CookiesTreeModelTest, OriginOrdering) {
       new MockBrowsingDataLocalStorageHelper(profile_.get()),
       new MockBrowsingDataLocalStorageHelper(profile_.get()),
       new MockBrowsingDataAppCacheHelper(profile_.get()),
-      new MockBrowsingDataIndexedDBHelper(profile_.get()));
+      new MockBrowsingDataIndexedDBHelper(profile_.get()),
+      false);
 
   {
     SCOPED_TRACE("Initial State 8 cookies");
@@ -655,7 +659,8 @@ TEST_F(CookiesTreeModelTest, ContentSettings) {
       new MockBrowsingDataLocalStorageHelper(profile_.get()),
       new MockBrowsingDataLocalStorageHelper(profile_.get()),
       new MockBrowsingDataAppCacheHelper(profile_.get()),
-      new MockBrowsingDataIndexedDBHelper(profile_.get()));
+      new MockBrowsingDataIndexedDBHelper(profile_.get()),
+      false);
 
   TestingProfile profile;
   HostContentSettingsMap* content_settings =
@@ -666,7 +671,7 @@ TEST_F(CookiesTreeModelTest, ContentSettings) {
       static_cast<CookieTreeRootNode*>(cookies_model.GetRoot());
   CookieTreeOriginNode* origin = root->GetOrCreateOriginNode(host);
 
-  EXPECT_EQ(1, origin->GetChildCount());
+  EXPECT_EQ(1, origin->child_count());
   EXPECT_TRUE(origin->CanCreateContentException());
   origin->CreateContentException(
       content_settings, CONTENT_SETTING_SESSION_ONLY);

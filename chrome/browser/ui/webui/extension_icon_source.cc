@@ -5,7 +5,8 @@
 #include "chrome/browser/ui/webui/extension_icon_source.h"
 
 #include "base/callback.h"
-#include "base/ref_counted_memory.h"
+#include "base/memory/ref_counted_memory.h"
+#include "base/stl_util-inl.h"
 #include "base/string_number_conversions.h"
 #include "base/string_split.h"
 #include "base/string_util.h"
@@ -81,11 +82,7 @@ struct ExtensionIconSource::ExtensionIconRequest {
 
 ExtensionIconSource::~ExtensionIconSource() {
   // Clean up all the temporary data we're holding for requests.
-  std::map<int, ExtensionIconRequest*>::iterator i;
-  for (i = request_map_.begin(); i != request_map_.end(); i++) {
-    delete i->second;
-    request_map_.erase(i);
-  }
+  STLDeleteValues(&request_map_);
 }
 
 // static
@@ -110,7 +107,7 @@ std::string ExtensionIconSource::GetMimeType(const std::string&) const {
 }
 
 void ExtensionIconSource::StartDataRequest(const std::string& path,
-                                           bool is_off_the_record,
+                                           bool is_incognito,
                                            int request_id) {
   // This is where everything gets started. First, parse the request and make
   // the request data available for later.
@@ -123,15 +120,16 @@ void ExtensionIconSource::StartDataRequest(const std::string& path,
   ExtensionResource icon =
       request->extension->GetIconResource(request->size, request->match);
 
-  // We fall back to multiple sources, using the following order:
-  //  1) The icons as listed in the extension / app manifests.
-  //  2) If a 16px icon and the extension has a launch URL, see if Chrome
-  //     has a corresponding favicon.
-  //  3) If still no matches, load the default extension / application icon.
-  if (!icon.relative_path().empty()) {
+  if (icon.relative_path().empty())
+    LoadIconFailed(request_id);
+  else
     LoadExtensionImage(icon, request_id);
-    return;
-  }
+}
+
+void ExtensionIconSource::LoadIconFailed(int request_id) {
+  ExtensionIconRequest* request = GetData(request_id);
+  ExtensionResource icon =
+      request->extension->GetIconResource(request->size, request->match);
 
   if (request->size == Extension::EXTENSION_ICON_BITTY)
     LoadFaviconImage(request_id);
@@ -179,7 +177,7 @@ void ExtensionIconSource::LoadDefaultImage(int request_id) {
   FinalizeImage(decoded, request_id);
 }
 
-void ExtensionIconSource::LoadExtensionImage(ExtensionResource icon,
+void ExtensionIconSource::LoadExtensionImage(const ExtensionResource& icon,
                                              int request_id) {
   ExtensionIconRequest* request = GetData(request_id);
   tracker_map_[next_tracker_id_++] = request_id;
@@ -200,23 +198,22 @@ void ExtensionIconSource::LoadFaviconImage(int request_id) {
 
   GURL favicon_url = GetData(request_id)->extension->GetFullLaunchURL();
   FaviconService::Handle handle = favicon_service->GetFaviconForURL(
-      favicon_url, &cancelable_consumer_,
+      favicon_url,
+      history::FAVICON,
+      &cancelable_consumer_,
       NewCallback(this, &ExtensionIconSource::OnFaviconDataAvailable));
   cancelable_consumer_.SetClientData(favicon_service, handle, request_id);
 }
 
 void ExtensionIconSource::OnFaviconDataAvailable(
     FaviconService::Handle request_handle,
-    bool know_favicon,
-    scoped_refptr<RefCountedMemory> data,
-    bool expired,
-    GURL icon_url) {
+    history::FaviconData favicon) {
   int request_id = cancelable_consumer_.GetClientData(
       profile_->GetFaviconService(Profile::EXPLICIT_ACCESS), request_handle);
   ExtensionIconRequest* request = GetData(request_id);
 
   // Fallback to the default icon if there wasn't a favicon.
-  if (!know_favicon || !data.get() || !data->size()) {
+  if (!favicon.is_valid()) {
     LoadDefaultImage(request_id);
     return;
   }
@@ -225,18 +222,23 @@ void ExtensionIconSource::OnFaviconDataAvailable(
     // If we don't need a grayscale image, then we can bypass FinalizeImage
     // to avoid unnecessary conversions.
     ClearData(request_id);
-    SendResponse(request_id, data);
+    SendResponse(request_id, favicon.image_data);
   } else {
-    FinalizeImage(ToBitmap(data->front(), data->size()), request_id);
+    FinalizeImage(ToBitmap(favicon.image_data->front(),
+                           favicon.image_data->size()), request_id);
   }
 }
 
 void ExtensionIconSource::OnImageLoaded(SkBitmap* image,
-                                        ExtensionResource resource,
+                                        const ExtensionResource& resource,
                                         int index) {
   int request_id = tracker_map_[index];
   tracker_map_.erase(tracker_map_.find(index));
-  FinalizeImage(image, request_id);
+
+  if (!image || image->empty())
+    LoadIconFailed(request_id);
+  else
+    FinalizeImage(image, request_id);
 }
 
 bool ExtensionIconSource::ParseData(const std::string& path,

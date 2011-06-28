@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,9 +9,9 @@
 #include "base/basictypes.h"
 #include "chrome/browser/sync/engine/syncapi.h"
 #include "chrome/browser/sync/glue/change_processor.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_type.h"
-#include "chrome/common/notification_registrar.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
+#include "content/common/notification_type.h"
 
 class NotificationDetails;
 class NotificationSource;
@@ -22,7 +22,7 @@ namespace browser_sync {
 class UnrecoverableErrorHandler;
 
 // This class is responsible for taking changes from the
-// BrowserThemeProvider and applying them to the sync_api 'syncable'
+// ThemeService and applying them to the sync_api 'syncable'
 // model, and vice versa. All operations and use of this class are
 // from the UI thread.
 class ThemeChangeProcessor : public ChangeProcessor,
@@ -32,13 +32,13 @@ class ThemeChangeProcessor : public ChangeProcessor,
   virtual ~ThemeChangeProcessor();
 
   // NotificationObserver implementation.
-  // BrowserThemeProvider -> sync_api model change application.
+  // ThemeService -> sync_api model change application.
   virtual void Observe(NotificationType type,
                        const NotificationSource& source,
                        const NotificationDetails& details);
 
   // ChangeProcessor implementation.
-  // sync_api model -> BrowserThemeProvider change application.
+  // sync_api model -> ThemeService change application.
   virtual void ApplyChangesFromSyncModel(
       const sync_api::BaseTransaction* trans,
       const sync_api::SyncManager::ChangeRecord* changes,
@@ -54,7 +54,7 @@ class ThemeChangeProcessor : public ChangeProcessor,
   void StopObserving();
 
   NotificationRegistrar notification_registrar_;
-  // Owner of the BrowserThemeProvider.  Non-NULL iff |running()| is
+  // Profile associated with the ThemeService.  Non-NULL iff |running()| is
   // true.
   Profile* profile_;
 

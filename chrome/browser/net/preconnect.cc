@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@
 #include "base/logging.h"
 #include "base/metrics/histogram.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/common/net/url_request_context_getter.h"
 #include "content/browser/browser_thread.h"
 #include "net/base/net_log.h"
 #include "net/base/ssl_config_service.h"
@@ -16,6 +15,7 @@
 #include "net/http/http_stream_factory.h"
 #include "net/http/http_transaction_factory.h"
 #include "net/url_request/url_request_context.h"
+#include "net/url_request/url_request_context_getter.h"
 
 namespace chrome_browser_net {
 
@@ -37,7 +37,7 @@ void PreconnectOnIOThread(
     const GURL& url,
     UrlInfo::ResolutionMotivation motivation,
     int count) {
-  URLRequestContextGetter* getter = Profile::GetDefaultRequestContext();
+  net::URLRequestContextGetter* getter = Profile::GetDefaultRequestContext();
   if (!getter)
     return;
   if (!BrowserThread::CurrentlyOn(BrowserThread::IO)) {
@@ -56,6 +56,8 @@ void PreconnectOnIOThread(
   net::HttpRequestInfo request_info;
   request_info.url = url;
   request_info.method = "GET";
+  request_info.extra_headers.SetHeader(net::HttpRequestHeaders::kUserAgent,
+                                       context->GetUserAgent(url));
   // It almost doesn't matter whether we use net::LOWEST or net::HIGHEST
   // priority here, as we won't make a request, and will surrender the created
   // socket to the pool as soon as we can.  However, we would like to mark the
@@ -78,6 +80,7 @@ void PreconnectOnIOThread(
     case UrlInfo::LEARNED_REFERAL_MOTIVATED:
       request_info.motivation = net::HttpRequestInfo::PRECONNECT_MOTIVATED;
       break;
+    case UrlInfo::SELF_REFERAL_MOTIVATED:
     case UrlInfo::EARLY_LOAD_MOTIVATED:
       request_info.motivation = net::HttpRequestInfo::EARLY_LOAD_MOTIVATED;
       break;

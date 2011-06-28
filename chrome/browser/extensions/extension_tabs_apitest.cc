@@ -4,10 +4,10 @@
 
 #include "chrome/browser/extensions/extension_apitest.h"
 
-#include "chrome/browser/browser_window.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "chrome/common/pref_names.h"
 #include "net/base/mock_host_resolver.h"
 
@@ -143,4 +143,15 @@ IN_PROC_BROWSER_TEST_F(ExtensionApiTest, IncognitoDisabledByPref) {
   // This makes sure that creating an incognito window fails due to pref
   // (policy) being set.
   ASSERT_TRUE(RunExtensionTest("tabs/incognito_disabled")) << message_;
+}
+
+IN_PROC_BROWSER_TEST_F(ExtensionApiTest, GetViewsOfCreatedPopup) {
+  ASSERT_TRUE(StartTestServer());
+  ASSERT_TRUE(RunExtensionSubtest("tabs/basics", "get_views_popup.html"))
+      << message_;
+}
+IN_PROC_BROWSER_TEST_F(ExtensionApiTest, GetViewsOfCreatedWindow) {
+  ASSERT_TRUE(StartTestServer());
+  ASSERT_TRUE(RunExtensionSubtest("tabs/basics", "get_views_window.html"))
+      << message_;
 }

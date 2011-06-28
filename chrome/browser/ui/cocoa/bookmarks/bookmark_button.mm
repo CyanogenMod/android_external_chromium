@@ -1,14 +1,15 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_button.h"
 
 #include "base/logging.h"
-#import "base/scoped_nsobject.h"
+#import "base/memory/scoped_nsobject.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_button_cell.h"
+#import "chrome/browser/ui/cocoa/bookmarks/bookmark_bar_folder_window.h"
 #import "chrome/browser/ui/cocoa/browser_window_controller.h"
 #import "chrome/browser/ui/cocoa/view_id_util.h"
 
@@ -63,6 +64,12 @@ BookmarkButton* gDraggedButton = nil; // Weak
   if ([[self cell] respondsToSelector:@selector(safelyStopPulsing)])
     [[self cell] safelyStopPulsing];
   view_id_util::UnsetID(self);
+
+  if (area_) {
+    [self removeTrackingArea:area_];
+    [area_ release];
+  }
+
   [super dealloc];
 }
 
@@ -159,6 +166,11 @@ BookmarkButton* gDraggedButton = nil; // Weak
     return;
   }
 
+  if ([self isFolder]) {
+    // Close the folder's drop-down menu if it's visible.
+    [[self target] closeBookmarkFolder:self];
+  }
+
   // At the moment, moving bookmarks causes their buttons (like me!)
   // to be destroyed and rebuilt.  Make sure we don't go away while on
   // the stack.
@@ -180,7 +192,7 @@ BookmarkButton* gDraggedButton = nil; // Weak
                                              delay:NO];
   }
   const BookmarkNode* node = [self bookmarkNode];
-  const BookmarkNode* parent = node ? node->GetParent() : NULL;
+  const BookmarkNode* parent = node ? node->parent() : NULL;
   if (parent && parent->type() == BookmarkNode::FOLDER) {
     UserMetrics::RecordAction(UserMetricsAction("BookmarkBarFolder_DragStart"));
   } else {
@@ -190,13 +202,13 @@ BookmarkButton* gDraggedButton = nil; // Weak
   dragMouseOffset_ = [self convertPointFromBase:[event locationInWindow]];
   dragPending_ = YES;
   gDraggedButton = self;
-  [[self animator] setHidden:YES];
 
   CGFloat yAt = [self bounds].size.height;
   NSSize dragOffset = NSMakeSize(0.0, 0.0);
-  [self dragImage:[self dragImage] at:NSMakePoint(0, yAt) offset:dragOffset
+  NSImage* image = [self dragImage];
+  [self setHidden:YES];
+  [self dragImage:image at:NSMakePoint(0, yAt) offset:dragOffset
             event:event pasteboard:pboard source:self slideBack:YES];
-
   [self setHidden:NO];
 
   // And we're done.
@@ -235,13 +247,83 @@ BookmarkButton* gDraggedButton = nil; // Weak
   gDraggedButton = nil;
   // Inform delegate of drag source that we're finished dragging,
   // so it can close auto-opened bookmark folders etc.
-  [delegate_ bookmarkDragDidEnd:self];
+  [delegate_ bookmarkDragDidEnd:self
+                      operation:operation];
   // Tell delegate if it should delete us.
   if (operation & NSDragOperationDelete) {
     dragEndScreenLocation_ = aPoint;
     [delegate_ didDragBookmarkToTrash:self];
   }
 }
+
+- (void)performMouseDownAction:(NSEvent*)theEvent {
+  int eventMask = NSLeftMouseUpMask | NSMouseEnteredMask | NSMouseExitedMask |
+      NSLeftMouseDraggedMask;
+
+  BOOL keepGoing = YES;
+  [[self target] performSelector:[self action] withObject:self];
+  self.actionHasFired = YES;
+
+  DraggableButton* insideBtn = nil;
+
+  while (keepGoing) {
+    theEvent = [[self window] nextEventMatchingMask:eventMask];
+    if (!theEvent)
+      continue;
+
+    NSPoint mouseLoc = [self convertPoint:[theEvent locationInWindow]
+                                 fromView:nil];
+    BOOL isInside = [self mouse:mouseLoc inRect:[self bounds]];
+
+    switch ([theEvent type]) {
+      case NSMouseEntered:
+      case NSMouseExited: {
+        NSView* trackedView = (NSView*)[[theEvent trackingArea] owner];
+        if (trackedView && [trackedView isKindOfClass:[self class]]) {
+          BookmarkButton* btn = static_cast<BookmarkButton*>(trackedView);
+          if (![btn acceptsTrackInFrom:self])
+            break;
+          if ([theEvent type] == NSMouseEntered) {
+            [[NSCursor arrowCursor] set];
+            [[btn cell] mouseEntered:theEvent];
+            insideBtn = btn;
+          } else {
+            [[btn cell] mouseExited:theEvent];
+            if (insideBtn == btn)
+              insideBtn = nil;
+          }
+        }
+        break;
+      }
+      case NSLeftMouseDragged: {
+        if (insideBtn)
+          [insideBtn mouseDragged:theEvent];
+        break;
+      }
+      case NSLeftMouseUp: {
+        self.durationMouseWasDown = [theEvent timestamp] - self.whenMouseDown;
+        if (!isInside && insideBtn && insideBtn != self) {
+          // Has tracked onto another BookmarkButton menu item, and released,
+          // so fire its action.
+          [[insideBtn target] performSelector:[insideBtn action]
+                                   withObject:insideBtn];
+
+        } else {
+          [self secondaryMouseUpAction:isInside];
+          [[self cell] mouseExited:theEvent];
+          [[insideBtn cell] mouseExited:theEvent];
+        }
+        keepGoing = NO;
+        break;
+      }
+      default:
+        /* Ignore any other kind of event. */
+        break;
+    }
+  }
+}
+
+
 
 // mouseEntered: and mouseExited: are called from our
 // BookmarkButtonCell.  We redirect this information to our delegate.
@@ -254,6 +336,16 @@ BookmarkButton* gDraggedButton = nil; // Weak
 // See comments above mouseEntered:.
 - (void)mouseExited:(NSEvent*)event {
   [delegate_ mouseExitedButton:self event:event];
+}
+
+- (void)mouseMoved:(NSEvent*)theEvent {
+  if ([delegate_ respondsToSelector:@selector(mouseMoved:)])
+    [id(delegate_) mouseMoved:theEvent];
+}
+
+- (void)mouseDragged:(NSEvent*)theEvent {
+  if ([delegate_ respondsToSelector:@selector(mouseDragged:)])
+    [id(delegate_) mouseDragged:theEvent];
 }
 
 + (BookmarkButton*)draggedButton {
@@ -269,7 +361,8 @@ BookmarkButton* gDraggedButton = nil; // Weak
   } else {
     // Mouse tracked out of button during menu track. Hide menus.
     if (!wasInside)
-      [delegate_ bookmarkDragDidEnd:self];
+      [delegate_ bookmarkDragDidEnd:self
+                          operation:NSDragOperationNone];
   }
 }
 
@@ -277,13 +370,17 @@ BookmarkButton* gDraggedButton = nil; // Weak
 
 @implementation BookmarkButton(Private)
 
-- (void)installCustomTrackingArea {
-  if (area_)
-    return;
 
-  NSTrackingAreaOptions options = NSTrackingActiveInActiveApp |
-      NSTrackingMouseEnteredAndExited | NSTrackingEnabledDuringMouseDrag |
-      NSTrackingInVisibleRect;
+- (void)installCustomTrackingArea {
+  const NSTrackingAreaOptions options =
+      NSTrackingActiveAlways |
+      NSTrackingMouseEnteredAndExited |
+      NSTrackingEnabledDuringMouseDrag;
+
+  if (area_) {
+    [self removeTrackingArea:area_];
+    [area_ release];
+  }
 
   area_ = [[NSTrackingArea alloc] initWithRect:[self bounds]
                                        options:options
@@ -310,7 +407,7 @@ BookmarkButton* gDraggedButton = nil; // Weak
   // Make an autoreleased |NSImage|, which will be returned, and draw into it.
   // By default, the |NSImage| will be completely transparent.
   NSImage* dragImage =
-  [[[NSImage alloc] initWithSize:[bitmap size]] autorelease];
+      [[[NSImage alloc] initWithSize:[bitmap size]] autorelease];
   [dragImage lockFocus];
 
   // Draw the image with the appropriate opacity, clipping it tightly.

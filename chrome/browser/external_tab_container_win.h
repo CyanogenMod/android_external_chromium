@@ -11,16 +11,16 @@
 #include <vector>
 
 #include "base/lazy_instance.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/automation/automation_resource_message_filter.h"
 #include "chrome/browser/net/chrome_url_request_context.h"
 #include "chrome/browser/ui/views/frame/browser_bubble_host.h"
 #include "chrome/browser/ui/views/infobars/infobar_container.h"
 #include "chrome/browser/ui/views/unhandled_keyboard_event_handler.h"
-#include "chrome/common/navigation_types.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
 #include "content/browser/tab_contents/tab_contents_delegate.h"
+#include "content/common/navigation_types.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
 #include "views/accelerator.h"
 #include "views/widget/widget_win.h"
 
@@ -127,9 +127,9 @@ class ExternalTabContainer : public TabContentsDelegate,
   virtual void LoadingStateChanged(TabContents* source);
   virtual void CloseContents(TabContents* source);
   virtual void MoveContents(TabContents* source, const gfx::Rect& pos);
+  virtual bool IsPopup(const TabContents* source) const;
   virtual void UpdateTargetURL(TabContents* source, const GURL& url);
   virtual void ContentsZoomChange(bool zoom_in);
-  virtual void ToolbarSizeChanged(TabContents* source, bool is_animating);
   virtual void ForwardMessageToExternalHost(const std::string& message,
                                             const std::string& origin,
                                             const std::string& target);
@@ -186,12 +186,6 @@ class ExternalTabContainer : public TabContentsDelegate,
   // Returns NULL if we fail to find the cookie in the map.
   static scoped_refptr<ExternalTabContainer> RemovePendingTab(uintptr_t cookie);
 
-  // Enables extension automation (for e.g. UITests), with the current tab
-  // used as a conduit for the extension API messages being handled by the
-  // automation client.
-  void SetEnableExtensionAutomation(
-      const std::vector<std::string>& functions_enabled);
-
   // Overridden from views::WidgetWin:
   virtual views::Window* GetWindow();
 
@@ -206,8 +200,14 @@ class ExternalTabContainer : public TabContentsDelegate,
     pending_ = pending;
   }
 
+  void set_is_popup_window(bool is_popup_window) {
+    is_popup_window_ = is_popup_window;
+  }
+
   // InfoBarContainer::Delegate overrides
-  virtual void InfoBarContainerSizeChanged(bool is_animating);
+  virtual SkColor GetInfoBarSeparatorColor() const OVERRIDE;
+  virtual void InfoBarContainerStateChanged(bool is_animating) OVERRIDE;
+  virtual bool DrawInfoBarArrows(int* x) const OVERRIDE;
 
   virtual void TabContentsCreated(TabContents* new_contents);
 
@@ -299,9 +299,6 @@ class ExternalTabContainer : public TabContentsDelegate,
   // Contains ExternalTabContainers that have not been connected to as yet.
   static base::LazyInstance<PendingTabs> pending_tabs_;
 
-  // True if this tab is currently the conduit for extension API automation.
-  bool enabled_extension_automation_;
-
   // Allows us to run tasks on the ExternalTabContainer instance which are
   // bound by its lifetime.
   ScopedRunnableMethodFactory<ExternalTabContainer> external_method_factory_;
@@ -337,6 +334,9 @@ class ExternalTabContainer : public TabContentsDelegate,
   bool route_all_top_level_navigations_;
 
   scoped_ptr<ui::ViewProp> prop_;
+
+  // if this tab is a popup
+  bool is_popup_window_;
 
   DISALLOW_COPY_AND_ASSIGN(ExternalTabContainer);
 };

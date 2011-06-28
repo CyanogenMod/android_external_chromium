@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,8 @@
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_resource.h"
-#include "chrome/common/json_value_serializer.h"
 #include "content/browser/browser_thread.h"
+#include "content/common/json_value_serializer.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/gfx/skia_util.h"
 
@@ -74,7 +74,7 @@ class TestIconManager : public ExtensionIconManager {
   // Implements the ImageLoadingTracker::Observer interface, and calls through
   // to the base class' implementation. Then it lets the test know that an
   // image load was observed.
-  virtual void OnImageLoaded(SkBitmap* image, ExtensionResource resource,
+  virtual void OnImageLoaded(SkBitmap* image, const ExtensionResource& resource,
                              int index) {
     ExtensionIconManager::OnImageLoaded(image, resource, index);
     test_->ImageLoadObserved();
@@ -111,7 +111,7 @@ TEST_F(ExtensionIconManagerTest, LoadRemoveLoad) {
 
   scoped_refptr<Extension> extension(Extension::Create(
       manifest_path.DirName(), Extension::INVALID, *manifest.get(),
-      false, true, NULL));
+      Extension::STRICT_ERROR_CHECKS, NULL));
   ASSERT_TRUE(extension.get());
   TestIconManager icon_manager(this);
 

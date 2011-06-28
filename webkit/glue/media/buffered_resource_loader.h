@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include <string>
 
 #include "base/callback.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/timer.h"
 #include "googleurl/src/gurl.h"
 #include "media/base/seekable_buffer.h"
@@ -36,6 +36,15 @@ class BufferedResourceLoader :
     public base::RefCountedThreadSafe<BufferedResourceLoader>,
     public WebKit::WebURLLoaderClient {
  public:
+  // kNeverDefer - Aggresively buffer; never defer loading while paused.
+  // kReadThenDefer - Request only enough data to fulfill read requests.
+  // kThresholdDefer - Try to keep amount of buffered data at a threshold.
+  enum DeferStrategy {
+    kNeverDefer,
+    kReadThenDefer,
+    kThresholdDefer,
+  };
+
   typedef Callback0::Type NetworkEventCallback;
 
   // |url| - URL for the resource to be loaded.
@@ -85,9 +94,6 @@ class BufferedResourceLoader :
   // |kPositionNotSpecified| if such value is not available.
   virtual int64 GetBufferedPosition();
 
-  // Sets whether deferring data is allowed or disallowed.
-  virtual void SetAllowDefer(bool is_allowed);
-
   // Gets the content length in bytes of the instance after this loader has been
   // started. If this value is |kPositionNotSpecified|, then content length is
   // unknown.
@@ -97,9 +103,8 @@ class BufferedResourceLoader :
   // |kPositionNotSpecified|, then the size is unknown.
   virtual int64 instance_size();
 
-  // Returns true if the response for this loader is a partial response.
-  // It means a 206 response in HTTP/HTTPS protocol.
-  virtual bool partial_response();
+  // Returns true if the server supports byte range requests.
+  virtual bool range_supported();
 
   // Returns true if network is currently active.
   virtual bool network_activity();
@@ -124,11 +129,12 @@ class BufferedResourceLoader :
       const WebKit::WebURLResponse& response);
   virtual void didDownloadData(
       WebKit::WebURLLoader* loader,
-      int dataLength);
+      int data_length);
   virtual void didReceiveData(
       WebKit::WebURLLoader* loader,
       const char* data,
-      int dataLength);
+      int data_length,
+      int encoded_data_length);
   virtual void didReceiveCachedMetadata(
       WebKit::WebURLLoader* loader,
       const char* data, int dataLength);
@@ -141,19 +147,30 @@ class BufferedResourceLoader :
 
   bool HasSingleOrigin() const;
 
+  // Sets the defer strategy to the given value.
+  void UpdateDeferStrategy(DeferStrategy strategy);
+
  protected:
   friend class base::RefCountedThreadSafe<BufferedResourceLoader>;
-
   virtual ~BufferedResourceLoader();
 
  private:
   friend class BufferedResourceLoaderTest;
 
-  // Defer the resource loading if the buffer is full.
-  void EnableDeferIfNeeded();
+  // Toggles whether the resource loading is deferred or not.
+  // Returns true if a network event was fired.
+  bool ToggleDeferring();
 
-  // Disable defer loading if we are under-buffered.
-  void DisableDeferIfNeeded();
+  // Returns true if we should defer resource loading, based
+  // on current buffering scheme.
+  bool ShouldEnableDefer();
+
+  // Returns true if we should enable resource loading, based
+  // on current buffering scheme.
+  bool ShouldDisableDefer();
+
+  // Updates deferring behavior based on current buffering scheme.
+  void UpdateDeferBehavior();
 
   // Returns true if the current read request can be fulfilled by what is in
   // the buffer.
@@ -190,14 +207,17 @@ class BufferedResourceLoader :
 
   bool HasPendingRead() { return read_callback_.get() != NULL; }
 
+  // Helper function that returns true if a range request was specified.
+  bool IsRangeRequest() const;
+
   // A sliding window of buffer.
   scoped_ptr<media::SeekableBuffer> buffer_;
 
   // True if resource loading was deferred.
   bool deferred_;
 
-  // True if resource loader is allowed to defer, false otherwise.
-  bool defer_allowed_;
+  // Current buffering algorithm in place for resource loading.
+  DeferStrategy defer_strategy_;
 
   // True if resource loading has completed.
   bool completed_;
@@ -205,8 +225,8 @@ class BufferedResourceLoader :
   // True if a range request was made.
   bool range_requested_;
 
-  // True if response data received is a partial range.
-  bool partial_response_;
+  // True if Range header is supported.
+  bool range_supported_;
 
   // Does the work of loading and sends data back to this client.
   scoped_ptr<WebKit::WebURLLoader> url_loader_;

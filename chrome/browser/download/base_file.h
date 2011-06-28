@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,12 +9,12 @@
 #include <string>
 
 #include "base/file_path.h"
-#include "base/linked_ptr.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/linked_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/power_save_blocker.h"
 #include "googleurl/src/gurl.h"
 
-namespace base {
+namespace crypto {
 class SecureHash;
 }
 namespace net {
@@ -41,6 +41,9 @@ class BaseFile {
 
   // Rename the download file. Returns true on success.
   virtual bool Rename(const FilePath& full_path);
+
+  // Detach the file so it is not deleted on destruction.
+  virtual void Detach();
 
   // Abort the download and automatically close the file.
   void Cancel();
@@ -91,9 +94,13 @@ class BaseFile {
 
   // Used to calculate sha256 hash for the file when calculate_hash_
   // is set.
-  scoped_ptr<base::SecureHash> secure_hash_;
+  scoped_ptr<crypto::SecureHash> secure_hash_;
 
   unsigned char sha256_hash_[kSha256HashLen];
+
+  // Indicates that this class no longer owns the associated file, and so
+  // won't delete it on destruction.
+  bool detached_;
 
   DISALLOW_COPY_AND_ASSIGN(BaseFile);
 };

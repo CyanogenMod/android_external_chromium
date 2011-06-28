@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,10 @@
 #include <limits>
 
 #include "base/file_util.h"
+#include "base/memory/scoped_vector.h"
 #include "base/metrics/histogram.h"
-#include "base/scoped_vector.h"
 #include "net/base/file_stream.h"
+#include "net/base/net_errors.h"
 
 using base::TimeTicks;
 
@@ -340,6 +341,7 @@ bool SessionBackend::AppendCommandsToFile(net::FileStream* file,
       }
     }
   }
+  file->Flush();
   return true;
 }
 
@@ -365,10 +367,9 @@ void SessionBackend::ResetFile() {
 net::FileStream* SessionBackend::OpenAndWriteHeader(const FilePath& path) {
   DCHECK(!path.empty());
   scoped_ptr<net::FileStream> file(new net::FileStream());
-  file->Open(path, base::PLATFORM_FILE_CREATE_ALWAYS |
-             base::PLATFORM_FILE_WRITE | base::PLATFORM_FILE_EXCLUSIVE_WRITE |
-             base::PLATFORM_FILE_EXCLUSIVE_READ);
-  if (!file->IsOpen())
+  if (file->Open(path, base::PLATFORM_FILE_CREATE_ALWAYS |
+      base::PLATFORM_FILE_WRITE | base::PLATFORM_FILE_EXCLUSIVE_WRITE |
+      base::PLATFORM_FILE_EXCLUSIVE_READ) != net::OK)
     return NULL;
   FileHeader header;
   header.signature = kFileSignature;

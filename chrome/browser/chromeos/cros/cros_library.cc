@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@
 #include "chrome/browser/chromeos/cros/cros_library_loader.h"
 #include "chrome/browser/chromeos/cros/cryptohome_library.h"
 #include "chrome/browser/chromeos/cros/input_method_library.h"
-#include "chrome/browser/chromeos/cros/keyboard_library.h"
 #include "chrome/browser/chromeos/cros/libcros_service_library.h"
 #include "chrome/browser/chromeos/cros/login_library.h"
 #include "chrome/browser/chromeos/cros/mount_library.h"
@@ -19,7 +18,6 @@
 #include "chrome/browser/chromeos/cros/screen_lock_library.h"
 #include "chrome/browser/chromeos/cros/speech_synthesis_library.h"
 #include "chrome/browser/chromeos/cros/syslogs_library.h"
-#include "chrome/browser/chromeos/cros/system_library.h"
 #include "chrome/browser/chromeos/cros/touchpad_library.h"
 #include "chrome/browser/chromeos/cros/update_library.h"
 
@@ -61,7 +59,6 @@ CrosLibrary* CrosLibrary::Get() {
 DEFINE_GET_LIBRARY_METHOD(Brightness, brightness);
 DEFINE_GET_LIBRARY_METHOD(Burn, burn);
 DEFINE_GET_LIBRARY_METHOD(Cryptohome, crypto);
-DEFINE_GET_LIBRARY_METHOD(Keyboard, keyboard);
 DEFINE_GET_LIBRARY_METHOD(InputMethod, input_method);
 DEFINE_GET_LIBRARY_METHOD(LibCrosService, libcros_service);
 DEFINE_GET_LIBRARY_METHOD(Login, login);
@@ -71,7 +68,6 @@ DEFINE_GET_LIBRARY_METHOD(Power, power);
 DEFINE_GET_LIBRARY_METHOD(ScreenLock, screen_lock);
 DEFINE_GET_LIBRARY_METHOD(SpeechSynthesis, speech_synthesis);
 DEFINE_GET_LIBRARY_METHOD(Syslogs, syslogs);
-DEFINE_GET_LIBRARY_METHOD(System, system);
 DEFINE_GET_LIBRARY_METHOD(Touchpad, touchpad);
 DEFINE_GET_LIBRARY_METHOD(Update, update);
 
@@ -120,7 +116,6 @@ void CrosLibrary::TestApi::SetLibraryLoader(LibraryLoader* loader, bool own) {
 DEFINE_SET_LIBRARY_METHOD(Brightness, brightness);
 DEFINE_SET_LIBRARY_METHOD(Burn, burn);
 DEFINE_SET_LIBRARY_METHOD(Cryptohome, crypto);
-DEFINE_SET_LIBRARY_METHOD(Keyboard, keyboard);
 DEFINE_SET_LIBRARY_METHOD(InputMethod, input_method);
 DEFINE_SET_LIBRARY_METHOD(LibCrosService, libcros_service);
 DEFINE_SET_LIBRARY_METHOD(Login, login);
@@ -130,7 +125,6 @@ DEFINE_SET_LIBRARY_METHOD(Power, power);
 DEFINE_SET_LIBRARY_METHOD(ScreenLock, screen_lock);
 DEFINE_SET_LIBRARY_METHOD(SpeechSynthesis, speech_synthesis);
 DEFINE_SET_LIBRARY_METHOD(Syslogs, syslogs);
-DEFINE_SET_LIBRARY_METHOD(System, system);
 DEFINE_SET_LIBRARY_METHOD(Touchpad, touchpad);
 DEFINE_SET_LIBRARY_METHOD(Update, update);
 

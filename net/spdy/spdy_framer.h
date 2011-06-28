@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,6 @@
 #define NET_SPDY_SPDY_FRAMER_H_
 #pragma once
 
-#ifdef _WIN32
-#include <winsock2.h>
-#else
-#include <arpa/inet.h>
-#endif
 #include <list>
 #include <map>
 #include <string>
@@ -18,7 +13,8 @@
 
 #include "base/basictypes.h"
 #include "base/gtest_prod_util.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
+#include "net/base/sys_byteorder.h"
 #include "net/spdy/spdy_protocol.h"
 
 typedef struct z_stream_s z_stream;  // Forward declaration for zlib.

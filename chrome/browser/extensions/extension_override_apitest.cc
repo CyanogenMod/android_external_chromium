@@ -2,13 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/browser_list.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_web_ui.h"
 #include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/prefs/scoped_user_pref_update.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/ui_test_utils.h"
 #include "content/browser/tab_contents/tab_contents.h"
@@ -137,8 +138,11 @@ IN_PROC_BROWSER_TEST_F(ExtensionOverrideTest, ShouldCleanUpDuplicateEntries) {
   for (size_t i = 0; i < 3; ++i)
     list->Append(Value::CreateStringValue("http://www.google.com/"));
 
-  browser()->profile()->GetPrefs()->GetMutableDictionary(
-      ExtensionWebUI::kExtensionURLOverrides)->Set("history", list);
+  {
+    DictionaryPrefUpdate update(browser()->profile()->GetPrefs(),
+                                ExtensionWebUI::kExtensionURLOverrides);
+    update.Get()->Set("history", list);
+  }
 
   ASSERT_FALSE(CheckHistoryOverridesContainsNoDupes());
 

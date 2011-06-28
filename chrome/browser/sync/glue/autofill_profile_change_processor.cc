@@ -19,9 +19,9 @@
 #include "chrome/browser/webdata/autofill_change.h"
 #include "chrome/browser/webdata/web_database.h"
 #include "chrome/common/guid.h"
-#include "chrome/common/notification_registrar.h"
-#include "chrome/common/notification_service.h"
-#include "chrome/common/notification_type.h"
+#include "content/common/notification_registrar.h"
+#include "content/common/notification_service.h"
+#include "content/common/notification_type.h"
 
 namespace browser_sync {
 
@@ -179,7 +179,7 @@ void AutofillProfileChangeProcessor::CommitChangesFromSyncModel() {
   for (unsigned int i = 0;i < autofill_changes_.size(); ++i) {
     if (sync_api::SyncManager::ChangeRecord::ACTION_DELETE ==
         autofill_changes_[i].action_) {
-      if (!web_database_->RemoveAutoFillProfile(
+      if (!web_database_->GetAutofillTable()->RemoveAutofillProfile(
           autofill_changes_[i].profile_specifics_.guid())) {
         LOG(ERROR) << "could not delete the profile " <<
            autofill_changes_[i].profile_specifics_.guid();
@@ -218,10 +218,10 @@ void AutofillProfileChangeProcessor::ApplyAutofillProfileChange(
             profile_specifics.guid();
         return;
       }
-      AutoFillProfile p(profile_specifics.guid());
+      AutofillProfile p(profile_specifics.guid());
       AutofillProfileModelAssociator::OverwriteProfileWithServerData(&p,
           profile_specifics);
-      if (!web_database_->AddAutoFillProfile(p)) {
+      if (!web_database_->GetAutofillTable()->AddAutofillProfile(p)) {
         LOG(ERROR) << "could not add autofill profile for guid " << p.guid();
         break;
       }
@@ -232,18 +232,20 @@ void AutofillProfileChangeProcessor::ApplyAutofillProfileChange(
       break;
     }
     case sync_api::SyncManager::ChangeRecord::ACTION_UPDATE: {
-      AutoFillProfile *p;
-      if (!web_database_->GetAutoFillProfile(profile_specifics.guid(), &p)) {
+      AutofillProfile *p;
+      if (!web_database_->GetAutofillTable()->GetAutofillProfile(
+          profile_specifics.guid(), &p)) {
         LOG(ERROR) << "Could not find the autofill profile to update for " <<
             profile_specifics.guid();
         break;
       }
-      scoped_ptr<AutoFillProfile> autofill_pointer(p);
+      scoped_ptr<AutofillProfile> autofill_pointer(p);
       AutofillProfileModelAssociator::OverwriteProfileWithServerData(
           autofill_pointer.get(),
           profile_specifics);
 
-      if (!web_database_->UpdateAutoFillProfile(*(autofill_pointer.get()))) {
+      if (!web_database_->GetAutofillTable()->UpdateAutofillProfile(
+          *(autofill_pointer.get()))) {
         LOG(ERROR) << "Could not update autofill profile for " <<
             profile_specifics.guid();
         break;
@@ -278,7 +280,7 @@ void AutofillProfileChangeProcessor::RemoveSyncNode(const std::string& guid,
 void AutofillProfileChangeProcessor::AddAutofillProfileSyncNode(
     sync_api::WriteTransaction* trans,
     sync_api::BaseNode& autofill_profile_root,
-    const AutoFillProfile& profile) {
+    const AutofillProfile& profile) {
 
   std::string guid = profile.guid();
 
@@ -315,7 +317,7 @@ void AutofillProfileChangeProcessor::StopObserving() {
 }
 
 void AutofillProfileChangeProcessor::WriteAutofillProfile(
-    const AutoFillProfile& profile,
+    const AutofillProfile& profile,
     sync_api::WriteNode* node) {
   sync_pb::AutofillProfileSpecifics specifics;
 
@@ -326,32 +328,27 @@ void AutofillProfileChangeProcessor::WriteAutofillProfile(
   DCHECK(guid::IsValidGUID(profile.guid()));
 
   specifics.set_guid(profile.guid());
-  specifics.set_name_first(UTF16ToUTF8(
-      profile.GetFieldText(AutofillType(NAME_FIRST))));
-  specifics.set_name_middle(UTF16ToUTF8(
-      profile.GetFieldText(AutofillType(NAME_MIDDLE))));
-  specifics.set_name_last(
-      UTF16ToUTF8(profile.GetFieldText(AutofillType(NAME_LAST))));
+  specifics.set_name_first(UTF16ToUTF8(profile.GetInfo(NAME_FIRST)));
+  specifics.set_name_middle(UTF16ToUTF8(profile.GetInfo(NAME_MIDDLE)));
+  specifics.set_name_last(UTF16ToUTF8(profile.GetInfo(NAME_LAST)));
   specifics.set_address_home_line1(
-      UTF16ToUTF8(profile.GetFieldText(AutofillType(ADDRESS_HOME_LINE1))));
+      UTF16ToUTF8(profile.GetInfo(ADDRESS_HOME_LINE1)));
   specifics.set_address_home_line2(
-      UTF16ToUTF8(profile.GetFieldText(AutofillType(ADDRESS_HOME_LINE2))));
-  specifics.set_address_home_city(UTF16ToUTF8(profile.GetFieldText(
-      AutofillType(ADDRESS_HOME_CITY))));
-  specifics.set_address_home_state(UTF16ToUTF8(profile.GetFieldText(
-      AutofillType(ADDRESS_HOME_STATE))));
-  specifics.set_address_home_country(UTF16ToUTF8(profile.GetFieldText(
-      AutofillType(ADDRESS_HOME_COUNTRY))));
-  specifics.set_address_home_zip(UTF16ToUTF8(profile.GetFieldText(
-      AutofillType(ADDRESS_HOME_ZIP))));
-  specifics.set_email_address(UTF16ToUTF8(profile.GetFieldText(
-      AutofillType(EMAIL_ADDRESS))));
-  specifics.set_company_name(UTF16ToUTF8(profile.GetFieldText(
-      AutofillType(COMPANY_NAME))));
-  specifics.set_phone_fax_whole_number(UTF16ToUTF8(profile.GetFieldText(
-      AutofillType(PHONE_FAX_WHOLE_NUMBER))));
-  specifics.set_phone_home_whole_number(UTF16ToUTF8(profile.GetFieldText(
-      AutofillType(PHONE_HOME_WHOLE_NUMBER))));
+      UTF16ToUTF8(profile.GetInfo(ADDRESS_HOME_LINE2)));
+  specifics.set_address_home_city(UTF16ToUTF8(profile.GetInfo(
+      ADDRESS_HOME_CITY)));
+  specifics.set_address_home_state(UTF16ToUTF8(profile.GetInfo(
+      ADDRESS_HOME_STATE)));
+  specifics.set_address_home_country(UTF16ToUTF8(profile.GetInfo(
+      ADDRESS_HOME_COUNTRY)));
+  specifics.set_address_home_zip(UTF16ToUTF8(profile.GetInfo(
+      ADDRESS_HOME_ZIP)));
+  specifics.set_email_address(UTF16ToUTF8(profile.GetInfo(EMAIL_ADDRESS)));
+  specifics.set_company_name(UTF16ToUTF8(profile.GetInfo(COMPANY_NAME)));
+  specifics.set_phone_fax_whole_number(UTF16ToUTF8(profile.GetInfo(
+      PHONE_FAX_WHOLE_NUMBER)));
+  specifics.set_phone_home_whole_number(UTF16ToUTF8(profile.GetInfo(
+      PHONE_HOME_WHOLE_NUMBER)));
   node->SetAutofillProfileSpecifics(specifics);
 }
 

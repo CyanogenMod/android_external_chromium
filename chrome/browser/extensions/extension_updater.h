@@ -13,9 +13,10 @@
 #include <vector>
 
 #include "base/gtest_prod_util.h"
-#include "base/ref_counted.h"
-#include "base/scoped_ptr.h"
-#include "base/scoped_temp_dir.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
+#include "base/memory/scoped_temp_dir.h"
+#include "base/memory/weak_ptr.h"
 #include "base/task.h"
 #include "base/time.h"
 #include "base/timer.h"
@@ -25,9 +26,12 @@
 #include "googleurl/src/gurl.h"
 
 class Extension;
+class ExtensionPrefs;
 class ExtensionUpdaterTest;
 class ExtensionUpdaterFileHandler;
 class PrefService;
+class Profile;
+class SafeManifestParser;
 
 // To save on server resources we can request updates for multiple extensions
 // in one manifest check. This class helps us keep track of the id's for a
@@ -37,13 +41,36 @@ class ManifestFetchData {
  public:
   static const int kNeverPinged = -1;
 
+  // Each ping type is sent at most once per day.
+  enum PingType {
+    // Used for counting total installs of an extension/app/theme.
+    ROLLCALL,
+
+    // Used for counting number of active users of an app, where "active" means
+    // the app was launched at least once since the last active ping.
+    ACTIVE
+  };
+
+  struct PingData {
+    // The number of days it's been since our last rollcall or active ping,
+    // respectively. These are calculated based on the start of day from the
+    // server's perspective.
+    int rollcall_days;
+    int active_days;
+
+    PingData() : rollcall_days(0), active_days(0) {}
+    PingData(int rollcall, int active)
+        : rollcall_days(rollcall), active_days(active) {}
+  };
+
   explicit ManifestFetchData(const GURL& update_url);
   ~ManifestFetchData();
 
   // Returns true if this extension information was successfully added. If the
   // return value is false it means the full_url would have become too long, and
   // this ManifestFetchData object remains unchanged.
-  bool AddExtension(std::string id, std::string version, int ping_days,
+  bool AddExtension(std::string id, std::string version,
+                    const PingData& ping_data,
                     const std::string& update_url_data);
 
   const GURL& base_url() const { return base_url_; }
@@ -52,22 +79,18 @@ class ManifestFetchData {
   const std::set<std::string>& extension_ids() const { return extension_ids_; }
 
   // Returns true if the given id is included in this manifest fetch.
-  bool Includes(std::string extension_id) const;
+  bool Includes(const std::string& extension_id) const;
 
-  // Returns true if a ping parameter was added to full_url for this extension
-  // id.
-  bool DidPing(std::string extension_id) const;
+  // Returns true if a ping parameter for |type| was added to full_url for this
+  // extension id.
+  bool DidPing(std::string extension_id, PingType type) const;
 
  private:
-  // Returns true if we should include a ping parameter for a given number of
-  // days.
-  bool ShouldPing(int days) const;
-
+  // The set of extension id's for this ManifestFetchData.
   std::set<std::string> extension_ids_;
 
-  // Keeps track of the day value to use for the extensions where we want to
-  // send a 'days since last ping' parameter in the check.
-  std::map<std::string, int> ping_days_;
+  // The set of ping data we actually sent.
+  std::map<std::string, PingData> pings_;
 
   // The base update url without any arguments added.
   GURL base_url_;
@@ -83,7 +106,8 @@ class ManifestFetchData {
 // extensions and pending extensions.
 class ManifestFetchesBuilder {
  public:
-  explicit ManifestFetchesBuilder(ExtensionUpdateService* service);
+  ManifestFetchesBuilder(ExtensionServiceInterface* service,
+                         ExtensionPrefs* prefs);
   ~ManifestFetchesBuilder();
 
   void AddExtension(const Extension& extension);
@@ -119,7 +143,8 @@ class ManifestFetchesBuilder {
                         Extension::Type extension_type,
                         GURL update_url,
                         const std::string& update_url_data);
-  ExtensionUpdateService* service_;
+  ExtensionServiceInterface* const service_;
+  ExtensionPrefs* const prefs_;
 
   // List of data on fetches we're going to do. We limit the number of
   // extensions grouped together in one batch to avoid running into the limits
@@ -137,19 +162,21 @@ class ManifestFetchesBuilder {
 // ExtensionUpdater* updater = new ExtensionUpdater(my_extensions_service,
 //                                                  pref_service,
 //                                                  update_frequency_secs);
-// updater.Start();
+// updater->Start();
 // ....
-// updater.Stop();
-class ExtensionUpdater
-    : public URLFetcher::Delegate,
-      public base::RefCountedThreadSafe<ExtensionUpdater> {
+// updater->Stop();
+class ExtensionUpdater : public URLFetcher::Delegate {
  public:
   // Holds a pointer to the passed |service|, using it for querying installed
   // extensions and installing updated ones. The |frequency_seconds| parameter
   // controls how often update checks are scheduled.
-  ExtensionUpdater(ExtensionUpdateService* service,
+  ExtensionUpdater(ExtensionServiceInterface* service,
+                   ExtensionPrefs* extension_prefs,
                    PrefService* prefs,
+                   Profile* profile,
                    int frequency_seconds);
+
+  virtual ~ExtensionUpdater();
 
   // Starts the updater running.  Should be called at most once.
   void Start();
@@ -158,8 +185,12 @@ class ExtensionUpdater
   // crx downloads. Does not cancel any in-progress installs.
   void Stop();
 
-  // Starts an update check right now, instead of waiting for the next regularly
-  // scheduled check.
+  // Posts a task to do an update check.  Does nothing if there is
+  // already a pending task that has not yet run.
+  void CheckSoon();
+
+  // Starts an update check right now, instead of waiting for the next
+  // regularly scheduled check or a pending check from CheckSoon().
   void CheckNow();
 
   // Set blacklist checks on or off.
@@ -167,13 +198,15 @@ class ExtensionUpdater
     blacklist_checks_enabled_ = enabled;
   }
 
+  // Returns true iff CheckSoon() has been called but the update check
+  // hasn't been performed yet.  This is used mostly by tests; calling
+  // code should just call CheckSoon().
+  bool WillCheckSoon() const;
+
  private:
-  friend class base::RefCountedThreadSafe<ExtensionUpdater>;
   friend class ExtensionUpdaterTest;
   friend class ExtensionUpdaterFileHandler;
   friend class SafeManifestParser;
-
-  virtual ~ExtensionUpdater();
 
   // We need to keep track of some information associated with a url
   // when doing a fetch.
@@ -222,8 +255,12 @@ class ExtensionUpdater
 
   // Called when a crx file has been written into a temp file, and is ready
   // to be installed.
-  void OnCRXFileWritten(const std::string& id, const FilePath& path,
+  void OnCRXFileWritten(const std::string& id,
+                        const FilePath& path,
                         const GURL& download_url);
+
+  // Called when we encountered an error writing a crx file to a temp file.
+  void OnCRXFileWriteError(const std::string& id);
 
   // Verifies downloaded blacklist. Based on the blacklist, calls extension
   // service to unload blacklisted extensions and update pref.
@@ -238,6 +275,9 @@ class ExtensionUpdater
   // BaseTimer::ReceiverMethod callback.
   void TimerFired();
 
+  // Posted by CheckSoon().
+  void DoCheckSoon();
+
   // Begins an update check. Takes ownership of |fetch_data|.
   void StartUpdateCheck(ManifestFetchData* fetch_data);
 
@@ -246,8 +286,9 @@ class ExtensionUpdater
     const std::string& hash, const std::string& version);
 
   // Once a manifest is parsed, this starts fetches of any relevant crx files.
+  // If |results| is null, it means something went wrong when parsing it.
   void HandleManifestResults(const ManifestFetchData& fetch_data,
-                             const UpdateManifest::Results& results);
+                             const UpdateManifest::Results* results);
 
   // Determines the version of an existing extension.
   // Returns true on success and false on failures.
@@ -258,8 +299,26 @@ class ExtensionUpdater
   std::vector<int> DetermineUpdates(const ManifestFetchData& fetch_data,
       const UpdateManifest::Results& possible_updates);
 
+  // Send a notification that update checks are starting.
+  void NotifyStarted();
+
+  // Send a notification that an update was found for extension_id that we'll
+  // attempt to download and install.
+  void NotifyUpdateFound(const std::string& extension_id);
+
+  // Send a notification if we're finished updating.
+  void NotifyIfFinished();
+
+  // Adds a set of ids to in_progress_ids_.
+  void AddToInProgress(const std::set<std::string>& ids);
+
+  // Removes a set of ids from in_progress_ids_.
+  void RemoveFromInProgress(const std::set<std::string>& ids);
+
   // Whether Start() has been called but not Stop().
   bool alive_;
+
+  base::WeakPtrFactory<ExtensionUpdater> weak_ptr_factory_;
 
   // Outstanding url fetch requests for manifests and updates.
   scoped_ptr<URLFetcher> manifest_fetcher_;
@@ -277,15 +336,24 @@ class ExtensionUpdater
   ExtensionFetch current_extension_fetch_;
 
   // Pointer back to the service that owns this ExtensionUpdater.
-  ExtensionUpdateService* service_;
+  ExtensionServiceInterface* service_;
 
   base::OneShotTimer<ExtensionUpdater> timer_;
   int frequency_seconds_;
 
+  ScopedRunnableMethodFactory<ExtensionUpdater> method_factory_;
+
+  bool will_check_soon_;
+
+  ExtensionPrefs* extension_prefs_;
   PrefService* prefs_;
+  Profile* profile_;
 
   scoped_refptr<ExtensionUpdaterFileHandler> file_handler_;
   bool blacklist_checks_enabled_;
+
+  // The ids of extensions that have in-progress update checks.
+  std::set<std::string> in_progress_ids_;
 
   FRIEND_TEST(ExtensionUpdaterTest, TestStartUpdateCheckMemory);
   FRIEND_TEST(ExtensionUpdaterTest, TestAfterStopBehavior);

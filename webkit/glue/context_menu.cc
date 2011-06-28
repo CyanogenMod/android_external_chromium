@@ -1,14 +1,18 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "webkit/glue/context_menu.h"
+#include "webkit/glue/glue_serialize.h"
 
 namespace webkit_glue {
 
+const int32 CustomContextMenuContext::kCurrentRenderWidget = kint32max;
+
 CustomContextMenuContext::CustomContextMenuContext()
     : is_pepper_menu(false),
-      request_id(0) {
+      request_id(0),
+      render_widget_id(kCurrentRenderWidget) {
 }
 
 }  // namespace webkit_glue
@@ -39,9 +43,17 @@ ContextMenuParams::ContextMenuParams(const WebKit::WebContextMenuData& data)
       edit_flags(data.editFlags),
       security_info(data.securityInfo),
       frame_charset(data.frameEncoding.utf8()) {
+  for (size_t i = 0; i < data.dictionarySuggestions.size(); ++i)
+    dictionary_suggestions.push_back(data.dictionarySuggestions[i]);
+
   custom_context.is_pepper_menu = false;
   for (size_t i = 0; i < data.customItems.size(); ++i)
     custom_items.push_back(WebMenuItem(data.customItems[i]));
+
+  if (!data.frameHistoryItem.isNull()) {
+    frame_content_state =
+        webkit_glue::HistoryItemToString(data.frameHistoryItem);
+  }
 }
 
 ContextMenuParams::~ContextMenuParams() {

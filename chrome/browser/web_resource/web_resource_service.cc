@@ -6,8 +6,8 @@
 
 #include "base/command_line.h"
 #include "base/file_path.h"
-#include "base/string_util.h"
 #include "base/string_number_conversions.h"
+#include "base/string_util.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
@@ -19,9 +19,9 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/net/url_fetcher.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/web_resource/web_resource_unpacker.h"
 #include "content/browser/browser_thread.h"
+#include "content/common/notification_service.h"
 #include "googleurl/src/gurl.h"
 #include "net/base/load_flags.h"
 #include "net/url_request/url_request_status.h"
@@ -71,7 +71,7 @@ class WebResourceService::WebResourceFetcher
     // cookies, for example.
     url_fetcher_->set_load_flags(net::LOAD_DISABLE_CACHE |
         net::LOAD_DO_NOT_SAVE_COOKIES);
-    URLRequestContextGetter* url_request_context_getter =
+    net::URLRequestContextGetter* url_request_context_getter =
         web_resource_service_->profile_->GetRequestContext();
     url_fetcher_->set_request_context(url_request_context_getter);
     url_fetcher_->Start();
@@ -123,6 +123,8 @@ class WebResourceService::UnpackerClient
   void Start() {
     AddRef();  // balanced in Cleanup.
 
+    // TODO(willchan): Look for a better signal of whether we're in a unit test
+    // or not. Using |resource_dispatcher_host_| for this is pretty lame.
     // If we don't have a resource_dispatcher_host_, assume we're in
     // a test and run the unpacker directly in-process.
     bool use_utility_process =
@@ -134,7 +136,6 @@ class WebResourceService::UnpackerClient
       BrowserThread::PostTask(
           BrowserThread::IO, FROM_HERE,
           NewRunnableMethod(this, &UnpackerClient::StartProcessOnIOThread,
-                            web_resource_service_->resource_dispatcher_host_,
                             thread_id));
     } else {
       WebResourceUnpacker unpacker(json_data_);
@@ -178,9 +179,8 @@ class WebResourceService::UnpackerClient
     Release();
   }
 
-  void StartProcessOnIOThread(ResourceDispatcherHost* rdh,
-                              BrowserThread::ID thread_id) {
-    UtilityProcessHost* host = new UtilityProcessHost(rdh, this, thread_id);
+  void StartProcessOnIOThread(BrowserThread::ID thread_id) {
+    UtilityProcessHost* host = new UtilityProcessHost(this, thread_id);
     // TODO(mrc): get proper file path when we start using web resources
     // that need to be unpacked.
     host->StartWebResourceUnpacker(json_data_);

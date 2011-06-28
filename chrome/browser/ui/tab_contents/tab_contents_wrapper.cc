@@ -5,21 +5,34 @@
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 
 #include "base/lazy_instance.h"
+#include "chrome/browser/autocomplete_history_manager.h"
+#include "chrome/browser/autofill/autofill_manager.h"
+#include "chrome/browser/automation/automation_tab_helper.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/custom_handlers/protocol_handler_registry.h"
 #include "chrome/browser/custom_handlers/register_protocol_handler_infobar_delegate.h"
+#include "chrome/browser/extensions/extension_tab_helper.h"
+#include "chrome/browser/extensions/extension_webnavigation_api.h"
+#include "chrome/browser/file_select_helper.h"
+#include "chrome/browser/history/history.h"
+#include "chrome/browser/history/top_sites.h"
 #include "chrome/browser/password_manager/password_manager.h"
 #include "chrome/browser/password_manager_delegate_impl.h"
 #include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/prerender/prerender_observer.h"
+#include "chrome/browser/printing/print_preview_message_handler.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tab_contents/simple_alert_infobar_delegate.h"
+#include "chrome/browser/translate/translate_tab_helper.h"
+#include "chrome/browser/ui/download/download_tab_helper.h"
 #include "chrome/browser/ui/find_bar/find_tab_helper.h"
 #include "chrome/browser/ui/search_engines/search_engine_tab_helper.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper_delegate.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/render_messages.h"
 #include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/notification_service.h"
+#include "content/common/view_messages.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "grit/platform_locale_settings.h"
@@ -43,17 +56,31 @@ TabContentsWrapper::TabContentsWrapper(TabContents* contents)
   property_accessor()->SetProperty(contents->property_bag(), this);
 
   // Create the tab helpers.
+  autocomplete_history_manager_.reset(new AutocompleteHistoryManager(contents));
+  autofill_manager_.reset(new AutofillManager(contents));
+  automation_tab_helper_.reset(new AutomationTabHelper(contents));
+  download_tab_helper_.reset(new DownloadTabHelper(contents));
+  extension_tab_helper_.reset(new ExtensionTabHelper(this));
   find_tab_helper_.reset(new FindTabHelper(contents));
   password_manager_delegate_.reset(new PasswordManagerDelegateImpl(contents));
   password_manager_.reset(
       new PasswordManager(contents, password_manager_delegate_.get()));
   search_engine_tab_helper_.reset(new SearchEngineTabHelper(contents));
+  translate_tab_helper_.reset(new TranslateTabHelper(contents));
+  print_view_manager_.reset(new printing::PrintViewManager(contents));
 
   // Register for notifications about URL starredness changing on any profile.
   registrar_.Add(this, NotificationType::URLS_STARRED,
                  NotificationService::AllSources());
   registrar_.Add(this, NotificationType::BOOKMARK_MODEL_LOADED,
                  NotificationService::AllSources());
+
+  // Create the per-tab observers.
+  file_select_observer_.reset(new FileSelectObserver(contents));
+  prerender_observer_.reset(new prerender::PrerenderObserver(contents));
+  print_preview_.reset(new printing::PrintPreviewMessageHandler(contents));
+  webnavigation_observer_.reset(
+      new ExtensionWebNavigationTabObserver(contents));
 }
 
 TabContentsWrapper::~TabContentsWrapper() {
@@ -119,6 +146,7 @@ void TabContentsWrapper::RegisterUserPrefs(PrefService* prefs) {
                                       IDS_USES_UNIVERSAL_DETECTOR);
   prefs->RegisterLocalizedStringPref(prefs::kStaticEncodings,
                                      IDS_STATIC_ENCODING_LIST);
+  prefs->RegisterStringPref(prefs::kRecentlySelectedEncoding, "");
 }
 
 string16 TabContentsWrapper::GetDefaultTitle() {
@@ -168,6 +196,9 @@ string16 TabContentsWrapper::GetStatusText() const {
 TabContentsWrapper* TabContentsWrapper::Clone() {
   TabContents* new_contents = tab_contents()->Clone();
   TabContentsWrapper* new_wrapper = new TabContentsWrapper(new_contents);
+
+  new_wrapper->extension_tab_helper()->CopyStateFrom(
+      *extension_tab_helper_.get());
   return new_wrapper;
 }
 
@@ -191,9 +222,11 @@ void TabContentsWrapper::DidNavigateMainFramePostCommit(
 bool TabContentsWrapper::OnMessageReceived(const IPC::Message& message) {
   bool handled = true;
   IPC_BEGIN_MESSAGE_MAP(TabContentsWrapper, message)
+    IPC_MESSAGE_HANDLER(ViewHostMsg_PageContents, OnPageContents)
     IPC_MESSAGE_HANDLER(ViewHostMsg_JSOutOfMemory, OnJSOutOfMemory)
     IPC_MESSAGE_HANDLER(ViewHostMsg_RegisterProtocolHandler,
                         OnRegisterProtocolHandler)
+    IPC_MESSAGE_HANDLER(ViewHostMsg_Thumbnail, OnMsgThumbnail)
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
   return handled;
@@ -227,6 +260,29 @@ void TabContentsWrapper::Observe(NotificationType type,
 ////////////////////////////////////////////////////////////////////////////////
 // Internal helpers
 
+void TabContentsWrapper::OnPageContents(const GURL& url,
+                                        int32 page_id,
+                                        const string16& contents) {
+  // Don't index any https pages. People generally don't want their bank
+  // accounts, etc. indexed on their computer, especially since some of these
+  // things are not marked cachable.
+  // TODO(brettw) we may want to consider more elaborate heuristics such as
+  // the cachability of the page. We may also want to consider subframes (this
+  // test will still index subframes if the subframe is SSL).
+  // TODO(zelidrag) bug chromium-os:2808 - figure out if we want to reenable
+  // content indexing for chromeos in some future releases.
+#if !defined(OS_CHROMEOS)
+  if (!url.SchemeIsSecure()) {
+    Profile* p = profile();
+    if (p && !p->IsOffTheRecord()) {
+      HistoryService* hs = p->GetHistoryService(Profile::IMPLICIT_ACCESS);
+      if (hs)
+        hs->SetPageContents(url, contents);
+    }
+  }
+#endif
+}
+
 void TabContentsWrapper::OnJSOutOfMemory() {
   tab_contents()->AddInfoBar(new SimpleAlertInfoBarDelegate(tab_contents(),
       NULL, l10n_util::GetStringUTF16(IDS_JS_OUT_OF_MEMORY_PROMPT), true));
@@ -248,6 +304,18 @@ void TabContentsWrapper::OnRegisterProtocolHandler(const std::string& protocol,
       new RegisterProtocolHandlerInfoBarDelegate(tab_contents(), registry,
                                                  handler));
   }
+}
+
+void TabContentsWrapper::OnMsgThumbnail(const GURL& url,
+                                        const ThumbnailScore& score,
+                                        const SkBitmap& bitmap) {
+  if (profile()->IsOffTheRecord())
+    return;
+
+  // Tell History about this thumbnail
+  history::TopSites* ts = profile()->GetTopSites();
+  if (ts)
+    ts->SetPageThumbnail(url, bitmap, score);
 }
 
 void TabContentsWrapper::UpdateStarredStateForCurrentURL() {

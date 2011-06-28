@@ -6,7 +6,7 @@
 #define CHROME_BROWSER_CHROMEOS_FRAME_PANEL_BROWSER_VIEW_H_
 #pragma once
 
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/chromeos/frame/panel_controller.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "ui/base/x/x11_util.h"
@@ -27,23 +27,32 @@ class PanelBrowserView : public ::BrowserView,
 
   // BrowserView overrides.
   virtual void Show();
+  virtual void ShowInactive();
   virtual void SetBounds(const gfx::Rect& bounds);
   virtual void Close();
   virtual void UpdateTitleBar();
-  virtual void ActivationChanged(bool activated);
   virtual void SetCreatorView(PanelBrowserView* creator);
   virtual bool GetSavedWindowBounds(gfx::Rect* bounds) const;
+  virtual void OnWindowActivationChanged(bool active);
+
+  // BrowserView : TabStripModelObserver overrides.
+  virtual void TabChangedAt(TabContentsWrapper* contents,
+                            int index,
+                            TabChangeType change_type);
 
   // PanelController::Delegate overrides
   virtual string16 GetPanelTitle();
   virtual SkBitmap GetPanelIcon();
   virtual bool CanClosePanel();
   virtual void ClosePanel();
+  virtual void ActivatePanel();
   virtual void OnPanelStateChanged(PanelController::State state) {}
 
  private:
   // Enforces the min, max, and default bounds.
   void LimitBounds(gfx::Rect* bounds) const;
+
+  void InitPanelController(bool is_active);
 
   // Controls interactions with the window manager for popup panels.
   scoped_ptr<chromeos::PanelController> panel_controller_;

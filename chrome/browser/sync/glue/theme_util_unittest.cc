@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,8 @@
 #include "base/values.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/protocol/theme_specifics.pb.h"
+#include "chrome/browser/themes/theme_service.h"
+#include "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/test/testing_profile.h"
@@ -33,7 +35,8 @@ scoped_refptr<Extension> MakeThemeExtension(const FilePath& extension_path,
   source.SetString(extension_manifest_keys::kVersion, "0.0.0.0");
   std::string error;
   scoped_refptr<Extension> extension = Extension::Create(
-      extension_path, Extension::INTERNAL, source, false, true, &error);
+      extension_path, Extension::INTERNAL, source,
+      Extension::STRICT_ERROR_CHECKS, &error);
   EXPECT_TRUE(extension);
   EXPECT_EQ("", error);
   return extension;
@@ -88,30 +91,37 @@ TEST_F(ThemeUtilTest, AreThemeSpecificsEqualHelper) {
   EXPECT_TRUE(AreThemeSpecificsEqualHelper(a, b, true));
 }
 
-class MockProfile : public TestingProfile {
+class MockThemeService : public ThemeService {
  public:
   MOCK_METHOD0(SetNativeTheme, void());
-  MOCK_METHOD0(ClearTheme, void());
-  MOCK_METHOD0(GetTheme, Extension*());
+  MOCK_METHOD0(UseDefaultTheme, void());
+  MOCK_CONST_METHOD0(GetThemeID, std::string());
 };
 
 TEST_F(ThemeUtilTest, SetCurrentThemeDefaultTheme) {
   sync_pb::ThemeSpecifics theme_specifics;
+  TestingProfile profile;
+  MockThemeService* mock_theme_service = new MockThemeService;
+  ThemeServiceFactory::GetInstance()->ForceAssociationBetween(&profile,
+      mock_theme_service);
 
-  MockProfile mock_profile;
-  EXPECT_CALL(mock_profile, ClearTheme()).Times(1);
+  EXPECT_CALL(*mock_theme_service, UseDefaultTheme()).Times(1);
 
-  SetCurrentThemeFromThemeSpecifics(theme_specifics, &mock_profile);
+  SetCurrentThemeFromThemeSpecifics(theme_specifics, &profile);
 }
 
 TEST_F(ThemeUtilTest, SetCurrentThemeSystemTheme) {
   sync_pb::ThemeSpecifics theme_specifics;
   theme_specifics.set_use_system_theme_by_default(true);
 
-  MockProfile mock_profile;
-  EXPECT_CALL(mock_profile, SetNativeTheme()).Times(1);
+  TestingProfile profile;
+  MockThemeService* mock_theme_service = new MockThemeService;
+  ThemeServiceFactory::GetInstance()->ForceAssociationBetween(&profile,
+      mock_theme_service);
 
-  SetCurrentThemeFromThemeSpecifics(theme_specifics, &mock_profile);
+  EXPECT_CALL(*mock_theme_service, SetNativeTheme()).Times(1);
+
+  SetCurrentThemeFromThemeSpecifics(theme_specifics, &profile);
 }
 
 // TODO(akalin): Make ExtensionService/ExtensionUpdater testable
@@ -205,15 +215,19 @@ TEST_F(ThemeUtilTest, GetThemeSpecificsHelperCustomThemeDistinct) {
 }
 
 TEST_F(ThemeUtilTest, SetCurrentThemeIfNecessaryDefaultThemeNotNecessary) {
-  MockProfile mock_profile;
-  Extension* extension = NULL;
-  EXPECT_CALL(mock_profile, GetTheme()).WillOnce(Return(extension));
+  TestingProfile profile;
+  MockThemeService* mock_theme_service = new MockThemeService;
+  ThemeServiceFactory::GetInstance()->ForceAssociationBetween(&profile,
+      mock_theme_service);
+
+  EXPECT_CALL(*mock_theme_service, GetThemeID()).WillRepeatedly(Return(
+      ThemeService::kDefaultThemeID));
 
   // TODO(akalin): Mock out call to GetPrefs() under TOOLKIT_USES_GTK.
 
   sync_pb::ThemeSpecifics theme_specifics;
   SetCurrentThemeFromThemeSpecificsIfNecessary(theme_specifics,
-                                               &mock_profile);
+                                               &profile);
 }
 
 }  // namespace

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,9 @@
 #define BASE_MESSAGE_LOOP_PROXY_H_
 #pragma once
 
+#include "base/base_api.h"
 #include "base/basictypes.h"
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
 #include "base/task.h"
 
 namespace base {
@@ -18,7 +19,7 @@ struct MessageLoopProxyTraits;
 // of a message loop. This class can outlive the target message loop. You can
 // obtain a MessageLoopProxy via Thread::message_loop_proxy() or
 // MessageLoopProxy::CreateForCurrentThread().
-class MessageLoopProxy
+class BASE_API MessageLoopProxy
     : public base::RefCountedThreadSafe<MessageLoopProxy,
                                         MessageLoopProxyTraits> {
  public:
@@ -26,8 +27,10 @@ class MessageLoopProxy
   // either post the Task to the MessageLoop (if it's still alive), or to
   // delete the Task otherwise.
   // They return true iff the thread existed and the task was posted.  Note that
-  // even if the task is posted, there's no guarantee that it will run, since
-  // the target thread may already have a Quit message in its queue.
+  // even if the task is posted, there's no guarantee that it will run; for
+  // example the target loop may already be quitting, or in the case of a
+  // delayed task a Quit message may preempt it in the message loop queue.
+  // Conversely, a return value of false is a guarantee the task will not run.
   virtual bool PostTask(const tracked_objects::Location& from_here,
                         Task* task) = 0;
   virtual bool PostDelayedTask(const tracked_objects::Location& from_here,
@@ -58,6 +61,7 @@ class MessageLoopProxy
   static scoped_refptr<MessageLoopProxy> CreateForCurrentThread();
 
  protected:
+  friend class RefCountedThreadSafe<MessageLoopProxy, MessageLoopProxyTraits>;
   friend struct MessageLoopProxyTraits;
 
   MessageLoopProxy();

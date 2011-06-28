@@ -11,9 +11,9 @@
 #include "base/basictypes.h"
 #include "chrome/browser/debugger/devtools_client_host.h"
 #include "chrome/browser/debugger/devtools_toggle_action.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
 #include "content/browser/tab_contents/tab_contents_delegate.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
 
 namespace IPC {
 class Message;
@@ -31,7 +31,7 @@ class DevToolsWindow
       public TabContentsDelegate {
  public:
   static const char kDevToolsApp[];
-  static TabContents* GetDevToolsContents(TabContents* inspected_tab);
+  static TabContentsWrapper* GetDevToolsContents(TabContents* inspected_tab);
 
   DevToolsWindow(Profile* profile, RenderViewHost* inspected_rvh, bool docked);
   virtual ~DevToolsWindow();
@@ -56,7 +56,7 @@ class DevToolsWindow
   bool FindInspectedBrowserAndTabIndex(Browser**, int* tab);
   BrowserWindow* GetInspectedBrowserWindow();
   bool IsInspectedBrowserPopup();
-  void SetAttachedWindow();
+  void UpdateFrontendAttachedState();
 
   // Overridden from NotificationObserver.
   virtual void Observe(NotificationType type,
@@ -75,7 +75,7 @@ class DevToolsWindow
                               const GURL& url,
                               const GURL& referrer,
                               WindowOpenDisposition disposition,
-                              PageTransition::Type transition) {}
+                              PageTransition::Type transition);
   virtual void NavigationStateChanged(const TabContents* source,
                                       unsigned changed_flags) {}
   virtual void AddNewContents(TabContents* source,
@@ -90,7 +90,6 @@ class DevToolsWindow
   virtual void MoveContents(TabContents* source, const gfx::Rect& pos) {}
   virtual bool CanReloadContents(TabContents* source) const;
   virtual void UpdateTargetURL(TabContents* source, const GURL& url) {}
-  virtual void ToolbarSizeChanged(TabContents* source, bool is_animating) {}
   virtual bool PreHandleKeyboardEvent(const NativeWebKeyboardEvent& event,
                                       bool* is_keyboard_shortcut);
   virtual void HandleKeyboardEvent(const NativeWebKeyboardEvent& event);

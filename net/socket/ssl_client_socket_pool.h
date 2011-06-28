@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,8 @@
 
 #include <string>
 
-#include "base/ref_counted.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/time.h"
 #include "net/base/host_resolver.h"
 #include "net/base/ssl_config_service.h"
@@ -34,15 +34,15 @@ class SOCKSClientSocketPool;
 class SOCKSSocketParams;
 class SSLClientSocket;
 class SSLHostInfoFactory;
-class TCPClientSocketPool;
-class TCPSocketParams;
+class TransportSocketParams;
+class TransportClientSocketPool;
 struct RRResponse;
 
 // SSLSocketParams only needs the socket params for the transport socket
 // that will be used (denoted by |proxy|).
 class SSLSocketParams : public base::RefCounted<SSLSocketParams> {
  public:
-  SSLSocketParams(const scoped_refptr<TCPSocketParams>& tcp_params,
+  SSLSocketParams(const scoped_refptr<TransportSocketParams>& transport_params,
                   const scoped_refptr<SOCKSSocketParams>& socks_params,
                   const scoped_refptr<HttpProxySocketParams>& http_proxy_params,
                   ProxyServer::Scheme proxy,
@@ -52,7 +52,9 @@ class SSLSocketParams : public base::RefCounted<SSLSocketParams> {
                   bool force_spdy_over_ssl,
                   bool want_spdy_over_npn);
 
-  const scoped_refptr<TCPSocketParams>& tcp_params() { return tcp_params_; }
+  const scoped_refptr<TransportSocketParams>& transport_params() {
+      return transport_params_;
+  }
   const scoped_refptr<HttpProxySocketParams>& http_proxy_params() {
     return http_proxy_params_;
   }
@@ -65,15 +67,19 @@ class SSLSocketParams : public base::RefCounted<SSLSocketParams> {
   int load_flags() const { return load_flags_; }
   bool force_spdy_over_ssl() const { return force_spdy_over_ssl_; }
   bool want_spdy_over_npn() const { return want_spdy_over_npn_; }
+<<<<<<< HEAD
 #ifdef ANDROID
   bool ignore_limits() const { return ignore_limits_; }
 #endif
+=======
+  bool ignore_limits() const { return ignore_limits_; }
+>>>>>>> chromium.org at r12.0.742.93
 
  private:
   friend class base::RefCounted<SSLSocketParams>;
   ~SSLSocketParams();
 
-  const scoped_refptr<TCPSocketParams> tcp_params_;
+  const scoped_refptr<TransportSocketParams> transport_params_;
   const scoped_refptr<HttpProxySocketParams> http_proxy_params_;
   const scoped_refptr<SOCKSSocketParams> socks_params_;
   const ProxyServer::Scheme proxy_;
@@ -82,9 +88,13 @@ class SSLSocketParams : public base::RefCounted<SSLSocketParams> {
   const int load_flags_;
   const bool force_spdy_over_ssl_;
   const bool want_spdy_over_npn_;
+<<<<<<< HEAD
 #ifdef ANDROID
   bool ignore_limits_;
 #endif
+=======
+  bool ignore_limits_;
+>>>>>>> chromium.org at r12.0.742.93
 
   DISALLOW_COPY_AND_ASSIGN(SSLSocketParams);
 };
@@ -97,7 +107,7 @@ class SSLConnectJob : public ConnectJob {
       const std::string& group_name,
       const scoped_refptr<SSLSocketParams>& params,
       const base::TimeDelta& timeout_duration,
-      TCPClientSocketPool* tcp_pool,
+      TransportClientSocketPool* transport_pool,
       SOCKSClientSocketPool* socks_pool,
       HttpProxyClientSocketPool* http_proxy_pool,
       ClientSocketFactory* client_socket_factory,
@@ -117,8 +127,8 @@ class SSLConnectJob : public ConnectJob {
 
  private:
   enum State {
-    STATE_TCP_CONNECT,
-    STATE_TCP_CONNECT_COMPLETE,
+    STATE_TRANSPORT_CONNECT,
+    STATE_TRANSPORT_CONNECT_COMPLETE,
     STATE_SOCKS_CONNECT,
     STATE_SOCKS_CONNECT_COMPLETE,
     STATE_TUNNEL_CONNECT,
@@ -133,8 +143,8 @@ class SSLConnectJob : public ConnectJob {
   // Runs the state transition loop.
   int DoLoop(int result);
 
-  int DoTCPConnect();
-  int DoTCPConnectComplete(int result);
+  int DoTransportConnect();
+  int DoTransportConnectComplete(int result);
   int DoSOCKSConnect();
   int DoSOCKSConnectComplete(int result);
   int DoTunnelConnect();
@@ -148,7 +158,7 @@ class SSLConnectJob : public ConnectJob {
   virtual int ConnectInternal();
 
   scoped_refptr<SSLSocketParams> params_;
-  TCPClientSocketPool* const tcp_pool_;
+  TransportClientSocketPool* const transport_pool_;
   SOCKSClientSocketPool* const socks_pool_;
   HttpProxyClientSocketPool* const http_proxy_pool_;
   ClientSocketFactory* const client_socket_factory_;
@@ -187,7 +197,7 @@ class SSLClientSocketPool : public ClientSocketPool,
       DnsCertProvenanceChecker* dns_cert_checker,
       SSLHostInfoFactory* ssl_host_info_factory,
       ClientSocketFactory* client_socket_factory,
-      TCPClientSocketPool* tcp_pool,
+      TransportClientSocketPool* transport_pool,
       SOCKSClientSocketPool* socks_pool,
       HttpProxyClientSocketPool* http_proxy_pool,
       SSLConfigService* ssl_config_service,
@@ -246,7 +256,7 @@ class SSLClientSocketPool : public ClientSocketPool,
   class SSLConnectJobFactory : public PoolBase::ConnectJobFactory {
    public:
     SSLConnectJobFactory(
-        TCPClientSocketPool* tcp_pool,
+        TransportClientSocketPool* transport_pool,
         SOCKSClientSocketPool* socks_pool,
         HttpProxyClientSocketPool* http_proxy_pool,
         ClientSocketFactory* client_socket_factory,
@@ -268,7 +278,7 @@ class SSLClientSocketPool : public ClientSocketPool,
     virtual base::TimeDelta ConnectionTimeout() const { return timeout_; }
 
    private:
-    TCPClientSocketPool* const tcp_pool_;
+    TransportClientSocketPool* const transport_pool_;
     SOCKSClientSocketPool* const socks_pool_;
     HttpProxyClientSocketPool* const http_proxy_pool_;
     ClientSocketFactory* const client_socket_factory_;
@@ -283,7 +293,7 @@ class SSLClientSocketPool : public ClientSocketPool,
     DISALLOW_COPY_AND_ASSIGN(SSLConnectJobFactory);
   };
 
-  TCPClientSocketPool* const tcp_pool_;
+  TransportClientSocketPool* const transport_pool_;
   SOCKSClientSocketPool* const socks_pool_;
   HttpProxyClientSocketPool* const http_proxy_pool_;
   PoolBase base_;

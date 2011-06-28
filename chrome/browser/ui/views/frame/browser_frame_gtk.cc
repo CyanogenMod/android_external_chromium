@@ -6,7 +6,8 @@
 
 #include "base/logging.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/themes/browser_theme_provider.h"
+#include "chrome/browser/themes/theme_service.h"
+#include "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/browser/ui/status_bubble.h"
 #include "chrome/browser/ui/views/frame/app_panel_browser_frame_view.h"
 #include "chrome/browser/ui/views/frame/browser_non_client_frame_view.h"
@@ -33,46 +34,41 @@ const gfx::Font& BrowserFrame::GetTitleFont() {
 }
 
 BrowserFrameGtk::BrowserFrameGtk(BrowserView* browser_view, Profile* profile)
-    : WindowGtk(browser_view),
-      browser_view_(browser_view),
-      browser_frame_view_(NULL),
-      root_view_(NULL),
-      profile_(profile) {
+    : BrowserFrame(browser_view),
+      WindowGtk(browser_view),
+      ALLOW_THIS_IN_INITIALIZER_LIST(delegate_(this)),
+      browser_view_(browser_view) {
+  set_native_browser_frame(this);
   browser_view_->set_frame(this);
+  non_client_view()->SetFrameView(CreateFrameViewForWindow());
 }
 
 BrowserFrameGtk::~BrowserFrameGtk() {
 }
 
 void BrowserFrameGtk::InitBrowserFrame() {
-  if (browser_frame_view_ == NULL)
-    browser_frame_view_ =
-        browser::CreateBrowserNonClientFrameView(this, browser_view_);
-
-  non_client_view()->SetFrameView(browser_frame_view_);
   WindowGtk::InitWindow(NULL, gfx::Rect());
   // Don't focus anything on creation, selecting a tab will set the focus.
 }
 
-views::Window* BrowserFrameGtk::GetWindow() {
+////////////////////////////////////////////////////////////////////////////////
+// BrowserFrameGtk, NativeBrowserFrame implementation:
+
+views::NativeWindow* BrowserFrameGtk::AsNativeWindow() {
   return this;
+}
+
+const views::NativeWindow* BrowserFrameGtk::AsNativeWindow() const {
+  return this;
+}
+
+BrowserNonClientFrameView* BrowserFrameGtk::CreateBrowserNonClientFrameView() {
+  return browser::CreateBrowserNonClientFrameView(this, browser_view_);
 }
 
 int BrowserFrameGtk::GetMinimizeButtonOffset() const {
   NOTIMPLEMENTED();
   return 0;
-}
-
-gfx::Rect BrowserFrameGtk::GetBoundsForTabStrip(views::View* tabstrip) const {
-  return browser_frame_view_->GetBoundsForTabStrip(tabstrip);
-}
-
-int BrowserFrameGtk::GetHorizontalTabStripVerticalOffset(bool restored) const {
-  return browser_frame_view_->GetHorizontalTabStripVerticalOffset(restored);
-}
-
-void BrowserFrameGtk::UpdateThrobber(bool running) {
-  browser_frame_view_->UpdateThrobber(running);
 }
 
 ThemeProvider* BrowserFrameGtk::GetThemeProviderForFrame() const {
@@ -85,10 +81,6 @@ bool BrowserFrameGtk::AlwaysUseNativeFrame() const {
   return false;
 }
 
-views::View* BrowserFrameGtk::GetFrameView() const {
-  return browser_frame_view_;
-}
-
 void BrowserFrameGtk::TabStripDisplayModeChanged() {
   if (GetRootView()->has_children()) {
     // Make sure the child of the root view gets Layout again.
@@ -97,28 +89,29 @@ void BrowserFrameGtk::TabStripDisplayModeChanged() {
   GetRootView()->Layout();
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// BrowserFrameGtk, WindowGtk overrides :
+
 ThemeProvider* BrowserFrameGtk::GetThemeProvider() const {
-  return profile_->GetThemeProvider();
-}
-
-views::RootView* BrowserFrameGtk::CreateRootView() {
-  root_view_ = new BrowserRootView(browser_view_, this);
-  return root_view_;
-}
-
-void BrowserFrameGtk::IsActiveChanged() {
-  GetRootView()->SchedulePaint();
-  browser_view_->ActivationChanged(IsActive());
-  views::WidgetGtk::IsActiveChanged();
+  return ThemeServiceFactory::GetForProfile(
+      browser_view_->browser()->profile());
 }
 
 void BrowserFrameGtk::SetInitialFocus() {
   browser_view_->RestoreFocus();
 }
 
+views::RootView* BrowserFrameGtk::CreateRootView() {
+  return delegate_->DelegateCreateRootView();
+}
+
 bool BrowserFrameGtk::GetAccelerator(int cmd_id,
                                      ui::Accelerator* accelerator) {
   return browser_view_->GetAccelerator(cmd_id, accelerator);
+}
+
+views::NonClientFrameView* BrowserFrameGtk::CreateFrameViewForWindow() {
+  return delegate_->DelegateCreateFrameViewForWindow();
 }
 
 gboolean BrowserFrameGtk::OnWindowStateEvent(GtkWidget* widget,

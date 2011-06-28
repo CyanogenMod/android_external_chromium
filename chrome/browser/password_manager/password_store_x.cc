@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,8 @@
 #include "base/logging.h"
 #include "base/stl_util-inl.h"
 #include "chrome/browser/password_manager/password_store_change.h"
-#include "chrome/common/notification_service.h"
 #include "content/browser/browser_thread.h"
+#include "content/common/notification_service.h"
 
 using std::vector;
 using webkit_glue::PasswordForm;
@@ -99,45 +99,44 @@ void PasswordStoreX::RemoveLoginsCreatedBetweenImpl(
 }
 
 void PasswordStoreX::GetLoginsImpl(GetLoginsRequest* request,
-                                     const PasswordForm& form) {
+                                   const PasswordForm& form) {
   CheckMigration();
-  vector<PasswordForm*> forms;
-  if (use_native_backend() && backend_->GetLogins(form, &forms)) {
-    NotifyConsumer(request, forms);
+  if (use_native_backend() && backend_->GetLogins(form, &request->value)) {
+    ForwardLoginsResult(request);
     allow_fallback_ = false;
   } else if (allow_default_store()) {
     PasswordStoreDefault::GetLoginsImpl(request, form);
   } else {
     // The consumer will be left hanging unless we reply.
-    NotifyConsumer(request, forms);
+    ForwardLoginsResult(request);
   }
 }
 
 void PasswordStoreX::GetAutofillableLoginsImpl(GetLoginsRequest* request) {
   CheckMigration();
-  vector<PasswordForm*> forms;
-  if (use_native_backend() && backend_->GetAutofillableLogins(&forms)) {
-    NotifyConsumer(request, forms);
+  if (use_native_backend() &&
+      backend_->GetAutofillableLogins(&request->value)) {
+    ForwardLoginsResult(request);
     allow_fallback_ = false;
   } else if (allow_default_store()) {
     PasswordStoreDefault::GetAutofillableLoginsImpl(request);
   } else {
     // The consumer will be left hanging unless we reply.
-    NotifyConsumer(request, forms);
+    ForwardLoginsResult(request);
   }
 }
 
 void PasswordStoreX::GetBlacklistLoginsImpl(GetLoginsRequest* request) {
   CheckMigration();
-  vector<PasswordForm*> forms;
-  if (use_native_backend() && backend_->GetBlacklistLogins(&forms)) {
-    NotifyConsumer(request, forms);
+  if (use_native_backend() &&
+      backend_->GetBlacklistLogins(&request->value)) {
+    ForwardLoginsResult(request);
     allow_fallback_ = false;
   } else if (allow_default_store()) {
     PasswordStoreDefault::GetBlacklistLoginsImpl(request);
   } else {
     // The consumer will be left hanging unless we reply.
-    NotifyConsumer(request, forms);
+    ForwardLoginsResult(request);
   }
 }
 
@@ -211,6 +210,22 @@ ssize_t PasswordStoreX::MigrateLogins() {
         ok = false;
         break;
       }
+    }
+    if (forms.empty()) {
+      // If there's nothing to migrate, then we try to insert a dummy login form
+      // just to force the native store to unlock if it was locked. We delete it
+      // right away if we are successful. If the first operation we try to do is
+      // a read, then in some cases this is just an error rather than an action
+      // that causes the native store to prompt the user to unlock.
+      // TODO(mdm): this means we no longer need the allow_fallback mechanism.
+      // Remove it once this preemptive unlock by write is baked for a while.
+      PasswordForm dummy;
+      dummy.origin = GURL("http://www.example.com/force-keyring-unlock");
+      dummy.signon_realm = "www.example.com";
+      if (backend_->AddLogin(dummy))
+        backend_->RemoveLogin(dummy);
+      else
+        ok = false;
     }
     if (ok) {
       for (size_t i = 0; i < forms.size(); ++i) {

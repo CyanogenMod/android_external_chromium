@@ -25,6 +25,7 @@
 #include "views/controls/button/native_button.h"
 #include "views/controls/label.h"
 #include "views/controls/menu/menu_2.h"
+#include "views/controls/textfield/textfield.h"
 #include "views/focus/focus_manager.h"
 #include "views/layout/grid_layout.h"
 #include "views/layout/layout_constants.h"
@@ -45,7 +46,7 @@ static const SkColor kErrorColor = SkColorSetRGB(0xFF, 0xBC, 0xBC);
 static const int kTreeWidth = 300;
 
 // ID for various children.
-static const int kNewGroupButtonID = 1002;
+static const int kNewFolderButtonID = 1002;
 
 // static
 void BookmarkEditor::Show(HWND parent_hwnd,
@@ -66,7 +67,7 @@ BookmarkEditorView::BookmarkEditorView(
     BookmarkEditor::Configuration configuration)
     : profile_(profile),
       tree_view_(NULL),
-      new_group_button_(NULL),
+      new_folder_button_(NULL),
       url_label_(NULL),
       title_label_(NULL),
       parent_(parent),
@@ -140,10 +141,10 @@ void BookmarkEditorView::Layout() {
   // Manually lay out the New Folder button in the same row as the OK/Cancel
   // buttons...
   gfx::Rect parent_bounds = parent()->GetContentsBounds();
-  gfx::Size prefsize = new_group_button_->GetPreferredSize();
+  gfx::Size prefsize = new_folder_button_->GetPreferredSize();
   int button_y =
       parent_bounds.bottom() - prefsize.height() - views::kButtonVEdgeMargin;
-  new_group_button_->SetBounds(
+  new_folder_button_->SetBounds(
       views::kPanelHorizMargin, button_y, prefsize.width(), prefsize.height());
 }
 
@@ -162,9 +163,9 @@ void BookmarkEditorView::ViewHierarchyChanged(bool is_add,
   if (show_tree_ && child == this) {
     // Add and remove the New Folder button from the ClientView's hierarchy.
     if (is_add) {
-      parent->AddChildView(new_group_button_.get());
+      parent->AddChildView(new_folder_button_.get());
     } else {
-      parent->RemoveChildView(new_group_button_.get());
+      parent->RemoveChildView(new_folder_button_.get());
     }
   }
 }
@@ -177,7 +178,7 @@ bool BookmarkEditorView::CanEdit(views::TreeView* tree_view,
                                  ui::TreeModelNode* node) {
   // Only allow editting of children of the bookmark bar node and other node.
   EditorNode* bb_node = tree_model_->AsNode(node);
-  return (bb_node->GetParent() && bb_node->GetParent()->GetParent());
+  return (bb_node->parent() && bb_node->parent()->parent());
 }
 
 void BookmarkEditorView::ContentsChanged(Textfield* sender,
@@ -189,8 +190,8 @@ void BookmarkEditorView::ButtonPressed(
     Button* sender, const views::Event& event) {
   DCHECK(sender);
   switch (sender->GetID()) {
-    case kNewGroupButtonID:
-      NewGroup();
+    case kNewFolderButtonID:
+      NewFolder();
       break;
 
     default:
@@ -218,7 +219,7 @@ void BookmarkEditorView::ExecuteCommand(int command_id) {
     tree_view_->StartEditing(tree_view_->GetSelectedNode());
   } else {
     DCHECK(command_id == IDS_BOOMARK_EDITOR_NEW_FOLDER_MENU_ITEM);
-    NewGroup();
+    NewFolder();
   }
 }
 
@@ -236,7 +237,7 @@ void BookmarkEditorView::Show(HWND parent_hwnd) {
 
 void BookmarkEditorView::Close() {
   DCHECK(window());
-  window()->Close();
+  window()->CloseWindow();
 }
 
 void BookmarkEditorView::ShowContextMenuForView(View* source,
@@ -301,16 +302,16 @@ void BookmarkEditorView::Init() {
 
   if (show_tree_) {
     tree_view_ = new views::TreeView();
-    new_group_button_.reset(new views::NativeButton(
+    new_folder_button_.reset(new views::NativeButton(
         this,
         UTF16ToWide(l10n_util::GetStringUTF16(
             IDS_BOOMARK_EDITOR_NEW_FOLDER_BUTTON))));
-    new_group_button_->set_parent_owned(false);
+    new_folder_button_->set_parent_owned(false);
     tree_view_->SetContextMenuController(this);
 
     tree_view_->SetRootShown(false);
-    new_group_button_->SetEnabled(false);
-    new_group_button_->SetID(kNewGroupButtonID);
+    new_folder_button_->SetEnabled(false);
+    new_folder_button_->SetID(kNewFolderButtonID);
   }
 
   // Yummy layout code.
@@ -390,7 +391,7 @@ void BookmarkEditorView::BookmarkNodeRemoved(BookmarkModel* model,
        details_.existing_node->HasAncestor(node)) ||
       (parent_ && parent_->HasAncestor(node))) {
     // The node, or its parent was removed. Close the dialog.
-    window()->Close();
+    window()->CloseWindow();
   } else {
     Reset();
   }
@@ -408,7 +409,7 @@ void BookmarkEditorView::Reset() {
     return;
   }
 
-  new_group_button_->SetEnabled(true);
+  new_folder_button_->SetEnabled(true);
 
   // Do this first, otherwise when we invoke SetModel with the real one
   // tree_view will try to invoke something on the model we just deleted.
@@ -442,7 +443,7 @@ void BookmarkEditorView::UserInputChanged() {
   GetDialogClientView()->UpdateDialogButtons();
 }
 
-void BookmarkEditorView::NewGroup() {
+void BookmarkEditorView::NewFolder() {
   // Create a new entry parented to the selected item, or the bookmark
   // bar if nothing is selected.
   EditorNode* parent = tree_model_->AsNode(tree_view_->GetSelectedNode());
@@ -451,17 +452,17 @@ void BookmarkEditorView::NewGroup() {
     return;
   }
 
-  tree_view_->StartEditing(AddNewGroup(parent));
+  tree_view_->StartEditing(AddNewFolder(parent));
 }
 
-BookmarkEditorView::EditorNode* BookmarkEditorView::AddNewGroup(
+BookmarkEditorView::EditorNode* BookmarkEditorView::AddNewFolder(
     EditorNode* parent) {
   EditorNode* new_node = new EditorNode();
-  new_node->SetTitle(
+  new_node->set_title(
       l10n_util::GetStringUTF16(IDS_BOOMARK_EDITOR_NEW_FOLDER_NAME));
   new_node->value = 0;
   // new_node is now owned by parent.
-  tree_model_->Add(parent, parent->GetChildCount(), new_node);
+  tree_model_->Add(parent, new_node, parent->child_count());
   return new_node;
 }
 
@@ -470,10 +471,10 @@ void BookmarkEditorView::ExpandAndSelect() {
 
   const BookmarkNode* to_select = parent_;
   if (details_.type == EditDetails::EXISTING_NODE)
-    to_select = details_.existing_node->GetParent();
-  int64 group_id_to_select = to_select->id();
+    to_select = details_.existing_node->parent();
+  int64 folder_id_to_select = to_select->id();
   EditorNode* b_node =
-      FindNodeWithID(tree_model_->GetRoot(), group_id_to_select);
+      FindNodeWithID(tree_model_->GetRoot(), folder_id_to_select);
   if (!b_node)
     b_node = tree_model_->GetRoot()->GetChild(0);  // Bookmark bar node.
 
@@ -484,7 +485,7 @@ BookmarkEditorView::EditorNode* BookmarkEditorView::CreateRootNode() {
   EditorNode* root_node = new EditorNode(std::wstring(), 0);
   const BookmarkNode* bb_root_node = bb_model_->root_node();
   CreateNodes(bb_root_node, root_node);
-  DCHECK(root_node->GetChildCount() == 2);
+  DCHECK(root_node->child_count() == 2);
   DCHECK(bb_root_node->GetChild(0)->type() == BookmarkNode::BOOKMARK_BAR);
   DCHECK(bb_root_node->GetChild(1)->type() == BookmarkNode::OTHER_NODE);
   return root_node;
@@ -492,13 +493,13 @@ BookmarkEditorView::EditorNode* BookmarkEditorView::CreateRootNode() {
 
 void BookmarkEditorView::CreateNodes(const BookmarkNode* bb_node,
                                      BookmarkEditorView::EditorNode* b_node) {
-  for (int i = 0; i < bb_node->GetChildCount(); ++i) {
+  for (int i = 0; i < bb_node->child_count(); ++i) {
     const BookmarkNode* child_bb_node = bb_node->GetChild(i);
     if (child_bb_node->is_folder()) {
       EditorNode* new_b_node =
           new EditorNode(WideToUTF16(child_bb_node->GetTitle()),
                                      child_bb_node->id());
-      b_node->Add(b_node->GetChildCount(), new_b_node);
+      b_node->Add(new_b_node, b_node->child_count());
       CreateNodes(child_bb_node, new_b_node);
     }
   }
@@ -509,7 +510,7 @@ BookmarkEditorView::EditorNode* BookmarkEditorView::FindNodeWithID(
     int64 id) {
   if (node->value == id)
     return node;
-  for (int i = 0; i < node->GetChildCount(); ++i) {
+  for (int i = 0; i < node->child_count(); ++i) {
     EditorNode* result = FindNodeWithID(node->GetChild(i), id);
     if (result)
       return result;
@@ -541,38 +542,38 @@ void BookmarkEditorView::ApplyEdits(EditorNode* parent) {
   string16 new_title(WideToUTF16Hack(GetInputTitle()));
 
   if (!show_tree_) {
-    bookmark_utils::ApplyEditsWithNoGroupChange(
+    bookmark_utils::ApplyEditsWithNoFolderChange(
         bb_model_, parent_, details_, new_title, new_url);
     return;
   }
 
-  // Create the new groups and update the titles.
+  // Create the new folders and update the titles.
   const BookmarkNode* new_parent = NULL;
-  ApplyNameChangesAndCreateNewGroups(
+  ApplyNameChangesAndCreateNewFolders(
       bb_model_->root_node(), tree_model_->GetRoot(), parent, &new_parent);
 
-  bookmark_utils::ApplyEditsWithPossibleGroupChange(
+  bookmark_utils::ApplyEditsWithPossibleFolderChange(
       bb_model_, new_parent, details_, new_title, new_url);
 }
 
-void BookmarkEditorView::ApplyNameChangesAndCreateNewGroups(
+void BookmarkEditorView::ApplyNameChangesAndCreateNewFolders(
     const BookmarkNode* bb_node,
     BookmarkEditorView::EditorNode* b_node,
     BookmarkEditorView::EditorNode* parent_b_node,
     const BookmarkNode** parent_bb_node) {
   if (parent_b_node == b_node)
     *parent_bb_node = bb_node;
-  for (int i = 0; i < b_node->GetChildCount(); ++i) {
+  for (int i = 0; i < b_node->child_count(); ++i) {
     EditorNode* child_b_node = b_node->GetChild(i);
     const BookmarkNode* child_bb_node = NULL;
     if (child_b_node->value == 0) {
-      // New group.
-      child_bb_node = bb_model_->AddGroup(bb_node,
-          bb_node->GetChildCount(), child_b_node->GetTitle());
+      // New folder.
+      child_bb_node = bb_model_->AddFolder(bb_node,
+          bb_node->child_count(), child_b_node->GetTitle());
     } else {
-      // Existing node, reset the title (BBModel ignores changes if the title
-      // is the same).
-      for (int j = 0; j < bb_node->GetChildCount(); ++j) {
+      // Existing node, reset the title (BookmarkModel ignores changes if the
+      // title is the same).
+      for (int j = 0; j < bb_node->child_count(); ++j) {
         const BookmarkNode* node = bb_node->GetChild(j);
         if (node->is_folder() && node->id() == child_b_node->value) {
           child_bb_node = node;
@@ -582,7 +583,7 @@ void BookmarkEditorView::ApplyNameChangesAndCreateNewGroups(
       DCHECK(child_bb_node);
       bb_model_->SetTitle(child_bb_node, child_b_node->GetTitle());
     }
-    ApplyNameChangesAndCreateNewGroups(child_bb_node, child_b_node,
-                                       parent_b_node, parent_bb_node);
+    ApplyNameChangesAndCreateNewFolders(child_bb_node, child_b_node,
+                                        parent_b_node, parent_bb_node);
   }
 }

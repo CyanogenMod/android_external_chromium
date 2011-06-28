@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 
-#include "base/linked_ptr.h"
+#include "base/memory/linked_ptr.h"
 #include "base/time.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/common/extensions/extension.h"
@@ -68,16 +68,16 @@ class ExtensionPrefs {
   explicit ExtensionPrefs(PrefService* prefs,
                           const FilePath& root_dir,
                           ExtensionPrefValueMap* extension_pref_value_map);
-  ~ExtensionPrefs();
+  virtual ~ExtensionPrefs();
 
   // Returns a copy of the Extensions prefs.
   // TODO(erikkay) Remove this so that external consumers don't need to be
   // aware of the internal structure of the preferences.
   DictionaryValue* CopyCurrentExtensions();
 
-  // Returns true if the specified extension has an entry in prefs
-  // and its killbit is on.
-  bool IsExtensionKilled(const std::string& id);
+  // Returns true if the specified external extension was uninstalled by the
+  // user.
+  bool IsExternalExtensionUninstalled(const std::string& id) const;
 
   // Get the order that toolstrip URLs appear in the shelf.
   typedef std::vector<GURL> URLList;
@@ -159,6 +159,18 @@ class ExtensionPrefs {
   base::Time BlacklistLastPingDay() const;
   void SetBlacklistLastPingDay(const base::Time& time);
 
+  // Similar to LastPingDay/SetLastPingDay, but for sending "days since active"
+  // ping.
+  base::Time LastActivePingDay(const std::string& extension_id);
+  void SetLastActivePingDay(const std::string& extension_id,
+                            const base::Time& time);
+
+  // A bit we use for determining if we should send the "days since active"
+  // ping. A value of true means the item has been active (launched) since the
+  // last update check.
+  bool GetActiveBit(const std::string& extension_id);
+  void SetActiveBit(const std::string& extension_id, bool active);
+
   // Gets the permissions (|api_permissions|, |host_extent| and |full_access|)
   // granted to the extension with |extension_id|. |full_access| will be true
   // if the extension has all effective permissions (like from an NPAPI plugin).
@@ -189,6 +201,7 @@ class ExtensionPrefs {
   // scripts into pages with file URLs.
   bool AllowFileAccess(const std::string& extension_id);
   void SetAllowFileAccess(const std::string& extension_id, bool allow);
+  bool HasAllowFileAccessSetting(const std::string& extension_id) const;
 
   // Get the launch type preference.  If no preference is set, return
   // |default_pref_value|.
@@ -308,6 +321,10 @@ class ExtensionPrefs {
                                 const std::string& pref_key,
                                 bool incognito);
 
+  // Returns true if there is an extension which controls the preference value
+  //  for |pref_key| *and* it is specific to incognito mode.
+  bool HasIncognitoPrefValue(const std::string& pref_key);
+
   static void RegisterUserPrefs(PrefService* prefs);
 
   // The underlying PrefService.
@@ -337,7 +354,8 @@ class ExtensionPrefs {
 
   // Reads a boolean pref from |ext| with key |pref_key|.
   // Return false if the value is false or |pref_key| does not exist.
-  bool ReadBooleanFromPref(DictionaryValue* ext, const std::string& pref_key);
+  bool ReadBooleanFromPref(const DictionaryValue* ext,
+                           const std::string& pref_key);
 
   // Reads a boolean pref |pref_key| from extension with id |extension_id|.
   bool ReadExtensionPrefBoolean(const std::string& extension_id,
@@ -345,7 +363,8 @@ class ExtensionPrefs {
 
   // Reads an integer pref from |ext| with key |pref_key|.
   // Return false if the value does not exist.
-  bool ReadIntegerFromPref(DictionaryValue* ext, const std::string& pref_key,
+  bool ReadIntegerFromPref(const DictionaryValue* ext,
+                           const std::string& pref_key,
                            int* out_value);
 
   // Reads an integer pref |pref_key| from extension with id |extension_id|.
@@ -356,7 +375,7 @@ class ExtensionPrefs {
   // Reads a list pref |pref_key| from extension with id | extension_id|.
   bool ReadExtensionPrefList(const std::string& extension_id,
                              const std::string& pref_key,
-                             ListValue** out_value);
+                             const ListValue** out_value);
 
   // Reads a list pref |pref_key| as a string set from the extension with
   // id |extension_id|.
@@ -371,16 +390,15 @@ class ExtensionPrefs {
                                    const std::string& pref_key,
                                    const std::set<std::string>& added_values);
 
-  // Ensures and returns a mutable dictionary for extension |id|'s prefs.
-  DictionaryValue* GetOrCreateExtensionPref(const std::string& id);
-
-  // Same as above, but returns NULL if it doesn't exist.
-  DictionaryValue* GetExtensionPref(const std::string& id) const;
+  // Returns a dictionary for extension |id|'s prefs or NULL if it doesn't
+  // exist.
+  const DictionaryValue* GetExtensionPref(const std::string& id) const;
 
   // Returns the dictionary of preferences controlled by the specified extension
   // or creates a new one. All entries in the dictionary contain non-expanded
   // paths.
-  DictionaryValue* GetExtensionControlledPrefs(const std::string& id) const;
+  const DictionaryValue* GetExtensionControlledPrefs(
+      const std::string& id) const;
 
   // Serializes the data and schedules a persistent save via the |PrefService|.
   // Additionally fires a PREF_CHANGED notification with the top-level
@@ -388,16 +406,12 @@ class ExtensionPrefs {
   // TODO(andybons): Switch this to EXTENSION_PREF_CHANGED to be more granular.
   // TODO(andybons): Use a ScopedUserPrefUpdate to update observers on changes
   // to the mutable extension dictionary.
-  void SavePrefsAndNotify();
+  void SavePrefs();
 
   // Checks if kPrefBlacklist is set to true in the DictionaryValue.
   // Return false if the value is false or kPrefBlacklist does not exist.
   // This is used to decide if an extension is blacklisted.
   bool IsBlacklistBitSet(DictionaryValue* ext);
-
-  // Helper methods for the public last ping day functions.
-  base::Time LastPingDayImpl(const DictionaryValue* dictionary) const;
-  void SetLastPingDayImpl(const base::Time& time, DictionaryValue* dictionary);
 
   // Helper method to acquire the installation time of an extension.
   // Returns base::Time() if the installation time could not be parsed or

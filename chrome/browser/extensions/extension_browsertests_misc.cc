@@ -3,21 +3,21 @@
 // found in the LICENSE file.
 
 #include "base/file_util.h"
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/browser_list.h"
 #include "chrome/browser/extensions/autoupdate_interceptor.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/extensions/extension_error_reporter.h"
 #include "chrome/browser/extensions/extension_host.h"
 #include "chrome/browser/extensions/extension_process_manager.h"
-#include "chrome/browser/extensions/extension_tabs_module.h"
 #include "chrome/browser/extensions/extension_service.h"
+#include "chrome/browser/extensions/extension_tabs_module.h"
 #include "chrome/browser/extensions/extension_updater.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/extensions/extension_action.h"
@@ -26,7 +26,6 @@
 #include "content/browser/renderer_host/render_view_host.h"
 #include "content/browser/site_instance.h"
 #include "content/browser/tab_contents/tab_contents.h"
-#include "net/base/mock_host_resolver.h"
 #include "net/base/net_util.h"
 #include "net/test/test_server.h"
 
@@ -755,10 +754,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, MAYBE_PluginLoadUnload) {
   EXPECT_TRUE(result);
 }
 
-#if defined(OS_CHROMEOS)
-// ChromeOS doesn't support NPAPI.
-#define MAYBE_PluginPrivate DISABLED_PluginPrivate
-#elif defined(OS_WIN) || defined(OS_LINUX)
+#if defined(OS_WIN) || defined(OS_LINUX) || defined(OS_CHROMEOS)
 #define MAYBE_PluginPrivate PluginPrivate
 #else
 // TODO(mpcomplete): http://crbug.com/29900 need cross platform plugin support.
@@ -783,7 +779,12 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, MAYBE_PluginPrivate) {
   bool result = false;
   ASSERT_TRUE(ui_test_utils::ExecuteJavaScriptAndExtractBool(
       tab->render_view_host(), L"", L"testPluginWorks()", &result));
+  // We don't allow extension plugins to run on ChromeOS.
+#if defined(OS_CHROMEOS)
+  EXPECT_FALSE(result);
+#else
   EXPECT_TRUE(result);
+#endif
 
   // Now load it through a file URL. The plugin should not load.
   ui_test_utils::NavigateToURL(browser(),
@@ -831,71 +832,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, DISABLED_OptionsPage) {
             tab_strip->GetTabContentsAt(1)->tab_contents()->GetURL());
 }
 
-// Test window.chrome.app.isInstalled .
-IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, PropertyAppIsInstalled) {
-  std::string app_host("app.com");
-  std::string nonapp_host("nonapp.com");
-
-  host_resolver()->AddRule(app_host, "127.0.0.1");
-  host_resolver()->AddRule(nonapp_host, "127.0.0.1");
-  ASSERT_TRUE(test_server()->Start());
-
-  GURL test_file_url(test_server()->GetURL("extensions/test_file.html"));
-  GURL::Replacements replace_host;
-
-  replace_host.SetHostStr(app_host);
-  GURL app_url(test_file_url.ReplaceComponents(replace_host));
-
-  replace_host.SetHostStr(nonapp_host);
-  GURL non_app_url(test_file_url.ReplaceComponents(replace_host));
-
-
-  // Load an app which includes app.com in its extent.
-  ASSERT_TRUE(LoadExtension(
-      test_data_dir_.AppendASCII("app_dot_com_app")));
-
-
-  // Test that a non-app page has chrome.app.isInstalled = false.
-  ui_test_utils::NavigateToURL(browser(), non_app_url);
-  std::wstring get_app_is_installed =
-      L"window.domAutomationController.send("
-      L"    JSON.stringify(window.chrome.app.isInstalled));";
-  std::string result;
-  ASSERT_TRUE(
-      ui_test_utils::ExecuteJavaScriptAndExtractString(
-          browser()->GetSelectedTabContents()->render_view_host(),
-          L"",
-          get_app_is_installed.c_str(),
-          &result));
-  EXPECT_EQ("false", result);
-
-
-  // Check that an app page has chrome.app.isInstalled = true.
-  ui_test_utils::NavigateToURL(browser(), app_url);
-  ASSERT_TRUE(
-      ui_test_utils::ExecuteJavaScriptAndExtractString(
-          browser()->GetSelectedTabContents()->render_view_host(),
-          L"",
-          get_app_is_installed.c_str(),
-          &result));
-  EXPECT_EQ("true", result);
-
-
-  // Test that trying to set window.chrome.app.isInstalled throws
-  // an exception.
-  ASSERT_TRUE(ui_test_utils::ExecuteJavaScriptAndExtractString(
-          browser()->GetSelectedTabContents()->render_view_host(),
-          L"",
-          L"window.domAutomationController.send("
-          L"    function() {"
-          L"      try {"
-          L"        window.chrome.app.isInstalled = false;"
-          L"        return 'BAD: Should have thrown by now...';"
-          L"      } catch (e) {"
-          L"        return 'GOOD: Saw expected error.';"
-          L"      }"
-          L"    }()"
-          L");",
-          &result));
-  EXPECT_EQ("GOOD: Saw expected error.", result);
-}
+//==============================================================================
+// STOP! Please do not add any more random-ass tests here. Create new files for
+// your tests grouped by functionality. Also, you should strongly consider using
+// ExtensionAPITest if possible.
+//==============================================================================

@@ -33,7 +33,10 @@
         <label>
           <input id="deleteCookiesCheckbox"
               pref="browser.clear_data.cookies" type="checkbox">
-          <span id="deleteCookiesLabel"></span>
+          <span i18n-content="deleteCookiesFlashCheckbox"
+              class="clear-plugin-lso-data-enabled"></span>
+          <span i18n-content="deleteCookiesCheckbox"
+              class="clear-plugin-lso-data-disabled"></span>
         </label>
       </div>
       <div class="checkbox">
@@ -53,7 +56,7 @@
     </div>
   </div>
   <div class="action-area">
-    <div>
+    <div class="flash-plugin-area">
       <a target="_blank" i18n-content="flash_storage_settings"
           i18n-values="href:flash_storage_url"></a>
     </div>

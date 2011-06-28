@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,18 +11,18 @@
 #include <string>
 
 #include "base/basictypes.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/autocomplete/autocomplete_match.h"
 #include "chrome/browser/autocomplete/autocomplete_popup_view.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
 #include "ui/gfx/font.h"
 #include "webkit/glue/window_open_disposition.h"
 
 class AutocompleteEditModel;
 class AutocompleteEditView;
 class AutocompletePopupModel;
-class GtkThemeProvider;
+class GtkThemeService;
 class Profile;
 class SkBitmap;
 
@@ -115,7 +115,7 @@ class AutocompletePopupViewGtk : public AutocompletePopupView,
   // The pango layout object created from the window, cached across exposes.
   PangoLayout* layout_;
 
-  GtkThemeProvider* theme_provider_;
+  GtkThemeService* theme_service_;
   NotificationRegistrar registrar_;
 
   // Font used for suggestions after being derived from the constructor's

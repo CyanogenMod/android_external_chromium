@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,15 +13,15 @@
 #include <vector>
 
 #include "base/basictypes.h"
-#include "base/ref_counted_memory.h"
+#include "base/memory/ref_counted_memory.h"
 #include "base/stack_container.h"
 #include "base/string16.h"
 #include "base/time.h"
 #include "chrome/browser/history/snippet.h"
 #include "chrome/browser/search_engines/template_url_id.h"
-#include "chrome/common/page_transition_types.h"
 #include "chrome/common/ref_counted_util.h"
 #include "chrome/common/thumbnail_score.h"
+#include "content/common/page_transition_types.h"
 #include "googleurl/src/gurl.h"
 
 namespace history {
@@ -40,8 +40,9 @@ typedef std::vector<GURL> RedirectList;
 typedef int64 StarID;  // Unique identifier for star entries.
 typedef int64 UIStarID;  // Identifier for star entries that come from the UI.
 typedef int64 DownloadID;   // Identifier for a download.
-typedef int64 FavIconID;  // For FavIcons.
+typedef int64 FaviconID;  // For favicons.
 typedef int64 SegmentID;  // URL segments for the most visited view.
+typedef int64 IconMappingID; // For page url and icon mapping.
 
 // URLRow ---------------------------------------------------------------------
 
@@ -116,12 +117,6 @@ class URLRow {
     hidden_ = hidden;
   }
 
-  // ID of the favicon. A value of 0 means the favicon isn't known yet.
-  FavIconID favicon_id() const { return favicon_id_; }
-  void set_favicon_id(FavIconID favicon_id) {
-    favicon_id_ = favicon_id;
-  }
-
  protected:
   // Swaps the contents of this URLRow with another, which allows it to be
   // destructively copied without memory allocations.
@@ -162,27 +157,24 @@ class URLRow {
   // is usually for subframes.
   bool hidden_;
 
-  // The ID of the favicon for this url.
-  FavIconID favicon_id_;
-
   // We support the implicit copy constuctor and operator=.
 };
 
 // The enumeration of all possible sources of visits is listed below.
-// The source will be propogated along with a URL or a visit item
+// The source will be propagated along with a URL or a visit item
 // and eventually be stored in the history database,
 // visit_source table specifically.
 // Different from page transition types, they describe the origins of visits.
 // (Warning): Please don't change any existing values while it is ok to add
 // new values when needed.
-typedef enum {
+enum VisitSource {
   SOURCE_SYNCED = 0,         // Synchronized from somewhere else.
   SOURCE_BROWSED = 1,        // User browsed.
   SOURCE_EXTENSION = 2,      // Added by an externsion.
   SOURCE_FIREFOX_IMPORTED = 3,
   SOURCE_IE_IMPORTED = 4,
   SOURCE_SAFARI_IMPORTED = 5,
-} VisitSource;
+};
 
 typedef int64 VisitID;
 // Structure to hold the mapping between each visit's id and its source.
@@ -242,9 +234,9 @@ typedef std::vector<VisitRow> VisitVector;
 // Favicons -------------------------------------------------------------------
 
 // Used by the importer to set favicons for imported bookmarks.
-struct ImportedFavIconUsage {
-  ImportedFavIconUsage();
-  ~ImportedFavIconUsage();
+struct ImportedFaviconUsage {
+  ImportedFaviconUsage();
+  ~ImportedFaviconUsage();
 
   // The URL of the favicon.
   GURL favicon_url;
@@ -268,27 +260,27 @@ struct PageVisit {
 
 // StarredEntry ---------------------------------------------------------------
 
-// StarredEntry represents either a starred page, or a star grouping (where
-// a star grouping consists of child starred entries). Use the type to
-// determine the type of a particular entry.
+// StarredEntry represents either a starred page, or a folder (where a folder
+// consists of child starred entries). Use the type to determine the type of a
+// particular entry.
 //
 // The database internally uses the id field to uniquely identify a starred
 // entry. On the other hand, the UI, which is anything routed through
 // HistoryService and HistoryBackend (including BookmarkBarView), uses the
-// url field to uniquely identify starred entries of type URL and the group_id
-// field to uniquely identify starred entries of type USER_GROUP. For example,
+// url field to uniquely identify starred entries of type URL and the folder_id
+// field to uniquely identify starred entries of type USER_FOLDER. For example,
 // HistoryService::UpdateStarredEntry identifies the entry by url (if the
-// type is URL) or group_id (if the type is not URL).
+// type is URL) or folder_id (if the type is not URL).
 struct StarredEntry {
   enum Type {
-    // Type represents a starred URL (StarredEntry).
+    // Type represents a starred URL.
     URL,
 
-    // The bookmark bar grouping.
+    // The bookmark bar folder.
     BOOKMARK_BAR,
 
-    // User created group.
-    USER_GROUP,
+    // User created folder.
+    USER_FOLDER,
 
     // The "other bookmarks" folder that holds uncategorized bookmarks.
     OTHER
@@ -308,17 +300,17 @@ struct StarredEntry {
   // When this was added.
   base::Time date_added;
 
-  // Group ID of the star group this entry is in. If 0, this entry is not
-  // in a star group.
-  UIStarID parent_group_id;
+  // Folder ID of the folder this entry is in. If 0, this entry is not in a
+  // folder.
+  UIStarID parent_folder_id;
 
-  // Unique identifier for groups. This is assigned by the UI.
+  // Unique identifier for folders. This is assigned by the UI.
   //
   // WARNING: this is NOT the same as id, id is assigned by the database,
   // this is assigned by the UI. See note about StarredEntry for more info.
-  UIStarID group_id;
+  UIStarID folder_id;
 
-  // Visual order within the parent. Only valid if group_id is not 0.
+  // Visual order within the parent. Only valid if folder_id is not 0.
   int visual_order;
 
   // Type of this entry (see enum).
@@ -331,9 +323,9 @@ struct StarredEntry {
   // starred.
   URLID url_id;
 
-  // Time the entry was last modified. This is only used for groups and
-  // indicates the last time a URL was added as a child to the group.
-  base::Time date_group_modified;
+  // Time the entry was last modified. This is only used for folders and
+  // indicates the last time a URL was added as a child to the folder.
+  base::Time date_folder_modified;
 };
 
 // URLResult -------------------------------------------------------------------
@@ -683,6 +675,57 @@ base::Time AutocompleteAgeThreshold();
 // provide a non-null |time_cache| by simply initializing |time_cache| with
 // AutocompleteAgeThreshold() (or any other desired time in the past).
 bool RowQualifiesAsSignificant(const URLRow& row, const base::Time& threshold);
+
+// Defines the icon types. They are also stored in icon_type field of favicons
+// table.
+enum IconType {
+  INVALID_ICON = 0x0,
+  FAVICON = 1 << 0,
+  TOUCH_ICON = 1 << 1,
+  TOUCH_PRECOMPOSED_ICON = 1 << 2
+};
+
+// Used for the mapping between the page and icon.
+struct IconMapping {
+  IconMapping();
+  ~IconMapping();
+
+  // The unique id of the mapping.
+  IconMappingID mapping_id;
+
+  // The url of a web page.
+  GURL page_url;
+
+  // The unique id of the icon.
+  FaviconID icon_id;
+
+  // The type of icon.
+  IconType icon_type;
+};
+
+// Defines the favicon stored in history backend.
+struct FaviconData {
+  FaviconData();
+  ~FaviconData();
+
+  // Returns true if the icon is known and image has data.
+  bool is_valid();
+
+  // Indicates whether the icon is known by the history backend.
+  bool known_icon;
+
+  // The bits of image.
+  scoped_refptr<RefCountedMemory> image_data;
+
+  // Indicates whether image is expired.
+  bool expired;
+
+  // The icon's URL.
+  GURL icon_url;
+
+  // The type of favicon.
+  history::IconType icon_type;
+};
 
 }  // namespace history
 

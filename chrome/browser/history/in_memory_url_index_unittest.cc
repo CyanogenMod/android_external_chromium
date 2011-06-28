@@ -13,8 +13,9 @@
 #include "app/sql/transaction.h"
 #include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/path_service.h"
-#include "base/scoped_ptr.h"
+#include "base/string_util.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/history/in_memory_url_index.h"
@@ -48,8 +49,7 @@ class InMemoryURLIndexTest : public testing::Test,
     PathService::Get(chrome::DIR_TEST_DATA, &history_proto_path);
     history_proto_path = history_proto_path.Append(
         FILE_PATH_LITERAL("History"));
-    history_proto_path = history_proto_path.Append(
-        FILE_PATH_LITERAL("url_history_provider_test.db.txt"));
+    history_proto_path = history_proto_path.Append(TestDBName());
     EXPECT_TRUE(file_util::PathExists(history_proto_path));
 
     std::ifstream proto_file(history_proto_path.value().c_str());
@@ -82,7 +82,7 @@ class InMemoryURLIndexTest : public testing::Test,
         "SELECT" HISTORY_URL_ROW_FIELDS "FROM urls;"));
     EXPECT_TRUE(statement);
     base::Time time_right_now = base::Time::NowFromSystemTime();
-    base::TimeDelta  day_delta = base::TimeDelta::FromDays(1);
+    base::TimeDelta day_delta = base::TimeDelta::FromDays(1);
     {
       sql::Transaction transaction(&db);
       transaction.Begin();
@@ -99,7 +99,64 @@ class InMemoryURLIndexTest : public testing::Test,
     }
   }
 
+  virtual FilePath::StringType TestDBName() const {
+      return FILE_PATH_LITERAL("url_history_provider_test.db.txt");
+  }
+
+  URLRow MakeURLRow(const char* url,
+                    const char* title,
+                    int visit_count,
+                    int last_visit_ago,
+                    int typed_count) {
+    URLRow row(GURL(url), 0);
+    row.set_title(UTF8ToUTF16(title));
+    row.set_visit_count(visit_count);
+    row.set_typed_count(typed_count);
+    row.set_last_visit(base::Time::NowFromSystemTime() -
+                       base::TimeDelta::FromDays(last_visit_ago));
+    return row;
+  }
+
+  InMemoryURLIndex::String16Vector Make1Term(const char* term) {
+    InMemoryURLIndex::String16Vector terms;
+    terms.push_back(UTF8ToUTF16(term));
+    return terms;
+  }
+
+  InMemoryURLIndex::String16Vector Make2Terms(const char* term_1,
+                                              const char* term_2) {
+    InMemoryURLIndex::String16Vector terms;
+    terms.push_back(UTF8ToUTF16(term_1));
+    terms.push_back(UTF8ToUTF16(term_2));
+    return terms;
+  }
+
   scoped_ptr<InMemoryURLIndex> url_index_;
+};
+
+class LimitedInMemoryURLIndexTest : public InMemoryURLIndexTest {
+ protected:
+  FilePath::StringType TestDBName() const {
+    return FILE_PATH_LITERAL("url_history_provider_test_limited.db.txt");
+  }
+};
+
+class ExpandedInMemoryURLIndexTest : public InMemoryURLIndexTest {
+ protected:
+  virtual void SetUp() {
+    InMemoryURLIndexTest::SetUp();
+    // Add 600 more history items.
+    // NOTE: Keep the string length constant at least the length of the format
+    // string plus 5 to account for a 3 digit number and terminator.
+    char url_format[] = "http://www.google.com/%d";
+    const size_t kMaxLen = arraysize(url_format) + 5;
+    char url_string[kMaxLen + 1];
+    for (int i = 0; i < 600; ++i) {
+      base::snprintf(url_string, kMaxLen, url_format, i);
+      URLRow row(MakeURLRow(url_string, "Google Search", 20, 0, 20));
+      AddURL(row);
+    }
+  }
 };
 
 TEST_F(InMemoryURLIndexTest, Construction) {
@@ -107,23 +164,22 @@ TEST_F(InMemoryURLIndexTest, Construction) {
   EXPECT_TRUE(url_index_.get());
 }
 
-// TODO(mrossetti): Write python script to calculate the validation criteria.
-TEST_F(InMemoryURLIndexTest, Initialization) {
+TEST_F(LimitedInMemoryURLIndexTest, Initialization) {
   // Verify that the database contains the expected number of items, which
   // is the pre-filtered count, i.e. all of the items.
   sql::Statement statement(GetDB().GetUniqueStatement("SELECT * FROM urls;"));
   EXPECT_TRUE(statement);
   uint64 row_count = 0;
   while (statement.Step()) ++row_count;
-  EXPECT_EQ(row_count, 33U);
+  EXPECT_EQ(1U, row_count);
   url_index_.reset(new InMemoryURLIndex);
   url_index_->Init(this, "en,ja,hi,zh");
-  EXPECT_EQ(url_index_->history_item_count_, 28);
+  EXPECT_EQ(1, url_index_->history_item_count_);
 
   // history_info_map_ should have the same number of items as were filtered.
-  EXPECT_EQ(url_index_->history_info_map_.size(), 28U);
-  EXPECT_EQ(url_index_->char_word_map_.size(), 37U);
-  EXPECT_EQ(url_index_->word_map_.size(), 91U);
+  EXPECT_EQ(1U, url_index_->history_info_map_.size());
+  EXPECT_EQ(36U, url_index_->char_word_map_.size());
+  EXPECT_EQ(17U, url_index_->word_map_.size());
 }
 
 TEST_F(InMemoryURLIndexTest, Retrieval) {
@@ -134,24 +190,35 @@ TEST_F(InMemoryURLIndexTest, Retrieval) {
 
   // See if a very specific term gives a single result.
   terms.push_back(ASCIIToUTF16("DrudgeReport"));
-  EXPECT_EQ(url_index_->HistoryItemsForTerms(terms).size(), 1U);
+  ScoredHistoryMatches matches = url_index_->HistoryItemsForTerms(terms);
+  EXPECT_EQ(1U, matches.size());
+
+  // Verify that we got back the result we expected.
+  EXPECT_EQ(5, matches[0].url_info.id());
+  EXPECT_EQ("http://drudgereport.com/", matches[0].url_info.url().spec());
+  EXPECT_EQ(ASCIIToUTF16("DRUDGE REPORT 2010"), matches[0].url_info.title());
 
   // Search which should result in multiple results.
   terms.clear();
   terms.push_back(ASCIIToUTF16("drudge"));
-  ScoredHistoryMatches matches = url_index_->HistoryItemsForTerms(terms);
-  ASSERT_EQ(url_index_->HistoryItemsForTerms(terms).size(), 2U);
+  matches = url_index_->HistoryItemsForTerms(terms);
+  ASSERT_EQ(2U, matches.size());
   // The results should be in descending score order.
-  EXPECT_GT(matches[0].raw_score, matches[1].raw_score);
+  EXPECT_GE(matches[0].raw_score, matches[1].raw_score);
 
   // Search which should result in nearly perfect result.
   terms.clear();
-  terms.push_back(ASCIIToUTF16("http"));
+  terms.push_back(ASCIIToUTF16("https"));
   terms.push_back(ASCIIToUTF16("NearlyPerfectResult"));
   matches = url_index_->HistoryItemsForTerms(terms);
-  ASSERT_EQ(matches.size(), 1U);
+  ASSERT_EQ(1U, matches.size());
   // The results should have a very high score.
   EXPECT_GT(matches[0].raw_score, 900);
+  EXPECT_EQ(32, matches[0].url_info.id());
+  EXPECT_EQ("https://nearlyperfectresult.com/",
+            matches[0].url_info.url().spec());  // Note: URL gets lowercased.
+  EXPECT_EQ(ASCIIToUTF16("Practically Perfect Search Result"),
+            matches[0].url_info.title());
 
   // Search which should result in very poor result.
   terms.clear();
@@ -159,9 +226,60 @@ TEST_F(InMemoryURLIndexTest, Retrieval) {
   terms.push_back(ASCIIToUTF16("y"));
   terms.push_back(ASCIIToUTF16("x"));
   matches = url_index_->HistoryItemsForTerms(terms);
-  ASSERT_EQ(matches.size(), 1U);
+  ASSERT_EQ(1U, matches.size());
   // The results should have a poor score.
-  EXPECT_LT(matches[0].raw_score, 200);
+  EXPECT_LT(matches[0].raw_score, 500);
+  EXPECT_EQ(33, matches[0].url_info.id());
+  EXPECT_EQ("http://quiteuselesssearchresultxyz.com/",
+            matches[0].url_info.url().spec());  // Note: URL gets lowercased.
+  EXPECT_EQ(ASCIIToUTF16("Practically Useless Search Result"),
+            matches[0].url_info.title());
+
+  // Search which will match at the end of an URL with encoded characters.
+  terms.clear();
+  terms.push_back(ASCIIToUTF16("ice"));
+  matches = url_index_->HistoryItemsForTerms(terms);
+  ASSERT_EQ(1U, matches.size());
+}
+
+TEST_F(ExpandedInMemoryURLIndexTest, ShortCircuit) {
+  url_index_.reset(new InMemoryURLIndex(FilePath(FILE_PATH_LITERAL("/dummy"))));
+  url_index_->Init(this, "en,ja,hi,zh");
+  InMemoryURLIndex::String16Vector terms;
+
+  // A search for 'w' should short-circuit and not return any matches.
+  terms.push_back(ASCIIToUTF16("w"));
+  ScoredHistoryMatches matches = url_index_->HistoryItemsForTerms(terms);
+  EXPECT_TRUE(matches.empty());
+
+  // A search for 'working' should not short-circuit.
+  terms.clear();
+  terms.push_back(ASCIIToUTF16("working"));
+  matches = url_index_->HistoryItemsForTerms(terms);
+  EXPECT_EQ(1U, matches.size());
+}
+
+TEST_F(InMemoryURLIndexTest, TitleSearch) {
+  url_index_.reset(new InMemoryURLIndex());
+  url_index_->Init(this, "en,ja,hi,zh");
+  // Signal if someone has changed the test DB.
+  EXPECT_EQ(25U, url_index_->history_info_map_.size());
+  InMemoryURLIndex::String16Vector terms;
+
+  // Ensure title is being searched.
+  terms.push_back(ASCIIToUTF16("MORTGAGE"));
+  terms.push_back(ASCIIToUTF16("RATE"));
+  terms.push_back(ASCIIToUTF16("DROPS"));
+  ScoredHistoryMatches matches = url_index_->HistoryItemsForTerms(terms);
+  EXPECT_EQ(1U, matches.size());
+
+  // Verify that we got back the result we expected.
+  EXPECT_EQ(1, matches[0].url_info.id());
+  EXPECT_EQ("http://www.reuters.com/article/idUSN0839880620100708",
+            matches[0].url_info.url().spec());
+  EXPECT_EQ(ASCIIToUTF16(
+      "UPDATE 1-US 30-yr mortgage rate drops to new record low | Reuters"),
+      matches[0].url_info.title());
 }
 
 TEST_F(InMemoryURLIndexTest, Char16Utilities) {
@@ -179,6 +297,101 @@ TEST_F(InMemoryURLIndexTest, Char16Utilities) {
     EXPECT_EQ(*s_iter, *c_iter);
 }
 
+TEST_F(InMemoryURLIndexTest, StaticFunctions) {
+  // Test WordVectorFromString16
+  string16 string_a(ASCIIToUTF16("http://www.google.com/ frammy the brammy"));
+  InMemoryURLIndex::String16Vector string_vec =
+      InMemoryURLIndex::WordVectorFromString16(string_a, false);
+  ASSERT_EQ(7U, string_vec.size());
+  // See if we got the words we expected.
+  EXPECT_EQ(UTF8ToUTF16("http"), string_vec[0]);
+  EXPECT_EQ(UTF8ToUTF16("www"), string_vec[1]);
+  EXPECT_EQ(UTF8ToUTF16("google"), string_vec[2]);
+  EXPECT_EQ(UTF8ToUTF16("com"), string_vec[3]);
+  EXPECT_EQ(UTF8ToUTF16("frammy"), string_vec[4]);
+  EXPECT_EQ(UTF8ToUTF16("the"), string_vec[5]);
+  EXPECT_EQ(UTF8ToUTF16("brammy"), string_vec[6]);
+
+  string_vec = InMemoryURLIndex::WordVectorFromString16(string_a, true);
+  ASSERT_EQ(5U, string_vec.size());
+  EXPECT_EQ(UTF8ToUTF16("http://"), string_vec[0]);
+  EXPECT_EQ(UTF8ToUTF16("www.google.com/"), string_vec[1]);
+  EXPECT_EQ(UTF8ToUTF16("frammy"), string_vec[2]);
+  EXPECT_EQ(UTF8ToUTF16("the"), string_vec[3]);
+  EXPECT_EQ(UTF8ToUTF16("brammy"), string_vec[4]);
+
+  // Test WordSetFromString16
+  string16 string_b(ASCIIToUTF16(
+      "http://web.google.com/search Google Web Search"));
+  InMemoryURLIndex::String16Set string_set =
+      InMemoryURLIndex::WordSetFromString16(string_b);
+  EXPECT_EQ(5U, string_set.size());
+  // See if we got the words we expected.
+  EXPECT_TRUE(string_set.find(UTF8ToUTF16("com")) != string_set.end());
+  EXPECT_TRUE(string_set.find(UTF8ToUTF16("google")) != string_set.end());
+  EXPECT_TRUE(string_set.find(UTF8ToUTF16("http")) != string_set.end());
+  EXPECT_TRUE(string_set.find(UTF8ToUTF16("search")) != string_set.end());
+  EXPECT_TRUE(string_set.find(UTF8ToUTF16("web")) != string_set.end());
+
+  // Test SortAndDeoverlap
+  TermMatches matches_a;
+  matches_a.push_back(TermMatch(1, 13, 10));
+  matches_a.push_back(TermMatch(2, 23, 10));
+  matches_a.push_back(TermMatch(3, 3, 10));
+  matches_a.push_back(TermMatch(4, 40, 5));
+  TermMatches matches_b = InMemoryURLIndex::SortAndDeoverlap(matches_a);
+  // Nothing should have been eliminated.
+  EXPECT_EQ(matches_a.size(), matches_b.size());
+  // The order should now be 3, 1, 2, 4.
+  EXPECT_EQ(3, matches_b[0].term_num);
+  EXPECT_EQ(1, matches_b[1].term_num);
+  EXPECT_EQ(2, matches_b[2].term_num);
+  EXPECT_EQ(4, matches_b[3].term_num);
+  matches_a.push_back(TermMatch(5, 18, 10));
+  matches_a.push_back(TermMatch(6, 38, 5));
+  matches_b = InMemoryURLIndex::SortAndDeoverlap(matches_a);
+  // Two matches should have been eliminated.
+  EXPECT_EQ(matches_a.size() - 2, matches_b.size());
+  // The order should now be 3, 1, 2, 6.
+  EXPECT_EQ(3, matches_b[0].term_num);
+  EXPECT_EQ(1, matches_b[1].term_num);
+  EXPECT_EQ(2, matches_b[2].term_num);
+  EXPECT_EQ(6, matches_b[3].term_num);
+
+  // Test MatchTermInString
+  TermMatches matches_c = InMemoryURLIndex::MatchTermInString(
+      UTF8ToUTF16("x"), UTF8ToUTF16("axbxcxdxex fxgx/hxixjx.kx"), 123);
+  ASSERT_EQ(11U, matches_c.size());
+  const size_t expected_offsets[] = { 1, 3, 5, 7, 9, 12, 14, 17, 19, 21, 24 };
+  for (int i = 0; i < 11; ++i)
+    EXPECT_EQ(expected_offsets[i], matches_c[i].offset);
+}
+
+TEST_F(InMemoryURLIndexTest, OffsetsAndTermMatches) {
+  // Test OffsetsFromTermMatches
+  history::TermMatches matches_a;
+  matches_a.push_back(history::TermMatch(1, 1, 2));
+  matches_a.push_back(history::TermMatch(2, 4, 3));
+  matches_a.push_back(history::TermMatch(3, 9, 1));
+  matches_a.push_back(history::TermMatch(3, 10, 1));
+  matches_a.push_back(history::TermMatch(4, 14, 5));
+  std::vector<size_t> offsets =
+      InMemoryURLIndex::OffsetsFromTermMatches(matches_a);
+  const size_t expected_offsets_a[] = {1, 4, 9, 10, 14};
+  ASSERT_EQ(offsets.size(), arraysize(expected_offsets_a));
+  for (size_t i = 0; i < offsets.size(); ++i)
+    EXPECT_EQ(expected_offsets_a[i], offsets[i]);
+
+  // Test ReplaceOffsetsInTermMatches
+  offsets[2] = string16::npos;
+  history::TermMatches matches_b =
+      InMemoryURLIndex::ReplaceOffsetsInTermMatches(matches_a, offsets);
+  const size_t expected_offsets_b[] = {1, 4, 10, 14};
+  ASSERT_EQ(arraysize(expected_offsets_b), matches_b.size());
+  for (size_t i = 0; i < matches_b.size(); ++i)
+    EXPECT_EQ(expected_offsets_b[i], matches_b[i].offset);
+}
+
 TEST_F(InMemoryURLIndexTest, TypedCharacterCaching) {
   // Verify that match results for previously typed characters are retained
   // (in the term_char_word_set_cache_) and reused, if possible, in future
@@ -190,22 +403,22 @@ TEST_F(InMemoryURLIndexTest, TypedCharacterCaching) {
   InMemoryURLIndex::String16Vector terms;
   string16 term = ASCIIToUTF16("drudgerepo");
   terms.push_back(term);
-  EXPECT_EQ(url_index_->HistoryItemsForTerms(terms).size(), 1U);
+  EXPECT_EQ(1U, url_index_->HistoryItemsForTerms(terms).size());
 
   {
     // Exercise the term matching cache with the same term.
     InMemoryURLIndex::Char16Vector uni_chars =
         InMemoryURLIndex::Char16VectorFromString16(term);
     EXPECT_EQ(uni_chars.size(), 7U);  // Equivalent to 'degopru'
-    EXPECT_EQ(url_index_->CachedResultsIndexForTerm(uni_chars), 6U);
+    EXPECT_EQ(6U, url_index_->CachedResultsIndexForTerm(uni_chars));
   }
 
   {
     // Back off a character.
     InMemoryURLIndex::Char16Vector uni_chars =
         InMemoryURLIndex::Char16VectorFromString16(ASCIIToUTF16("drudgerep"));
-    EXPECT_EQ(uni_chars.size(), 6U);  // Equivalent to 'degpru'
-    EXPECT_EQ(url_index_->CachedResultsIndexForTerm(uni_chars), 5U);
+    EXPECT_EQ(6U, uni_chars.size());  // Equivalent to 'degpru'
+    EXPECT_EQ(5U, url_index_->CachedResultsIndexForTerm(uni_chars));
   }
 
   {
@@ -213,18 +426,53 @@ TEST_F(InMemoryURLIndexTest, TypedCharacterCaching) {
     InMemoryURLIndex::Char16Vector uni_chars =
         InMemoryURLIndex::Char16VectorFromString16(
             ASCIIToUTF16("drudgereporta"));
-    EXPECT_EQ(uni_chars.size(), 9U);  // Equivalent to 'adegoprtu'
-    EXPECT_EQ(url_index_->CachedResultsIndexForTerm(uni_chars), 6U);
+    EXPECT_EQ(9U, uni_chars.size());  // Equivalent to 'adegoprtu'
+    EXPECT_EQ(6U, url_index_->CachedResultsIndexForTerm(uni_chars));
   }
 
   {
     // Use different string.
     InMemoryURLIndex::Char16Vector uni_chars =
         InMemoryURLIndex::Char16VectorFromString16(ASCIIToUTF16("abcde"));
-    EXPECT_EQ(uni_chars.size(), 5U);
-    EXPECT_EQ(url_index_->CachedResultsIndexForTerm(uni_chars),
-              static_cast<size_t>(-1));
+    EXPECT_EQ(5U, uni_chars.size());
+    EXPECT_EQ(static_cast<size_t>(-1),
+              url_index_->CachedResultsIndexForTerm(uni_chars));
   }
+}
+
+TEST_F(InMemoryURLIndexTest, Scoring) {
+  URLRow row_a(MakeURLRow("http://abcdef", "fedcba", 3, 30, 1));
+  // Test scores based on position.
+  ScoredHistoryMatch scored_a(
+      InMemoryURLIndex::ScoredMatchForURL(row_a, Make1Term("abc")));
+  ScoredHistoryMatch scored_b(
+      InMemoryURLIndex::ScoredMatchForURL(row_a, Make1Term("bcd")));
+  EXPECT_GT(scored_a.raw_score, scored_b.raw_score);
+  // Test scores based on length.
+  ScoredHistoryMatch scored_c(
+      InMemoryURLIndex::ScoredMatchForURL(row_a, Make1Term("abcd")));
+  EXPECT_LT(scored_a.raw_score, scored_c.raw_score);
+  // Test scores based on order.
+  ScoredHistoryMatch scored_d(
+      InMemoryURLIndex::ScoredMatchForURL(row_a, Make2Terms("abc", "def")));
+  ScoredHistoryMatch scored_e(
+      InMemoryURLIndex::ScoredMatchForURL(row_a, Make2Terms("def", "abc")));
+  EXPECT_GT(scored_d.raw_score, scored_e.raw_score);
+  // Test scores based on visit_count.
+  URLRow row_b(MakeURLRow("http://abcdef", "fedcba", 10, 30, 1));
+  ScoredHistoryMatch scored_f(
+      InMemoryURLIndex::ScoredMatchForURL(row_b, Make1Term("abc")));
+  EXPECT_GT(scored_f.raw_score, scored_a.raw_score);
+  // Test scores based on last_visit.
+  URLRow row_c(MakeURLRow("http://abcdef", "fedcba", 3, 10, 1));
+  ScoredHistoryMatch scored_g(
+      InMemoryURLIndex::ScoredMatchForURL(row_c, Make1Term("abc")));
+  EXPECT_GT(scored_g.raw_score, scored_a.raw_score);
+  // Test scores based on typed_count.
+  URLRow row_d(MakeURLRow("http://abcdef", "fedcba", 3, 30, 10));
+  ScoredHistoryMatch scored_h(
+      InMemoryURLIndex::ScoredMatchForURL(row_d, Make1Term("abc")));
+  EXPECT_GT(scored_h.raw_score, scored_a.raw_score);
 }
 
 TEST_F(InMemoryURLIndexTest, AddNewRows) {
@@ -245,11 +493,11 @@ TEST_F(InMemoryURLIndexTest, AddNewRows) {
   url_index_->UpdateURL(new_row_id, new_row);
 
   // Verify that we can retrieve it.
-  EXPECT_EQ(url_index_->HistoryItemsForTerms(terms).size(), 1U);
+  EXPECT_EQ(1U, url_index_->HistoryItemsForTerms(terms).size());
 
   // Add it again just to be sure that is harmless.
   url_index_->UpdateURL(new_row_id, new_row);
-  EXPECT_EQ(url_index_->HistoryItemsForTerms(terms).size(), 1U);
+  EXPECT_EQ(1U, url_index_->HistoryItemsForTerms(terms).size());
 }
 
 TEST_F(InMemoryURLIndexTest, DeleteRows) {
@@ -260,7 +508,7 @@ TEST_F(InMemoryURLIndexTest, DeleteRows) {
   // Make sure we actually get an existing result.
   terms.push_back(ASCIIToUTF16("DrudgeReport"));
   ScoredHistoryMatches matches = url_index_->HistoryItemsForTerms(terms);
-  EXPECT_EQ(matches.size(), 1U);
+  ASSERT_EQ(1U, matches.size());
 
   // Determine the row id for that result, delete that id, then search again.
   url_index_->DeleteURL(matches[0].url_info.id());
@@ -311,7 +559,7 @@ TEST_F(InMemoryURLIndexTest, CacheSaveRestore) {
 
   // Clear and then prove it's clear.
   url_index.ClearPrivateData();
-  EXPECT_EQ(url_index.history_item_count_, 0);
+  EXPECT_EQ(0, url_index.history_item_count_);
   EXPECT_TRUE(url_index.word_list_.empty());
   EXPECT_TRUE(url_index.word_map_.empty());
   EXPECT_TRUE(url_index.char_word_map_.empty());

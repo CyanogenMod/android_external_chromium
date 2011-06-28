@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,21 +9,22 @@
 #include <set>
 #include <vector>
 
+#include "app/sql/init_status.h"
 #include "base/basictypes.h"
 #include "base/callback.h"
 #include "base/file_path.h"
-#include "base/ref_counted.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/string16.h"
 #include "base/task.h"
 #include "chrome/browser/favicon_service.h"
 #include "chrome/browser/history/history_types.h"
 #include "chrome/browser/search_engines/template_url_id.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
-#include "chrome/common/page_transition_types.h"
 #include "chrome/common/ref_counted_util.h"
 #include "content/browser/cancelable_request.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
+#include "content/common/page_transition_types.h"
 
 class BookmarkService;
 struct DownloadCreateInfo;
@@ -99,7 +100,7 @@ class HistoryService : public CancelableRequestProvider,
   // Miscellaneous commonly-used types.
   typedef std::vector<PageUsageData*> PageUsageDataList;
 
-  // ID (both star_id and group_id) of the bookmark bar.
+  // ID (both star_id and folder_id) of the bookmark bar.
   // This entry always exists.
   static const history::StarID kBookmarkBarID;
 
@@ -598,7 +599,6 @@ class HistoryService : public CancelableRequestProvider,
   template<typename Info, typename Callback> friend class DownloadRequest;
   friend class PageUsageRequest;
   friend class RedirectRequest;
-  friend class FavIconRequest;
   friend class TestingProfile;
 
   // Implementation of NotificationObserver.
@@ -635,7 +635,7 @@ class HistoryService : public CancelableRequestProvider,
   // notification (NOTIFY_HISTORY_LOADED) and sets backend_loaded_ to true.
   void OnDBLoaded();
 
-  // FavIcon -------------------------------------------------------------------
+  // Favicon -------------------------------------------------------------------
 
   // These favicon methods are exposed to the FaviconService. Instead of calling
   // these methods directly you should call the respective method on the
@@ -643,17 +643,20 @@ class HistoryService : public CancelableRequestProvider,
 
   // Used by the FaviconService to get a favicon from the history backend.
   void GetFavicon(FaviconService::GetFaviconRequest* request,
-                  const GURL& icon_url);
+                  const GURL& icon_url,
+                  history::IconType icon_type);
 
   // Used by the FaviconService to update the favicon mappings on the history
   // backend.
   void UpdateFaviconMappingAndFetch(FaviconService::GetFaviconRequest* request,
                                     const GURL& page_url,
-                                    const GURL& icon_url);
+                                    const GURL& icon_url,
+                                    history::IconType icon_type);
 
   // Used by the FaviconService to get a favicon from the history backend.
   void GetFaviconForURL(FaviconService::GetFaviconRequest* request,
-                        const GURL& page_url);
+                        const GURL& page_url,
+                        int icon_types);
 
   // Used by the FaviconService to mark the favicon for the page as being out
   // of date.
@@ -663,13 +666,14 @@ class HistoryService : public CancelableRequestProvider,
   // once. The pages must exist, any favicon sets for unknown pages will be
   // discarded. Existing favicons will not be overwritten.
   void SetImportedFavicons(
-      const std::vector<history::ImportedFavIconUsage>& favicon_usage);
+      const std::vector<history::ImportedFaviconUsage>& favicon_usage);
 
   // Used by the FaviconService to set the favicon for a page on the history
   // backend.
   void SetFavicon(const GURL& page_url,
                   const GURL& icon_url,
-                  const std::vector<unsigned char>& image_data);
+                  const std::vector<unsigned char>& image_data,
+                  history::IconType icon_type);
 
 
   // Sets the in-memory URL database. This is called by the backend once the
@@ -677,8 +681,7 @@ class HistoryService : public CancelableRequestProvider,
   void SetInMemoryBackend(history::InMemoryHistoryBackend* mem_backend);
 
   // Called by our BackendDelegate when there is a problem reading the database.
-  // |message_id| is the relevant message in the string table to display.
-  void NotifyProfileError(int message_id);
+  void NotifyProfileError(sql::InitStatus init_status);
 
   // Call to schedule a given task for running on the history thread with the
   // specified priority. The task will have ownership taken.

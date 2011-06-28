@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,9 +10,10 @@
 
 #include "base/observer_list.h"
 #include "chrome/browser/tabs/tab_strip_model_observer.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
-#include "chrome/common/page_transition_types.h"
+#include "chrome/browser/tabs/tab_strip_selection_model.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
+#include "content/common/page_transition_types.h"
 
 class NavigationController;
 class Profile;
@@ -40,8 +41,8 @@ class TabStripModelOrderController;
 //   You'll notice there is no explcit api for making a tab a mini-tab, rather
 //   there are two tab types that are implicitly mini-tabs:
 //   . App. Corresponds to an extension that wants an app tab. App tabs are
-//     identified by TabContents::is_app(). App tabs are always pinneded (you
-//     can't unpin them).
+//     identified by TabContentsWrapper::extension_tab_helper()::is_app().
+//     App tabs are always pinneded (you can't unpin them).
 //   . Pinned. Any tab can be pinned. Non-app tabs whose pinned state is changed
 //     are moved to be with other mini-tabs or non-mini tabs.
 //
@@ -87,8 +88,8 @@ class TabStripModel : public NotificationObserver {
     // tab.
     ADD_NONE          = 0,
 
-    // The tab should be selected.
-    ADD_SELECTED      = 1 << 0,
+    // The tab should be active.
+    ADD_ACTIVE        = 1 << 0,
 
     // The tab should be pinned.
     ADD_PINNED        = 1 << 1,
@@ -103,9 +104,8 @@ class TabStripModel : public NotificationObserver {
     // certain situations.
     ADD_INHERIT_GROUP = 1 << 3,
 
-    // If set the newly inserted tab's opener is set to the currently selected
-    // tab. If not set the tab may still inherit the group/opener under certain
-    // situations.
+    // If set the newly inserted tab's opener is set to the active tab. If not
+    // set the tab may still inherit the group/opener under certain situations.
     // NOTE: this is ignored if ADD_INHERIT_GROUP is set.
     ADD_INHERIT_OPENER = 1 << 4,
   };
@@ -131,8 +131,8 @@ class TabStripModel : public NotificationObserver {
   // Retrieve the Profile associated with this TabStripModel.
   Profile* profile() const { return profile_; }
 
-  // Retrieve the index of the currently selected TabContents.
-  int selected_index() const { return selected_index_; }
+  // Retrieve the index of the currently active TabContents.
+  int active_index() const { return selection_model_.active(); }
 
   // Returns true if the tabstrip is currently closing all open tabs (via a
   // call to CloseAllTabs). As tabs close, the selection in the tabstrip
@@ -159,7 +159,7 @@ class TabStripModel : public NotificationObserver {
   bool ContainsIndex(int index) const;
 
   // Adds the specified TabContents in the default location. Tabs opened in the
-  // foreground inherit the group of the previously selected tab.
+  // foreground inherit the group of the previously active tab.
   void AppendTabContents(TabContentsWrapper* contents, bool foreground);
 
   // Adds the specified TabContents at the specified location. |add_types| is a
@@ -207,11 +207,11 @@ class TabStripModel : public NotificationObserver {
   // strip).
   TabContentsWrapper* DetachTabContentsAt(int index);
 
-  // Select the TabContents at the specified index. |user_gesture| is true if
-  // the user actually clicked on the tab or navigated to it using a keyboard
-  // command, false if the tab was selected as a by-product of some other
+  // Makes the tab at the specified index the active tab. |user_gesture| is true
+  // if the user actually clicked on the tab or navigated to it using a keyboard
+  // command, false if the tab was activated as a by-product of some other
   // action.
-  void SelectTabContentsAt(int index, bool user_gesture);
+  void ActivateTabAt(int index, bool user_gesture);
 
   // Move the TabContents at the specified index to another index. This method
   // does NOT send Detached/Attached notifications, rather it moves the
@@ -223,7 +223,26 @@ class TabStripModel : public NotificationObserver {
   // tabs mixing.
   void MoveTabContentsAt(int index, int to_position, bool select_after_move);
 
+  // Moves the selected tabs to |index|. |index| is treated as if the tab strip
+  // did not contain any of the selected tabs. For example, if the tabstrip
+  // contains [A b c D E f] (upper case selected) and this is invoked with 1 the
+  // result is [b A D E c f].
+  // This method maintains that all mini-tabs occur before non-mini-tabs.  When
+  // mini-tabs are selected the move is processed in two chunks: first mini-tabs
+  // are moved, then non-mini-tabs are moved. If the index is after
+  // (mini-tab-count - selected-mini-tab-count), then the index the non-mini
+  // selected tabs are moved to is (index + selected-mini-tab-count). For
+  // example, if the model consists of [A b c D E f] (A b c are mini) and this
+  // is inokved with 2, the result is [b c A D E f]. In this example nothing
+  // special happened because the target index was <= (mini-tab-count -
+  // selected-mini-tab-count). If the target index were 3, then the result would
+  // be [b c A f D F]. A, being mini, can move no further than index 2. The
+  // non-mini-tabs are moved to the target index + selected-mini-tab-count (3 +
+  // 1)
+  void MoveSelectedTabsTo(int index);
+
   // Returns the currently selected TabContents, or NULL if there is none.
+  // TODO(sky): rename to GetActiveTabContents.
   TabContentsWrapper* GetSelectedTabContents() const;
 
   // Returns the TabContentsWrapper at the specified index, or NULL if there is
@@ -346,6 +365,27 @@ class TabStripModel : public NotificationObserver {
   // is between IndexOfFirstNonMiniTab and count().
   int ConstrainInsertionIndex(int index, bool mini_tab);
 
+  // Extends the selection from the anchor to |index|.
+  void ExtendSelectionTo(int index);
+
+  // Toggles the selection at |index|. This does nothing if |index| is selected
+  // and there are no other selected tabs.
+  void ToggleSelectionAt(int index);
+
+  // Makes sure the tabs from the anchor to |index| are selected. This only
+  // adds to the selection.
+  void AddSelectionFromAnchorTo(int index);
+
+  // Returns true if the tab at |index| is selected.
+  bool IsTabSelected(int index) const;
+
+  // Sets the selection to match that of |source|.
+  void SetSelectionFromModel(const TabStripSelectionModel& source);
+
+  const TabStripSelectionModel& selection_model() const {
+    return selection_model_;
+  }
+
   // Command level API /////////////////////////////////////////////////////////
 
   // Adds a TabContents at the best position in the TabStripModel given the
@@ -357,8 +397,8 @@ class TabStripModel : public NotificationObserver {
                       PageTransition::Type transition,
                       int add_types);
 
-  // Closes the selected TabContents.
-  void CloseSelectedTab();
+  // Closes the selected tabs.
+  void CloseSelectedTabs();
 
   // Select adjacent tabs
   void SelectNextTab();
@@ -386,10 +426,13 @@ class TabStripModel : public NotificationObserver {
     CommandTogglePinned,
     CommandBookmarkAllTabs,
     CommandUseVerticalTabs,
+    CommandSelectByDomain,
+    CommandSelectByOpener,
     CommandLast
   };
 
-  // Returns true if the specified command is enabled.
+  // Returns true if the specified command is enabled. If |context_index| is
+  // selected the response applies to all selected tabs.
   bool IsContextMenuCommandEnabled(int context_index,
                                    ContextMenuCommand command_id) const;
 
@@ -398,7 +441,8 @@ class TabStripModel : public NotificationObserver {
                                    ContextMenuCommand command_id) const;
 
   // Performs the action associated with the specified command for the given
-  // TabStripModel index |context_index|.
+  // TabStripModel index |context_index|.  If |context_index| is selected the
+  // command applies to all selected tabs.
   void ExecuteContextMenuCommand(int context_index,
                                  ContextMenuCommand command_id);
 
@@ -407,6 +451,10 @@ class TabStripModel : public NotificationObserver {
   // descending order.
   std::vector<int> GetIndicesClosedByCommand(int index,
                                              ContextMenuCommand id) const;
+
+  // Returns true if 'CommandTogglePinned' will pin. |index| is the index
+  // supplied to |ExecuteContextMenuCommand|.
+  bool WillContextMenuPin(int index);
 
   // Overridden from notificationObserver:
   virtual void Observe(NotificationType type,
@@ -418,8 +466,17 @@ class TabStripModel : public NotificationObserver {
   static bool ContextMenuCommandToBrowserCommand(int cmd_id, int* browser_cmd);
 
  private:
-  // We cannot be constructed without a delegate.
-  TabStripModel();
+  // Gets the set of tab indices whose domain matches the tab at |index|.
+  void GetIndicesWithSameDomain(int index, std::vector<int>* indices);
+
+  // Gets the set of tab indices that have the same opener as the tab at
+  // |index|.
+  void GetIndicesWithSameOpener(int index, std::vector<int>* indices);
+
+  // If |index| is selected all the selected indices are returned, otherwise a
+  // vector with |index| is returned. This is used when executing commands to
+  // determine which indices the command applies to.
+  std::vector<int> GetIndicesForCommand(int index) const;
 
   // Returns true if the specified TabContents is a New Tab at the end of the
   // TabStrip. We check for this because opener relationships are _not_
@@ -452,12 +509,15 @@ class TabStripModel : public NotificationObserver {
 
   TabContentsWrapper* GetContentsAt(int index) const;
 
-  // The actual implementation of SelectTabContentsAt. Takes the previously
-  // selected contents in |old_contents|, which may actually not be in
-  // |contents_| anymore because it may have been removed by a call to say
-  // DetachTabContentsAt...
-  void ChangeSelectedContentsFrom(
-      TabContentsWrapper* old_contents, int to_index, bool user_gesture);
+  // If the TabContentsWrapper at |to_index| differs from |old_contents|
+  // notifies observers.
+  void NotifyTabSelectedIfChanged(TabContentsWrapper* old_contents,
+                                  int to_index,
+                                  bool user_gesture);
+
+  // Notifies the observers the selection changed. |old_selected_index| gives
+  // the old selected index.
+  void NotifySelectionChanged(int old_selected_index);
 
   // Returns the number of New Tab tabs in the TabStripModel.
   int GetNewTabCount() const;
@@ -471,6 +531,10 @@ class TabStripModel : public NotificationObserver {
   void MoveTabContentsAtImpl(int index,
                              int to_position,
                              bool select_after_move);
+
+  // Implementation of MoveSelectedTabsTo. Moves |length| of the selected tabs
+  // starting at |start| to |index|. See MoveSelectedTabsTo for more details.
+  void MoveSelectedTabsToImpl(int index, size_t start, size_t length);
 
   // Returns true if the tab represented by the specified data has an opener
   // that matches the specified one. If |use_group| is true, then this will
@@ -548,9 +612,6 @@ class TabStripModel : public NotificationObserver {
   typedef std::vector<TabContentsData*> TabContentsDataVector;
   TabContentsDataVector contents_data_;
 
-  // The index of the TabContents in |contents_| that is currently selected.
-  int selected_index_;
-
   // A profile associated with this TabStripModel, used when creating new Tabs.
   Profile* profile_;
 
@@ -568,7 +629,9 @@ class TabStripModel : public NotificationObserver {
   // A scoped container for notification registries.
   NotificationRegistrar registrar_;
 
-  DISALLOW_COPY_AND_ASSIGN(TabStripModel);
+  TabStripSelectionModel selection_model_;
+
+  DISALLOW_IMPLICIT_CONSTRUCTORS(TabStripModel);
 };
 
 #endif  // CHROME_BROWSER_TABS_TAB_STRIP_MODEL_H_

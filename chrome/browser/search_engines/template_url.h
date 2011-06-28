@@ -406,11 +406,11 @@ class TemplateURL {
 
   // Convenience methods for getting/setting an ImageRef that points to a
   // favicon. A TemplateURL need not have an ImageRef for a favicon. In such
-  // a situation GetFavIconURL returns an invalid url.
+  // a situation GetFaviconURL returns an invalid url.
   //
   // If url is empty and there is an image ref for a favicon, it is removed.
-  void SetFavIconURL(const GURL& url);
-  GURL GetFavIconURL() const;
+  void SetFaviconURL(const GURL& url);
+  GURL GetFaviconURL() const;
 
   // Set of languages supported. This may be empty.
   void add_language(const string16& language) {
@@ -479,16 +479,16 @@ class TemplateURL {
       WebDataService* service,
       std::vector<TemplateURL*>* template_urls,
       const TemplateURL** default_search_provider);
+  friend class KeywordTable;
+  friend class KeywordTableTest;
   friend class SearchHostToURLsMap;
   friend class TemplateURLModel;
-  friend class WebDatabaseTest;
-  friend class WebDatabase;
 
   // Invalidates cached values on this object and its child TemplateURLRefs.
   void InvalidateCachedValues() const;
 
   // Unique identifier, used when archived to the database.
-  void set_id(TemplateURLID id) { id_ = id;}
+  void set_id(TemplateURLID id) { id_ = id; }
 
   string16 short_name_;
   string16 description_;

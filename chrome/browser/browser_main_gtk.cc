@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,13 +11,13 @@
 
 #include "base/command_line.h"
 #include "base/debug/debugger.h"
-#include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_main_win.h"
 #include "chrome/browser/metrics/metrics_service.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/result_codes.h"
 #include "content/browser/renderer_host/render_sandbox_host_linux.h"
 #include "content/browser/zygote_host_linux.h"
+#include "content/common/result_codes.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -27,7 +27,7 @@
 #include "ui/gfx/gtk_util.h"
 
 #if defined(USE_NSS)
-#include "base/nss_util.h"
+#include "crypto/nss_util.h"
 #endif
 
 #if defined(USE_LINUX_BREAKPAD)
@@ -69,13 +69,16 @@ void BrowserMainPartsGtk::PreEarlyInitialization() {
 
 #if defined(USE_NSS)
   // We want to be sure to init NSPR on the main thread.
-  base::EnsureNSPRInit();
+  crypto::EnsureNSPRInit();
 #endif
 }
 
 void BrowserMainPartsGtk::DetectRunningAsRoot() {
   if (geteuid() == 0) {
     const CommandLine& command_line = *CommandLine::ForCurrentProcess();
+    if (!parsed_command_line().HasSwitch(switches::kUserDataDir))
+      return;
+
     gfx::GtkInitFromCommandLine(command_line);
 
     // Get just enough of our resource machinery up so we can extract the
@@ -94,6 +97,7 @@ void BrowserMainPartsGtk::DetectRunningAsRoot() {
         "%s",
         message.c_str());
 
+    LOG(ERROR) << "Startup refusing to run as root.";
     message = l10n_util::GetStringFUTF8(
         IDS_REFUSE_TO_RUN_AS_ROOT_2,
         l10n_util::GetStringUTF16(IDS_PRODUCT_NAME));
@@ -152,6 +156,10 @@ void RecordBreakpadStatusUMA(MetricsService* metrics) {
 
 void WarnAboutMinimumSystemRequirements() {
   // Nothing to warn about on GTK right now.
+}
+
+void RecordBrowserStartupTime() {
+  // Not implemented on GTK for now.
 }
 
 // From browser_main_win.h, stubs until we figure out the right thing...

@@ -6,7 +6,7 @@
 
 #include <string>
 
-#include "base/singleton.h"
+#include "base/memory/singleton.h"
 #include "base/threading/thread_restrictions.h"
 #include "chrome/browser/io_thread.h"
 #include "chrome/browser/ui/webui/chrome_url_data_manager.h"
@@ -61,10 +61,10 @@ SharedResourcesDataSource::~SharedResourcesDataSource() {
 }
 
 void SharedResourcesDataSource::StartDataRequest(const std::string& path,
-                                                 bool is_off_the_record,
+                                                 bool is_incognito,
                                                  int request_id) {
   int idr = PathToIDR(path);
-  DCHECK_NE(-1, idr);
+  DCHECK_NE(-1, idr) << " path: " << path;
   const ResourceBundle& rb = ResourceBundle::GetSharedInstance();
   scoped_refptr<RefCountedStaticMemory> bytes(rb.LoadDataResourceBytes(idr));
   SendResponse(request_id, bytes);

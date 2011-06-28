@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,6 +22,7 @@ const struct ExtraLanguage {
   const char* language_code;
   const char* input_method_id;
 } kExtraLanguages[] = {
+  { "en-AU", "xkb:us::eng" },  // For Austrailia, use US keyboard layout.
   { "id", "xkb:us::eng" }, // For Indonesian, use US keyboard layout.
   // The code "fil" comes from app/l10_util.cc.
   { "fil", "xkb:us::eng" },  // For Filipino, use US keyboard layout.
@@ -35,13 +36,17 @@ const struct ExtraLanguage {
 // into Chrome's string ID, then pulls internationalized resource string from
 // the resource bundle and returns it. These functions are not thread-safe.
 // Non-UI threads are not allowed to call them.
-std::wstring GetString(const std::string& english_string);
-std::string GetStringUTF8(const std::string& english_string);
-string16 GetStringUTF16(const std::string& english_string);
+std::wstring GetString(
+    const std::string& english_string, const std::string& input_method_id);
+std::string GetStringUTF8(
+    const std::string& english_string, const std::string& input_method_id);
+string16 GetStringUTF16(
+    const std::string& english_string, const std::string& input_method_id);
 
 // This method is ONLY for unit testing. Returns true if the given string is
 // supported (i.e. the string is associated with a resource ID).
-bool StringIsSupported(const std::string& english_string);
+bool StringIsSupported(const std::string& english_string,
+                       const std::string& input_method_id);
 
 // Normalizes the language code and returns the normalized version.  The
 // function normalizes the given language code to be compatible with the
@@ -81,12 +86,10 @@ std::string GetKeyboardLayoutName(const std::string& input_method_id);
 //
 // Examples:
 //
-// "xkb:us::eng"       => "en_US"
-// "xkb:us:dvorak:eng" => "en_US_dvorak"
-// "xkb:gb::eng"       => "en_GB"
-// "pinyin"            => "zh_CN"
-// "mozc"              => "ja"
-std::string GetKeyboardOverlayId(const std::string& input_method_id);
+// "us"                => "en_US"
+// "us(dvorak)"        => "en_US_dvorak"
+// "gb"                => "en_GB"
+std::string GetKeyboardOverlayId(const std::string& input_method_name);
 
 // Converts an input method ID to a language code of the IME. Returns "Eng"
 // when |input_method_id| is unknown.

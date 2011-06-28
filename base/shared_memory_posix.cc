@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -142,7 +142,7 @@ bool SharedMemory::CreateNamed(const std::string& name,
       return false;
     const uint32 current_size = stat.st_size;
     if (current_size != size) {
-      if (ftruncate(fileno(fp), size) != 0)
+      if (HANDLE_EINTR(ftruncate(fileno(fp), size)) != 0)
         return false;
       if (fseeko(fp, size, SEEK_SET) != 0)
         return false;
@@ -296,8 +296,12 @@ bool SharedMemory::FilePathForMemoryName(const std::string& mem_name,
 }
 
 void SharedMemory::LockOrUnlockCommon(int function) {
+<<<<<<< HEAD
   DCHECK(mapped_file_ >= 0);
 #if !defined(ANDROID)
+=======
+  DCHECK_GE(mapped_file_, 0);
+>>>>>>> chromium.org at r12.0.742.93
   while (lockf(mapped_file_, function, 0) < 0) {
     if (errno == EINTR) {
       continue;
@@ -320,7 +324,7 @@ bool SharedMemory::ShareToProcessCommon(ProcessHandle process,
                                         SharedMemoryHandle *new_handle,
                                         bool close_self) {
   const int new_fd = dup(mapped_file_);
-  DCHECK(new_fd >= 0);
+  DCHECK_GE(new_fd, 0);
   new_handle->fd = new_fd;
   new_handle->auto_close = true;
 

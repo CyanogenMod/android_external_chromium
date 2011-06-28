@@ -12,25 +12,31 @@
 #include <string>
 #include <vector>
 
-#include "base/scoped_ptr.h"
-#include "base/weak_ptr.h"
+#include "base/compiler_specific.h"
+#include "base/memory/scoped_ptr.h"
+#include "base/memory/weak_ptr.h"
 #include "chrome/browser/automation/automation_provider_json.h"
+#include "chrome/browser/automation/automation_tab_helper.h"
 #include "chrome/browser/bookmarks/bookmark_model_observer.h"
 #include "chrome/browser/browsing_data_remover.h"
+#if defined(OS_CHROMEOS)
+#include "chrome/browser/chromeos/cros/network_library.h"
+#endif  // defined(OS_CHROMEOS)
 #include "chrome/browser/download/download_item.h"
 #include "chrome/browser/download/download_manager.h"
 #include "chrome/browser/history/history.h"
 #include "chrome/browser/history/history_types.h"
-#include "chrome/browser/importer/importer.h"
 #include "chrome/browser/importer/importer_data_types.h"
-#include "chrome/browser/password_manager/password_store.h"
+#include "chrome/browser/importer/importer_progress_observer.h"
+#include "chrome/browser/password_manager/password_store_consumer.h"
 #include "chrome/browser/search_engines/template_url_model_observer.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/common/automation_constants.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
-#include "chrome/common/notification_type.h"
+#include "chrome/common/extensions/extension_constants.h"
 #include "content/browser/cancelable_request.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
+#include "content/common/notification_type.h"
 #include "ui/gfx/size.h"
 
 class AutocompleteEditModel;
@@ -88,6 +94,24 @@ class InitialLoadObserver : public NotificationObserver {
 
   DISALLOW_COPY_AND_ASSIGN(InitialLoadObserver);
 };
+
+#if defined(OS_CHROMEOS)
+// Watches for NetworkManager events. Because NetworkLibrary loads
+// asynchronously, this is used to make sure it is done before tests are run.
+class NetworkManagerInitObserver
+    : public chromeos::NetworkLibrary::NetworkManagerObserver {
+ public:
+  explicit NetworkManagerInitObserver(AutomationProvider* automation);
+  virtual ~NetworkManagerInitObserver();
+  virtual bool Init();
+  virtual void OnNetworkManagerChanged(chromeos::NetworkLibrary* obj);
+
+ private:
+  base::WeakPtr<AutomationProvider> automation_;
+
+  DISALLOW_COPY_AND_ASSIGN(NetworkManagerInitObserver);
+};
+#endif  // defined(OS_CHROMEOS)
 
 // Watches for NewTabUI page loads for performance timing purposes.
 class NewTabUILoadObserver : public NotificationObserver {
@@ -268,6 +292,28 @@ class ExtensionInstallNotificationObserver : public NotificationObserver {
   DISALLOW_COPY_AND_ASSIGN(ExtensionInstallNotificationObserver);
 };
 
+// Observes when an extension has been uninstalled.
+class ExtensionUninstallObserver : public NotificationObserver {
+ public:
+  ExtensionUninstallObserver(AutomationProvider* automation,
+                             IPC::Message* reply_message,
+                             const std::string& id);
+  virtual ~ExtensionUninstallObserver();
+
+  // Implementation of NotificationObserver.
+  virtual void Observe(NotificationType type,
+                       const NotificationSource& source,
+                       const NotificationDetails& details);
+
+ private:
+  NotificationRegistrar registrar_;
+  base::WeakPtr<AutomationProvider> automation_;
+  scoped_ptr<IPC::Message> reply_message_;
+  std::string id_;
+
+  DISALLOW_COPY_AND_ASSIGN(ExtensionUninstallObserver);
+};
+
 // Observes when an extension has finished loading and is ready for use. Also
 // checks for possible install errors.
 class ExtensionReadyNotificationObserver : public NotificationObserver {
@@ -315,6 +361,33 @@ class ExtensionUnloadNotificationObserver : public NotificationObserver {
   DISALLOW_COPY_AND_ASSIGN(ExtensionUnloadNotificationObserver);
 };
 
+// Observes when the extensions have been fully updated.  The ExtensionUpdater
+// service provides notifications for each extension that gets updated, but
+// it does not wait for the updated extensions to be installed or loaded.  This
+// observer waits until all updated extensions have actually been loaded.
+class ExtensionsUpdatedObserver : public NotificationObserver {
+ public:
+  ExtensionsUpdatedObserver(ExtensionProcessManager* manager,
+                            AutomationProvider* automation,
+                            IPC::Message* reply_message);
+  virtual ~ExtensionsUpdatedObserver();
+
+  // Implementation of NotificationObserver.
+  virtual void Observe(NotificationType type,
+                       const NotificationSource& source,
+                       const NotificationDetails& details);
+
+ private:
+  NotificationRegistrar registrar_;
+  ExtensionProcessManager* manager_;
+  base::WeakPtr<AutomationProvider> automation_;
+  scoped_ptr<IPC::Message> reply_message_;
+  std::set<std::string> in_progress_updates_;
+  bool updater_finished_;
+
+  DISALLOW_COPY_AND_ASSIGN(ExtensionsUpdatedObserver);
+};
+
 class ExtensionTestResultNotificationObserver : public NotificationObserver {
  public:
   explicit ExtensionTestResultNotificationObserver(
@@ -346,6 +419,8 @@ class ExtensionTestResultNotificationObserver : public NotificationObserver {
   DISALLOW_COPY_AND_ASSIGN(ExtensionTestResultNotificationObserver);
 };
 
+// Observes when a new browser has been opened and a tab within it has stopped
+// loading.
 class BrowserOpenedNotificationObserver : public NotificationObserver {
  public:
   BrowserOpenedNotificationObserver(AutomationProvider* automation,
@@ -362,6 +437,7 @@ class BrowserOpenedNotificationObserver : public NotificationObserver {
   NotificationRegistrar registrar_;
   base::WeakPtr<AutomationProvider> automation_;
   scoped_ptr<IPC::Message> reply_message_;
+  int new_window_id_;
   bool for_browser_command_;
 
   DISALLOW_COPY_AND_ASSIGN(BrowserOpenedNotificationObserver);
@@ -507,15 +583,21 @@ class DomOperationObserver : public NotificationObserver {
   DISALLOW_COPY_AND_ASSIGN(DomOperationObserver);
 };
 
+// Sends a message back to the automation client with the results of the DOM
+// operation.
 class DomOperationMessageSender : public DomOperationObserver {
  public:
-  explicit DomOperationMessageSender(AutomationProvider* automation);
+  explicit DomOperationMessageSender(AutomationProvider* automation,
+                                     IPC::Message* relpy_message,
+                                     bool use_json_interface);
   virtual ~DomOperationMessageSender();
 
   virtual void OnDomOperationCompleted(const std::string& json);
 
  private:
   base::WeakPtr<AutomationProvider> automation_;
+  scoped_ptr<IPC::Message> reply_message_;
+  bool use_json_interface_;
 
   DISALLOW_COPY_AND_ASSIGN(DomOperationMessageSender);
 };
@@ -638,6 +720,7 @@ class LoginManagerObserver : public NotificationObserver {
  public:
   LoginManagerObserver(AutomationProvider* automation,
                        IPC::Message* reply_message);
+  virtual ~LoginManagerObserver();
 
   // NotificationObserver interface.
   virtual void Observe(NotificationType type, const NotificationSource& source,
@@ -660,6 +743,7 @@ class ScreenLockUnlockObserver : public NotificationObserver {
   ScreenLockUnlockObserver(AutomationProvider* automation,
                            IPC::Message* reply_message,
                            bool lock_screen);
+  virtual ~ScreenLockUnlockObserver();
 
   // NotificationObserver interface.
   virtual void Observe(NotificationType type, const NotificationSource& source,
@@ -673,7 +757,82 @@ class ScreenLockUnlockObserver : public NotificationObserver {
 
   DISALLOW_COPY_AND_ASSIGN(ScreenLockUnlockObserver);
 };
-#endif
+
+class NetworkScanObserver
+    : public chromeos::NetworkLibrary::NetworkManagerObserver {
+ public:
+  NetworkScanObserver(AutomationProvider* automation,
+                      IPC::Message* reply_message);
+
+  virtual ~NetworkScanObserver();
+
+  // NetworkLibrary::NetworkManagerObserver implementation.
+  virtual void OnNetworkManagerChanged(chromeos::NetworkLibrary* obj);
+
+ private:
+  AutomationProvider* automation_;
+  IPC::Message* reply_message_;
+
+  DISALLOW_COPY_AND_ASSIGN(NetworkScanObserver);
+};
+
+// Waits for a connection success or failure for the specified
+// network and returns the status to the automation provider.
+class NetworkConnectObserver
+    : public chromeos::NetworkLibrary::NetworkManagerObserver {
+ public:
+  NetworkConnectObserver(AutomationProvider* automation,
+                         IPC::Message* reply_message);
+
+  virtual ~NetworkConnectObserver();
+
+  virtual const chromeos::WifiNetwork* GetWifiNetwork(
+      chromeos::NetworkLibrary* network_library) = 0;
+
+  // NetworkLibrary::NetworkManagerObserver implementation.
+  virtual void OnNetworkManagerChanged(chromeos::NetworkLibrary* obj);
+
+ private:
+  AutomationProvider* automation_;
+  IPC::Message* reply_message_;
+
+  DISALLOW_COPY_AND_ASSIGN(NetworkConnectObserver);
+};
+
+// Waits for a connection success or failure for the specified
+// network and returns the status to the automation provider.
+class ServicePathConnectObserver : public NetworkConnectObserver {
+ public:
+  ServicePathConnectObserver(AutomationProvider* automation,
+                             IPC::Message* reply_message,
+                             const std::string& service_path);
+
+  virtual const chromeos::WifiNetwork* GetWifiNetwork(
+      chromeos::NetworkLibrary* network_library);
+
+ private:
+  std::string service_path_;
+
+  DISALLOW_COPY_AND_ASSIGN(ServicePathConnectObserver);
+};
+
+// Waits for a connection success or failure for the specified
+// network and returns the status to the automation provider.
+class SSIDConnectObserver : public NetworkConnectObserver {
+ public:
+  SSIDConnectObserver(AutomationProvider* automation,
+                      IPC::Message* reply_message,
+                      const std::string& ssid);
+
+  virtual const chromeos::WifiNetwork* GetWifiNetwork(
+      chromeos::NetworkLibrary* network_library);
+
+ private:
+  std::string ssid_;
+
+  DISALLOW_COPY_AND_ASSIGN(SSIDConnectObserver);
+};
+#endif  // defined(OS_CHROMEOS)
 
 // Waits for the bookmark model to load.
 class AutomationProviderBookmarkModelObserver : BookmarkModelObserver {
@@ -699,7 +858,7 @@ class AutomationProviderBookmarkModelObserver : BookmarkModelObserver {
                                    const BookmarkNode* node) {}
   virtual void BookmarkNodeChanged(BookmarkModel* model,
                                    const BookmarkNode* node) {}
-  virtual void BookmarkNodeFavIconLoaded(BookmarkModel* model,
+  virtual void BookmarkNodeFaviconLoaded(BookmarkModel* model,
                                          const BookmarkNode* node) {}
   virtual void BookmarkNodeChildrenReordered(BookmarkModel* model,
                                              const BookmarkNode* node) {}
@@ -718,6 +877,8 @@ class AutomationProviderBookmarkModelObserver : BookmarkModelObserver {
 };
 
 // Allows the automation provider to wait for all downloads to finish.
+// If any download is interrupted, it will cancel all the other downloads at
+// the next |OnDownloadUpdated|, and send an error when all are done.
 class AutomationProviderDownloadItemObserver : public DownloadItem::Observer {
  public:
   AutomationProviderDownloadItemObserver(
@@ -727,13 +888,15 @@ class AutomationProviderDownloadItemObserver : public DownloadItem::Observer {
   virtual ~AutomationProviderDownloadItemObserver();
 
   virtual void OnDownloadUpdated(DownloadItem* download);
-  virtual void OnDownloadFileCompleted(DownloadItem* download);
   virtual void OnDownloadOpened(DownloadItem* download);
 
  private:
+  void RemoveAndCleanupOnLastEntry(DownloadItem* download);
+
   base::WeakPtr<AutomationProvider> provider_;
   scoped_ptr<IPC::Message> reply_message_;
   int downloads_;
+  bool interrupted_;
 
   DISALLOW_COPY_AND_ASSIGN(AutomationProviderDownloadItemObserver);
 };
@@ -751,7 +914,6 @@ class AutomationProviderDownloadUpdatedObserver
 
   virtual void OnDownloadUpdated(DownloadItem* download);
   virtual void OnDownloadOpened(DownloadItem* download);
-  virtual void OnDownloadFileCompleted(DownloadItem* download);
 
  private:
   base::WeakPtr<AutomationProvider> provider_;
@@ -819,25 +981,26 @@ class AutomationProviderHistoryObserver {
 
 // Allows the automation provider to wait for import queries to finish.
 class AutomationProviderImportSettingsObserver
-    : public ImporterHost::Observer {
+    : public importer::ImporterProgressObserver {
  public:
   AutomationProviderImportSettingsObserver(
       AutomationProvider* provider,
       IPC::Message* reply_message);
   virtual ~AutomationProviderImportSettingsObserver();
 
-  virtual void ImportStarted();
-  virtual void ImportItemStarted(importer::ImportItem item);
-  virtual void ImportItemEnded(importer::ImportItem item);
-  virtual void ImportEnded();
+  // importer::ImporterProgressObserver:
+  virtual void ImportStarted() OVERRIDE;
+  virtual void ImportItemStarted(importer::ImportItem item) OVERRIDE;
+  virtual void ImportItemEnded(importer::ImportItem item) OVERRIDE;
+  virtual void ImportEnded() OVERRIDE;
+
  private:
   base::WeakPtr<AutomationProvider> provider_;
   scoped_ptr<IPC::Message> reply_message_;
 };
 
 // Allows automation provider to wait for getting passwords to finish.
-class AutomationProviderGetPasswordsObserver
-    : public PasswordStoreConsumer {
+class AutomationProviderGetPasswordsObserver : public PasswordStoreConsumer {
  public:
   AutomationProviderGetPasswordsObserver(
       AutomationProvider* provider,
@@ -845,7 +1008,8 @@ class AutomationProviderGetPasswordsObserver
   virtual ~AutomationProviderGetPasswordsObserver();
 
   virtual void OnPasswordStoreRequestDone(
-      int handle, const std::vector<webkit_glue::PasswordForm*>& result);
+      CancelableRequestProvider::Handle handle,
+      const std::vector<webkit_glue::PasswordForm*>& result);
 
  private:
   base::WeakPtr<AutomationProvider> provider_;
@@ -973,6 +1137,31 @@ class NTPInfoObserver : public NotificationObserver {
   DISALLOW_COPY_AND_ASSIGN(NTPInfoObserver);
 };
 
+// Observes when an app has been launched, as indicated by a notification that
+// a content load in some tab has stopped.
+class AppLaunchObserver : public NotificationObserver {
+ public:
+  AppLaunchObserver(NavigationController* controller,
+                    AutomationProvider* automation,
+                    IPC::Message* reply_message,
+                    extension_misc::LaunchContainer launch_container);
+  virtual ~AppLaunchObserver();
+
+  virtual void Observe(NotificationType type,
+                       const NotificationSource& source,
+                       const NotificationDetails& details);
+
+ private:
+  NavigationController* controller_;
+  base::WeakPtr<AutomationProvider> automation_;
+  scoped_ptr<IPC::Message> reply_message_;
+  NotificationRegistrar registrar_;
+  extension_misc::LaunchContainer launch_container_;
+  int new_window_id_;
+
+  DISALLOW_COPY_AND_ASSIGN(AppLaunchObserver);
+};
+
 // Allows automation provider to wait until the autocomplete edit
 // has received focus
 class AutocompleteEditFocusedObserver : public NotificationObserver {
@@ -1077,20 +1266,28 @@ class InputEventAckNotificationObserver : public NotificationObserver {
   DISALLOW_COPY_AND_ASSIGN(InputEventAckNotificationObserver);
 };
 
-// Allows the automation provider to wait for all tabs to stop loading.
-class AllTabsStoppedLoadingObserver : public NotificationObserver {
+// Allows the automation provider to wait for all the tabs to finish any
+// pending loads. This only waits for tabs that exist at the observer's
+// creation. Will send a message on construction if no tabs are loading
+// currently.
+class AllTabsStoppedLoadingObserver : public TabEventObserver {
  public:
-  // Registers for notifications and checks to see if all tabs have stopped.
   AllTabsStoppedLoadingObserver(AutomationProvider* automation,
                                 IPC::Message* reply_message);
   virtual ~AllTabsStoppedLoadingObserver();
 
-  virtual void Observe(NotificationType type,
-                       const NotificationSource& source,
-                       const NotificationDetails& details);
+  // TabEventObserver implementation.
+  virtual void OnFirstPendingLoad(TabContents* tab_contents);
+  virtual void OnNoMorePendingLoads(TabContents* tab_contents);
 
  private:
-  void CheckIfStopped();
+  typedef std::set<TabContents*> TabSet;
+
+  // Checks if there are no pending loads. If none, it will send an automation
+  // relpy and delete itself.
+  void CheckIfNoMorePendingLoads();
+
+  TabSet pending_tabs_;
   NotificationRegistrar registrar_;
   base::WeakPtr<AutomationProvider> automation_;
   scoped_ptr<IPC::Message> reply_message_;
@@ -1151,23 +1348,5 @@ class WaitForProcessLauncherThreadToGoIdleObserver
 
   DISALLOW_COPY_AND_ASSIGN(WaitForProcessLauncherThreadToGoIdleObserver);
 };
-
-// Observes the result of execution of Javascript and sends a JSON reply.
-class ExecuteJavascriptObserver : public DomOperationObserver {
- public:
-  ExecuteJavascriptObserver(AutomationProvider* automation,
-                            IPC::Message* reply_message);
-  virtual ~ExecuteJavascriptObserver();
-
- private:
-  // Overriden from DomOperationObserver.
-  virtual void OnDomOperationCompleted(const std::string& json);
-
-  base::WeakPtr<AutomationProvider> automation_;
-  scoped_ptr<IPC::Message> reply_message_;
-
-  DISALLOW_COPY_AND_ASSIGN(ExecuteJavascriptObserver);
-};
-
 
 #endif  // CHROME_BROWSER_AUTOMATION_AUTOMATION_PROVIDER_OBSERVERS_H_

@@ -10,24 +10,24 @@
 
 #include "base/gtest_prod_util.h"
 #include "base/string16.h"
+#include "chrome/browser/autofill/autofill_type.h"
 #include "chrome/browser/autofill/form_group.h"
 
 // A form group that stores phone number information.
 class PhoneNumber : public FormGroup {
  public:
   PhoneNumber();
+  explicit PhoneNumber(const PhoneNumber& number);
   virtual ~PhoneNumber();
 
+  PhoneNumber& operator=(const PhoneNumber& number);
+
   // FormGroup implementation:
-  virtual FormGroup* Clone() const = 0;
   virtual void GetPossibleFieldTypes(const string16& text,
                                      FieldTypeSet* possible_types) const;
   virtual void GetAvailableFieldTypes(FieldTypeSet* available_types) const;
-  virtual void FindInfoMatches(const AutofillType& type,
-                               const string16& info,
-                               std::vector<string16>* matched_text) const;
-  virtual string16 GetFieldText(const AutofillType& type) const;
-  virtual void SetInfo(const AutofillType& type, const string16& value);
+  virtual string16 GetInfo(AutofillFieldType type) const;
+  virtual void SetInfo(AutofillFieldType type, const string16& value);
 
   // Parses |value| to extract the components of a phone number.  |number|
   // returns the trailing 7 digits, |city_code| returns the next 3 digits, and
@@ -53,13 +53,8 @@ class PhoneNumber : public FormGroup {
   virtual AutofillFieldType GetCityAndNumberType() const = 0;
   virtual AutofillFieldType GetWholeNumberType() const = 0;
 
- protected:
-  explicit PhoneNumber(const PhoneNumber& phone_number);
-
  private:
   FRIEND_TEST_ALL_PREFIXES(PhoneNumberTest, Matcher);
-
-  void operator=(const PhoneNumber& phone_number);
 
   const string16& country_code() const { return country_code_; }
   const string16& city_code() const { return city_code_; }
@@ -77,12 +72,6 @@ class PhoneNumber : public FormGroup {
   void set_number(const string16& number);
   void set_extension(const string16& extension) { extension_ = extension; }
   void set_whole_number(const string16& whole_number);
-
-  // A helper function for FindInfoMatches that only handles matching the info
-  // with the requested field type.
-  bool FindInfoMatchesHelper(const FieldTypeSubGroup& subgroup,
-                             const string16& info,
-                             string16* match) const;
 
   // The numbers will be digits only (no punctuation), so any call to the IsX()
   // functions should first call StripPunctuation on the text.

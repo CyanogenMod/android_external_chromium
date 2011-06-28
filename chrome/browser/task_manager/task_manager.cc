@@ -12,20 +12,21 @@
 #include "base/string_util.h"
 #include "base/threading/thread.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/browser_window.h"
 #include "chrome/browser/net/url_request_tracking.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/task_manager/task_manager_resource_providers.h"
+#include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/common/pref_names.h"
-#include "chrome/common/result_codes.h"
 #include "chrome/common/url_constants.h"
 #include "content/browser/browser_thread.h"
 #include "content/browser/renderer_host/render_process_host.h"
 #include "content/browser/renderer_host/resource_dispatcher_host.h"
 #include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/result_codes.h"
 #include "grit/app_resources.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
@@ -74,31 +75,18 @@ TaskManagerModel::TaskManagerModel(TaskManager* task_manager)
     : update_requests_(0),
       update_state_(IDLE),
       goat_salt_(rand()) {
-
-  TaskManagerBrowserProcessResourceProvider* browser_provider =
-      new TaskManagerBrowserProcessResourceProvider(task_manager);
-  browser_provider->AddRef();
-  providers_.push_back(browser_provider);
-  TaskManagerBackgroundContentsResourceProvider* bc_provider =
-      new TaskManagerBackgroundContentsResourceProvider(task_manager);
-  bc_provider->AddRef();
-  providers_.push_back(bc_provider);
-  TaskManagerTabContentsResourceProvider* wc_provider =
-      new TaskManagerTabContentsResourceProvider(task_manager);
-  wc_provider->AddRef();
-  providers_.push_back(wc_provider);
-  TaskManagerChildProcessResourceProvider* child_process_provider =
-      new TaskManagerChildProcessResourceProvider(task_manager);
-  child_process_provider->AddRef();
-  providers_.push_back(child_process_provider);
-  TaskManagerExtensionProcessResourceProvider* extension_process_provider =
-      new TaskManagerExtensionProcessResourceProvider(task_manager);
-  extension_process_provider->AddRef();
-  providers_.push_back(extension_process_provider);
-  TaskManagerNotificationResourceProvider* notification_provider =
-      new TaskManagerNotificationResourceProvider(task_manager);
-  notification_provider->AddRef();
-  providers_.push_back(notification_provider);
+  AddResourceProvider(
+      new TaskManagerBrowserProcessResourceProvider(task_manager));
+  AddResourceProvider(
+      new TaskManagerBackgroundContentsResourceProvider(task_manager));
+  AddResourceProvider(new TaskManagerTabContentsResourceProvider(task_manager));
+  AddResourceProvider(new TaskManagerPrerenderResourceProvider(task_manager));
+  AddResourceProvider(
+      new TaskManagerChildProcessResourceProvider(task_manager));
+  AddResourceProvider(
+      new TaskManagerExtensionProcessResourceProvider(task_manager));
+  AddResourceProvider(
+      new TaskManagerNotificationResourceProvider(task_manager));
 }
 
 TaskManagerModel::~TaskManagerModel() {
@@ -292,107 +280,88 @@ std::pair<int, int> TaskManagerModel::GetGroupRangeForResource(int index)
 
 int TaskManagerModel::CompareValues(int row1, int row2, int col_id) const {
   CHECK(row1 < ResourceCount() && row2 < ResourceCount());
-  switch (col_id) {
-    case IDS_TASK_MANAGER_PAGE_COLUMN: {
-      // Let's do the default, string compare on the resource title.
-      static icu::Collator* collator = NULL;
-      if (!collator) {
-        UErrorCode create_status = U_ZERO_ERROR;
-        collator = icu::Collator::createInstance(create_status);
-        if (!U_SUCCESS(create_status)) {
-          collator = NULL;
-          NOTREACHED();
-        }
+  if (col_id == IDS_TASK_MANAGER_PAGE_COLUMN) {
+    // Let's do the default, string compare on the resource title.
+    static icu::Collator* collator = NULL;
+    if (!collator) {
+      UErrorCode create_status = U_ZERO_ERROR;
+      collator = icu::Collator::createInstance(create_status);
+      if (!U_SUCCESS(create_status)) {
+        collator = NULL;
+        NOTREACHED();
       }
-      string16 title1 = GetResourceTitle(row1);
-      string16 title2 = GetResourceTitle(row2);
-      UErrorCode compare_status = U_ZERO_ERROR;
-      UCollationResult compare_result = collator->compare(
-          static_cast<const UChar*>(title1.c_str()),
-          static_cast<int>(title1.length()),
-          static_cast<const UChar*>(title2.c_str()),
-          static_cast<int>(title2.length()),
-          compare_status);
-      DCHECK(U_SUCCESS(compare_status));
-      return compare_result;
     }
-
-    case IDS_TASK_MANAGER_NET_COLUMN:
-      return ValueCompare<int64>(GetNetworkUsage(resources_[row1]),
-                                 GetNetworkUsage(resources_[row2]));
-
-    case IDS_TASK_MANAGER_CPU_COLUMN:
-      return ValueCompare<double>(GetCPUUsage(resources_[row1]),
-                                  GetCPUUsage(resources_[row2]));
-
-    case IDS_TASK_MANAGER_PRIVATE_MEM_COLUMN: {
-      size_t value1;
-      size_t value2;
-      if (!GetPrivateMemory(row1, &value1) || !GetPrivateMemory(row2, &value2))
-        return 0;
-      return ValueCompare<size_t>(value1, value2);
-    }
-
-    case IDS_TASK_MANAGER_SHARED_MEM_COLUMN: {
-      size_t value1;
-      size_t value2;
-      if (!GetSharedMemory(row1, &value1) || !GetSharedMemory(row2, &value2))
-        return 0;
-      return ValueCompare<size_t>(value1, value2);
-    }
-
-    case IDS_TASK_MANAGER_PHYSICAL_MEM_COLUMN: {
-      size_t value1;
-      size_t value2;
-      if (!GetPhysicalMemory(row1, &value1) ||
-          !GetPhysicalMemory(row2, &value2))
-        return 0;
-      return ValueCompare<size_t>(value1, value2);
-    }
-
-    case IDS_TASK_MANAGER_PROCESS_ID_COLUMN: {
-      int proc1_id = base::GetProcId(resources_[row1]->GetProcess());
-      int proc2_id = base::GetProcId(resources_[row2]->GetProcess());
-      return ValueCompare<int>(proc1_id, proc2_id);
-    }
-
-    case IDS_TASK_MANAGER_WEBCORE_IMAGE_CACHE_COLUMN:
-    case IDS_TASK_MANAGER_WEBCORE_SCRIPTS_CACHE_COLUMN:
-    case IDS_TASK_MANAGER_WEBCORE_CSS_CACHE_COLUMN: {
-      WebKit::WebCache::ResourceTypeStats stats1 = { { 0 } };
-      WebKit::WebCache::ResourceTypeStats stats2 = { { 0 } };
-      if (resources_[row1]->ReportsCacheStats())
-        stats1 = resources_[row1]->GetWebCoreCacheStats();
-      if (resources_[row2]->ReportsCacheStats())
-        stats2 = resources_[row2]->GetWebCoreCacheStats();
-      if (IDS_TASK_MANAGER_WEBCORE_IMAGE_CACHE_COLUMN == col_id)
-        return ValueCompare<size_t>(stats1.images.size, stats2.images.size);
-      if (IDS_TASK_MANAGER_WEBCORE_SCRIPTS_CACHE_COLUMN == col_id)
-        return ValueCompare<size_t>(stats1.scripts.size, stats2.scripts.size);
-      DCHECK_EQ(IDS_TASK_MANAGER_WEBCORE_CSS_CACHE_COLUMN, col_id);
-      return ValueCompare<size_t>(stats1.cssStyleSheets.size,
-                                  stats2.cssStyleSheets.size);
-    }
-
-    case IDS_TASK_MANAGER_GOATS_TELEPORTED_COLUMN: {
-      return ValueCompare<int>(GetGoatsTeleported(row1),
-                               GetGoatsTeleported(row2));
-    }
-
-    case IDS_TASK_MANAGER_JAVASCRIPT_MEMORY_ALLOCATED_COLUMN: {
-      size_t value1;
-      size_t value2;
-      bool reports_v8_memory1 = GetV8Memory(row1, &value1);
-      bool reports_v8_memory2 = GetV8Memory(row2, &value2);
-      if (reports_v8_memory1 == reports_v8_memory2)
-        return ValueCompare<size_t>(value1, value2);
-      else
-        return reports_v8_memory1 ? 1 : -1;
-    }
-
-    default:
-      NOTREACHED();
+    string16 title1 = GetResourceTitle(row1);
+    string16 title2 = GetResourceTitle(row2);
+    UErrorCode compare_status = U_ZERO_ERROR;
+    UCollationResult compare_result = collator->compare(
+        static_cast<const UChar*>(title1.c_str()),
+        static_cast<int>(title1.length()),
+        static_cast<const UChar*>(title2.c_str()),
+        static_cast<int>(title2.length()),
+        compare_status);
+    DCHECK(U_SUCCESS(compare_status));
+    return compare_result;
+  } else if (col_id == IDS_TASK_MANAGER_NET_COLUMN) {
+    return ValueCompare<int64>(GetNetworkUsage(resources_[row1]),
+                               GetNetworkUsage(resources_[row2]));
+  } else if (col_id == IDS_TASK_MANAGER_CPU_COLUMN) {
+    return ValueCompare<double>(GetCPUUsage(resources_[row1]),
+                                GetCPUUsage(resources_[row2]));
+  } else if (col_id == IDS_TASK_MANAGER_PRIVATE_MEM_COLUMN) {
+    size_t value1;
+    size_t value2;
+    if (!GetPrivateMemory(row1, &value1) || !GetPrivateMemory(row2, &value2))
       return 0;
+    return ValueCompare<size_t>(value1, value2);
+  } else if (col_id == IDS_TASK_MANAGER_SHARED_MEM_COLUMN) {
+    size_t value1;
+    size_t value2;
+    if (!GetSharedMemory(row1, &value1) || !GetSharedMemory(row2, &value2))
+      return 0;
+    return ValueCompare<size_t>(value1, value2);
+  } else if (col_id == IDS_TASK_MANAGER_PHYSICAL_MEM_COLUMN) {
+    size_t value1;
+    size_t value2;
+    if (!GetPhysicalMemory(row1, &value1) ||
+        !GetPhysicalMemory(row2, &value2))
+      return 0;
+    return ValueCompare<size_t>(value1, value2);
+  } else if (col_id == IDS_TASK_MANAGER_PROCESS_ID_COLUMN) {
+    int proc1_id = base::GetProcId(resources_[row1]->GetProcess());
+    int proc2_id = base::GetProcId(resources_[row2]->GetProcess());
+    return ValueCompare<int>(proc1_id, proc2_id);
+  } else if (col_id == IDS_TASK_MANAGER_WEBCORE_IMAGE_CACHE_COLUMN ||
+             col_id == IDS_TASK_MANAGER_WEBCORE_SCRIPTS_CACHE_COLUMN ||
+             col_id == IDS_TASK_MANAGER_WEBCORE_CSS_CACHE_COLUMN) {
+    WebKit::WebCache::ResourceTypeStats stats1 = { { 0 } };
+    WebKit::WebCache::ResourceTypeStats stats2 = { { 0 } };
+    if (resources_[row1]->ReportsCacheStats())
+      stats1 = resources_[row1]->GetWebCoreCacheStats();
+    if (resources_[row2]->ReportsCacheStats())
+      stats2 = resources_[row2]->GetWebCoreCacheStats();
+    if (IDS_TASK_MANAGER_WEBCORE_IMAGE_CACHE_COLUMN == col_id)
+      return ValueCompare<size_t>(stats1.images.size, stats2.images.size);
+    if (IDS_TASK_MANAGER_WEBCORE_SCRIPTS_CACHE_COLUMN == col_id)
+      return ValueCompare<size_t>(stats1.scripts.size, stats2.scripts.size);
+    DCHECK_EQ(IDS_TASK_MANAGER_WEBCORE_CSS_CACHE_COLUMN, col_id);
+    return ValueCompare<size_t>(stats1.cssStyleSheets.size,
+                                stats2.cssStyleSheets.size);
+  } else if (col_id == IDS_TASK_MANAGER_GOATS_TELEPORTED_COLUMN) {
+    return ValueCompare<int>(GetGoatsTeleported(row1),
+                             GetGoatsTeleported(row2));
+  } else if (col_id == IDS_TASK_MANAGER_JAVASCRIPT_MEMORY_ALLOCATED_COLUMN) {
+    size_t value1;
+    size_t value2;
+    bool reports_v8_memory1 = GetV8Memory(row1, &value1);
+    bool reports_v8_memory2 = GetV8Memory(row2, &value2);
+    if (reports_v8_memory1 == reports_v8_memory2)
+      return ValueCompare<size_t>(value1, value2);
+    else
+      return reports_v8_memory1 ? 1 : -1;
+  } else {
+    NOTREACHED();
+    return 0;
   }
 }
 
@@ -407,7 +376,7 @@ TaskManager::Resource::Type TaskManagerModel::GetResourceType(int index) const {
   return resources_[index]->GetType();
 }
 
-TabContents* TaskManagerModel::GetResourceTabContents(int index) const {
+TabContentsWrapper* TaskManagerModel::GetResourceTabContents(int index) const {
   CHECK_LT(index, ResourceCount());
   return resources_[index]->GetTabContents();
 }
@@ -572,17 +541,9 @@ void TaskManagerModel::StopUpdating() {
 void TaskManagerModel::AddResourceProvider(
     TaskManager::ResourceProvider* provider) {
   DCHECK(provider);
+  // AddRef matched with Release in destructor.
+  provider->AddRef();
   providers_.push_back(provider);
-}
-
-void TaskManagerModel::RemoveResourceProvider(
-    TaskManager::ResourceProvider* provider) {
-  DCHECK(provider);
-  ResourceProviderList::iterator iter = std::find(providers_.begin(),
-                                                  providers_.end(),
-                                                  provider);
-  DCHECK(iter != providers_.end());
-  providers_.erase(iter);
 }
 
 void TaskManagerModel::RegisterForJobDoneNotifications() {
@@ -967,17 +928,10 @@ void TaskManager::ActivateProcess(int index) {
   // GetResourceTabContents returns a pointer to the relevant tab contents for
   // the resource.  If the index doesn't correspond to a Tab (i.e. refers to
   // the Browser process or a plugin), GetTabContents will return NULL.
-  TabContents* chosen_tab_contents = model_->GetResourceTabContents(index);
+  TabContentsWrapper* chosen_tab_contents =
+      model_->GetResourceTabContents(index);
   if (chosen_tab_contents)
-    chosen_tab_contents->Activate();
-}
-
-void TaskManager::AddResourceProvider(ResourceProvider* provider) {
-  model_->AddResourceProvider(provider);
-}
-
-void TaskManager::RemoveResourceProvider(ResourceProvider* provider) {
-  model_->RemoveResourceProvider(provider);
+    chosen_tab_contents->tab_contents()->Activate();
 }
 
 void TaskManager::AddResource(Resource* resource) {
@@ -1006,12 +960,13 @@ void TaskManager::OpenAboutMemory() {
 
   if (!browser) {
     // On OS X, the task manager can be open without any open browser windows.
-    if (!g_browser_process ||
-        !g_browser_process->profile_manager() ||
-        g_browser_process->profile_manager()->begin() ==
-            g_browser_process->profile_manager()->end())
+    if (!g_browser_process || !g_browser_process->profile_manager())
       return;
-    browser = Browser::Create(*g_browser_process->profile_manager()->begin());
+    Profile* profile =
+        g_browser_process->profile_manager()->GetDefaultProfile();
+    if (!profile)
+      return;
+    browser = Browser::Create(profile);
     browser->OpenURL(GURL(chrome::kAboutMemoryURL), GURL(), NEW_FOREGROUND_TAB,
                      PageTransition::LINK);
     browser->window()->Show();

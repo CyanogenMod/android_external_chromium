@@ -5,8 +5,8 @@
 #include "base/command_line.h"
 #include "base/file_util.h"
 #include "base/format_macros.h"
+#include "base/memory/scoped_temp_dir.h"
 #include "base/path_service.h"
-#include "base/scoped_temp_dir.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
@@ -14,6 +14,7 @@
 #include "chrome/browser/history/history_database.h"
 #include "chrome/browser/history/history_marshaling.h"
 #include "chrome/browser/history/history_notifications.h"
+#include "chrome/browser/history/history_unittest_base.h"
 #include "chrome/browser/history/top_sites.h"
 #include "chrome/browser/history/top_sites_backend.h"
 #include "chrome/browser/history/top_sites_cache.h"
@@ -124,7 +125,7 @@ bool ThumbnailsAreEqual(RefCountedBytes* t1, RefCountedBytes* t2) {
 
 }  // namespace
 
-class TopSitesTest : public testing::Test {
+class TopSitesTest : public HistoryUnitTestBase {
  public:
   TopSitesTest()
       : ui_thread_(BrowserThread::UI, &message_loop_),
@@ -334,12 +335,12 @@ class TopSitesMigrationTest : public TopSitesTest {
     data_path = data_path.AppendASCII("top_sites");
 
     // Set up history and thumbnails as they would be before migration.
-    ASSERT_NO_FATAL_FAILURE(
-        ExecuteSQL(data_path.AppendASCII("history.19.sql"),
-                   profile()->GetPath().Append(chrome::kHistoryFilename)));
-    ASSERT_NO_FATAL_FAILURE(
-        ExecuteSQL(data_path.AppendASCII("thumbnails.3.sql"),
-                   profile()->GetPath().Append(chrome::kThumbnailsFilename)));
+    ASSERT_NO_FATAL_FAILURE(ExecuteSQLScript(
+        data_path.AppendASCII("history.19.sql"),
+        profile()->GetPath().Append(chrome::kHistoryFilename)));
+    ASSERT_NO_FATAL_FAILURE(ExecuteSQLScript(
+        data_path.AppendASCII("thumbnails.3.sql"),
+        profile()->GetPath().Append(chrome::kThumbnailsFilename)));
 
     profile()->CreateHistoryService(false, false);
     profile()->CreateTopSites();
@@ -377,25 +378,6 @@ class TopSitesMigrationTest : public TopSitesTest {
   }
 
  private:
-  // Executes the sql from the file |sql_path| in the database at |db_path|.
-  void ExecuteSQL(const FilePath& sql_path,
-                  const FilePath& db_path) {
-    std::string sql;
-    ASSERT_TRUE(file_util::ReadFileToString(sql_path, &sql));
-
-    // Replace the 'last_visit_time', 'visit_time', 'time_slot' values in this
-    // SQL with the current time.
-    int64 now = base::Time::Now().ToInternalValue();
-    std::vector<std::string> sql_time;
-    sql_time.push_back(StringPrintf("%" PRId64, now));  // last_visit_time
-    sql_time.push_back(StringPrintf("%" PRId64, now));  // visit_time
-    sql_time.push_back(StringPrintf("%" PRId64, now));  // time_slot
-    sql = ReplaceStringPlaceholders(sql, sql_time, NULL);
-
-    sql::Connection connection;
-    ASSERT_TRUE(connection.Open(db_path));
-    ASSERT_TRUE(connection.Execute(sql.c_str()));
-  }
 
   DISALLOW_COPY_AND_ASSIGN(TopSitesMigrationTest);
 };
@@ -1116,6 +1098,11 @@ TEST_F(TopSitesTest, AddTemporaryThumbnail) {
   // We shouldn't get the thumnail back though (the url isn't in to sites yet).
   scoped_refptr<RefCountedBytes> out;
   EXPECT_FALSE(top_sites()->GetPageThumbnail(unknown_url, &out));
+  // But we should be able to get the temporary page thumbnail score.
+  ThumbnailScore out_score;
+  EXPECT_TRUE(top_sites()->GetTemporaryPageThumbnailScore(unknown_url,
+                                                          &out_score));
+  EXPECT_TRUE(medium_score.Equals(out_score));
 
   std::vector<MostVisitedURL> list;
 

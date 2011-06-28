@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -282,6 +282,10 @@ TabSpecificContentSettings::LocalSharedObjectsContainer::
       indexed_dbs_(new CannedBrowsingDataIndexedDBHelper(profile)),
       local_storages_(new CannedBrowsingDataLocalStorageHelper(profile)),
       session_storages_(new CannedBrowsingDataLocalStorageHelper(profile)) {
+  cookies_->SetCookieableSchemes(
+      net::CookieMonster::kDefaultCookieableSchemes,
+      net::CookieMonster::kDefaultCookieableSchemesCount);
+  cookies_->SetKeepExpiredCookies();
 }
 
 TabSpecificContentSettings::LocalSharedObjectsContainer::
@@ -289,7 +293,11 @@ TabSpecificContentSettings::LocalSharedObjectsContainer::
 }
 
 void TabSpecificContentSettings::LocalSharedObjectsContainer::Reset() {
-  cookies_->DeleteAll(false);
+  cookies_ = new net::CookieMonster(NULL, NULL);
+  cookies_->SetCookieableSchemes(
+      net::CookieMonster::kDefaultCookieableSchemes,
+      net::CookieMonster::kDefaultCookieableSchemesCount);
+  cookies_->SetKeepExpiredCookies();
   appcaches_->Reset();
   databases_->Reset();
   indexed_dbs_->Reset();
@@ -300,9 +308,10 @@ void TabSpecificContentSettings::LocalSharedObjectsContainer::Reset() {
 CookiesTreeModel*
 TabSpecificContentSettings::LocalSharedObjectsContainer::GetCookiesTreeModel() {
   return new CookiesTreeModel(cookies_,
-                              databases_,
-                              local_storages_,
-                              session_storages_,
-                              appcaches_,
-                              indexed_dbs_);
+                              databases_->Clone(),
+                              local_storages_->Clone(),
+                              session_storages_->Clone(),
+                              appcaches_->Clone(),
+                              indexed_dbs_->Clone(),
+                              true);
 }

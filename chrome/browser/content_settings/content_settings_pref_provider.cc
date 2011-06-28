@@ -1,26 +1,27 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/content_settings/content_settings_pref_provider.h"
 
 #include <string>
-#include <vector>
 #include <utility>
+#include <vector>
 
 #include "base/command_line.h"
 #include "chrome/browser/content_settings/content_settings_details.h"
 #include "chrome/browser/content_settings/content_settings_pattern.h"
+#include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/prefs/scoped_user_pref_update.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/content_settings.h"
-#include "chrome/common/notification_details.h"
-#include "chrome/common/notification_service.h"
-#include "chrome/common/notification_source.h"
 #include "chrome/common/pref_names.h"
 #include "content/browser/browser_thread.h"
+#include "content/common/notification_details.h"
+#include "content/common/notification_service.h"
+#include "content/common/notification_source.h"
 #include "googleurl/src/gurl.h"
 #include "net/base/net_util.h"
 
@@ -49,7 +50,7 @@ const ContentSetting kDefaultSettings[] = {
   CONTENT_SETTING_ALLOW,  // CONTENT_SETTINGS_TYPE_PLUGINS
   CONTENT_SETTING_BLOCK,  // CONTENT_SETTINGS_TYPE_POPUPS
   CONTENT_SETTING_ASK,    // Not used for Geolocation
-  CONTENT_SETTING_ASK,    // Not used for Notifications
+  CONTENT_SETTING_ASK,    // CONTENT_SETTINGS_TYPE_NOTIFICATIONS
   CONTENT_SETTING_ALLOW,  // CONTENT_SETTINGS_TYPE_PRERENDER
 };
 COMPILE_ASSERT(arraysize(kDefaultSettings) == CONTENT_SETTINGS_NUM_TYPES,
@@ -63,11 +64,24 @@ const char* kTypeNames[] = {
   "plugins",
   "popups",
   NULL,  // Not used for Geolocation
-  NULL,  // Not used for Notifications
+  // TODO(markusheintz): Refactoring in progress. Content settings exceptions
+  // for notifications will be added next.
+  "notifications",  // Only used for default Notifications settings.
   NULL,  // Not used for Prerender
 };
 COMPILE_ASSERT(arraysize(kTypeNames) == CONTENT_SETTINGS_NUM_TYPES,
                type_names_incorrect_size);
+
+void SetDefaultContentSettings(DictionaryValue* default_settings) {
+  default_settings->Clear();
+
+  for (int i = 0; i < CONTENT_SETTINGS_NUM_TYPES; ++i) {
+    if (kTypeNames[i] != NULL) {
+      default_settings->SetInteger(kTypeNames[i],
+                                   kDefaultSettings[i]);
+    }
+  }
+}
 
 }  // namespace
 
@@ -75,19 +89,31 @@ namespace content_settings {
 
 PrefDefaultProvider::PrefDefaultProvider(Profile* profile)
     : profile_(profile),
-      is_off_the_record_(profile_->IsOffTheRecord()),
+      is_incognito_(profile_->IsOffTheRecord()),
       updating_preferences_(false) {
+  initializing_ = true;
   PrefService* prefs = profile->GetPrefs();
+
+  MigrateObsoleteNotificationPref(prefs);
 
   // Read global defaults.
   DCHECK_EQ(arraysize(kTypeNames),
             static_cast<size_t>(CONTENT_SETTINGS_NUM_TYPES));
   ReadDefaultSettings(true);
+  if (default_content_settings_.settings[CONTENT_SETTINGS_TYPE_COOKIES] ==
+      CONTENT_SETTING_BLOCK) {
+    UserMetrics::RecordAction(
+        UserMetricsAction("CookieBlockingEnabledPerDefault"));
+  } else {
+    UserMetrics::RecordAction(
+        UserMetricsAction("CookieBlockingDisabledPerDefault"));
+  }
 
   pref_change_registrar_.Init(prefs);
   pref_change_registrar_.Add(prefs::kDefaultContentSettings, this);
   notification_registrar_.Add(this, NotificationType::PROFILE_DESTROYED,
                               Source<Profile>(profile_));
+  initializing_ = false;
 }
 
 PrefDefaultProvider::~PrefDefaultProvider() {
@@ -112,18 +138,17 @@ void PrefDefaultProvider::UpdateDefaultSetting(
 
   // The default settings may not be directly modified for OTR sessions.
   // Instead, they are synced to the main profile's setting.
-  if (is_off_the_record_)
+  if (is_incognito_)
     return;
 
   PrefService* prefs = profile_->GetPrefs();
 
-  DictionaryValue* default_settings_dictionary =
-      prefs->GetMutableDictionary(prefs::kDefaultContentSettings);
   std::string dictionary_path(kTypeNames[content_type]);
   updating_preferences_ = true;
   {
     base::AutoLock lock(lock_);
-    ScopedUserPrefUpdate update(prefs, prefs::kDefaultContentSettings);
+    DictionaryPrefUpdate update(prefs, prefs::kDefaultContentSettings);
+    DictionaryValue* default_settings_dictionary = update.Get();
     if ((setting == CONTENT_SETTING_DEFAULT) ||
         (setting == kDefaultSettings[content_type])) {
       default_content_settings_.settings[content_type] =
@@ -153,7 +178,7 @@ void PrefDefaultProvider::ResetToDefaults() {
   default_content_settings_ = ContentSettings();
   ForceDefaultsToBeExplicit();
 
-  if (!is_off_the_record_) {
+  if (!is_incognito_) {
     PrefService* prefs = profile_->GetPrefs();
     updating_preferences_ = true;
     prefs->ClearPref(prefs::kDefaultContentSettings);
@@ -179,7 +204,7 @@ void PrefDefaultProvider::Observe(NotificationType type,
       return;
     }
 
-    if (!is_off_the_record_) {
+    if (!is_incognito_) {
       NotifyObservers(ContentSettingsDetails(
             ContentSettingsPattern(), CONTENT_SETTINGS_TYPE_DEFAULT, ""));
     }
@@ -260,7 +285,7 @@ void PrefDefaultProvider::GetSettingsFromDictionary(
 void PrefDefaultProvider::NotifyObservers(
     const ContentSettingsDetails& details) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-  if (profile_ == NULL)
+  if (initializing_ || profile_ == NULL)
     return;
   NotificationService::current()->Notify(
       NotificationType::CONTENT_SETTINGS_CHANGED,
@@ -268,9 +293,32 @@ void PrefDefaultProvider::NotifyObservers(
       Details<const ContentSettingsDetails>(&details));
 }
 
+void PrefDefaultProvider::MigrateObsoleteNotificationPref(PrefService* prefs) {
+  if (prefs->HasPrefPath(prefs::kDesktopNotificationDefaultContentSetting)) {
+    ContentSetting setting = IntToContentSetting(
+        prefs->GetInteger(prefs::kDesktopNotificationDefaultContentSetting));
+    UpdateDefaultSetting(CONTENT_SETTINGS_TYPE_NOTIFICATIONS, setting);
+    prefs->ClearPref(prefs::kDesktopNotificationDefaultContentSetting);
+  }
+}
+
 // static
 void PrefDefaultProvider::RegisterUserPrefs(PrefService* prefs) {
-  prefs->RegisterDictionaryPref(prefs::kDefaultContentSettings);
+  // The registration of the preference prefs::kDefaultContentSettings should
+  // also include the default values for default content settings. This allows
+  // functional tests to get default content settings by reading the preference
+  // prefs::kDefaultContentSettings via pyauto.
+  // TODO(markusheintz): Write pyauto hooks for the content settings map as
+  // content settings should be read from the host content settings map.
+  DictionaryValue* default_content_settings = new DictionaryValue();
+  SetDefaultContentSettings(default_content_settings);
+  prefs->RegisterDictionaryPref(prefs::kDefaultContentSettings,
+                                default_content_settings);
+
+  // Obsolete prefs, for migrations:
+  prefs->RegisterIntegerPref(
+      prefs::kDesktopNotificationDefaultContentSetting,
+          kDefaultSettings[CONTENT_SETTINGS_TYPE_NOTIFICATIONS]);
 }
 
 // ////////////////////////////////////////////////////////////////////////////
@@ -353,94 +401,94 @@ void PrefProvider::SetContentSetting(
 
   bool early_exit = false;
   std::string pattern_str(pattern.AsString());
-  PrefService* prefs = NULL;
   DictionaryValue* all_settings_dictionary = NULL;
 
-  // Select content-settings-map to write to.
-  HostContentSettings* map_to_modify = off_the_record_settings();
-  if (!is_off_the_record()) {
-    prefs = profile_->GetPrefs();
-    all_settings_dictionary =
-        prefs->GetMutableDictionary(prefs::kContentSettingsPatterns);
-
-    map_to_modify = host_content_settings();
-  }
-
-  // Update content-settings-map.
-  {
-    base::AutoLock auto_lock(lock());
-    if (!map_to_modify->count(pattern_str))
-      (*map_to_modify)[pattern_str].content_settings = ContentSettings();
-    HostContentSettings::iterator i(
-        map_to_modify->find(pattern_str));
-    ContentSettings& settings = i->second.content_settings;
-    if (RequiresResourceIdentifier(content_type)) {
-      settings.settings[content_type] = CONTENT_SETTING_DEFAULT;
-      if (setting != CONTENT_SETTING_DEFAULT) {
-        i->second.content_settings_for_resources[
-            ContentSettingsTypeResourceIdentifierPair(content_type,
-            resource_identifier)] = setting;
-      } else {
-        i->second.content_settings_for_resources.erase(
-            ContentSettingsTypeResourceIdentifierPair(content_type,
-            resource_identifier));
-      }
-    } else {
-      settings.settings[content_type] = setting;
-    }
-    if (AllDefault(i->second)) {
-      map_to_modify->erase(i);
-      if (all_settings_dictionary)
-        all_settings_dictionary->RemoveWithoutPathExpansion(pattern_str, NULL);
-
-      // We can't just return because |NotifyObservers()| needs to be called,
-      // without lock() being held.
-      early_exit = true;
-    }
-  }
-
-  // Update the content_settings preference.
-  if (!early_exit && all_settings_dictionary) {
-    DictionaryValue* host_settings_dictionary = NULL;
-    bool found = all_settings_dictionary->GetDictionaryWithoutPathExpansion(
-        pattern_str, &host_settings_dictionary);
-    if (!found) {
-      host_settings_dictionary = new DictionaryValue;
-      all_settings_dictionary->SetWithoutPathExpansion(
-          pattern_str, host_settings_dictionary);
-      DCHECK_NE(setting, CONTENT_SETTING_DEFAULT);
-    }
-    if (RequiresResourceIdentifier(content_type)) {
-      std::string dictionary_path(kResourceTypeNames[content_type]);
-      DictionaryValue* resource_dictionary = NULL;
-      found = host_settings_dictionary->GetDictionary(
-          dictionary_path, &resource_dictionary);
-      if (!found) {
-        resource_dictionary = new DictionaryValue;
-        host_settings_dictionary->Set(dictionary_path, resource_dictionary);
-      }
-      if (setting == CONTENT_SETTING_DEFAULT) {
-        resource_dictionary->RemoveWithoutPathExpansion(resource_identifier,
-                                                        NULL);
-      } else {
-        resource_dictionary->SetWithoutPathExpansion(
-            resource_identifier, Value::CreateIntegerValue(setting));
-      }
-    } else {
-      std::string dictionary_path(kTypeNames[content_type]);
-      if (setting == CONTENT_SETTING_DEFAULT) {
-        host_settings_dictionary->RemoveWithoutPathExpansion(dictionary_path,
-                                                             NULL);
-      } else {
-        host_settings_dictionary->SetWithoutPathExpansion(
-            dictionary_path, Value::CreateIntegerValue(setting));
-      }
-    }
-  }
-
   updating_preferences_ = true;
-  if (!is_off_the_record())
-    ScopedUserPrefUpdate update(prefs, prefs::kContentSettingsPatterns);
+  {  // Begin scope of update.
+    // profile_ may be NULL in unit tests.
+    DictionaryPrefUpdate update(profile_ ? profile_->GetPrefs() : NULL,
+                                prefs::kContentSettingsPatterns);
+
+    // Select content-settings-map to write to.
+    HostContentSettings* map_to_modify = incognito_settings();
+    if (!is_incognito()) {
+      all_settings_dictionary = update.Get();
+
+      map_to_modify = host_content_settings();
+    }
+
+    // Update content-settings-map.
+    {
+      base::AutoLock auto_lock(lock());
+      if (!map_to_modify->count(pattern_str))
+        (*map_to_modify)[pattern_str].content_settings = ContentSettings();
+      HostContentSettings::iterator i(map_to_modify->find(pattern_str));
+      ContentSettings& settings = i->second.content_settings;
+      if (RequiresResourceIdentifier(content_type)) {
+        settings.settings[content_type] = CONTENT_SETTING_DEFAULT;
+        if (setting != CONTENT_SETTING_DEFAULT) {
+          i->second.content_settings_for_resources[
+              ContentSettingsTypeResourceIdentifierPair(content_type,
+              resource_identifier)] = setting;
+        } else {
+          i->second.content_settings_for_resources.erase(
+              ContentSettingsTypeResourceIdentifierPair(content_type,
+              resource_identifier));
+        }
+      } else {
+        settings.settings[content_type] = setting;
+      }
+      if (AllDefault(i->second)) {
+        map_to_modify->erase(i);
+        if (all_settings_dictionary)
+          all_settings_dictionary->RemoveWithoutPathExpansion(
+              pattern_str, NULL);
+
+        // We can't just return because |NotifyObservers()| needs to be called,
+        // without lock() being held.
+        early_exit = true;
+      }
+    }
+
+    // Update the content_settings preference.
+    if (!early_exit && all_settings_dictionary) {
+      DictionaryValue* host_settings_dictionary = NULL;
+      bool found = all_settings_dictionary->GetDictionaryWithoutPathExpansion(
+          pattern_str, &host_settings_dictionary);
+      if (!found) {
+        host_settings_dictionary = new DictionaryValue;
+        all_settings_dictionary->SetWithoutPathExpansion(
+            pattern_str, host_settings_dictionary);
+        DCHECK_NE(setting, CONTENT_SETTING_DEFAULT);
+      }
+      if (RequiresResourceIdentifier(content_type)) {
+        std::string dictionary_path(kResourceTypeNames[content_type]);
+        DictionaryValue* resource_dictionary = NULL;
+        found = host_settings_dictionary->GetDictionary(
+            dictionary_path, &resource_dictionary);
+        if (!found) {
+          resource_dictionary = new DictionaryValue;
+          host_settings_dictionary->Set(dictionary_path, resource_dictionary);
+        }
+        if (setting == CONTENT_SETTING_DEFAULT) {
+          resource_dictionary->RemoveWithoutPathExpansion(resource_identifier,
+                                                          NULL);
+        } else {
+          resource_dictionary->SetWithoutPathExpansion(
+              resource_identifier, Value::CreateIntegerValue(setting));
+        }
+      } else {
+        std::string dictionary_path(kTypeNames[content_type]);
+        if (setting == CONTENT_SETTING_DEFAULT) {
+          host_settings_dictionary->RemoveWithoutPathExpansion(dictionary_path,
+                                                               NULL);
+        } else {
+          host_settings_dictionary->SetWithoutPathExpansion(
+              dictionary_path, Value::CreateIntegerValue(setting));
+        }
+      }
+    }
+  }  // End scope of update.
   updating_preferences_ = false;
 
   NotifyObservers(ContentSettingsDetails(pattern, content_type, ""));
@@ -452,10 +500,10 @@ void PrefProvider::ResetToDefaults() {
   {
     base::AutoLock auto_lock(lock());
     host_content_settings()->clear();
-    off_the_record_settings()->clear();
+    incognito_settings()->clear();
   }
 
-  if (!is_off_the_record()) {
+  if (!is_incognito()) {
     PrefService* prefs = profile_->GetPrefs();
     updating_preferences_ = true;
     prefs->ClearPref(prefs::kContentSettingsPatterns);
@@ -467,52 +515,51 @@ void PrefProvider::ClearAllContentSettingsRules(
     ContentSettingsType content_type) {
   DCHECK(kTypeNames[content_type] != NULL);  // Don't call this for Geolocation.
 
-  PrefService* prefs = NULL;
   DictionaryValue* all_settings_dictionary = NULL;
-  HostContentSettings* map_to_modify = off_the_record_settings();
-
-  if (!is_off_the_record()) {
-    prefs = profile_->GetPrefs();
-    all_settings_dictionary =
-        prefs->GetMutableDictionary(prefs::kContentSettingsPatterns);
-    map_to_modify = host_content_settings();
-  }
-
-  {
-    base::AutoLock auto_lock(lock());
-    for (HostContentSettings::iterator i(map_to_modify->begin());
-         i != map_to_modify->end(); ) {
-      if (RequiresResourceIdentifier(content_type) ||
-          i->second.content_settings.settings[content_type] !=
-              CONTENT_SETTING_DEFAULT) {
-        if (RequiresResourceIdentifier(content_type))
-          i->second.content_settings_for_resources.clear();
-        i->second.content_settings.settings[content_type] =
-            CONTENT_SETTING_DEFAULT;
-        std::string host(i->first);
-        if (AllDefault(i->second)) {
-          if (all_settings_dictionary)
-            all_settings_dictionary->RemoveWithoutPathExpansion(host, NULL);
-          map_to_modify->erase(i++);
-        } else if (all_settings_dictionary) {
-          DictionaryValue* host_settings_dictionary;
-          bool found =
-              all_settings_dictionary->GetDictionaryWithoutPathExpansion(
-                  host, &host_settings_dictionary);
-          DCHECK(found);
-          host_settings_dictionary->RemoveWithoutPathExpansion(
-              kTypeNames[content_type], NULL);
-          ++i;
-        }
-      } else {
-        ++i;
-      }
-    }
-  }
+  HostContentSettings* map_to_modify = incognito_settings();
 
   updating_preferences_ = true;
-  if (!is_off_the_record())
-    ScopedUserPrefUpdate update(prefs, prefs::kContentSettingsPatterns);
+  {  // Begin scope of update.
+    DictionaryPrefUpdate update(profile_->GetPrefs(),
+                                prefs::kContentSettingsPatterns);
+
+    if (!is_incognito()) {
+      all_settings_dictionary = update.Get();
+      map_to_modify = host_content_settings();
+    }
+
+    {
+      base::AutoLock auto_lock(lock());
+      for (HostContentSettings::iterator i(map_to_modify->begin());
+           i != map_to_modify->end(); ) {
+        if (RequiresResourceIdentifier(content_type) ||
+            i->second.content_settings.settings[content_type] !=
+                CONTENT_SETTING_DEFAULT) {
+          if (RequiresResourceIdentifier(content_type))
+            i->second.content_settings_for_resources.clear();
+          i->second.content_settings.settings[content_type] =
+              CONTENT_SETTING_DEFAULT;
+          std::string host(i->first);
+          if (AllDefault(i->second)) {
+            if (all_settings_dictionary)
+              all_settings_dictionary->RemoveWithoutPathExpansion(host, NULL);
+            map_to_modify->erase(i++);
+          } else if (all_settings_dictionary) {
+            DictionaryValue* host_settings_dictionary;
+            bool found =
+                all_settings_dictionary->GetDictionaryWithoutPathExpansion(
+                    host, &host_settings_dictionary);
+            DCHECK(found);
+            host_settings_dictionary->RemoveWithoutPathExpansion(
+                kTypeNames[content_type], NULL);
+            ++i;
+          }
+        } else {
+          ++i;
+        }
+      }
+    }
+  }  // End scope of update.
   updating_preferences_ = false;
 
   NotifyObservers(
@@ -538,7 +585,7 @@ void PrefProvider::Observe(
       return;
     }
 
-    if (!is_off_the_record()) {
+    if (!is_incognito()) {
       NotifyObservers(ContentSettingsDetails(ContentSettingsPattern(),
                                              CONTENT_SETTINGS_TYPE_DEFAULT,
                                              ""));
@@ -562,24 +609,38 @@ void PrefProvider::ReadExceptions(bool overwrite) {
   base::AutoLock auto_lock(lock());
 
   PrefService* prefs = profile_->GetPrefs();
-  DictionaryValue* all_settings_dictionary =
-      prefs->GetMutableDictionary(prefs::kContentSettingsPatterns);
+  const DictionaryValue* all_settings_dictionary =
+      prefs->GetDictionary(prefs::kContentSettingsPatterns);
 
   if (overwrite)
     host_content_settings()->clear();
 
+  updating_preferences_ = true;
+
   // Careful: The returned value could be NULL if the pref has never been set.
   if (all_settings_dictionary != NULL) {
-    // Convert all Unicode patterns into punycode form, then read.
-    CanonicalizeContentSettingsExceptions(all_settings_dictionary);
+    DictionaryPrefUpdate update(prefs, prefs::kContentSettingsPatterns);
+    DictionaryValue* mutable_settings;
+    scoped_ptr<DictionaryValue> mutable_settings_scope;
 
-    for (DictionaryValue::key_iterator i(all_settings_dictionary->begin_keys());
-         i != all_settings_dictionary->end_keys(); ++i) {
+    if (!is_incognito()) {
+      mutable_settings = update.Get();
+    } else {
+      // Create copy as we do not want to persist anything in OTR prefs.
+      mutable_settings = all_settings_dictionary->DeepCopy();
+      mutable_settings_scope.reset(mutable_settings);
+    }
+
+    // Convert all Unicode patterns into punycode form, then read.
+    CanonicalizeContentSettingsExceptions(mutable_settings);
+
+    for (DictionaryValue::key_iterator i(mutable_settings->begin_keys());
+         i != mutable_settings->end_keys(); ++i) {
       const std::string& pattern(*i);
       if (!ContentSettingsPattern(pattern).IsValid())
         LOG(WARNING) << "Invalid pattern stored in content settings";
       DictionaryValue* pattern_settings_dictionary = NULL;
-      bool found = all_settings_dictionary->GetDictionaryWithoutPathExpansion(
+      bool found = mutable_settings->GetDictionaryWithoutPathExpansion(
           pattern, &pattern_settings_dictionary);
       DCHECK(found);
 
@@ -593,6 +654,7 @@ void PrefProvider::ReadExceptions(bool overwrite) {
       (*host_content_settings())[pattern] = extended_settings;
     }
   }
+  updating_preferences_ = false;
 }
 
 void PrefProvider::CanonicalizeContentSettingsExceptions(
@@ -724,7 +786,9 @@ void PrefProvider::MigrateObsoletePerhostPref(PrefService* prefs) {
   if (prefs->HasPrefPath(prefs::kPerHostContentSettings)) {
     const DictionaryValue* all_settings_dictionary =
         prefs->GetDictionary(prefs::kPerHostContentSettings);
-    for (DictionaryValue::key_iterator i(all_settings_dictionary->begin_keys());
+    DCHECK(all_settings_dictionary);
+    for (DictionaryValue::key_iterator
+         i(all_settings_dictionary->begin_keys());
          i != all_settings_dictionary->end_keys(); ++i) {
       const std::string& host(*i);
       ContentSettingsPattern pattern(

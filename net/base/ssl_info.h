@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,10 @@
 #define NET_BASE_SSL_INFO_H_
 #pragma once
 
-#include "base/ref_counted.h"
+#include <vector>
+
+#include "base/memory/ref_counted.h"
+#include "net/base/x509_cert_types.h"
 
 namespace net {
 
@@ -45,6 +48,13 @@ class SSLInfo {
   // ssl_connection_status_flags.h for values. The protocol version,
   // ciphersuite, and compression in use are encoded within.
   int connection_status;
+
+  // If the certificate is valid, then this is true iff it was rooted at a
+  // standard CA root. (As opposed to a user-installed root.)
+  bool is_issued_by_known_root;
+
+  // The hashes of the SubjectPublicKeyInfos from each certificate in the chain.
+  std::vector<SHA1Fingerprint> public_key_hashes;
 };
 
 }  // namespace net

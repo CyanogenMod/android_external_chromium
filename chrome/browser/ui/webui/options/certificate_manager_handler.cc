@@ -5,8 +5,8 @@
 #include "chrome/browser/ui/webui/options/certificate_manager_handler.h"
 
 #include "base/file_util.h"  // for FileAccessProvider
+#include "base/memory/scoped_vector.h"
 #include "base/safe_strerror_posix.h"
-#include "base/scoped_vector.h"
 #include "base/string_number_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
@@ -21,6 +21,11 @@
 #include "net/base/x509_certificate.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/l10n/l10n_util_collator.h"
+
+#if defined(OS_CHROMEOS)
+#include "chrome/browser/chromeos/cros/cros_library.h"
+#include "chrome/browser/chromeos/cros/cryptohome_library.h"
+#endif
 
 namespace {
 
@@ -397,6 +402,11 @@ void CertificateManagerHandler::RegisterMessages() {
 
   web_ui_->RegisterMessageCallback("populateCertificateManager",
       NewCallback(this, &CertificateManagerHandler::Populate));
+
+#if defined(OS_CHROMEOS)
+  web_ui_->RegisterMessageCallback("checkTpmTokenReady",
+      NewCallback(this, &CertificateManagerHandler::CheckTpmTokenReady));
+#endif
 }
 
 void CertificateManagerHandler::CertificatesRefreshed() {
@@ -450,7 +460,7 @@ void CertificateManagerHandler::View(const ListValue* args) {
 void CertificateManagerHandler::GetCATrust(const ListValue* args) {
   net::X509Certificate* cert = CallbackArgsToCert(args);
   if (!cert) {
-    web_ui_->CallJavascriptFunction(L"CertificateEditCaTrustOverlay.dismiss");
+    web_ui_->CallJavascriptFunction("CertificateEditCaTrustOverlay.dismiss");
     return;
   }
 
@@ -461,7 +471,7 @@ void CertificateManagerHandler::GetCATrust(const ListValue* args) {
   FundamentalValue obj_sign_value(
       bool(trust & net::CertDatabase::TRUSTED_OBJ_SIGN));
   web_ui_->CallJavascriptFunction(
-      L"CertificateEditCaTrustOverlay.populateTrust",
+      "CertificateEditCaTrustOverlay.populateTrust",
       ssl_value, email_value, obj_sign_value);
 }
 
@@ -476,7 +486,7 @@ void CertificateManagerHandler::EditCATrust(const ListValue* args) {
   fail |= !CallbackArgsToBool(args, 3, &trust_obj_sign);
   if (fail) {
     LOG(ERROR) << "EditCATrust args fail";
-    web_ui_->CallJavascriptFunction(L"CertificateEditCaTrustOverlay.dismiss");
+    web_ui_->CallJavascriptFunction("CertificateEditCaTrustOverlay.dismiss");
     return;
   }
 
@@ -486,7 +496,7 @@ void CertificateManagerHandler::EditCATrust(const ListValue* args) {
       trust_ssl * net::CertDatabase::TRUSTED_SSL +
           trust_email * net::CertDatabase::TRUSTED_EMAIL +
           trust_obj_sign * net::CertDatabase::TRUSTED_OBJ_SIGN);
-  web_ui_->CallJavascriptFunction(L"CertificateEditCaTrustOverlay.dismiss");
+  web_ui_->CallJavascriptFunction("CertificateEditCaTrustOverlay.dismiss");
   if (!result) {
     // TODO(mattm): better error messages?
     ShowError(
@@ -515,8 +525,8 @@ void CertificateManagerHandler::ExportPersonal(const ListValue* args) {
   select_file_dialog_ = SelectFileDialog::Create(this);
   select_file_dialog_->SelectFile(
       SelectFileDialog::SELECT_SAVEAS_FILE, string16(),
-      FilePath(), &file_type_info, 1,
-      FILE_PATH_LITERAL("p12"), GetParentWindow(),
+      FilePath(), &file_type_info, 1, FILE_PATH_LITERAL("p12"),
+      web_ui_->tab_contents(), GetParentWindow(),
       reinterpret_cast<void*>(EXPORT_PERSONAL_FILE_SELECTED));
 }
 
@@ -528,13 +538,13 @@ void CertificateManagerHandler::ExportPersonalFileSelected(
     const FilePath& path) {
   file_path_ = path;
   web_ui_->CallJavascriptFunction(
-      L"CertificateManager.exportPersonalAskPassword");
+      "CertificateManager.exportPersonalAskPassword");
 }
 
 void CertificateManagerHandler::ExportPersonalPasswordSelected(
     const ListValue* args) {
   if (!args->GetString(0, &password_)){
-    web_ui_->CallJavascriptFunction(L"CertificateRestoreOverlay.dismiss");
+    web_ui_->CallJavascriptFunction("CertificateRestoreOverlay.dismiss");
     ImportExportCleanup();
     return;
   }
@@ -560,7 +570,7 @@ void CertificateManagerHandler::ExportPersonalSlotsUnlocked() {
       password_,
       &output);
   if (!num_exported) {
-    web_ui_->CallJavascriptFunction(L"CertificateRestoreOverlay.dismiss");
+    web_ui_->CallJavascriptFunction("CertificateRestoreOverlay.dismiss");
     ShowError(
         l10n_util::GetStringUTF8(IDS_CERT_MANAGER_PKCS12_EXPORT_ERROR_TITLE),
         l10n_util::GetStringUTF8(IDS_CERT_MANAGER_UNKNOWN_ERROR));
@@ -576,7 +586,7 @@ void CertificateManagerHandler::ExportPersonalSlotsUnlocked() {
 
 void CertificateManagerHandler::ExportPersonalFileWritten(int write_errno,
                                                           int bytes_written) {
-  web_ui_->CallJavascriptFunction(L"CertificateRestoreOverlay.dismiss");
+  web_ui_->CallJavascriptFunction("CertificateRestoreOverlay.dismiss");
   ImportExportCleanup();
   if (write_errno) {
     ShowError(
@@ -588,6 +598,13 @@ void CertificateManagerHandler::ExportPersonalFileWritten(int write_errno,
 
 void CertificateManagerHandler::StartImportPersonal(const ListValue* args) {
   SelectFileDialog::FileTypeInfo file_type_info;
+  if (!args->GetBoolean(0, &use_hardware_backed_)){
+    // Unable to retrieve the hardware backed attribute from the args,
+    // so bail.
+    web_ui_->CallJavascriptFunction("CertificateRestoreOverlay.dismiss");
+    ImportExportCleanup();
+    return;
+  }
   file_type_info.extensions.resize(1);
   file_type_info.extensions[0].push_back(FILE_PATH_LITERAL("p12"));
   file_type_info.extension_description_overrides.push_back(
@@ -596,8 +613,8 @@ void CertificateManagerHandler::StartImportPersonal(const ListValue* args) {
   select_file_dialog_ = SelectFileDialog::Create(this);
   select_file_dialog_->SelectFile(
       SelectFileDialog::SELECT_OPEN_FILE, string16(),
-      FilePath(), &file_type_info, 1,
-      FILE_PATH_LITERAL("p12"), GetParentWindow(),
+      FilePath(), &file_type_info, 1, FILE_PATH_LITERAL("p12"),
+      web_ui_->tab_contents(), GetParentWindow(),
       reinterpret_cast<void*>(IMPORT_PERSONAL_FILE_SELECTED));
 }
 
@@ -605,13 +622,13 @@ void CertificateManagerHandler::ImportPersonalFileSelected(
     const FilePath& path) {
   file_path_ = path;
   web_ui_->CallJavascriptFunction(
-      L"CertificateManager.importPersonalAskPassword");
+      "CertificateManager.importPersonalAskPassword");
 }
 
 void CertificateManagerHandler::ImportPersonalPasswordSelected(
     const ListValue* args) {
   if (!args->GetString(0, &password_)){
-    web_ui_->CallJavascriptFunction(L"CertificateRestoreOverlay.dismiss");
+    web_ui_->CallJavascriptFunction("CertificateRestoreOverlay.dismiss");
     ImportExportCleanup();
     return;
   }
@@ -625,7 +642,7 @@ void CertificateManagerHandler::ImportPersonalFileRead(
     int read_errno, std::string data) {
   if (read_errno) {
     ImportExportCleanup();
-    web_ui_->CallJavascriptFunction(L"CertificateRestoreOverlay.dismiss");
+    web_ui_->CallJavascriptFunction("CertificateRestoreOverlay.dismiss");
     ShowError(
         l10n_util::GetStringUTF8(IDS_CERT_MANAGER_PKCS12_IMPORT_ERROR_TITLE),
         l10n_util::GetStringFUTF8(IDS_CERT_MANAGER_READ_ERROR_FORMAT,
@@ -635,8 +652,11 @@ void CertificateManagerHandler::ImportPersonalFileRead(
 
   file_data_ = data;
 
-  // TODO(mattm): allow user to choose a slot to import to.
-  module_ = certificate_manager_model_->cert_db().GetDefaultModule();
+  if (use_hardware_backed_) {
+    module_ = certificate_manager_model_->cert_db().GetPrivateModule();
+  } else {
+    module_ = certificate_manager_model_->cert_db().GetPublicModule();
+  }
 
   net::CryptoModuleList modules;
   modules.push_back(module_);
@@ -652,7 +672,7 @@ void CertificateManagerHandler::ImportPersonalSlotUnlocked() {
   int result = certificate_manager_model_->ImportFromPKCS12(
       module_, file_data_, password_);
   ImportExportCleanup();
-  web_ui_->CallJavascriptFunction(L"CertificateRestoreOverlay.dismiss");
+  web_ui_->CallJavascriptFunction("CertificateRestoreOverlay.dismiss");
   switch (result) {
     case net::OK:
       break;
@@ -680,9 +700,15 @@ void CertificateManagerHandler::ImportExportCleanup() {
   file_path_.clear();
   password_.clear();
   file_data_.clear();
+  use_hardware_backed_ = false;
   selected_cert_list_.clear();
-  select_file_dialog_ = NULL;
   module_ = NULL;
+
+  // There may be pending file dialogs, we need to tell them that we've gone
+  // away so they don't try and call back to us.
+  if (select_file_dialog_.get())
+    select_file_dialog_->ListenerDestroyed();
+  select_file_dialog_ = NULL;
 }
 
 void CertificateManagerHandler::ImportServer(const ListValue* args) {
@@ -691,6 +717,7 @@ void CertificateManagerHandler::ImportServer(const ListValue* args) {
       select_file_dialog_.get(),
       SelectFileDialog::SELECT_OPEN_FILE,
       FilePath(),
+      web_ui_->tab_contents(),
       GetParentWindow(),
       reinterpret_cast<void*>(IMPORT_SERVER_FILE_SELECTED));
 }
@@ -745,6 +772,7 @@ void CertificateManagerHandler::ImportCA(const ListValue* args) {
   ShowCertSelectFileDialog(select_file_dialog_.get(),
                            SelectFileDialog::SELECT_OPEN_FILE,
                            FilePath(),
+                           web_ui_->tab_contents(),
                            GetParentWindow(),
                            reinterpret_cast<void*>(IMPORT_CA_FILE_SELECTED));
 }
@@ -784,7 +812,7 @@ void CertificateManagerHandler::ImportCAFileRead(int read_errno,
   // TODO(mattm): check here if root_cert is not a CA cert and show error.
 
   StringValue cert_name(root_cert->subject().GetDisplayName());
-  web_ui_->CallJavascriptFunction(L"CertificateEditCaTrustOverlay.showImport",
+  web_ui_->CallJavascriptFunction("CertificateEditCaTrustOverlay.showImport",
                                   cert_name);
 }
 
@@ -799,7 +827,7 @@ void CertificateManagerHandler::ImportCATrustSelected(const ListValue* args) {
   if (fail) {
     LOG(ERROR) << "ImportCATrustSelected args fail";
     ImportExportCleanup();
-    web_ui_->CallJavascriptFunction(L"CertificateEditCaTrustOverlay.dismiss");
+    web_ui_->CallJavascriptFunction("CertificateEditCaTrustOverlay.dismiss");
     return;
   }
 
@@ -810,7 +838,7 @@ void CertificateManagerHandler::ImportCATrustSelected(const ListValue* args) {
           trust_email * net::CertDatabase::TRUSTED_EMAIL +
           trust_obj_sign * net::CertDatabase::TRUSTED_OBJ_SIGN,
       &not_imported);
-  web_ui_->CallJavascriptFunction(L"CertificateEditCaTrustOverlay.dismiss");
+  web_ui_->CallJavascriptFunction("CertificateEditCaTrustOverlay.dismiss");
   if (!result) {
     ShowError(
         l10n_util::GetStringUTF8(IDS_CERT_MANAGER_CA_IMPORT_ERROR_TITLE),
@@ -827,7 +855,8 @@ void CertificateManagerHandler::Export(const ListValue* args) {
   net::X509Certificate* cert = CallbackArgsToCert(args);
   if (!cert)
     return;
-  ShowCertExportDialog(GetParentWindow(), cert->os_cert_handle());
+  ShowCertExportDialog(web_ui_->tab_contents(), GetParentWindow(),
+                       cert->os_cert_handle());
 }
 
 void CertificateManagerHandler::Delete(const ListValue* args) {
@@ -899,7 +928,7 @@ void CertificateManagerHandler::PopulateTree(const std::string& tab_name,
     ListValue args;
     args.Append(Value::CreateStringValue(tree_name));
     args.Append(nodes);
-    web_ui_->CallJavascriptFunction(L"CertificateManager.onPopulateTree", args);
+    web_ui_->CallJavascriptFunction("CertificateManager.onPopulateTree", args);
   }
 }
 
@@ -912,7 +941,7 @@ void CertificateManagerHandler::ShowError(const std::string& title,
   args.push_back(Value::CreateNullValue());  // cancelTitle
   args.push_back(Value::CreateNullValue());  // okCallback
   args.push_back(Value::CreateNullValue());  // cancelCallback
-  web_ui_->CallJavascriptFunction(L"AlertOverlay.show", args.get());
+  web_ui_->CallJavascriptFunction("AlertOverlay.show", args.get());
 }
 
 void CertificateManagerHandler::ShowImportErrors(
@@ -938,11 +967,23 @@ void CertificateManagerHandler::ShowImportErrors(
 
   StringValue title_value(title);
   StringValue error_value(error);
-  web_ui_->CallJavascriptFunction(L"CertificateImportErrorOverlay.show",
+  web_ui_->CallJavascriptFunction("CertificateImportErrorOverlay.show",
                                   title_value,
                                   error_value,
                                   cert_error_list);
 }
+
+#if defined(OS_CHROMEOS)
+void CertificateManagerHandler::CheckTpmTokenReady(const ListValue* args) {
+  chromeos::CryptohomeLibrary* cryptohome =
+      chromeos::CrosLibrary::Get()->GetCryptohomeLibrary();
+
+  // TODO(xiyuan): Use async way when underlying supports it.
+  FundamentalValue ready(cryptohome->Pkcs11IsTpmTokenReady());
+  web_ui_->CallJavascriptFunction("CertificateManager.onCheckTpmTokenReady",
+                                  ready);
+}
+#endif
 
 gfx::NativeWindow CertificateManagerHandler::GetParentWindow() const {
   return web_ui_->tab_contents()->view()->GetTopLevelNativeWindow();

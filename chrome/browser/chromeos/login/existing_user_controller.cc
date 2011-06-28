@@ -6,6 +6,8 @@
 
 #include "base/command_line.h"
 #include "base/message_loop.h"
+#include "base/stringprintf.h"
+#include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
@@ -14,9 +16,9 @@
 #include "chrome/browser/chromeos/cros/cryptohome_library.h"
 #include "chrome/browser/chromeos/cros/login_library.h"
 #include "chrome/browser/chromeos/cros/network_library.h"
-#include "chrome/browser/chromeos/login/background_view.h"
+#include "chrome/browser/chromeos/customization_document.h"
 #include "chrome/browser/chromeos/login/helper.h"
-#include "chrome/browser/chromeos/login/login_utils.h"
+#include "chrome/browser/chromeos/login/login_display_host.h"
 #include "chrome/browser/chromeos/login/views_login_display.h"
 #include "chrome/browser/chromeos/login/wizard_accessibility_helper.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
@@ -43,8 +45,8 @@ namespace {
 const char kSettingsSyncLoginURL[] = "chrome://settings/personal";
 
 // URL that will be opened on when user logs in first time on the device.
-const char kGetStartedURL[] =
-    "chrome-extension://cbmhffdpiobpchciemffincgahkkljig/index.html";
+const char kGetStartedURLPattern[] =
+    "http://www.gstatic.com/chromebook/gettingstarted/index-%s.html";
 
 // URL for account creation.
 const char kCreateAccountURL[] =
@@ -56,25 +58,20 @@ const char kCaptivePortalLaunchURL[] = "http://www.google.com/";
 }  // namespace
 
 // static
-ExistingUserController*
-  ExistingUserController::current_controller_ = NULL;
+ExistingUserController* ExistingUserController::current_controller_ = NULL;
 
 ////////////////////////////////////////////////////////////////////////////////
 // ExistingUserController, public:
 
-ExistingUserController::ExistingUserController(
-    const gfx::Rect& background_bounds)
-    : background_bounds_(background_bounds),
-      background_window_(NULL),
-      background_view_(NULL),
+ExistingUserController::ExistingUserController(LoginDisplayHost* host)
+    : host_(host),
       num_login_attempts_(0),
       user_settings_(new UserCrosSettingsProvider),
       method_factory_(this) {
-  if (current_controller_)
-    current_controller_->Delete();
+  DCHECK(current_controller_ == NULL);
   current_controller_ = this;
 
-  login_display_.reset(CreateLoginDisplay(this, background_bounds));
+  login_display_ = host_->CreateLoginDisplay(this);
 
   registrar_.Add(this,
                  NotificationType::LOGIN_USER_IMAGE_CHANGED,
@@ -82,37 +79,6 @@ ExistingUserController::ExistingUserController(
 }
 
 void ExistingUserController::Init(const UserVector& users) {
-  if (g_browser_process) {
-    PrefService* state = g_browser_process->local_state();
-    if (state) {
-      std::string owner_locale = state->GetString(prefs::kOwnerLocale);
-      // Ensure that we start with owner's locale.
-      if (!owner_locale.empty() &&
-          state->GetString(prefs::kApplicationLocale) != owner_locale &&
-          !state->IsManagedPreference(prefs::kApplicationLocale)) {
-        state->SetString(prefs::kApplicationLocale, owner_locale);
-        state->ScheduleSavePersistentPrefs();
-        // Here we don't enable keyboard layouts, as keyboard layouts are
-        // handled in WizardController.
-        LanguageSwitchMenu::SwitchLanguage(owner_locale);
-      }
-    }
-  }
-  if (!background_window_) {
-    background_window_ = BackgroundView::CreateWindowContainingView(
-        background_bounds_,
-        GURL(),
-        &background_view_);
-    background_view_->EnableShutdownButton(true);
-
-    if (!WizardController::IsDeviceRegistered()) {
-      background_view_->SetOobeProgressBarVisible(true);
-      background_view_->SetOobeProgress(chromeos::BackgroundView::SIGNIN);
-    }
-
-    background_window_->Show();
-  }
-
   UserVector filtered_users;
   if (UserCrosSettingsProvider::cached_show_users_on_signin()) {
     for (size_t i = 0; i < users.size(); ++i)
@@ -140,14 +106,6 @@ void ExistingUserController::Init(const UserVector& users) {
   }
 }
 
-void ExistingUserController::OwnBackground(
-    views::Widget* background_widget,
-    chromeos::BackgroundView* background_view) {
-  DCHECK(!background_window_);
-  background_window_ = background_widget;
-  background_view_ = background_view;
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 // ExistingUserController, NotificationObserver implementation:
 //
@@ -166,11 +124,14 @@ void ExistingUserController::Observe(NotificationType type,
 // ExistingUserController, private:
 
 ExistingUserController::~ExistingUserController() {
-  if (background_window_)
-    background_window_->Close();
-
-  DCHECK(current_controller_ != NULL);
-  current_controller_ = NULL;
+  if (current_controller_ == this) {
+    current_controller_ = NULL;
+  } else {
+    NOTREACHED() << "More than one controller are alive.";
+  }
+  DCHECK(login_display_ != NULL);
+  login_display_->Destroy();
+  login_display_ = NULL;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -258,6 +219,24 @@ void ExistingUserController::OnUserSelected(const std::string& username) {
   num_login_attempts_ = 0;
 }
 
+void ExistingUserController::OnStartEnterpriseEnrollment() {
+  CommandLine* command_line = CommandLine::ForCurrentProcess();
+  if (command_line->HasSwitch(switches::kEnableDevicePolicy)) {
+    ownership_checker_.reset(new OwnershipStatusChecker(NewCallback(
+        this, &ExistingUserController::OnEnrollmentOwnershipCheckCompleted)));
+  }
+}
+
+void ExistingUserController::OnEnrollmentOwnershipCheckCompleted(
+    OwnershipService::Status status) {
+  if (status == OwnershipService::OWNERSHIP_NONE) {
+    host_->StartWizard(WizardController::kEnterpriseEnrollmentScreenName,
+                       GURL());
+    login_display_->OnFadeOut();
+  }
+  ownership_checker_.reset();
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // ExistingUserController, LoginPerformer::Delegate implementation:
 //
@@ -268,11 +247,16 @@ void ExistingUserController::OnLoginFailure(const LoginFailure& failure) {
 
   // Check networking after trying to login in case user is
   // cached locally or the local admin account.
+  bool is_known_user =
+      UserManager::Get()->IsKnownUser(last_login_attempt_username_);
   NetworkLibrary* network = CrosLibrary::Get()->GetNetworkLibrary();
   if (!network || !CrosLibrary::Get()->EnsureLoaded()) {
     ShowError(IDS_LOGIN_ERROR_NO_NETWORK_LIBRARY, error);
   } else if (!network->Connected()) {
-    ShowError(IDS_LOGIN_ERROR_OFFLINE_FAILED_NETWORK_NOT_CONNECTED, error);
+    if (is_known_user)
+      ShowError(IDS_LOGIN_ERROR_AUTHENTICATING, error);
+    else
+      ShowError(IDS_LOGIN_ERROR_OFFLINE_FAILED_NETWORK_NOT_CONNECTED, error);
   } else {
     if (failure.reason() == LoginFailure::NETWORK_AUTH_FAILED &&
         failure.error().state() == GoogleServiceAuthError::CAPTCHA_REQUIRED) {
@@ -305,7 +289,7 @@ void ExistingUserController::OnLoginFailure(const LoginFailure& failure) {
       else
         ShowError(IDS_LOGIN_ERROR_CAPTIVE_PORTAL_NO_GUEST_MODE, error);
     } else {
-      if (!UserManager::Get()->IsKnownUser(last_login_attempt_username_))
+      if (!is_known_user)
         ShowError(IDS_LOGIN_ERROR_AUTHENTICATING_NEW, error);
       else
         ShowError(IDS_LOGIN_ERROR_AUTHENTICATING, error);
@@ -322,6 +306,14 @@ void ExistingUserController::OnLoginSuccess(
     const std::string& password,
     const GaiaAuthConsumer::ClientLoginResult& credentials,
     bool pending_requests) {
+  bool known_user = UserManager::Get()->IsKnownUser(username);
+  bool login_only =
+      CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+          switches::kLoginScreen) == WizardController::kLoginScreenName;
+  ready_for_browser_launch_ = known_user || login_only;
+
+  two_factor_credentials_ = credentials.two_factor;
+
   // LoginPerformer instance will delete itself once online auth result is OK.
   // In case of failure it'll bring up ScreenLock and ask for
   // correct password/display error message.
@@ -330,42 +322,54 @@ void ExistingUserController::OnLoginSuccess(
   login_performer_->set_delegate(NULL);
   LoginPerformer* performer = login_performer_.release();
   performer = NULL;
-  bool known_user = UserManager::Get()->IsKnownUser(username);
-  bool login_only =
-      CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
-          switches::kLoginScreen) == WizardController::kLoginScreenName;
-  // TODO(nkostylev): May add login UI implementation callback call.
-  if (!known_user && !login_only) {
-#if defined(OFFICIAL_BUILD)
-    CommandLine::ForCurrentProcess()->AppendArg(kGetStartedURL);
-#endif  // OFFICIAL_BUILD
 
-    if (credentials.two_factor) {
+  // Will call OnProfilePrepared() in the end.
+  LoginUtils::Get()->PrepareProfile(username,
+                                    password,
+                                    credentials,
+                                    pending_requests,
+                                    this);
+
+}
+
+void ExistingUserController::OnProfilePrepared(Profile* profile) {
+  // TODO(nkostylev): May add login UI implementation callback call.
+  if (!ready_for_browser_launch_) {
+    PrefService* prefs = g_browser_process->local_state();
+    const std::string current_locale =
+        StringToLowerASCII(prefs->GetString(prefs::kApplicationLocale));
+    std::string start_url =
+      base::StringPrintf(kGetStartedURLPattern, current_locale.c_str());
+    CommandLine::ForCurrentProcess()->AppendArg(start_url);
+
+    ServicesCustomizationDocument* customization =
+      ServicesCustomizationDocument::GetInstance();
+    if (!ServicesCustomizationDocument::WasApplied() &&
+        customization->IsReady()) {
+      std::string locale = g_browser_process->GetApplicationLocale();
+      std::string initial_start_page =
+          customization->GetInitialStartPage(locale);
+      if (!initial_start_page.empty())
+        CommandLine::ForCurrentProcess()->AppendArg(initial_start_page);
+      customization->ApplyCustomization();
+    }
+
+    if (two_factor_credentials_) {
       // If we have a two factor error and and this is a new user,
       // load the personal settings page.
       // TODO(stevenjb): direct the user to a lightweight sync login page.
       CommandLine::ForCurrentProcess()->AppendArg(kSettingsSyncLoginURL);
     }
 
-    // For new user login don't launch browser until we pass image screen.
-    LoginUtils::Get()->EnableBrowserLaunch(false);
-    LoginUtils::Get()->CompleteLogin(username,
-                                     password,
-                                     credentials,
-                                     pending_requests);
-
     ActivateWizard(WizardController::IsDeviceRegistered() ?
         WizardController::kUserImageScreenName :
         WizardController::kRegistrationScreenName);
   } else {
-    LoginUtils::Get()->CompleteLogin(username,
-                                     password,
-                                     credentials,
-                                     pending_requests);
-
+    LoginUtils::DoBrowserLaunch(profile);
     // Delay deletion as we're on the stack.
-    MessageLoop::current()->DeleteSoon(FROM_HERE, this);
+    host_->OnSessionStart();
   }
+  login_display_->OnFadeOut();
 }
 
 void ExistingUserController::OnOffTheRecordLoginSuccess() {
@@ -439,42 +443,18 @@ void ExistingUserController::ResyncEncryptedData() {
 // ExistingUserController, private:
 
 void ExistingUserController::ActivateWizard(const std::string& screen_name) {
-  // WizardController takes care of deleting itself when done.
-  WizardController* controller = new WizardController();
-
-  // Give the background window to the controller.
-  controller->OwnBackground(background_window_, background_view_);
-  background_window_ = NULL;
-
+  GURL start_url;
   if (chromeos::UserManager::Get()->IsLoggedInAsGuest())
-    controller->set_start_url(guest_mode_url_);
-
-  controller->Init(screen_name, background_bounds_);
-
-  login_display_->OnFadeOut();
-
-  delete_timer_.Start(base::TimeDelta::FromSeconds(1), this,
-                      &ExistingUserController::Delete);
-}
-
-LoginDisplay* ExistingUserController::CreateLoginDisplay(
-    LoginDisplay::Delegate* delegate, const gfx::Rect& background_bounds) {
-  // TODO(rharrison): Create Web UI implementation too. http://crosbug.com/6398.
-  return new ViewsLoginDisplay(delegate, background_bounds);
-}
-
-void ExistingUserController::Delete() {
-  delete this;
+    start_url = guest_mode_url_;
+  host_->StartWizard(screen_name, start_url);
 }
 
 gfx::NativeWindow ExistingUserController::GetNativeWindow() const {
-  return background_view_->GetNativeWindow();
+  return host_->GetNativeWindow();
 }
 
 void ExistingUserController::SetStatusAreaEnabled(bool enable) {
-  if (background_view_) {
-    background_view_->SetStatusAreaEnabled(enable);
-  }
+  host_->SetStatusAreaEnabled(enable);
 }
 
 void ExistingUserController::ShowError(int error_id,

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,10 +24,13 @@ namespace extension_manifest_keys {
   extern const char* kDescription;
   extern const char* kDevToolsPage;
   extern const char* kExcludeGlobs;
+  extern const char* kFileFilters;
+  extern const char* kFileBrowserHandlers;
   extern const char* kHomepageURL;
   extern const char* kIcons;
   extern const char* kIncognito;
   extern const char* kIncludeGlobs;
+  extern const char* kIsolation;
   extern const char* kJs;
   extern const char* kLaunch;
   extern const char* kLaunchContainer;
@@ -37,6 +40,9 @@ namespace extension_manifest_keys {
   extern const char* kLaunchWidth;
   extern const char* kMatches;
   extern const char* kMinimumChromeVersion;
+  extern const char* kNaClModules;
+  extern const char* kNaClModulesMIMEType;
+  extern const char* kNaClModulesPath;
   extern const char* kName;
   extern const char* kOmnibox;
   extern const char* kOmniboxKeyword;
@@ -86,6 +92,7 @@ namespace extension_manifest_keys {
 namespace extension_manifest_values {
   extern const char* kIncognitoSplit;
   extern const char* kIncognitoSpanning;
+  extern const char* kIsolatedStorage;
   extern const char* kLaunchContainerPanel;
   extern const char* kLaunchContainerTab;
   extern const char* kLaunchContainerWindow;
@@ -99,18 +106,22 @@ namespace extension_manifest_values {
 // Error messages returned from Extension::InitFromValue().
 namespace extension_manifest_errors {
   extern const char* kAppsNotEnabled;
+  extern const char* kBackgroundPermissionNeeded;
   extern const char* kCannotAccessPage;
   extern const char* kCannotClaimAllHostsInExtent;
   extern const char* kCannotClaimAllURLsInExtent;
   extern const char* kCannotScriptGallery;
+  extern const char* kCannotUninstallManagedExtension;
   extern const char* kChromeVersionTooLow;
   extern const char* kDevToolsExperimental;
   extern const char* kDisabledByPolicy;
   extern const char* kExperimentalFlagRequired;
+  extern const char* kExperimentalFeature;
   extern const char* kExpectString;
   extern const char* kHostedAppsCannotIncludeExtensionFeatures;
   extern const char* kInvalidAllFrames;
   extern const char* kInvalidBackground;
+  extern const char* kInvalidBackgroundInHostedApp;
   extern const char* kInvalidBrowserAction;
   extern const char* kInvalidBrowseURL;
   extern const char* kInvalidBrowseURLs;
@@ -122,12 +133,17 @@ namespace extension_manifest_errors {
   extern const char* kInvalidDefaultLocale;
   extern const char* kInvalidDescription;
   extern const char* kInvalidDevToolsPage;
+  extern const char* kInvalidFileBrowserHandler;
+  extern const char* kInvalidFileFiltersList;
+  extern const char* kInvalidFileFilterValue;
   extern const char* kInvalidGlob;
   extern const char* kInvalidGlobList;
   extern const char* kInvalidHomepageURL;
   extern const char* kInvalidIconPath;
   extern const char* kInvalidIcons;
   extern const char* kInvalidIncognitoBehavior;
+  extern const char* kInvalidIsolation;
+  extern const char* kInvalidIsolationValue;
   extern const char* kInvalidJs;
   extern const char* kInvalidJsList;
   extern const char* kInvalidKey;
@@ -143,6 +159,9 @@ namespace extension_manifest_errors {
   extern const char* kInvalidMatchCount;
   extern const char* kInvalidMatches;
   extern const char* kInvalidMinimumChromeVersion;
+  extern const char* kInvalidNaClModules;
+  extern const char* kInvalidNaClModulesMIMEType;
+  extern const char* kInvalidNaClModulesPath;
   extern const char* kInvalidName;
   extern const char* kInvalidOmniboxKeyword;
   extern const char* kInvalidOptionsPage;
@@ -185,6 +204,7 @@ namespace extension_manifest_errors {
   extern const char* kInvalidTtsVoicesLocale;
   extern const char* kInvalidTtsVoicesVoiceName;
   extern const char* kInvalidUpdateURL;
+  extern const char* kInvalidURLPatternError;
   extern const char* kInvalidVersion;
   extern const char* kInvalidWebURL;
   extern const char* kInvalidWebURLs;
@@ -328,6 +348,11 @@ namespace extension_misc {
 
     // App launched after the user re-enabled it on the NTP.
     APP_LAUNCH_NTP_APP_RE_ENABLE,
+
+    // URL launched using the --app cmd line option, but the URL does not
+    // correspond to an installed app. These launches are left over from a
+    // feature that let you make desktop shortcuts from the file menu.
+    APP_LAUNCH_CMD_LINE_APP_LEGACY,
 
     APP_LAUNCH_BUCKET_BOUNDARY,
     APP_LAUNCH_BUCKET_INVALID

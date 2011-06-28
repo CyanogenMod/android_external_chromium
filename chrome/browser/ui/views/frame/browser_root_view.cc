@@ -14,6 +14,7 @@
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/tabs/tab_strip.h"
 #include "grit/chromium_strings.h"
+#include "ui/base/accessibility/accessible_view_state.h"
 #include "ui/base/dragdrop/drag_drop_types.h"
 #include "ui/base/dragdrop/os_exchange_data.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -22,14 +23,12 @@ BrowserRootView::BrowserRootView(BrowserView* browser_view,
                                  views::Widget* widget)
     : views::RootView(widget),
       browser_view_(browser_view),
-      forwarding_to_tab_strip_(false) {
-  SetAccessibleName(l10n_util::GetStringUTF16(IDS_PRODUCT_NAME));
-}
+      forwarding_to_tab_strip_(false) { }
 
 bool BrowserRootView::GetDropFormats(
       int* formats,
       std::set<ui::OSExchangeData::CustomFormat>* custom_formats) {
-  if (tabstrip() && tabstrip()->IsVisible() && !tabstrip()->IsAnimating()) {
+  if (tabstrip() && tabstrip()->IsVisible()) {
     *formats = ui::OSExchangeData::URL | ui::OSExchangeData::STRING;
     return true;
   }
@@ -41,7 +40,7 @@ bool BrowserRootView::AreDropTypesRequired() {
 }
 
 bool BrowserRootView::CanDrop(const ui::OSExchangeData& data) {
-  if (!tabstrip() || !tabstrip()->IsVisible() || tabstrip()->IsAnimating())
+  if (!tabstrip() || !tabstrip()->IsVisible())
     return false;
 
   // If there is a URL, we'll allow the drop.
@@ -110,6 +109,11 @@ int BrowserRootView::OnPerformDrop(const views::DropTargetEvent& event) {
   return tabstrip()->OnPerformDrop(*mapped_event);
 }
 
+void BrowserRootView::GetAccessibleState(ui::AccessibleViewState* state) {
+  RootView::GetAccessibleState(state);
+  state->name = l10n_util::GetStringUTF16(IDS_PRODUCT_NAME);
+}
+
 bool BrowserRootView::ShouldForwardToTabStrip(
     const views::DropTargetEvent& event) {
   if (!tabstrip()->IsVisible())
@@ -132,7 +136,7 @@ views::DropTargetEvent* BrowserRootView::MapEventToTabStrip(
                                     event.source_operations());
 }
 
-BaseTabStrip* BrowserRootView::tabstrip() const {
+AbstractTabStripView* BrowserRootView::tabstrip() const {
   return browser_view_->tabstrip();
 }
 

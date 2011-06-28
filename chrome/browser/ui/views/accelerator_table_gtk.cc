@@ -88,6 +88,7 @@ const AcceleratorMapping kAcceleratorMap[] = {
   { ui::VKEY_OEM_2,          true,  true,  false, IDC_HELP_PAGE },
 #endif
   { ui::VKEY_I,              true,  true,  false, IDC_DEV_TOOLS },
+  { ui::VKEY_F12,            false, false, false, IDC_DEV_TOOLS },
   { ui::VKEY_J,              true,  true,  false, IDC_DEV_TOOLS_CONSOLE },
   { ui::VKEY_C,              true,  true,  false, IDC_DEV_TOOLS_INSPECT },
   { ui::VKEY_N,              true,  true,  false, IDC_NEW_INCOGNITO_WINDOW },
@@ -110,6 +111,7 @@ const AcceleratorMapping kAcceleratorMap[] = {
   { ui::VKEY_T,              true,  true,  false, IDC_RESTORE_TAB },
   { ui::VKEY_S,              false, true,  false, IDC_SAVE_PAGE },
 #if defined(OS_CHROMEOS)
+  { ui::VKEY_M,              false, true,  false, IDC_FILE_MANAGER },
   { ui::VKEY_LWIN,           false, false, false, IDC_SEARCH },
 #endif
   { ui::VKEY_9,              false, true,  false, IDC_SELECT_LAST_TAB },

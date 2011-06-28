@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,9 @@
 
 #include "testing/gtest/include/gtest/gtest.h"
 
+#include "base/synchronization/waitable_event.h"
 #include "base/task.h"
+#include "base/test/test_timeouts.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/password_manager/password_store.h"
@@ -28,6 +30,7 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/test/sync/engine/test_id_factory.h"
 #include "chrome/test/profile_mock.h"
+#include "content/browser/browser_thread.h"
 #include "content/common/notification_observer_mock.h"
 #include "content/common/notification_source.h"
 #include "content/common/notification_type.h"
@@ -58,11 +61,13 @@ using syncable::UNIQUE_SERVER_TAG;
 using syncable::UNITTEST;
 using syncable::WriteTransaction;
 using testing::_;
+using testing::AtLeast;
 using testing::DoAll;
 using testing::DoDefault;
 using testing::ElementsAre;
 using testing::Eq;
 using testing::Invoke;
+using testing::InvokeWithoutArgs;
 using testing::Return;
 using testing::SaveArg;
 using testing::SetArgumentPointee;
@@ -76,6 +81,17 @@ ACTION_P3(MakePasswordSyncComponents, service, ps, dtc) {
       new PasswordChangeProcessor(model_associator, ps, dtc);
   return ProfileSyncFactory::SyncComponents(model_associator,
                                             change_processor);
+}
+
+ACTION_P(AcquireSyncTransaction, password_test_service) {
+  // Check to make sure we can aquire a transaction (will crash if a transaction
+  // is already held by this thread, deadlock if held by another thread).
+  sync_api::WriteTransaction trans(password_test_service->GetUserShare());
+  VLOG(1) << "Sync transaction acquired.";
+}
+
+static void QuitMessageLoop() {
+  MessageLoop::current()->Quit();
 }
 
 class MockPasswordStore : public PasswordStore {
@@ -115,17 +131,12 @@ class PasswordTestProfileSyncService : public TestProfileSyncService {
 
   virtual ~PasswordTestProfileSyncService() {}
 
-  virtual void OnPassphraseRequired(bool for_decryption) {
-    TestProfileSyncService::OnPassphraseRequired(for_decryption);
-    ADD_FAILURE();
-  }
-
   virtual void OnPassphraseAccepted() {
-    TestProfileSyncService::OnPassphraseAccepted();
-
     if (passphrase_accept_task_) {
       passphrase_accept_task_->Run();
     }
+
+    TestProfileSyncService::OnPassphraseAccepted();
   }
 
  private:
@@ -133,12 +144,17 @@ class PasswordTestProfileSyncService : public TestProfileSyncService {
 };
 
 class ProfileSyncServicePasswordTest : public AbstractProfileSyncServiceTest {
+ public:
+  sync_api::UserShare* GetUserShare() {
+    return service_->GetUserShare();
+  }
  protected:
   ProfileSyncServicePasswordTest()
       : db_thread_(BrowserThread::DB) {
   }
 
   virtual void SetUp() {
+    profile_.CreateRequestContext();
     password_store_ = new MockPasswordStore();
     db_thread_.Start();
 
@@ -147,38 +163,53 @@ class ProfileSyncServicePasswordTest : public AbstractProfileSyncServiceTest {
     registrar_.Add(&observer_,
         NotificationType::SYNC_CONFIGURE_DONE,
         NotificationService::AllSources());
+    registrar_.Add(&observer_,
+        NotificationType::SYNC_CONFIGURE_BLOCKED,
+        NotificationService::AllSources());
   }
 
   virtual void TearDown() {
     service_.reset();
     notification_service_->TearDown();
     db_thread_.Stop();
+    {
+      // The request context gets deleted on the I/O thread. To prevent a leak
+      // supply one here.
+      BrowserThread io_thread(BrowserThread::IO, MessageLoop::current());
+      profile_.ResetRequestContext();
+    }
     MessageLoop::current()->RunAllPending();
   }
 
-  void StartSyncService(Task* root_task, Task* node_task) {
-    StartSyncService(root_task, node_task, 2, 2);
+  static void SignalEvent(base::WaitableEvent* done) {
+    done->Signal();
   }
 
-  void StartSyncService(Task* root_task, Task* node_task,
-                        int num_resume_expectations,
-                        int num_pause_expectations) {
+  void FlushLastDBTask() {
+    base::WaitableEvent done(false, false);
+    BrowserThread::PostTask(BrowserThread::DB, FROM_HERE,
+       NewRunnableFunction(&ProfileSyncServicePasswordTest::SignalEvent,
+                           &done));
+    done.TimedWait(base::TimeDelta::FromMilliseconds(
+        TestTimeouts::action_timeout_ms()));
+  }
+
+  void StartSyncService(Task* root_task, Task* node_task) {
     if (!service_.get()) {
       service_.reset(new PasswordTestProfileSyncService(
           &factory_, &profile_, "test_user", false, root_task, node_task));
       service_->RegisterPreferences();
       profile_.GetPrefs()->SetBoolean(prefs::kSyncPasswords, true);
-      service_->set_num_expected_resumes(num_resume_expectations);
-      service_->set_num_expected_pauses(num_pause_expectations);
       PasswordDataTypeController* data_type_controller =
           new PasswordDataTypeController(&factory_,
                                          &profile_,
                                          service_.get());
 
       EXPECT_CALL(factory_, CreatePasswordSyncComponents(_, _, _)).
-          WillOnce(MakePasswordSyncComponents(service_.get(),
-                                              password_store_.get(),
-                                              data_type_controller));
+          Times(AtLeast(1)).  // Can be more if we hit NEEDS_CRYPTO.
+          WillRepeatedly(MakePasswordSyncComponents(service_.get(),
+                                                    password_store_.get(),
+                                                    data_type_controller));
       EXPECT_CALL(factory_, CreateDataTypeManager(_, _)).
           WillOnce(ReturnNewDataTypeManager());
 
@@ -190,23 +221,23 @@ class ProfileSyncServicePasswordTest : public AbstractProfileSyncServiceTest {
           WillRepeatedly(Return(&token_service_));
 
       EXPECT_CALL(profile_, GetPasswordStore(_)).
-          Times(3).
+          Times(AtLeast(2)).  // Can be more if we hit NEEDS_CRYPTO.
           WillRepeatedly(Return(password_store_.get()));
 
       EXPECT_CALL(observer_,
           Observe(
               NotificationType(NotificationType::SYNC_CONFIGURE_DONE),_,_));
+      EXPECT_CALL(observer_,
+          Observe(
+              NotificationType(
+              NotificationType::SYNC_CONFIGURE_BLOCKED),_,_))
+          .WillOnce(InvokeWithoutArgs(QuitMessageLoop));
 
       service_->RegisterDataTypeController(data_type_controller);
       service_->Initialize();
       MessageLoop::current()->Run();
+      FlushLastDBTask();
 
-      EXPECT_CALL(
-          observer_,
-          Observe(
-              NotificationType(NotificationType::SYNC_CONFIGURE_DONE),
-              _,_)).
-          WillOnce(QuitUIMessageLoop());
       service_->SetPassphrase("foo", false, true);
       MessageLoop::current()->Run();
     }
@@ -276,7 +307,6 @@ class ProfileSyncServicePasswordTest : public AbstractProfileSyncServiceTest {
   ProfileMock profile_;
   scoped_refptr<MockPasswordStore> password_store_;
   NotificationRegistrar registrar_;
-
 };
 
 class AddPasswordEntriesTask : public Task {
@@ -298,7 +328,7 @@ class AddPasswordEntriesTask : public Task {
 };
 
 TEST_F(ProfileSyncServicePasswordTest, FailModelAssociation) {
-  StartSyncService(NULL, NULL, 1, 2);
+  StartSyncService(NULL, NULL);
   EXPECT_TRUE(service_->unrecoverable_error_detected());
 }
 
@@ -444,6 +474,71 @@ TEST_F(ProfileSyncServicePasswordTest, HasNativeHasSyncNoMerge) {
       .WillOnce(DoAll(SetArgumentPointee<0>(native_forms), Return(true)));
   EXPECT_CALL(*password_store_, FillBlacklistLogins(_)).WillOnce(Return(true));
   EXPECT_CALL(*password_store_, AddLoginImpl(_)).Times(1);
+
+  CreateRootTask root_task(this, syncable::PASSWORDS);
+  AddPasswordEntriesTask node_task(this, sync_forms);
+  StartSyncService(&root_task, &node_task);
+
+  std::vector<PasswordForm> new_sync_forms;
+  GetPasswordEntriesFromSyncDB(&new_sync_forms);
+
+  EXPECT_EQ(2U, new_sync_forms.size());
+  EXPECT_TRUE(ComparePasswords(expected_forms[0], new_sync_forms[0]));
+  EXPECT_TRUE(ComparePasswords(expected_forms[1], new_sync_forms[1]));
+}
+
+// Same as HasNativeHasEmptyNoMerge, but we attempt to aquire a sync transaction
+// every time the password store is accessed.
+TEST_F(ProfileSyncServicePasswordTest, EnsureNoTransactions) {
+  std::vector<PasswordForm*> native_forms;
+  std::vector<PasswordForm> sync_forms;
+  std::vector<PasswordForm> expected_forms;
+  {
+    PasswordForm* new_form = new PasswordForm;
+    new_form->scheme = PasswordForm::SCHEME_HTML;
+    new_form->signon_realm = "pie";
+    new_form->origin = GURL("http://pie.com");
+    new_form->action = GURL("http://pie.com/submit");
+    new_form->username_element = UTF8ToUTF16("name");
+    new_form->username_value = UTF8ToUTF16("tom");
+    new_form->password_element = UTF8ToUTF16("cork");
+    new_form->password_value = UTF8ToUTF16("password1");
+    new_form->ssl_valid = true;
+    new_form->preferred = false;
+    new_form->date_created = base::Time::FromInternalValue(1234);
+    new_form->blacklisted_by_user = false;
+
+    native_forms.push_back(new_form);
+    expected_forms.push_back(*new_form);
+  }
+
+  {
+    PasswordForm new_form;
+    new_form.scheme = PasswordForm::SCHEME_HTML;
+    new_form.signon_realm = "pie2";
+    new_form.origin = GURL("http://pie2.com");
+    new_form.action = GURL("http://pie2.com/submit");
+    new_form.username_element = UTF8ToUTF16("name2");
+    new_form.username_value = UTF8ToUTF16("tom2");
+    new_form.password_element = UTF8ToUTF16("cork2");
+    new_form.password_value = UTF8ToUTF16("password12");
+    new_form.ssl_valid = false;
+    new_form.preferred = true;
+    new_form.date_created = base::Time::FromInternalValue(12345);
+    new_form.blacklisted_by_user = false;
+    sync_forms.push_back(new_form);
+    expected_forms.push_back(new_form);
+  }
+
+  EXPECT_CALL(*password_store_, FillAutofillableLogins(_))
+      .WillOnce(DoAll(SetArgumentPointee<0>(native_forms),
+                      AcquireSyncTransaction(this),
+                      Return(true)));
+  EXPECT_CALL(*password_store_, FillBlacklistLogins(_))
+      .WillOnce(DoAll(AcquireSyncTransaction(this),
+                      Return(true)));
+  EXPECT_CALL(*password_store_, AddLoginImpl(_))
+      .WillOnce(AcquireSyncTransaction(this));
 
   CreateRootTask root_task(this, syncable::PASSWORDS);
   AddPasswordEntriesTask node_task(this, sync_forms);

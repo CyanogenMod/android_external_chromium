@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,14 +6,13 @@
 #define CHROME_BROWSER_PLUGIN_EXCEPTIONS_TABLE_MODEL_H_
 #pragma once
 
-#include <deque>
 #include <string>
 #include <vector>
 
 #include "base/compiler_specific.h"
 #include "chrome/browser/content_settings/host_content_settings_map.h"
 #include "chrome/browser/remove_rows_table_model.h"
-#include "chrome/common/notification_observer.h"
+#include "content/common/notification_observer.h"
 #include "webkit/plugins/npapi/plugin_list.h"
 
 struct WebPluginInfo;
@@ -68,13 +67,16 @@ class PluginExceptionsTableModel : public RemoveRowsTableModel,
   scoped_refptr<HostContentSettingsMap> map_;
   scoped_refptr<HostContentSettingsMap> otr_map_;
 
-  std::deque<SettingsEntry> settings_;
-  std::deque<int> row_counts_;
-  std::deque<std::string> resources_;
+  std::vector<SettingsEntry> settings_;
+  std::vector<int> row_counts_;
+  std::vector<std::string> resources_;
   TableModel::Groups groups_;
 
   NotificationRegistrar registrar_;
   bool updates_disabled_;
+
+  // Weak, can be NULL. Our owner should manage its lifetime, see
+  // TableModel::SetObserver().
   ui::TableModelObserver* observer_;
 
   DISALLOW_COPY_AND_ASSIGN(PluginExceptionsTableModel);

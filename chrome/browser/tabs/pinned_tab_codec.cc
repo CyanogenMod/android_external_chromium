@@ -1,20 +1,21 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/tabs/pinned_tab_codec.h"
 
 #include "base/values.h"
-#include "chrome/browser/browser_list.h"
+#include "chrome/browser/extensions/extension_tab_helper.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/common/extensions/extension.h"
-#include "chrome/common/page_transition_types.h"
 #include "chrome/common/pref_names.h"
 #include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/page_transition_types.h"
 
 typedef BrowserInit::LaunchWithProfile::Tab Tab;
 
@@ -43,7 +44,8 @@ static void EncodePinnedTab(TabStripModel* model,
 
   TabContentsWrapper* tab_contents = model->GetTabContentsAt(index);
   if (model->IsAppTab(index)) {
-    const Extension* extension = tab_contents->extension_app();
+    const Extension* extension =
+        tab_contents->extension_tab_helper()->extension_app();
     DCHECK(extension);
     value->SetString(kAppID, extension->id());
     // For apps we use the launch url. We do this for the following reason:

@@ -1,23 +1,26 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "net/base/x509_certificate.h"
 
-#include "base/crypto/rsa_private_key.h"
-#include "base/crypto/scoped_capi_types.h"
 #include "base/lazy_instance.h"
 #include "base/logging.h"
 #include "base/pickle.h"
+#include "base/sha1.h"
 #include "base/string_tokenizer.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
+#include "crypto/rsa_private_key.h"
+#include "crypto/scoped_capi_types.h"
+#include "net/base/asn1_util.h"
 #include "net/base/cert_status_flags.h"
 #include "net/base/cert_verify_result.h"
 #include "net/base/ev_root_ca_metadata.h"
 #include "net/base/net_errors.h"
 #include "net/base/scoped_cert_chain_context.h"
 #include "net/base/test_root_certs.h"
+#include "net/base/x509_certificate_known_roots_win.h"
 
 #pragma comment(lib, "crypt32.lib")
 
@@ -27,10 +30,10 @@ namespace net {
 
 namespace {
 
-typedef base::ScopedCAPIHandle<
+typedef crypto::ScopedCAPIHandle<
     HCERTSTORE,
-    base::CAPIDestroyerWithFlags<HCERTSTORE,
-                                 CertCloseStore, 0> > ScopedHCERTSTORE;
+    crypto::CAPIDestroyerWithFlags<HCERTSTORE,
+                                   CertCloseStore, 0> > ScopedHCERTSTORE;
 
 struct FreeChainEngineFunctor {
   void operator()(HCERTCHAINENGINE engine) const {
@@ -39,7 +42,7 @@ struct FreeChainEngineFunctor {
   }
 };
 
-typedef base::ScopedCAPIHandle<HCERTCHAINENGINE, FreeChainEngineFunctor>
+typedef crypto::ScopedCAPIHandle<HCERTCHAINENGINE, FreeChainEngineFunctor>
     ScopedHCERTCHAINENGINE;
 
 //-----------------------------------------------------------------------------
@@ -396,7 +399,12 @@ void ParsePrincipal(const std::string& description,
     }
   }
 
-  // We don't expect to have more than one CN, L, S, and C.
+  // We don't expect to have more than one CN, L, S, and C. If there is more
+  // than one entry for CN, L, S, and C, we will use the first entry. Although
+  // RFC 2818 Section 3.1 says the "most specific" CN should be used, that term
+  // has been removed in draft-saintandre-tls-server-id-check, which requires
+  // that the Subject field contains only one CN. So it is fine for us to just
+  // use the first CN.
   std::vector<std::string>* single_value_lists[4] = {
       &common_names, &locality_names, &state_names, &country_names };
   std::string* single_values[4] = {
@@ -404,7 +412,6 @@ void ParsePrincipal(const std::string& description,
       &principal->state_or_province_name, &principal->country_name };
   for (int i = 0; i < arraysize(single_value_lists); ++i) {
     int length = static_cast<int>(single_value_lists[i]->size());
-    DCHECK(single_value_lists[i]->size() <= 1);
     if (!single_value_lists[i]->empty())
       *(single_values[i]) = (*(single_value_lists[i]))[0];
   }
@@ -458,6 +465,32 @@ X509Certificate::OSCertHandles ParsePKCS7(const char* data, size_t length) {
   return results;
 }
 
+void AppendPublicKeyHashes(PCCERT_CHAIN_CONTEXT chain,
+                           std::vector<SHA1Fingerprint>* hashes) {
+  if (chain->cChain == 0)
+    return;
+
+  PCERT_SIMPLE_CHAIN first_chain = chain->rgpChain[0];
+  PCERT_CHAIN_ELEMENT* const element = first_chain->rgpElement;
+
+  const DWORD num_elements = first_chain->cElement;
+  for (DWORD i = 0; i < num_elements; i++) {
+    PCCERT_CONTEXT cert = element[i]->pCertContext;
+
+    base::StringPiece der_bytes(
+        reinterpret_cast<const char*>(cert->pbCertEncoded),
+        cert->cbCertEncoded);
+    base::StringPiece spki_bytes;
+    if (!asn1::ExtractSPKIFromDERCert(der_bytes, &spki_bytes))
+      continue;
+
+    SHA1Fingerprint hash;
+    base::SHA1HashBytes(reinterpret_cast<const uint8*>(spki_bytes.data()),
+                        spki_bytes.size(), hash.data);
+    hashes->push_back(hash);
+  }
+}
+
 }  // namespace
 
 void X509Certificate::Initialize() {
@@ -488,34 +521,37 @@ void X509Certificate::Initialize() {
   valid_expiry_ = Time::FromFileTime(cert_handle_->pCertInfo->NotAfter);
 
   fingerprint_ = CalculateFingerprint(cert_handle_);
+
+  const CRYPT_INTEGER_BLOB* serial = &cert_handle_->pCertInfo->SerialNumber;
+  scoped_array<uint8> serial_bytes(new uint8[serial->cbData]);
+  for (unsigned i = 0; i < serial->cbData; i++)
+    serial_bytes[i] = serial->pbData[serial->cbData - i - 1];
+  serial_number_ = std::string(
+      reinterpret_cast<char*>(serial_bytes.get()), serial->cbData);
+  // Remove leading zeros.
+  while (serial_number_.size() > 1 && serial_number_[0] == 0)
+    serial_number_ = serial_number_.substr(1, serial_number_.size() - 1);
 }
 
+// IsIssuedByKnownRoot returns true if the given chain is rooted at a root CA
+// which we recognise as a standard root.
 // static
-X509Certificate* X509Certificate::CreateFromPickle(const Pickle& pickle,
-                                                   void** pickle_iter) {
-  const char* data;
-  int length;
-  if (!pickle.ReadData(pickle_iter, &data, &length))
-    return NULL;
+bool X509Certificate::IsIssuedByKnownRoot(PCCERT_CHAIN_CONTEXT chain_context) {
+  PCERT_SIMPLE_CHAIN first_chain = chain_context->rgpChain[0];
+  int num_elements = first_chain->cElement;
+  if (num_elements < 1)
+    return false;
+  PCERT_CHAIN_ELEMENT* element = first_chain->rgpElement;
+  PCCERT_CONTEXT cert = element[num_elements - 1]->pCertContext;
 
-  OSCertHandle cert_handle = NULL;
-  if (!CertAddSerializedElementToStore(
-      NULL,  // the cert won't be persisted in any cert store
-      reinterpret_cast<const BYTE*>(data), length,
-      CERT_STORE_ADD_USE_EXISTING, 0, CERT_STORE_CERTIFICATE_CONTEXT_FLAG,
-      NULL, reinterpret_cast<const void **>(&cert_handle)))
-    return NULL;
-
-  X509Certificate* cert = CreateFromHandle(cert_handle,
-                                           SOURCE_LONE_CERT_IMPORT,
-                                           OSCertHandles());
-  FreeOSCertHandle(cert_handle);
-  return cert;
+  SHA1Fingerprint hash = CalculateFingerprint(cert);
+  return IsSHA1HashInSortedArray(
+      hash, &kKnownRootCertSHA1Hashes[0][0], sizeof(kKnownRootCertSHA1Hashes));
 }
 
 // static
 X509Certificate* X509Certificate::CreateSelfSigned(
-    base::RSAPrivateKey* key,
+    crypto::RSAPrivateKey* key,
     const std::string& subject,
     uint32 serial_number,
     base::TimeDelta valid_duration) {
@@ -576,23 +612,6 @@ X509Certificate* X509Certificate::CreateSelfSigned(
   return cert;
 }
 
-void X509Certificate::Persist(Pickle* pickle) {
-  DCHECK(cert_handle_);
-  DWORD length;
-  if (!CertSerializeCertificateStoreElement(cert_handle_, 0,
-      NULL, &length)) {
-    NOTREACHED();
-    return;
-  }
-  BYTE* data = reinterpret_cast<BYTE*>(pickle->BeginWriteData(length));
-  if (!CertSerializeCertificateStoreElement(cert_handle_, 0,
-      data, &length)) {
-    NOTREACHED();
-    length = 0;
-  }
-  pickle->TrimWriteData(length);
-}
-
 void X509Certificate::GetDNSNames(std::vector<std::string>* dns_names) const {
   dns_names->clear();
   if (cert_handle_) {
@@ -650,6 +669,11 @@ int X509Certificate::Verify(const std::string& hostname,
   verify_result->Reset();
   if (!cert_handle_)
     return ERR_UNEXPECTED;
+
+  if (IsBlacklisted()) {
+    verify_result->cert_status |= CERT_STATUS_REVOKED;
+    return ERR_CERT_REVOKED;
+  }
 
   // Build and validate certificate chain.
 
@@ -848,6 +872,9 @@ int X509Certificate::Verify(const std::string& hostname,
   if (IsCertStatusError(verify_result->cert_status))
     return MapCertStatusToNetError(verify_result->cert_status);
 
+  AppendPublicKeyHashes(chain_context, &verify_result->public_key_hashes);
+  verify_result->is_issued_by_known_root = IsIssuedByKnownRoot(chain_context);
+
   if (ev_policy_oid && CheckEV(chain_context, ev_policy_oid))
     verify_result->cert_status |= CERT_STATUS_IS_EV;
   return OK;
@@ -975,6 +1002,47 @@ SHA1Fingerprint X509Certificate::CalculateFingerprint(
   if (!rv)
     memset(sha1.data, 0, sizeof(sha1.data));
   return sha1;
+}
+
+// static
+X509Certificate::OSCertHandle
+X509Certificate::ReadCertHandleFromPickle(const Pickle& pickle,
+                                          void** pickle_iter) {
+  const char* data;
+  int length;
+  if (!pickle.ReadData(pickle_iter, &data, &length))
+    return NULL;
+
+  OSCertHandle cert_handle = NULL;
+  if (!CertAddSerializedElementToStore(
+          NULL,  // the cert won't be persisted in any cert store
+          reinterpret_cast<const BYTE*>(data), length,
+          CERT_STORE_ADD_USE_EXISTING, 0, CERT_STORE_CERTIFICATE_CONTEXT_FLAG,
+          NULL, reinterpret_cast<const void **>(&cert_handle))) {
+    return NULL;
+  }
+
+  return cert_handle;
+}
+
+// static
+bool X509Certificate::WriteCertHandleToPickle(OSCertHandle cert_handle,
+                                              Pickle* pickle) {
+  DWORD length = 0;
+  if (!CertSerializeCertificateStoreElement(cert_handle, 0, NULL, &length))
+    return false;
+
+  std::vector<BYTE> buffer(length);
+  // Serialize |cert_handle| in a way that will preserve any extended
+  // attributes set on the handle, such as the location to the certificate's
+  // private key.
+  if (!CertSerializeCertificateStoreElement(cert_handle, 0, &buffer[0],
+                                            &length)) {
+    return false;
+  }
+
+  return pickle->WriteData(reinterpret_cast<const char*>(&buffer[0]),
+                           length);
 }
 
 }  // namespace net

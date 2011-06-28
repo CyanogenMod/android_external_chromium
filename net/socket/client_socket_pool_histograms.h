@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,8 @@
 
 #include <string>
 
+#include "base/memory/ref_counted.h"
 #include "base/time.h"
-#include "base/ref_counted.h"
 
 namespace base {
 class Histogram;
@@ -28,10 +28,10 @@ class ClientSocketPoolHistograms {
   void AddReusedIdleTime(base::TimeDelta time) const;
 
  private:
-  scoped_refptr<base::Histogram> socket_type_;
-  scoped_refptr<base::Histogram> request_time_;
-  scoped_refptr<base::Histogram> unused_idle_time_;
-  scoped_refptr<base::Histogram> reused_idle_time_;
+  base::Histogram* socket_type_;
+  base::Histogram* request_time_;
+  base::Histogram* unused_idle_time_;
+  base::Histogram* reused_idle_time_;
 
   bool is_http_proxy_connection_;
   bool is_socks_connection_;

@@ -15,11 +15,10 @@
 #include "chrome/browser/character_encoding.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/ui/webui/options/dom_options_util.h"
 #include "chrome/browser/ui/webui/options/font_settings_utils.h"
-#include "chrome/common/notification_details.h"
-#include "chrome/common/notification_type.h"
 #include "chrome/common/pref_names.h"
+#include "content/common/notification_details.h"
+#include "content/common/notification_type.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -39,21 +38,21 @@ void FontSettingsHandler::GetLocalizedValues(
 
   static OptionsStringResource resources[] = {
     { "fontSettingsStandard",
-      IDS_FONT_LANGUAGE_SETTING_FONT_SELECTOR_STANDARD_LABEL, true },
+      IDS_FONT_LANGUAGE_SETTING_FONT_SELECTOR_STANDARD_LABEL },
+    { "fontSettingsSerif",
+      IDS_FONT_LANGUAGE_SETTING_FONT_SELECTOR_SERIF_LABEL },
+    { "fontSettingsSansSerif",
+      IDS_FONT_LANGUAGE_SETTING_FONT_SELECTOR_SANS_SERIF_LABEL },
     { "fontSettingsFixedWidth",
-      IDS_FONT_LANGUAGE_SETTING_FONT_SELECTOR_FIXED_WIDTH_LABEL, true },
+      IDS_FONT_LANGUAGE_SETTING_FONT_SELECTOR_FIXED_WIDTH_LABEL },
     { "fontSettingsMinimumSize",
       IDS_FONT_LANGUAGE_SETTING_MINIMUM_FONT_SIZE_TITLE },
     { "fontSettingsEncoding",
       IDS_FONT_LANGUAGE_SETTING_FONT_SUB_DIALOG_ENCODING_TITLE },
-    { "fontSettingsSizeLabel",
-      IDS_FONT_LANGUAGE_SETTING_FONT_SIZE_SELECTOR_LABEL },
     { "fontSettingsSizeTiny",
       IDS_FONT_LANGUAGE_SETTING_FONT_SIZE_TINY },
     { "fontSettingsSizeHuge",
       IDS_FONT_LANGUAGE_SETTING_FONT_SIZE_HUGE },
-    { "fontSettingsEncodingLabel",
-      IDS_FONT_LANGUAGE_SETTING_FONT_DEFAULT_ENCODING_SELECTOR_LABEL },
     { "fontSettingsLoremIpsum",
       IDS_FONT_LANGUAGE_SETTING_LOREM_IPSUM },
   };
@@ -68,9 +67,11 @@ void FontSettingsHandler::GetLocalizedValues(
 
 void FontSettingsHandler::Initialize() {
   DCHECK(web_ui_);
-  SetupStandardFontSample();
-  SetupMinimumFontSample();
-  SetupFixedFontSample();
+  SetUpStandardFontSample();
+  SetUpSerifFontSample();
+  SetUpSansSerifFontSample();
+  SetUpFixedFontSample();
+  SetUpMinimumFontSample();
 }
 
 WebUIMessageHandler* FontSettingsHandler::Attach(WebUI* web_ui) {
@@ -84,6 +85,8 @@ WebUIMessageHandler* FontSettingsHandler::Attach(WebUI* web_ui) {
 
   // Register for preferences that we need to observe manually.
   standard_font_.Init(prefs::kWebKitStandardFontFamily, pref_service, this);
+  serif_font_.Init(prefs::kWebKitSerifFontFamily, pref_service, this);
+  sans_serif_font_.Init(prefs::kWebKitSansSerifFontFamily, pref_service, this);
   fixed_font_.Init(prefs::kWebKitFixedFontFamily, pref_service, this);
   font_encoding_.Init(prefs::kDefaultCharset, pref_service, this);
   default_font_size_.Init(prefs::kWebKitDefaultFontSize, pref_service, this);
@@ -138,10 +141,12 @@ void FontSettingsHandler::FontsListHasLoaded() {
 
   ListValue selected_values;
   selected_values.Append(Value::CreateStringValue(standard_font_.GetValue()));
+  selected_values.Append(Value::CreateStringValue(serif_font_.GetValue()));
+  selected_values.Append(Value::CreateStringValue(sans_serif_font_.GetValue()));
   selected_values.Append(Value::CreateStringValue(fixed_font_.GetValue()));
   selected_values.Append(Value::CreateStringValue(font_encoding_.GetValue()));
 
-  web_ui_->CallJavascriptFunction(L"FontSettings.setFontsData",
+  web_ui_->CallJavascriptFunction("FontSettings.setFontsData",
                                   *fonts_list, encoding_list, selected_values);
 }
 
@@ -150,34 +155,55 @@ void FontSettingsHandler::Observe(NotificationType type,
                                   const NotificationDetails& details) {
   if (type == NotificationType::PREF_CHANGED) {
     std::string* pref_name = Details<std::string>(details).ptr();
-    if (*pref_name == prefs::kWebKitStandardFontFamily ||
-        *pref_name == prefs::kWebKitDefaultFontSize) {
-      SetupStandardFontSample();
+    if (*pref_name == prefs::kWebKitStandardFontFamily) {
+      SetUpStandardFontSample();
+    } else if (*pref_name == prefs::kWebKitSerifFontFamily) {
+      SetUpSerifFontSample();
+    } else if (*pref_name == prefs::kWebKitSansSerifFontFamily) {
+      SetUpSansSerifFontSample();
     } else if (*pref_name == prefs::kWebKitFixedFontFamily ||
                *pref_name == prefs::kWebKitDefaultFixedFontSize) {
-      SetupFixedFontSample();
+      SetUpFixedFontSample();
+    } else if (*pref_name == prefs::kWebKitDefaultFontSize) {
+      SetUpStandardFontSample();
+      SetUpSerifFontSample();
+      SetUpSansSerifFontSample();
     } else if (*pref_name == prefs::kWebKitMinimumFontSize) {
-      SetupMinimumFontSample();
+      SetUpMinimumFontSample();
     }
   }
 }
 
-void FontSettingsHandler::SetupStandardFontSample() {
+void FontSettingsHandler::SetUpStandardFontSample() {
   StringValue font_value(standard_font_.GetValue());
   FundamentalValue size_value(default_font_size_.GetValue());
   web_ui_->CallJavascriptFunction(
-      L"FontSettings.setupStandardFontSample", font_value, size_value);
+      "FontSettings.setUpStandardFontSample", font_value, size_value);
 }
 
-void FontSettingsHandler::SetupFixedFontSample() {
+void FontSettingsHandler::SetUpSerifFontSample() {
+  StringValue font_value(serif_font_.GetValue());
+  FundamentalValue size_value(default_font_size_.GetValue());
+  web_ui_->CallJavascriptFunction(
+      "FontSettings.setUpSerifFontSample", font_value, size_value);
+}
+
+void FontSettingsHandler::SetUpSansSerifFontSample() {
+  StringValue font_value(sans_serif_font_.GetValue());
+  FundamentalValue size_value(default_font_size_.GetValue());
+  web_ui_->CallJavascriptFunction(
+      "FontSettings.setUpSansSerifFontSample", font_value, size_value);
+}
+
+void FontSettingsHandler::SetUpFixedFontSample() {
   StringValue font_value(fixed_font_.GetValue());
   FundamentalValue size_value(default_fixed_font_size_.GetValue());
   web_ui_->CallJavascriptFunction(
-      L"FontSettings.setupFixedFontSample", font_value, size_value);
+      "FontSettings.setUpFixedFontSample", font_value, size_value);
 }
 
-void FontSettingsHandler::SetupMinimumFontSample() {
+void FontSettingsHandler::SetUpMinimumFontSample() {
   FundamentalValue size_value(minimum_font_size_.GetValue());
-  web_ui_->CallJavascriptFunction(
-      L"FontSettings.setupMinimumFontSample", size_value);
+  web_ui_->CallJavascriptFunction("FontSettings.setUpMinimumFontSample",
+                                  size_value);
 }

@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,10 @@
 
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
+#include "base/stringprintf.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/common/gpu_info.h"
 #include "chrome/installer/util/google_update_settings.h"
+#include "content/common/gpu/gpu_info.h"
 #include "googleurl/src/gurl.h"
 
 namespace child_process_logging {
@@ -145,22 +146,22 @@ void SetGpuKeyValue(const char* param_name, const std::string& value_str,
 void SetGpuInfoImpl(const GPUInfo& gpu_info,
                     SetCrashKeyValueFuncPtr set_key_func) {
   SetGpuKeyValue(kGPUVendorIdParamName,
-                 base::UintToString(gpu_info.vendor_id()),
+                 base::StringPrintf("0x%04x", gpu_info.vendor_id),
                  set_key_func);
   SetGpuKeyValue(kGPUDeviceIdParamName,
-                 base::UintToString(gpu_info.device_id()),
+                 base::StringPrintf("0x%04x", gpu_info.device_id),
                  set_key_func);
   SetGpuKeyValue(kGPUDriverVersionParamName,
-                 gpu_info.driver_version(),
+                 gpu_info.driver_version,
                  set_key_func);
   SetGpuKeyValue(kGPUPixelShaderVersionParamName,
-                 base::UintToString(gpu_info.pixel_shader_version()),
+                 gpu_info.pixel_shader_version,
                  set_key_func);
   SetGpuKeyValue(kGPUVertexShaderVersionParamName,
-                 base::UintToString(gpu_info.vertex_shader_version()),
+                 gpu_info.vertex_shader_version,
                  set_key_func);
   SetGpuKeyValue(kGPUGLVersionParamName,
-                 base::UintToString(gpu_info.gl_version()),
+                 gpu_info.gl_version,
                  set_key_func);
 }
 

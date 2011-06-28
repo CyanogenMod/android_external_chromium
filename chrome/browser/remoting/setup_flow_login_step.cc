@@ -13,7 +13,6 @@
 #include "chrome/browser/remoting/setup_flow_get_status_step.h"
 #include "chrome/common/net/gaia/gaia_constants.h"
 #include "chrome/common/net/gaia/google_service_auth_error.h"
-#include "content/browser/webui/web_ui_util.h"
 
 namespace remoting {
 
@@ -135,7 +134,7 @@ void SetupFlowLoginStep::ShowGaiaLogin(const DictionaryValue& args) {
   WebUI* web_ui = flow()->web_ui();
   DCHECK(web_ui);
 
-  web_ui->CallJavascriptFunction(L"showLogin");
+  web_ui->CallJavascriptFunction("showLogin");
 
   std::string json;
   base::JSONWriter::Write(&args, false, &json);

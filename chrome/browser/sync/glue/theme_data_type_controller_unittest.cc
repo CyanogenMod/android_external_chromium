@@ -1,12 +1,12 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "testing/gtest/include/gtest/gtest.h"
 
 #include "base/callback.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/message_loop.h"
-#include "base/scoped_ptr.h"
 #include "base/task.h"
 #include "chrome/browser/sync/glue/theme_data_type_controller.h"
 #include "chrome/browser/sync/glue/change_processor_mock.h"
@@ -28,7 +28,8 @@ using testing::SetArgumentPointee;
 
 class StartCallback {
  public:
-  MOCK_METHOD1(Run, void(DataTypeController::StartResult result));
+  MOCK_METHOD2(Run, void(DataTypeController::StartResult result,
+    const tracked_objects::Location& location));
 };
 
 class ThemeDataTypeControllerTest : public testing::Test {
@@ -53,6 +54,8 @@ class ThemeDataTypeControllerTest : public testing::Test {
   }
 
   void SetAssociateExpectations() {
+    EXPECT_CALL(*model_associator_, CryptoReadyIfNecessary()).
+        WillRepeatedly(Return(true));
     EXPECT_CALL(*model_associator_, SyncModelHasUserCreatedNodes(_)).
         WillRepeatedly(DoAll(SetArgumentPointee<0>(true), Return(true)));
     EXPECT_CALL(*model_associator_, AssociateModels()).
@@ -84,7 +87,7 @@ TEST_F(ThemeDataTypeControllerTest, Start) {
   SetAssociateExpectations();
   SetActivateExpectations();
   EXPECT_EQ(DataTypeController::NOT_RUNNING, theme_dtc_->state());
-  EXPECT_CALL(start_callback_, Run(DataTypeController::OK));
+  EXPECT_CALL(start_callback_, Run(DataTypeController::OK, _));
   theme_dtc_->Start(NewCallback(&start_callback_, &StartCallback::Run));
   EXPECT_EQ(DataTypeController::RUNNING, theme_dtc_->state());
 }
@@ -95,7 +98,7 @@ TEST_F(ThemeDataTypeControllerTest, StartFirstRun) {
   SetActivateExpectations();
   EXPECT_CALL(*model_associator_, SyncModelHasUserCreatedNodes(_)).
       WillRepeatedly(DoAll(SetArgumentPointee<0>(false), Return(true)));
-  EXPECT_CALL(start_callback_, Run(DataTypeController::OK_FIRST_RUN));
+  EXPECT_CALL(start_callback_, Run(DataTypeController::OK_FIRST_RUN, _));
   theme_dtc_->Start(NewCallback(&start_callback_, &StartCallback::Run));
 }
 
@@ -106,7 +109,7 @@ TEST_F(ThemeDataTypeControllerTest, StartOk) {
   EXPECT_CALL(*model_associator_, SyncModelHasUserCreatedNodes(_)).
       WillRepeatedly(DoAll(SetArgumentPointee<0>(true), Return(true)));
 
-  EXPECT_CALL(start_callback_, Run(DataTypeController::OK));
+  EXPECT_CALL(start_callback_, Run(DataTypeController::OK, _));
   theme_dtc_->Start(NewCallback(&start_callback_, &StartCallback::Run));
 }
 
@@ -116,7 +119,7 @@ TEST_F(ThemeDataTypeControllerTest, StartAssociationFailed) {
   EXPECT_CALL(*model_associator_, AssociateModels()).
       WillRepeatedly(Return(false));
 
-  EXPECT_CALL(start_callback_, Run(DataTypeController::ASSOCIATION_FAILED));
+  EXPECT_CALL(start_callback_, Run(DataTypeController::ASSOCIATION_FAILED, _));
   theme_dtc_->Start(NewCallback(&start_callback_, &StartCallback::Run));
   EXPECT_EQ(DataTypeController::NOT_RUNNING, theme_dtc_->state());
 }
@@ -125,9 +128,11 @@ TEST_F(ThemeDataTypeControllerTest,
        StartAssociationTriggersUnrecoverableError) {
   SetStartExpectations();
   // Set up association to fail with an unrecoverable error.
+  EXPECT_CALL(*model_associator_, CryptoReadyIfNecessary()).
+      WillRepeatedly(Return(true));
   EXPECT_CALL(*model_associator_, SyncModelHasUserCreatedNodes(_)).
       WillRepeatedly(DoAll(SetArgumentPointee<0>(false), Return(false)));
-  EXPECT_CALL(start_callback_, Run(DataTypeController::UNRECOVERABLE_ERROR));
+  EXPECT_CALL(start_callback_, Run(DataTypeController::UNRECOVERABLE_ERROR, _));
   theme_dtc_->Start(NewCallback(&start_callback_, &StartCallback::Run));
   EXPECT_EQ(DataTypeController::NOT_RUNNING, theme_dtc_->state());
 }
@@ -140,7 +145,7 @@ TEST_F(ThemeDataTypeControllerTest, Stop) {
 
   EXPECT_EQ(DataTypeController::NOT_RUNNING, theme_dtc_->state());
 
-  EXPECT_CALL(start_callback_, Run(DataTypeController::OK));
+  EXPECT_CALL(start_callback_, Run(DataTypeController::OK, _));
   theme_dtc_->Start(NewCallback(&start_callback_, &StartCallback::Run));
   EXPECT_EQ(DataTypeController::RUNNING, theme_dtc_->state());
   theme_dtc_->Stop();
@@ -159,7 +164,7 @@ TEST_F(ThemeDataTypeControllerTest, OnUnrecoverableError) {
       &ThemeDataTypeController::Stop));
   SetStopExpectations();
 
-  EXPECT_CALL(start_callback_, Run(DataTypeController::OK));
+  EXPECT_CALL(start_callback_, Run(DataTypeController::OK, _));
   theme_dtc_->Start(NewCallback(&start_callback_, &StartCallback::Run));
   // This should cause theme_dtc_->Stop() to be called.
   theme_dtc_->OnUnrecoverableError(FROM_HERE, "Test");

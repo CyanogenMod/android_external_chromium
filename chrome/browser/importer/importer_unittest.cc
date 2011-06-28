@@ -5,6 +5,7 @@
 #include "build/build_config.h"
 
 #if defined(OS_WIN)
+// The order of these includes is important.
 #include <windows.h>
 #include <unknwn.h>
 #include <intshcut.h>
@@ -16,17 +17,19 @@
 #include <vector>
 
 #include "app/win/scoped_com_initializer.h"
+#include "base/compiler_specific.h"
 #include "base/file_util.h"
 #include "base/message_loop.h"
 #include "base/path_service.h"
 #include "base/stl_util-inl.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
-#include "base/values.h"
+#include "base/memory/scoped_temp_dir.h"
 #include "chrome/browser/history/history_types.h"
-#include "chrome/browser/importer/importer.h"
 #include "chrome/browser/importer/importer_bridge.h"
 #include "chrome/browser/importer/importer_data_types.h"
+#include "chrome/browser/importer/importer_host.h"
+#include "chrome/browser/importer/importer_progress_observer.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/common/chrome_paths.h"
 #include "content/browser/browser_thread.h"
@@ -34,7 +37,8 @@
 #include "webkit/glue/password_form.h"
 
 #if defined(OS_WIN)
-#include "base/scoped_comptr_win.h"
+#include "base/win/scoped_comptr.h"
+#include "base/win/windows_version.h"
 #include "chrome/browser/importer/ie_importer.h"
 #include "chrome/browser/password_manager/ie7_password.h"
 #endif
@@ -51,26 +55,21 @@ class ImporterTest : public testing::Test {
   ImporterTest()
       : ui_thread_(BrowserThread::UI, &message_loop_),
         file_thread_(BrowserThread::FILE, &message_loop_) {}
+
  protected:
   virtual void SetUp() {
     // Creates a new profile in a new subdirectory in the temp directory.
-    ASSERT_TRUE(PathService::Get(base::DIR_TEMP, &test_path_));
-    test_path_ = test_path_.AppendASCII("ImporterTest");
-    file_util::Delete(test_path_, true);
-    file_util::CreateDirectory(test_path_);
-    profile_path_ = test_path_.AppendASCII("profile");
-    app_path_ = test_path_.AppendASCII("app");
+    ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
+    FilePath test_path = temp_dir_.path().AppendASCII("ImporterTest");
+    file_util::Delete(test_path, true);
+    file_util::CreateDirectory(test_path);
+    profile_path_ = test_path.AppendASCII("profile");
+    app_path_ = test_path.AppendASCII("app");
     file_util::CreateDirectory(app_path_);
   }
 
-  virtual void TearDown() {
-    // Deletes the profile and cleans up the profile directory.
-    ASSERT_TRUE(file_util::Delete(test_path_, true));
-    ASSERT_FALSE(file_util::PathExists(test_path_));
-  }
-
   void Firefox3xImporterTest(std::string profile_dir,
-                             ImporterHost::Observer* observer,
+                             importer::ImporterProgressObserver* observer,
                              ProfileWriter* writer,
                              bool import_search_plugins) {
     FilePath data_path;
@@ -97,49 +96,38 @@ class ImporterTest : public testing::Test {
     }
 
     MessageLoop* loop = MessageLoop::current();
-    importer::ProfileInfo profile_info;
-    profile_info.browser_type = importer::FIREFOX3;
-    profile_info.app_path = app_path_;
-    profile_info.source_path = profile_path_;
+    importer::SourceProfile source_profile;
+    source_profile.importer_type = importer::FIREFOX3;
+    source_profile.app_path = app_path_;
+    source_profile.source_path = profile_path_;
     scoped_refptr<ImporterHost> host(new ImporterHost);
     host->SetObserver(observer);
     int items = importer::HISTORY | importer::PASSWORDS | importer::FAVORITES;
     if (import_search_plugins)
       items = items | importer::SEARCH_ENGINES;
     loop->PostTask(FROM_HERE, NewRunnableMethod(host.get(),
-        &ImporterHost::StartImportSettings, profile_info,
+        &ImporterHost::StartImportSettings, source_profile,
         static_cast<Profile*>(NULL), items, make_scoped_refptr(writer), true));
     loop->Run();
   }
 
+  ScopedTempDir temp_dir_;
   MessageLoopForUI message_loop_;
   BrowserThread ui_thread_;
   BrowserThread file_thread_;
-  FilePath test_path_;
   FilePath profile_path_;
   FilePath app_path_;
 };
 
 const int kMaxPathSize = 5;
 
-typedef struct {
+struct BookmarkList {
   const bool in_toolbar;
   const size_t path_size;
   const wchar_t* path[kMaxPathSize];
   const wchar_t* title;
   const char* url;
-} BookmarkList;
-
-typedef struct {
-  const char* origin;
-  const char* action;
-  const char* realm;
-  const wchar_t* username_element;
-  const wchar_t* username;
-  const wchar_t* password_element;
-  const wchar_t* password;
-  bool blacklisted;
-} PasswordList;
+};
 
 // Returns true if the |entry| is in the |list|.
 bool FindBookmarkEntry(const ProfileWriter::BookmarkEntry& entry,
@@ -148,10 +136,10 @@ bool FindBookmarkEntry(const ProfileWriter::BookmarkEntry& entry,
     if (list[i].in_toolbar == entry.in_toolbar &&
         list[i].path_size == entry.path.size() &&
         list[i].url == entry.url.spec() &&
-        list[i].title == entry.title) {
+        WideToUTF16Hack(list[i].title) == entry.title) {
       bool equal = true;
       for (size_t k = 0; k < list[i].path_size; ++k)
-        if (list[i].path[k] != entry.path[k]) {
+        if (WideToUTF16Hack(list[i].path[k]) != entry.path[k]) {
           equal = false;
           break;
         }
@@ -193,15 +181,8 @@ static const wchar_t* kIEIdentifyUrl =
 static const wchar_t* kIEIdentifyTitle =
     L"Unittest GUID";
 
-bool IsWindowsVista() {
-  OSVERSIONINFO info = {0};
-  info.dwOSVersionInfoSize = sizeof(OSVERSIONINFO);
-  GetVersionEx(&info);
-  return (info.dwMajorVersion >=6);
-}
-
 class TestObserver : public ProfileWriter,
-                     public ImporterHost::Observer {
+                     public importer::ImporterProgressObserver {
  public:
   TestObserver() : ProfileWriter(NULL) {
     bookmark_count_ = 0;
@@ -209,15 +190,16 @@ class TestObserver : public ProfileWriter,
     password_count_ = 0;
   }
 
-  virtual void ImportItemStarted(importer::ImportItem item) {}
-  virtual void ImportItemEnded(importer::ImportItem item) {}
-  virtual void ImportStarted() {}
-  virtual void ImportEnded() {
+  // importer::ImporterProgressObserver:
+  virtual void ImportStarted() OVERRIDE {}
+  virtual void ImportItemStarted(importer::ImportItem item) OVERRIDE {}
+  virtual void ImportItemEnded(importer::ImportItem item) OVERRIDE {}
+  virtual void ImportEnded() OVERRIDE {
     MessageLoop::current()->Quit();
     EXPECT_EQ(arraysize(kIEBookmarks), bookmark_count_);
     EXPECT_EQ(1, history_count_);
 #if 0  // This part of the test is disabled. See bug #2466
-    if (IsWindowsVista())
+    if (base::win::GetVersion() >= base::win::VERSION_VISTA)
       EXPECT_EQ(0, password_count_);
     else
       EXPECT_EQ(1, password_count_);
@@ -257,7 +239,7 @@ class TestObserver : public ProfileWriter,
   }
 
   virtual void AddBookmarkEntry(const std::vector<BookmarkEntry>& bookmark,
-                                const std::wstring& first_folder_name,
+                                const string16& first_folder_name,
                                 int options) {
     // Importer should import the IE Favorites folder the same as the list.
     for (size_t i = 0; i < bookmark.size(); ++i) {
@@ -284,12 +266,12 @@ class TestObserver : public ProfileWriter,
 };
 
 bool CreateUrlFile(std::wstring file, std::wstring url) {
-  ScopedComPtr<IUniformResourceLocator> locator;
+  base::win::ScopedComPtr<IUniformResourceLocator> locator;
   HRESULT result = locator.CreateInstance(CLSID_InternetShortcut, NULL,
                                           CLSCTX_INPROC_SERVER);
   if (FAILED(result))
     return false;
-  ScopedComPtr<IPersistFile> persist_file;
+  base::win::ScopedComPtr<IPersistFile> persist_file;
   result = persist_file.QueryFrom(locator);
   if (FAILED(result))
     return false;
@@ -303,7 +285,7 @@ bool CreateUrlFile(std::wstring file, std::wstring url) {
 }
 
 void ClearPStoreType(IPStore* pstore, const GUID* type, const GUID* subtype) {
-  ScopedComPtr<IEnumPStoreItems, NULL> item;
+  base::win::ScopedComPtr<IEnumPStoreItems, NULL> item;
   HRESULT result = pstore->EnumItems(0, type, subtype, 0, item.Receive());
   if (result == PST_E_OK) {
     wchar_t* item_name;
@@ -345,7 +327,7 @@ void WritePStore(IPStore* pstore, const GUID* type, const GUID* subtype) {
 TEST_F(ImporterTest, IEImporter) {
   // Sets up a favorites folder.
   app::win::ScopedCOMInitializer com_init;
-  std::wstring path = test_path_.AppendASCII("Favorites").value();
+  std::wstring path = temp_dir_.path().AppendASCII("Favorites").value();
   CreateDirectory(path.c_str(), NULL);
   CreateDirectory((path + L"\\SubFolder").c_str(), NULL);
   CreateDirectory((path + L"\\Links").c_str(), NULL);
@@ -371,12 +353,12 @@ TEST_F(ImporterTest, IEImporter) {
   // Sets up dummy password data.
   HRESULT res;
 #if 0  // This part of the test is disabled. See bug #2466
-  ScopedComPtr<IPStore> pstore;
+  base::win::ScopedComPtr<IPStore> pstore;
   HMODULE pstorec_dll;
   GUID type = IEImporter::kUnittestGUID;
   GUID subtype = IEImporter::kUnittestGUID;
   // PStore is read-only in Windows Vista.
-  if (!IsWindowsVista()) {
+  if (base::win::GetVersion() < base::win::VERSION_VISTA) {
     typedef HRESULT (WINAPI *PStoreCreateFunc)(IPStore**, DWORD, DWORD, DWORD);
     pstorec_dll = LoadLibrary(L"pstorec.dll");
     PStoreCreateFunc PStoreCreateInstance =
@@ -394,7 +376,7 @@ TEST_F(ImporterTest, IEImporter) {
 #endif
 
   // Sets up a special history link.
-  ScopedComPtr<IUrlHistoryStg2> url_history_stg2;
+  base::win::ScopedComPtr<IUrlHistoryStg2> url_history_stg2;
   res = url_history_stg2.CreateInstance(CLSID_CUrlHistory, NULL,
                                         CLSCTX_INPROC_SERVER);
   ASSERT_TRUE(res == S_OK);
@@ -407,13 +389,13 @@ TEST_F(ImporterTest, IEImporter) {
 
   TestObserver* observer = new TestObserver();
   host->SetObserver(observer);
-  importer::ProfileInfo profile_info;
-  profile_info.browser_type = importer::MS_IE;
-  profile_info.source_path = test_path_;
+  importer::SourceProfile source_profile;
+  source_profile.importer_type = importer::MS_IE;
+  source_profile.source_path = temp_dir_.path();
 
   loop->PostTask(FROM_HERE, NewRunnableMethod(host.get(),
       &ImporterHost::StartImportSettings,
-      profile_info,
+      source_profile,
       static_cast<Profile*>(NULL),
       importer::HISTORY | importer::PASSWORDS | importer::FAVORITES,
       observer,
@@ -424,7 +406,7 @@ TEST_F(ImporterTest, IEImporter) {
   url_history_stg2->DeleteUrl(kIEIdentifyUrl, 0);
   url_history_stg2.Release();
 #if 0  // This part of the test is disabled. See bug #2466
-  if (!IsWindowsVista()) {
+  if (base::win::GetVersion() < base::win::VERSION_VISTA) {
     ClearPStoreType(pstore, &type, &subtype);
     // Releases it befor unload the dll.
     pstore.Release();
@@ -506,6 +488,17 @@ static const BookmarkList kFirefox2Bookmarks[] = {
    "mailto:username@host"},
 };
 
+struct PasswordList {
+  const char* origin;
+  const char* action;
+  const char* realm;
+  const wchar_t* username_element;
+  const wchar_t* username;
+  const wchar_t* password_element;
+  const wchar_t* password;
+  bool blacklisted;
+};
+
 static const PasswordList kFirefox2Passwords[] = {
   {"https://www.google.com/", "", "https://www.google.com/",
     L"", L"", L"", L"", true},
@@ -519,10 +512,10 @@ static const PasswordList kFirefox2Passwords[] = {
     L"loginuser", L"hello", L"", L"world", false},
 };
 
-typedef struct {
+struct KeywordList {
   const wchar_t* keyword;
   const char* url;
-} KeywordList;
+};
 
 static const KeywordList kFirefox2Keywords[] = {
   // Searh plugins
@@ -555,7 +548,7 @@ static const KeywordList kFirefox2Keywords[] = {
 static const int kDefaultFirefox2KeywordIndex = 8;
 
 class FirefoxObserver : public ProfileWriter,
-                        public ImporterHost::Observer {
+                        public importer::ImporterProgressObserver {
  public:
   FirefoxObserver() : ProfileWriter(NULL) {
     bookmark_count_ = 0;
@@ -564,10 +557,11 @@ class FirefoxObserver : public ProfileWriter,
     keyword_count_ = 0;
   }
 
-  virtual void ImportItemStarted(importer::ImportItem item) {}
-  virtual void ImportItemEnded(importer::ImportItem item) {}
-  virtual void ImportStarted() {}
-  virtual void ImportEnded() {
+  // importer::ImporterProgressObserver:
+  virtual void ImportStarted() OVERRIDE {}
+  virtual void ImportItemStarted(importer::ImportItem item) OVERRIDE {}
+  virtual void ImportItemEnded(importer::ImportItem item) OVERRIDE {}
+  virtual void ImportEnded() OVERRIDE {
     MessageLoop::current()->Quit();
     EXPECT_EQ(arraysize(kFirefox2Bookmarks), bookmark_count_);
     EXPECT_EQ(1U, history_count_);
@@ -611,7 +605,7 @@ class FirefoxObserver : public ProfileWriter,
   }
 
   virtual void AddBookmarkEntry(const std::vector<BookmarkEntry>& bookmark,
-                                const std::wstring& first_folder_name,
+                                const string16& first_folder_name,
                                 int options) {
     for (size_t i = 0; i < bookmark.size(); ++i) {
       if (FindBookmarkEntry(bookmark[i], kFirefox2Bookmarks,
@@ -650,7 +644,7 @@ class FirefoxObserver : public ProfileWriter,
     STLDeleteContainerPointers(template_urls.begin(), template_urls.end());
   }
 
-  void AddFavicons(const std::vector<history::ImportedFavIconUsage>& favicons) {
+  void AddFavicons(const std::vector<history::ImportedFaviconUsage>& favicons) {
   }
 
  private:
@@ -689,15 +683,15 @@ TEST_F(ImporterTest, MAYBE(Firefox2Importer)) {
   scoped_refptr<ImporterHost> host(new ImporterHost);
   FirefoxObserver* observer = new FirefoxObserver();
   host->SetObserver(observer);
-  importer::ProfileInfo profile_info;
-  profile_info.browser_type = importer::FIREFOX2;
-  profile_info.app_path = app_path_;
-  profile_info.source_path = profile_path_;
+  importer::SourceProfile source_profile;
+  source_profile.importer_type = importer::FIREFOX2;
+  source_profile.app_path = app_path_;
+  source_profile.source_path = profile_path_;
 
   loop->PostTask(FROM_HERE, NewRunnableMethod(
       host.get(),
       &ImporterHost::StartImportSettings,
-      profile_info,
+      source_profile,
       static_cast<Profile*>(NULL),
       importer::HISTORY | importer::PASSWORDS |
       importer::FAVORITES | importer::SEARCH_ENGINES,
@@ -753,7 +747,7 @@ static const KeywordList kFirefox3Keywords[] = {
 static const int kDefaultFirefox3KeywordIndex = 8;
 
 class Firefox3Observer : public ProfileWriter,
-                         public ImporterHost::Observer {
+                         public importer::ImporterProgressObserver {
  public:
   Firefox3Observer()
       : ProfileWriter(NULL), bookmark_count_(0), history_count_(0),
@@ -766,10 +760,11 @@ class Firefox3Observer : public ProfileWriter,
         import_search_engines_(import_search_engines) {
   }
 
-  virtual void ImportItemStarted(importer::ImportItem item) {}
-  virtual void ImportItemEnded(importer::ImportItem item) {}
-  virtual void ImportStarted() {}
-  virtual void ImportEnded() {
+  // importer::ImporterProgressObserver:
+  virtual void ImportStarted() OVERRIDE {}
+  virtual void ImportItemStarted(importer::ImportItem item) OVERRIDE {}
+  virtual void ImportItemEnded(importer::ImportItem item) OVERRIDE {}
+  virtual void ImportEnded() OVERRIDE {
     MessageLoop::current()->Quit();
     EXPECT_EQ(arraysize(kFirefox3Bookmarks), bookmark_count_);
     EXPECT_EQ(1U, history_count_);
@@ -820,7 +815,7 @@ class Firefox3Observer : public ProfileWriter,
   }
 
   virtual void AddBookmarkEntry(const std::vector<BookmarkEntry>& bookmark,
-                                const std::wstring& first_folder_name,
+                                const string16& first_folder_name,
                                 int options) {
     for (size_t i = 0; i < bookmark.size(); ++i) {
       if (FindBookmarkEntry(bookmark[i], kFirefox3Bookmarks,
@@ -859,7 +854,7 @@ class Firefox3Observer : public ProfileWriter,
     STLDeleteContainerPointers(template_urls.begin(), template_urls.end());
   }
 
-  void AddFavicons(const std::vector<history::ImportedFavIconUsage>& favicons) {
+  void AddFavicons(const std::vector<history::ImportedFaviconUsage>& favicons) {
   }
 
  private:

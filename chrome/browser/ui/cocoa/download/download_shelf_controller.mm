@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,8 @@
 #include "chrome/browser/download/download_item.h"
 #include "chrome/browser/download/download_manager.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/themes/browser_theme_provider.h"
+#include "chrome/browser/themes/theme_service.h"
+#include "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/browser/ui/browser.h"
 #import "chrome/browser/ui/cocoa/animatable_view.h"
 #include "chrome/browser/ui/cocoa/browser_window_cocoa.h"
@@ -17,6 +18,8 @@
 #include "chrome/browser/ui/cocoa/download/download_item_controller.h"
 #include "chrome/browser/ui/cocoa/download/download_shelf_mac.h"
 #import "chrome/browser/ui/cocoa/download/download_shelf_view.h"
+#import "chrome/browser/ui/cocoa/fullscreen_controller.h"
+#import "chrome/browser/ui/cocoa/hover_button.h"
 #import "chrome/browser/ui/cocoa/hyperlink_button_cell.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
@@ -62,6 +65,9 @@ const NSTimeInterval kDownloadShelfCloseDuration = 0.12;
 // autoclosed, in seconds.
 const NSTimeInterval kAutoCloseDelaySeconds = 5;
 
+// The size of the x button by default.
+const NSSize kHoverCloseButtonDefaultSize = { 16, 16 };
+
 }  // namespace
 
 @interface DownloadShelfController(Private)
@@ -76,6 +82,10 @@ const NSTimeInterval kAutoCloseDelaySeconds = 5;
 
 - (void)installTrackingArea;
 - (void)cancelAutoCloseAndRemoveTrackingArea;
+
+- (void)willEnterFullscreen;
+- (void)willLeaveFullscreen;
+- (void)updateCloseButton;
 @end
 
 
@@ -88,6 +98,10 @@ const NSTimeInterval kAutoCloseDelaySeconds = 5;
     resizeDelegate_ = resizeDelegate;
     maxShelfHeight_ = NSHeight([[self view] bounds]);
     currentShelfHeight_ = maxShelfHeight_;
+    if (browser && browser->window())
+      isFullscreen_ = browser->window()->IsFullscreen();
+    else
+      isFullscreen_ = NO;
 
     // Reset the download shelf's frame height to zero.  It will be properly
     // positioned and sized the first time we try to set its height. (Just
@@ -106,6 +120,8 @@ const NSTimeInterval kAutoCloseDelaySeconds = 5;
 }
 
 - (void)awakeFromNib {
+  DCHECK(hoverCloseButton_);
+
   NSNotificationCenter* defaultCenter = [NSNotificationCenter defaultCenter];
   [defaultCenter addObserver:self
                     selector:@selector(themeDidChangeNotification:)
@@ -123,6 +139,17 @@ const NSTimeInterval kAutoCloseDelaySeconds = 5;
   NSImage* favicon = rb.GetNativeImageNamed(IDR_DOWNLOADS_FAVICON);
   DCHECK(favicon);
   [image_ setImage:favicon];
+
+  // These notifications are declared in fullscreen_controller, and are posted
+  // without objects.
+  [defaultCenter addObserver:self
+                    selector:@selector(willEnterFullscreen)
+                        name:kWillEnterFullscreenNotification
+                      object:nil];
+  [defaultCenter addObserver:self
+                    selector:@selector(willLeaveFullscreen)
+                        name:kWillLeaveFullscreenNotification
+                      object:nil];
 }
 
 - (void)dealloc {
@@ -163,10 +190,10 @@ const NSTimeInterval kAutoCloseDelaySeconds = 5;
 
   if (bridge_.get() && bridge_->browser() && bridge_->browser()->profile()) {
     ui::ThemeProvider* provider =
-        bridge_->browser()->profile()->GetThemeProvider();
+        ThemeServiceFactory::GetForProfile(bridge_->browser()->profile());
 
     color =
-        provider->GetNSColor(BrowserThemeProvider::COLOR_BOOKMARK_TEXT, false);
+        provider->GetNSColor(ThemeService::COLOR_BOOKMARK_TEXT, false);
   }
 
   if (!color)
@@ -239,6 +266,7 @@ const NSTimeInterval kAutoCloseDelaySeconds = 5;
     [view animateToNewHeight:0 duration:kDownloadShelfCloseDuration];
 
   barIsVisible_ = enable;
+  [self updateCloseButton];
 }
 
 - (DownloadShelf*)bridge {
@@ -355,9 +383,9 @@ const NSTimeInterval kAutoCloseDelaySeconds = 5;
     DownloadItemController* itemController =
         [downloadItemControllers_ objectAtIndex:i];
     DownloadItem* download = [itemController download];
-    bool isTransferDone =
-        download->state() == DownloadItem::COMPLETE ||
-        download->state() == DownloadItem::CANCELLED;
+    bool isTransferDone = download->IsComplete() ||
+                          download->IsCancelled() ||
+                          download->IsInterrupted();
     if (isTransferDone &&
         download->safety_state() != DownloadItem::DANGEROUS) {
       [self remove:itemController];
@@ -425,4 +453,40 @@ const NSTimeInterval kAutoCloseDelaySeconds = 5;
   }
 }
 
+- (void)willEnterFullscreen {
+  isFullscreen_ = YES;
+  [self updateCloseButton];
+}
+
+- (void)willLeaveFullscreen {
+  isFullscreen_ = NO;
+  [self updateCloseButton];
+}
+
+- (void)updateCloseButton {
+  if (!barIsVisible_)
+    return;
+
+  NSRect selfBounds = [[self view] bounds];
+  NSRect hoverFrame = [hoverCloseButton_ frame];
+  NSRect bounds;
+
+  if (isFullscreen_) {
+    bounds = NSMakeRect(NSMinX(hoverFrame), 0,
+                        selfBounds.size.width - NSMinX(hoverFrame),
+                        selfBounds.size.height);
+  } else {
+    bounds.origin.x = NSMinX(hoverFrame);
+    bounds.origin.y = NSMidY(hoverFrame) -
+                      kHoverCloseButtonDefaultSize.height / 2.0;
+    bounds.size = kHoverCloseButtonDefaultSize;
+  }
+
+  // Set the tracking off to create a new tracking area for the control.
+  // When changing the bounds/frame on a HoverButton, the tracking isn't updated
+  // correctly, it needs to be turned off and back on.
+  [hoverCloseButton_ setTrackingEnabled:NO];
+  [hoverCloseButton_ setFrame:bounds];
+  [hoverCloseButton_ setTrackingEnabled:YES];
+}
 @end

@@ -9,17 +9,19 @@
 #include "app/mac/scoped_nsdisable_screen_updates.h"
 #include "app/mac/nsimage_cache.h"
 #include "base/mac/mac_util.h"
-#import "base/scoped_nsobject.h"
+#import "base/memory/scoped_nsobject.h"
 #include "base/sys_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"  // IDC_*
 #include "chrome/browser/bookmarks/bookmark_editor.h"
 #include "chrome/browser/google/google_util.h"
+#include "chrome/browser/instant/instant_controller.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/sync_ui_util_mac.h"
 #include "chrome/browser/tab_contents/tab_contents_view_mac.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
-#include "chrome/browser/themes/browser_theme_provider.h"
+#include "chrome/browser/themes/theme_service.h"
+#include "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
 #import "chrome/browser/ui/cocoa/background_gradient_view.h"
@@ -61,6 +63,7 @@
 #include "grit/locale_settings.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/l10n/l10n_util_mac.h"
+
 
 // ORGANIZATION: This is a big file. It is (in principle) organized as follows
 // (in order):
@@ -137,7 +140,7 @@
 // and if it's set we continue to constrain the resize.
 
 
-@interface NSWindow(NSPrivateApis)
+@interface NSWindow (NSPrivateApis)
 // Note: These functions are private, use -[NSObject respondsToSelector:]
 // before calling them.
 
@@ -147,6 +150,26 @@
 
 @end
 
+// Provide the forward-declarations of new 10.7 SDK symbols so they can be
+// called when building with the 10.5 SDK.
+#if !defined(MAC_OS_X_VERSION_10_7) || \
+    MAC_OS_X_VERSION_MAX_ALLOWED < MAC_OS_X_VERSION_10_7
+
+@interface NSWindow (LionSDKDeclarations)
+- (void)toggleFullScreen:(id)sender;
+- (void)setRestorable:(BOOL)flag;
+@end
+
+enum {
+  NSWindowCollectionBehaviorFullScreenPrimary = 1 << 7,
+  NSWindowCollectionBehaviorFullScreenAuxiliary = 1 << 8
+};
+
+enum {
+  NSWindowFullScreenButton = 7
+};
+
+#endif  // MAC_OS_X_VERSION_10_7
 
 // IncognitoImageView subclasses NSView to allow mouse events to pass through it
 // so you can drag the window by dragging on the spy guy.
@@ -237,6 +260,13 @@
     // the resize control from being inset slightly and looking ugly.
     if ([window respondsToSelector:@selector(setBottomCornerRounded:)])
       [window setBottomCornerRounded:NO];
+
+    // Lion will attempt to automagically save and restore the UI. This
+    // functionality appears to be leaky (or at least interacts badly with our
+    // architecture) and thus BrowserWindowController never gets released. This
+    // prevents the browser from being able to quit <http://crbug.com/79113>.
+    if ([window respondsToSelector:@selector(setRestorable:)])
+      [window setRestorable:NO];
 
     // Get the most appropriate size for the window, then enforce the
     // minimum width and height. The window shim will handle flipping
@@ -386,6 +416,21 @@
     // on the window bounds to determine whether to show buttons or not.
     if ([self hasToolbar])  // Do not create the buttons in popups.
       [toolbarController_ createBrowserActionButtons];
+
+    // For versions of Mac OS that provide an "enter fullscreen" button, make
+    // one appear (in a rather hacky manner). http://crbug.com/74065 : When
+    // switching the fullscreen implementation to the new API, revisit how much
+    // of this hacky code is necessary.
+    if ([window respondsToSelector:@selector(toggleFullScreen:)]) {
+      NSWindowCollectionBehavior behavior = [window collectionBehavior];
+      behavior |= NSWindowCollectionBehaviorFullScreenPrimary;
+      [window setCollectionBehavior:behavior];
+
+      NSButton* fullscreenButton =
+          [window standardWindowButton:NSWindowFullScreenButton];
+      [fullscreenButton setAction:@selector(enterFullscreen:)];
+      [fullscreenButton setTarget:self];
+    }
 
     // We are done initializing now.
     initializing_ = NO;
@@ -687,6 +732,9 @@
 
 - (void)activate {
   [[self window] makeKeyAndOrderFront:self];
+  ProcessSerialNumber psn;
+  GetCurrentProcess(&psn);
+  SetFrontProcessWithOptions(&psn, kSetFrontProcessFrontWindowOnly);
 }
 
 // Determine whether we should let a window zoom/unzoom to the given |newFrame|.
@@ -1352,6 +1400,10 @@
       NSMinY([[bookmarkBarController_ view] frame]);
   CGFloat maxWidth = NSWidth([contentView frame]);
   [findBarCocoaController_ positionFindBarViewAtMaxY:maxY maxWidth:maxWidth];
+
+  // This allows the FindBarCocoaController to call |layoutSubviews| and get
+  // its position adjusted.
+  [findBarCocoaController_ setBrowserWindowController:self];
 }
 
 - (NSWindow*)createFullscreenWindow {
@@ -1484,7 +1536,7 @@
 }
 
 - (ui::ThemeProvider*)themeProvider {
-  return browser_->profile()->GetThemeProvider();
+  return ThemeServiceFactory::GetForProfile(browser_->profile());
 }
 
 - (ThemedWindowStyle)themedWindowStyle {
@@ -1570,7 +1622,7 @@
       [[[BookmarkEditorController alloc]
          initWithParentWindow:[self window]
                       profile:browser_->profile()
-                       parent:node->GetParent()
+                       parent:node->parent()
                          node:node
                 configuration:BookmarkEditor::SHOW_TREE]
         runAsModalSheet];
@@ -1627,7 +1679,7 @@
 - (void)magnifyWithEvent:(NSEvent*)event {
   // The deltaZ difference necessary to trigger a zoom action. Derived from
   // experimentation to find a value that feels reasonable.
-  const float kZoomStepValue = 150;
+  const float kZoomStepValue = 300;
 
   // Find the (absolute) thresholds on either side of the current zoom factor,
   // then convert those to actual numbers to trigger a zoom in or out.
@@ -1676,6 +1728,14 @@
     if (RenderWidgetHostView* rwhv = contents->GetRenderWidgetHostView())
       rwhv->WindowFrameChanged();
   }
+
+  // The FindBar needs to know its own position to properly detect overlaps
+  // with find results. The position changes whenever the window is resized,
+  // and |layoutSubviews| computes the FindBar's position.
+  // TODO: calling |layoutSubviews| here is a waste, find a better way to
+  // do this.
+  if ([findBarCocoaController_ isFindBarVisible])
+    [self layoutSubviews];
 }
 
 // Handle the openLearnMoreAboutCrashLink: action from SadTabController when
@@ -1809,6 +1869,11 @@ willAnimateFromState:(bookmarks::VisualState)oldState
   [self updateBookmarkBarVisibilityWithAnimation:NO];
 }
 
+- (void)commitInstant {
+  InstantController::CommitIfCurrent(browser_->instant());
+}
+
+
 - (NSRect)instantFrame {
   // The view's bounds are in its own coordinate system.  Convert that to the
   // window base coordinate system, then translate it into the screen's
@@ -1821,6 +1886,12 @@ willAnimateFromState:(bookmarks::VisualState)oldState
   NSPoint originInScreenCoords =
       [[view window] convertBaseToScreen:frame.origin];
   frame.origin = originInScreenCoords;
+
+  // Account for the bookmark bar height if it is currently in the detached
+  // state on the new tab page.
+  if ([bookmarkBarController_ isInState:(bookmarks::kDetachedState)])
+    frame.size.height += [[bookmarkBarController_ view] bounds].size.height;
+
   return frame;
 }
 
@@ -1834,6 +1905,10 @@ willAnimateFromState:(bookmarks::VisualState)oldState
 
 
 @implementation BrowserWindowController(Fullscreen)
+
+- (IBAction)enterFullscreen:(id)sender {
+  browser_->ExecuteCommand(IDC_FULLSCREEN);
+}
 
 - (void)setFullscreen:(BOOL)fullscreen {
   // The logic in this function is a bit complicated and very carefully
@@ -1939,6 +2014,16 @@ willAnimateFromState:(bookmarks::VisualState)oldState
   [self setWindow:destWindow];
   [destWindow setWindowController:self];
   [self adjustUIForFullscreen:fullscreen];
+
+  // Adjust the infobar container. In fullscreen, it needs to be below all
+  // top chrome elements so it only sits atop the web contents. When in normal
+  // mode, it needs to draw over the bookmark bar and part of the toolbar.
+  [[infoBarContainerController_ view] removeFromSuperview];
+  NSView* infoBarDest = [[destWindow contentView] superview];
+  [infoBarDest addSubview:[infoBarContainerController_ view]
+               positioned:fullscreen ? NSWindowBelow : NSWindowAbove
+               relativeTo:fullscreen ? floatingBarBackingView_
+                                     : [bookmarkBarController_ view]];
 
   // When entering fullscreen mode, the controller forces a layout for us.  When
   // exiting, we need to call layoutSubviews manually.

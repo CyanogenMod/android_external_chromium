@@ -21,23 +21,24 @@
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/notification_details.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
-#include "chrome/common/notification_service.h"
-#include "chrome/common/notification_source.h"
-#include "chrome/common/notification_type.h"
-#include "chrome/common/page_transition_types.h"
 #include "chrome/common/render_messages.h"
-#include "chrome/common/renderer_preferences.h"
 #include "content/browser/renderer_host/render_view_host.h"
 #include "content/browser/renderer_host/render_widget_host.h"
 #include "content/browser/renderer_host/render_widget_host_view.h"
 #include "content/browser/tab_contents/navigation_controller.h"
 #include "content/browser/tab_contents/navigation_entry.h"
+#include "content/browser/tab_contents/provisional_load_details.h"
 #include "content/browser/tab_contents/tab_contents.h"
 #include "content/browser/tab_contents/tab_contents_delegate.h"
 #include "content/browser/tab_contents/tab_contents_view.h"
+#include "content/common/notification_details.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
+#include "content/common/notification_service.h"
+#include "content/common/notification_source.h"
+#include "content/common/notification_type.h"
+#include "content/common/page_transition_types.h"
+#include "content/common/renderer_preferences.h"
 #include "net/http/http_util.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/codec/png_codec.h"
@@ -137,7 +138,8 @@ void InstantLoader::FrameLoadObserver::Observe(
 
 class InstantLoader::TabContentsDelegateImpl
     : public TabContentsDelegate,
-      public NotificationObserver {
+      public NotificationObserver,
+      public TabContentsObserver {
  public:
   explicit TabContentsDelegateImpl(InstantLoader* loader);
 
@@ -190,8 +192,6 @@ class InstantLoader::TabContentsDelegateImpl
                             const gfx::Rect& pos) OVERRIDE;
   virtual bool ShouldFocusConstrainedWindow() OVERRIDE;
   virtual void WillShowConstrainedWindow(TabContents* source) OVERRIDE;
-  virtual void ToolbarSizeChanged(TabContents* source,
-                                  bool is_animating) OVERRIDE;
   virtual void UpdateTargetURL(TabContents* source,
                                const GURL& url) OVERRIDE;
   virtual bool ShouldSuppressDialogs() OVERRIDE;
@@ -212,15 +212,24 @@ class InstantLoader::TabContentsDelegateImpl
   virtual bool ShouldAddNavigationToHistory(
       const history::HistoryAddPageArgs& add_page_args,
       NavigationType::Type navigation_type) OVERRIDE;
-  virtual void OnSetSuggestions(
-      int32 page_id,
-      const std::vector<std::string>& suggestions) OVERRIDE;
-  virtual void OnInstantSupportDetermined(int32 page_id, bool result) OVERRIDE;
   virtual bool ShouldShowHungRendererDialog() OVERRIDE;
+
+  // TabContentsObserver:
+  virtual bool OnMessageReceived(const IPC::Message& message) OVERRIDE;
 
  private:
   typedef std::vector<scoped_refptr<history::HistoryAddPageArgs> >
       AddPageVector;
+
+  // Message from renderer indicating the page has suggestions.
+  void OnSetSuggestions(
+      int32 page_id,
+      const std::vector<std::string>& suggestions,
+      InstantCompleteBehavior behavior);
+
+  // Messages from the renderer when we've determined whether the page supports
+  // instant.
+  void OnInstantSupportDetermined(int32 page_id, bool result);
 
   void CommitFromMouseReleaseIfNecessary();
 
@@ -253,7 +262,8 @@ class InstantLoader::TabContentsDelegateImpl
 
 InstantLoader::TabContentsDelegateImpl::TabContentsDelegateImpl(
     InstantLoader* loader)
-    : loader_(loader),
+    : TabContentsObserver(loader->preview_contents()->tab_contents()),
+      loader_(loader),
       registered_render_widget_host_(NULL),
       waiting_for_new_page_(true),
       is_mouse_down_from_activate_(false),
@@ -261,6 +271,8 @@ InstantLoader::TabContentsDelegateImpl::TabContentsDelegateImpl(
   DCHECK(loader->preview_contents());
   registrar_.Add(this, NotificationType::INTERSTITIAL_ATTACHED,
       Source<TabContents>(loader->preview_contents()->tab_contents()));
+  registrar_.Add(this, NotificationType::FAIL_PROVISIONAL_LOAD_WITH_ERROR,
+      Source<NavigationController>(&loader->preview_contents()->controller()));
 }
 
 void InstantLoader::TabContentsDelegateImpl::PrepareForNewLoad() {
@@ -319,7 +331,8 @@ void InstantLoader::TabContentsDelegateImpl::CommitHistory(
                                       &image_data);
     favicon_service->SetFavicon(active_entry->url(),
                                 active_entry->favicon().url(),
-                                image_data);
+                                image_data,
+                                history::FAVICON);
     if (supports_instant && !add_page_vector_.empty()) {
       // If we're using the instant API, then we've tweaked the url that is
       // going to be added to history. We need to also set the favicon for the
@@ -327,7 +340,8 @@ void InstantLoader::TabContentsDelegateImpl::CommitHistory(
       // for details).
       favicon_service->SetFavicon(add_page_vector_.back()->url,
                                   active_entry->favicon().url(),
-                                  image_data);
+                                  image_data,
+                                  history::FAVICON);
     }
   }
 }
@@ -361,6 +375,14 @@ void InstantLoader::TabContentsDelegateImpl::Observe(
     const NotificationSource& source,
     const NotificationDetails& details) {
   switch (type.value) {
+    case NotificationType::FAIL_PROVISIONAL_LOAD_WITH_ERROR:
+      if (Details<ProvisionalLoadDetails>(details)->url() == loader_->url_) {
+        // This typically happens with downloads (which are disabled with
+        // instant active). To ensure the download happens when the user presses
+        // enter we set needs_reload_ to true, which triggers a reload.
+        loader_->needs_reload_ = true;
+      }
+      break;
     case NotificationType::RENDER_WIDGET_HOST_DID_PAINT:
       UnregisterForPaintNotifications();
       PreviewPainted();
@@ -393,8 +415,9 @@ void InstantLoader::TabContentsDelegateImpl::NavigationStateChanged(
     // committed before waiting on paint as there is always an initial paint
     // when a new renderer is created from the resize so that if we showed the
     // preview after the first paint we would end up with a white rect.
-    RegisterForPaintNotifications(
-        source->GetRenderWidgetHostView()->GetRenderWidgetHost());
+    RenderWidgetHostView *rwhv = source->GetRenderWidgetHostView();
+    if (rwhv)
+      RegisterForPaintNotifications(rwhv->GetRenderWidgetHost());
   } else if (source->is_crashed()) {
     PreviewPainted();
   }
@@ -454,11 +477,6 @@ void InstantLoader::TabContentsDelegateImpl::WillShowConstrainedWindow(
   }
 }
 
-void InstantLoader::TabContentsDelegateImpl::ToolbarSizeChanged(
-    TabContents* source,
-    bool is_animating) {
-}
-
 void InstantLoader::TabContentsDelegateImpl::UpdateTargetURL(
     TabContents* source, const GURL& url) {
 }
@@ -491,6 +509,7 @@ void InstantLoader::TabContentsDelegateImpl::DragEnded() {
 }
 
 bool InstantLoader::TabContentsDelegateImpl::CanDownload(int request_id) {
+  // Downloads are disabled.
   return false;
 }
 
@@ -519,20 +538,38 @@ bool InstantLoader::TabContentsDelegateImpl::ShouldAddNavigationToHistory(
   return false;
 }
 
+bool InstantLoader::TabContentsDelegateImpl::ShouldShowHungRendererDialog() {
+  // If we allow the hung renderer dialog to be shown it'll gain focus,
+  // stealing focus from the omnibox causing instant to be cancelled. Return
+  // false so that doesn't happen.
+  return false;
+}
+
+bool InstantLoader::TabContentsDelegateImpl::OnMessageReceived(
+    const IPC::Message& message) {
+  bool handled = true;
+  IPC_BEGIN_MESSAGE_MAP(TabContentsDelegateImpl, message)
+    IPC_MESSAGE_HANDLER(ViewHostMsg_SetSuggestions, OnSetSuggestions)
+    IPC_MESSAGE_HANDLER(ViewHostMsg_InstantSupportDetermined,
+                        OnInstantSupportDetermined)
+    IPC_MESSAGE_UNHANDLED(handled = false)
+  IPC_END_MESSAGE_MAP()
+  return handled;
+}
+
 void InstantLoader::TabContentsDelegateImpl::OnSetSuggestions(
     int32 page_id,
-    const std::vector<std::string>& suggestions) {
+    const std::vector<std::string>& suggestions,
+    InstantCompleteBehavior behavior) {
   TabContentsWrapper* source = loader_->preview_contents();
   if (!source->controller().GetActiveEntry() ||
       page_id != source->controller().GetActiveEntry()->page_id())
     return;
 
-  // TODO: only allow for default search provider.
-  // TODO(sky): Handle multiple suggestions.
   if (suggestions.empty())
-    loader_->SetCompleteSuggestedText(string16());
+    loader_->SetCompleteSuggestedText(string16(), behavior);
   else
-    loader_->SetCompleteSuggestedText(UTF8ToUTF16(suggestions[0]));
+    loader_->SetCompleteSuggestedText(UTF8ToUTF16(suggestions[0]), behavior);
 }
 
 void InstantLoader::TabContentsDelegateImpl::OnInstantSupportDetermined(
@@ -543,17 +580,16 @@ void InstantLoader::TabContentsDelegateImpl::OnInstantSupportDetermined(
       page_id != source->controller().GetActiveEntry()->page_id())
     return;
 
+  Details<const bool> details(&result);
+  NotificationService::current()->Notify(
+      NotificationType::INSTANT_SUPPORT_DETERMINED,
+      NotificationService::AllSources(),
+      details);
+
   if (result)
     loader_->PageFinishedLoading();
   else
     loader_->PageDoesntSupportInstant(user_typed_before_load_);
-}
-
-bool InstantLoader::TabContentsDelegateImpl::ShouldShowHungRendererDialog() {
-  // If we allow the hung renderer dialog to be shown it'll gain focus,
-  // stealing focus from the omnibox causing instant to be cancelled. Return
-  // false so that doesn't happen.
-  return false;
 }
 
 void InstantLoader::TabContentsDelegateImpl
@@ -570,7 +606,10 @@ InstantLoader::InstantLoader(InstantLoaderDelegate* delegate, TemplateURLID id)
     : delegate_(delegate),
       template_url_id_(id),
       ready_(false),
-      last_transition_type_(PageTransition::LINK) {
+      http_status_ok_(true),
+      last_transition_type_(PageTransition::LINK),
+      verbatim_(false),
+      needs_reload_(false) {
 }
 
 InstantLoader::~InstantLoader() {
@@ -581,7 +620,7 @@ InstantLoader::~InstantLoader() {
   preview_contents_.reset();
 }
 
-void InstantLoader::Update(TabContentsWrapper* tab_contents,
+bool InstantLoader::Update(TabContentsWrapper* tab_contents,
                            const TemplateURL* template_url,
                            const GURL& url,
                            PageTransition::Type transition_type,
@@ -615,13 +654,14 @@ void InstantLoader::Update(TabContentsWrapper* tab_contents,
     // when we get the suggest text we set user_text_ to the new suggest text,
     // but yet the url is much different.
     url_ = url;
-    return;
+    return false;
   }
 
   url_ = url;
   user_text_ = new_user_text;
   verbatim_ = verbatim;
   last_suggestion_.clear();
+  needs_reload_ = false;
 
   bool created_preview_contents = preview_contents_.get() == NULL;
   if (created_preview_contents)
@@ -635,7 +675,7 @@ void InstantLoader::Update(TabContentsWrapper* tab_contents,
         frame_load_observer_->set_text(user_text_);
         frame_load_observer_->set_verbatim(verbatim);
         preview_tab_contents_delegate_->set_user_typed_before_load();
-        return;
+        return true;
       }
       // TODO: support real cursor position.
       int text_length = static_cast<int>(user_text_.size());
@@ -685,6 +725,7 @@ void InstantLoader::Update(TabContentsWrapper* tab_contents,
     frame_load_observer_.reset(NULL);
     preview_contents_->controller().LoadURL(url_, GURL(), transition_type);
   }
+  return true;
 }
 
 void InstantLoader::SetOmniboxBounds(const gfx::Rect& bounds) {
@@ -776,7 +817,13 @@ void InstantLoader::CommitInstantLoader() {
 }
 
 void InstantLoader::SetCompleteSuggestedText(
-    const string16& complete_suggested_text) {
+    const string16& complete_suggested_text,
+    InstantCompleteBehavior behavior) {
+  if (!is_showing_instant()) {
+    // We're not trying to use the instant API with this page. Ignore it.
+    return;
+  }
+
   ShowPreview();
 
   if (complete_suggested_text == complete_suggested_text_)
@@ -796,18 +843,25 @@ void InstantLoader::SetCompleteSuggestedText(
                               0, user_text_lower.size())) {
     // The user text no longer contains the suggested text, ignore it.
     complete_suggested_text_.clear();
-    delegate_->SetSuggestedTextFor(this, string16());
+    delegate_->SetSuggestedTextFor(this, string16(), behavior);
     return;
   }
 
   complete_suggested_text_ = complete_suggested_text;
-  // We are effectively showing complete_suggested_text_ now. Update user_text_
-  // so we don't notify the page again if Update happens to be invoked (which is
-  // more than likely if this callback completes before the omnibox is done).
-  string16 suggestion = complete_suggested_text_.substr(user_text_.size());
-  user_text_ = complete_suggested_text_;
-  last_suggestion_.clear();
-  delegate_->SetSuggestedTextFor(this, suggestion);
+  if (behavior == INSTANT_COMPLETE_NOW) {
+    // We are effectively showing complete_suggested_text_ now. Update
+    // user_text_ so we don't notify the page again if Update happens to be
+    // invoked (which is more than likely if this callback completes before the
+    // omnibox is done).
+    string16 suggestion = complete_suggested_text_.substr(user_text_.size());
+    user_text_ = complete_suggested_text_;
+    delegate_->SetSuggestedTextFor(this, suggestion, behavior);
+  } else {
+    DCHECK((behavior == INSTANT_COMPLETE_DELAYED) ||
+           (behavior == INSTANT_COMPLETE_NEVER));
+    last_suggestion_ = complete_suggested_text_.substr(user_text_.size());
+    delegate_->SetSuggestedTextFor(this, last_suggestion_, behavior);
+  }
 }
 
 void InstantLoader::PreviewPainted() {
@@ -817,10 +871,19 @@ void InstantLoader::PreviewPainted() {
     ShowPreview();
 }
 
+void InstantLoader::SetHTTPStatusOK(bool is_ok) {
+  if (is_ok == http_status_ok_)
+    return;
+
+  http_status_ok_ = is_ok;
+  if (ready_)
+    delegate_->InstantStatusChanged(this);
+}
+
 void InstantLoader::ShowPreview() {
   if (!ready_) {
     ready_ = true;
-    delegate_->ShowInstantLoader(this);
+    delegate_->InstantStatusChanged(this);
   }
 }
 
@@ -839,9 +902,12 @@ void InstantLoader::Observe(NotificationType type,
   if (type.value == NotificationType::NAV_ENTRY_COMMITTED) {
     NavigationController::LoadCommittedDetails* load_details =
         Details<NavigationController::LoadCommittedDetails>(details).ptr();
-    if (load_details->is_main_frame &&
-        load_details->http_status_code == kHostBlacklistStatusCode) {
-      delegate_->AddToBlacklist(this, load_details->entry->url());
+    if (load_details->is_main_frame) {
+      if (load_details->http_status_code == kHostBlacklistStatusCode) {
+        delegate_->AddToBlacklist(this, load_details->entry->url());
+      } else {
+        SetHTTPStatusOK(load_details->http_status_code == 200);
+      }
     }
     return;
   }

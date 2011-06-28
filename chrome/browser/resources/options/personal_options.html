@@ -1,6 +1,5 @@
 <div id="personal-page" class="page hidden">
   <h1 i18n-content="personalPage"></h1>
-
 <if expr="pp_ifdef('chromeos')">
   <section>
     <h3 i18n-content="account"></h3>
@@ -19,6 +18,12 @@
             </label>
           </td>
         </tr>
+        <tr>
+          <td>
+            <button id="change-picture-button" i18n-content="changePicture">
+            </button>
+          </td>
+        </tr>
       </table>
     </div>
   </section>
@@ -26,16 +31,27 @@
   <section id="sync-section">
     <h3 i18n-content="syncSection"></h3>
     <div>
-      <div id="sync-status">
+      <div id="sync-overview" hidden>
+        <div i18n-content="syncOverview"></div>
+        <div i18n-content="syncFurtherOverview"></div>
+      </div>
+      <div id="sync-status" hidden>
         <span id="sync-status-text"></span>
         <button id="sync-action-link" class="link-button"></button>
       </div>
       <div id="sync-buttons">
-        <button id="start-stop-sync"></button>
-        <button id="customize-sync" i18n-content="customizeSync"></button>
+        <button id="start-stop-sync" hidden></button>
+        <button id="customize-sync" i18n-content="customizeSync" hidden>
+        </button>
+      </div>
+      <div id="profiles-create" hidden>
+        <span i18n-content="createNewProfile"></span>
+        <div id="profiles-create-button">
+          <button id="new-profile" i18n-content="createProfileButton"></button>
+        </div>
       </div>
       <a href="https://www.google.com/dashboard" id="privacy-dashboard-link"
-          i18n-content="privacyDashboardLink" target="_blank"></a>
+          i18n-content="privacyDashboardLink" target="_blank" hidden></a>
     </div>
   </section>
   <section>
@@ -43,23 +59,26 @@
     <div>
       <div class="radio">
         <label>
-          <input id="passwords-offersave"
-              pref="profile.password_manager_enabled"
-              type="radio" value="true" metric="Options_PasswordManager">
+          <input id="passwords-offersave" type="radio" name="passwords_radio"
+              value="true" pref="profile.password_manager_enabled"
+              metric="Options_PasswordManager">
           <span i18n-content="passwordsAskToSave"></span>
         </label>
       </div>
       <div class="radio">
         <label>
-          <input id="passwords-neversave"
-              name="passwords_radio"
-              pref="profile.password_manager_enabled"
-              type="radio" value="false" metric="Options_PasswordManager">
+          <input id="passwords-neversave" type="radio" name="passwords_radio"
+              value="false" pref="profile.password_manager_enabled"
+              metric="Options_PasswordManager">
           <span i18n-content="passwordsNeverSave"></span>
         </label>
       </div>
       <div><button id="manage-passwords"
           i18n-content="manage_passwords"></button></div>
+      <!-- This makes the managed-banner appear when the "pref" is
+      configured by the IT administrator. -->
+      <input name="password_allow_show_hidden" type="text"
+          pref="profile.password_manager_allow_show_passwords" hidden>
     </div>
   </section>
   <section>
@@ -67,9 +86,9 @@
     <div>
       <div class="checkbox">
         <label>
-          <input id="autoFillEnabled" pref="autofill.enabled"
+          <input id="autofillEnabled" pref="autofill.enabled"
               metric="Options_FormAutofill" type="checkbox">
-          <span i18n-content="autoFillEnabled"></span>
+          <span i18n-content="autofillEnabled"></span>
         </label>
       </div>
       <button id="autofill-settings"

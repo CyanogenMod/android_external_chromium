@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,8 +28,8 @@ namespace {
 // some conditions.  See http://crbug.com/4606.
 const int kCleanupInterval = 10;  // DO NOT INCREASE THIS TIMEOUT.
 
-// Indicate whether or not we should establish a new TCP connection after a
-// certain timeout has passed without receiving an ACK.
+// Indicate whether or not we should establish a new transport layer connection
+// after a certain timeout has passed without receiving an ACK.
 bool g_connect_backup_jobs_enabled = true;
 
 }  // namespace
@@ -133,17 +133,25 @@ ClientSocketPoolBaseHelper::Request::Request(
     ClientSocketHandle* handle,
     CompletionCallback* callback,
     RequestPriority priority,
+<<<<<<< HEAD
 #ifdef ANDROID
     bool ignore_limits,
 #endif
+=======
+    bool ignore_limits,
+>>>>>>> chromium.org at r12.0.742.93
     Flags flags,
     const BoundNetLog& net_log)
     : handle_(handle),
       callback_(callback),
       priority_(priority),
+<<<<<<< HEAD
 #ifdef ANDROID
       ignore_limits_(ignore_limits),
 #endif
+=======
+      ignore_limits_(ignore_limits),
+>>>>>>> chromium.org at r12.0.742.93
       flags_(flags),
       net_log_(net_log) {}
 
@@ -200,7 +208,7 @@ void ClientSocketPoolBaseHelper::InsertRequestIntoQueue(
 // static
 const ClientSocketPoolBaseHelper::Request*
 ClientSocketPoolBaseHelper::RemoveRequestFromQueue(
-    RequestQueue::iterator it, Group* group) {
+    const RequestQueue::iterator& it, Group* group) {
   const Request* req = *it;
   group->mutable_pending_requests()->erase(it);
   // If there are no more requests, we kill the backup timer.
@@ -301,21 +309,30 @@ int ClientSocketPoolBaseHelper::RequestSocketInternal(
 #endif
 
   // Can we make another active socket now?
+<<<<<<< HEAD
   if (!group->HasAvailableSocketSlot(max_sockets_per_group_)
 #ifdef ANDROID
       && !ignore_limits
 #endif
      ) {
+=======
+  if (!group->HasAvailableSocketSlot(max_sockets_per_group_) &&
+      !request->ignore_limits()) {
+>>>>>>> chromium.org at r12.0.742.93
     request->net_log().AddEvent(
         NetLog::TYPE_SOCKET_POOL_STALLED_MAX_SOCKETS_PER_GROUP, NULL);
     return ERR_IO_PENDING;
   }
 
+<<<<<<< HEAD
   if (ReachedMaxSocketsLimit()
 #ifdef ANDROID
       && !ignore_limits
 #endif
      ) {
+=======
+  if (ReachedMaxSocketsLimit() && !request->ignore_limits()) {
+>>>>>>> chromium.org at r12.0.742.93
     if (idle_socket_count() > 0) {
       bool closed = CloseOneIdleSocketExceptInGroup(group);
       if (preconnecting && !closed)
@@ -654,8 +671,15 @@ void ClientSocketPoolBaseHelper::RemoveGroup(GroupMap::iterator it) {
 }
 
 // static
-void ClientSocketPoolBaseHelper::set_connect_backup_jobs_enabled(bool enabled) {
+bool ClientSocketPoolBaseHelper::connect_backup_jobs_enabled() {
+  return g_connect_backup_jobs_enabled;
+}
+
+// static
+bool ClientSocketPoolBaseHelper::set_connect_backup_jobs_enabled(bool enabled) {
+  bool old_value = g_connect_backup_jobs_enabled;
   g_connect_backup_jobs_enabled = enabled;
+  return old_value;
 }
 
 void ClientSocketPoolBaseHelper::EnableConnectBackupJobs() {
@@ -955,11 +979,16 @@ bool ClientSocketPoolBaseHelper::ReachedMaxSocketsLimit() const {
   // Each connecting socket will eventually connect and be handed out.
   int total = handed_out_socket_count_ + connecting_socket_count_ +
       idle_socket_count();
+<<<<<<< HEAD
 #ifdef ANDROID
   // The total can be temporarily higher with request that ignore limits
 #else
   DCHECK_LE(total, max_sockets_);
 #endif
+=======
+  // There can be more sockets than the limit since some requests can ignore
+  // the limit
+>>>>>>> chromium.org at r12.0.742.93
   if (total < max_sockets_)
     return false;
   return true;

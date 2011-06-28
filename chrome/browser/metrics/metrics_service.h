@@ -15,11 +15,11 @@
 
 #include "base/basictypes.h"
 #include "base/gtest_prod_util.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/common/metrics_helpers.h"
 #include "chrome/common/net/url_fetcher.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/external_metrics.h"
@@ -79,10 +79,6 @@ class MetricsService : public NotificationObserver,
   MetricsService();
   virtual ~MetricsService();
 
-  // Sets whether the user permits uploading.  The argument of this function
-  // should match the checkbox in Options.
-  void SetUserPermitsUpload(bool enabled);
-
   // Start/stop the metrics recording and uploading machine.  These should be
   // used on startup and when the user clicks the checkbox in the prefs.
   // StartRecordingOnly starts the metrics recording but not reporting, for use
@@ -95,20 +91,16 @@ class MetricsService : public NotificationObserver,
   // types we'll be using.
   static void RegisterPrefs(PrefService* local_state);
 
-  // Setup notifications which indicate that a user is performing work. This is
+  // Set up notifications which indicate that a user is performing work. This is
   // useful to allow some features to sleep, until the machine becomes active,
   // such as precluding UMA uploads unless there was recent activity.
-  static void SetupNotifications(NotificationRegistrar* registrar,
+  static void SetUpNotifications(NotificationRegistrar* registrar,
                                  NotificationObserver* observer);
 
   // Implementation of NotificationObserver
   virtual void Observe(NotificationType type,
                        const NotificationSource& source,
                        const NotificationDetails& details);
-
-  // This should be called when the application is shutting down, to record
-  // the fact that this was a clean shutdown in the stability metrics.
-  void RecordCleanShutdown();
 
   // Invoked when we get a WM_SESSIONEND. This places a value in prefs that is
   // reset when RecordCompletedSessionEnd is invoked.
@@ -177,13 +169,6 @@ class MetricsService : public NotificationObserver,
   void SetRecording(bool enabled);
 
   // Enable/disable transmission of accumulated logs and crash reports (dumps).
-  // Return value "true" indicates setting was definitively set as requested).
-  // Return value of "false" indicates that the enable state is effectively
-  // stuck in the other logical setting.
-  // Google Update maintains the authoritative preference in the registry, so
-  // the caller *might* not be able to actually change the setting.
-  // It is always possible to set this to at least one value, which matches the
-  // current value reported by querying Google Update.
   void SetReporting(bool enabled);
 
   // If in_idle is true, sets idle_since_last_transmission to true.
@@ -241,10 +226,9 @@ class MetricsService : public NotificationObserver,
   // MakePendingLog does nothing and returns.
   void MakePendingLog();
 
-  // Determines from state_ and permissions set out by the server and by
-  // the user whether the pending_log_ should be sent or discarded.  Called by
-  // TryToStartTransmission.
-  bool TransmissionPermitted() const;
+  // Determines from state_ and permissions set out by the server whether the
+  // pending_log_ should be sent or discarded.
+  bool ServerPermitsTransmission() const;
 
   // Check to see if there are any unsent logs from previous sessions.
   bool unsent_logs() const {
@@ -284,51 +268,6 @@ class MetricsService : public NotificationObserver,
   // a response code not equal to 200.
   void HandleBadResponseCode();
 
-  // Class to hold all attributes that gets inherited by children in the UMA
-  // response data xml tree.  This is to make it convenient in the
-  // recursive function that does the tree traversal to pass all such
-  // data in the recursive call.  If you want to add more such attributes,
-  // add them to this class.
-  class InheritedProperties {
-    public:
-    InheritedProperties() : salt(123123), denominator(1000000) {}
-    int salt, denominator;
-    // Notice salt and denominator are inherited from parent nodes, but
-    // not probability; the default value of probability is 1.
-
-    // When a new node is reached it might have fields which overwrite inherited
-    // properties for that node (and its children).  Call this method to
-    // overwrite those settings.
-    void OverwriteWhereNeeded(xmlNodePtr node);
-  };
-
-  // Called by OnURLFetchComplete with data as the argument
-  // parses the xml returned by the server in the call to OnURLFetchComplete
-  // and extracts settings for subsequent frequency and content of log posts.
-  void GetSettingsFromResponseData(const std::string& data);
-
-  // This is a helper function for GetSettingsFromResponseData which iterates
-  // through the xml tree at the level of the <chrome_config> node.
-  void GetSettingsFromChromeConfigNode(xmlNodePtr chrome_config_node);
-
-  // GetSettingsFromUploadNode handles iteration over the children of the
-  // <upload> child of the <chrome_config> node.  It calls the recursive
-  // function GetSettingsFromUploadNodeRecursive which does the actual
-  // tree traversal.
-  void GetSettingsFromUploadNode(xmlNodePtr upload_node);
-  void GetSettingsFromUploadNodeRecursive(xmlNodePtr node,
-      InheritedProperties props,
-      std::string path_prefix,
-      bool uploadOn);
-
-  // NodeProbabilityTest gets called at every node in the tree traversal
-  // performed by GetSettingsFromUploadNodeRecursive.  It determines from
-  // the inherited attributes (salt, denominator) and the probability
-  // assiciated with the node whether that node and its contents should
-  // contribute to the upload.
-  bool NodeProbabilityTest(xmlNodePtr node, InheritedProperties props) const;
-  bool ProbabilityTest(double probability, int salt, int denominator) const;
-
   // Records a window-related notification.
   void LogWindowChange(NotificationType type,
                        const NotificationSource& source,
@@ -349,6 +288,9 @@ class MetricsService : public NotificationObserver,
 
   // Records a renderer process hang.
   void LogRendererHang();
+
+  // Records that the browser was shut down cleanly.
+  void LogCleanShutdown();
 
   // Set the value in preferences for the number of bookmarks and folders
   // in node. The pref key for the number of bookmarks in num_bookmarks_key and
@@ -402,10 +344,6 @@ class MetricsService : public NotificationObserver,
   // SetReporting.
   bool recording_active_;
   bool reporting_active_;
-
-  // Coincides with the check box in options window that lets the user control
-  // whether to upload.
-  bool user_permits_upload_;
 
   // The variable server_permits_upload_ is set true when the response
   // data forbids uploading.  This should coinside with the "die roll"
@@ -476,11 +414,6 @@ class MetricsService : public NotificationObserver,
   // build up a log, but if other unsent-logs from previous sessions exist, we
   // quickly transmit those unsent logs while we continue to build a log.
   base::TimeDelta interlog_duration_;
-
-  // The maximum number of events which get transmitted in a log.  This defaults
-  // to a constant and otherwise is provided by the UMA server in the server
-  // response data.
-  int log_event_limit_;
 
   // Indicate that a timer for sending the next log has already been queued.
   bool timer_pending_;

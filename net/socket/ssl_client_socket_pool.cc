@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,12 +17,12 @@
 #include "net/socket/socks_client_socket_pool.h"
 #include "net/socket/ssl_client_socket.h"
 #include "net/socket/ssl_host_info.h"
-#include "net/socket/tcp_client_socket_pool.h"
+#include "net/socket/transport_client_socket_pool.h"
 
 namespace net {
 
 SSLSocketParams::SSLSocketParams(
-    const scoped_refptr<TCPSocketParams>& tcp_params,
+    const scoped_refptr<TransportSocketParams>& transport_params,
     const scoped_refptr<SOCKSSocketParams>& socks_params,
     const scoped_refptr<HttpProxySocketParams>& http_proxy_params,
     ProxyServer::Scheme proxy,
@@ -31,7 +31,7 @@ SSLSocketParams::SSLSocketParams(
     int load_flags,
     bool force_spdy_over_ssl,
     bool want_spdy_over_npn)
-    : tcp_params_(tcp_params),
+    : transport_params_(transport_params),
       http_proxy_params_(http_proxy_params),
       socks_params_(socks_params),
       proxy_(proxy),
@@ -42,30 +42,42 @@ SSLSocketParams::SSLSocketParams(
       want_spdy_over_npn_(want_spdy_over_npn) {
   switch (proxy_) {
     case ProxyServer::SCHEME_DIRECT:
-      DCHECK(tcp_params_.get() != NULL);
+      DCHECK(transport_params_.get() != NULL);
       DCHECK(http_proxy_params_.get() == NULL);
       DCHECK(socks_params_.get() == NULL);
+<<<<<<< HEAD
 #ifdef ANDROID
       ignore_limits_ = tcp_params_->ignore_limits();
 #endif
+=======
+      ignore_limits_ = transport_params_->ignore_limits();
+>>>>>>> chromium.org at r12.0.742.93
       break;
     case ProxyServer::SCHEME_HTTP:
     case ProxyServer::SCHEME_HTTPS:
-      DCHECK(tcp_params_.get() == NULL);
+      DCHECK(transport_params_.get() == NULL);
       DCHECK(http_proxy_params_.get() != NULL);
       DCHECK(socks_params_.get() == NULL);
+<<<<<<< HEAD
 #ifdef ANDROID
       ignore_limits_ = http_proxy_params_->ignore_limits();
 #endif
+=======
+      ignore_limits_ = http_proxy_params_->ignore_limits();
+>>>>>>> chromium.org at r12.0.742.93
       break;
     case ProxyServer::SCHEME_SOCKS4:
     case ProxyServer::SCHEME_SOCKS5:
-      DCHECK(tcp_params_.get() == NULL);
+      DCHECK(transport_params_.get() == NULL);
       DCHECK(http_proxy_params_.get() == NULL);
       DCHECK(socks_params_.get() != NULL);
+<<<<<<< HEAD
 #ifdef ANDROID
       ignore_limits_ = socks_params_->ignore_limits();
 #endif
+=======
+      ignore_limits_ = socks_params_->ignore_limits();
+>>>>>>> chromium.org at r12.0.742.93
       break;
     default:
       LOG(DFATAL) << "unknown proxy type";
@@ -82,7 +94,7 @@ SSLConnectJob::SSLConnectJob(
     const std::string& group_name,
     const scoped_refptr<SSLSocketParams>& params,
     const base::TimeDelta& timeout_duration,
-    TCPClientSocketPool* tcp_pool,
+    TransportClientSocketPool* transport_pool,
     SOCKSClientSocketPool* socks_pool,
     HttpProxyClientSocketPool* http_proxy_pool,
     ClientSocketFactory* client_socket_factory,
@@ -96,7 +108,7 @@ SSLConnectJob::SSLConnectJob(
     : ConnectJob(group_name, timeout_duration, delegate,
                  BoundNetLog::Make(net_log, NetLog::SOURCE_CONNECT_JOB)),
       params_(params),
-      tcp_pool_(tcp_pool),
+      transport_pool_(transport_pool),
       socks_pool_(socks_pool),
       http_proxy_pool_(http_proxy_pool),
       client_socket_factory_(client_socket_factory),
@@ -116,8 +128,8 @@ LoadState SSLConnectJob::GetLoadState() const {
       if (transport_socket_handle_->socket())
         return LOAD_STATE_ESTABLISHING_PROXY_TUNNEL;
       // else, fall through.
-    case STATE_TCP_CONNECT:
-    case STATE_TCP_CONNECT_COMPLETE:
+    case STATE_TRANSPORT_CONNECT:
+    case STATE_TRANSPORT_CONNECT_COMPLETE:
     case STATE_SOCKS_CONNECT:
     case STATE_SOCKS_CONNECT_COMPLETE:
     case STATE_TUNNEL_CONNECT:
@@ -157,12 +169,12 @@ int SSLConnectJob::DoLoop(int result) {
     State state = next_state_;
     next_state_ = STATE_NONE;
     switch (state) {
-      case STATE_TCP_CONNECT:
+      case STATE_TRANSPORT_CONNECT:
         DCHECK_EQ(OK, rv);
-        rv = DoTCPConnect();
+        rv = DoTransportConnect();
         break;
-      case STATE_TCP_CONNECT_COMPLETE:
-        rv = DoTCPConnectComplete(rv);
+      case STATE_TRANSPORT_CONNECT_COMPLETE:
+        rv = DoTransportConnectComplete(rv);
         break;
       case STATE_SOCKS_CONNECT:
         DCHECK_EQ(OK, rv);
@@ -195,8 +207,8 @@ int SSLConnectJob::DoLoop(int result) {
   return rv;
 }
 
-int SSLConnectJob::DoTCPConnect() {
-  DCHECK(tcp_pool_);
+int SSLConnectJob::DoTransportConnect() {
+  DCHECK(transport_pool_);
 
   if (ssl_host_info_factory_) {
       ssl_host_info_.reset(
@@ -213,15 +225,18 @@ int SSLConnectJob::DoTCPConnect() {
     ssl_host_info_->Start();
   }
 
-  next_state_ = STATE_TCP_CONNECT_COMPLETE;
+  next_state_ = STATE_TRANSPORT_CONNECT_COMPLETE;
   transport_socket_handle_.reset(new ClientSocketHandle());
-  scoped_refptr<TCPSocketParams> tcp_params = params_->tcp_params();
-  return transport_socket_handle_->Init(group_name(), tcp_params,
-                                        tcp_params->destination().priority(),
-                                        &callback_, tcp_pool_, net_log());
+  scoped_refptr<TransportSocketParams> transport_params =
+      params_->transport_params();
+  return transport_socket_handle_->Init(
+      group_name(),
+      transport_params,
+      transport_params->destination().priority(),
+      &callback_, transport_pool_, net_log());
 }
 
-int SSLConnectJob::DoTCPConnectComplete(int result) {
+int SSLConnectJob::DoTransportConnectComplete(int result) {
   if (result == OK)
     next_state_ = STATE_SSL_CONNECT;
 
@@ -343,6 +358,17 @@ int SSLConnectJob::DoSSLConnectComplete(int result) {
                                  base::TimeDelta::FromMinutes(10),
                                  100);
 
+      const std::string& host = params_->host_and_port().host();
+      bool is_google = host == "google.com" ||
+                       host.rfind(".google.com") == host.size() - 11;
+      if (is_google) {
+        UMA_HISTOGRAM_CUSTOM_TIMES("Net.SSL_Connection_Latency_Google",
+                                   connect_duration,
+                                   base::TimeDelta::FromMilliseconds(1),
+                                   base::TimeDelta::FromMinutes(10),
+                                   100);
+      }
+
       static bool false_start_trial(
           base::FieldTrialList::Find("SSLFalseStart") &&
           !base::FieldTrialList::Find("SSLFalseStart")->group_name().empty());
@@ -371,7 +397,7 @@ int SSLConnectJob::DoSSLConnectComplete(int result) {
 int SSLConnectJob::ConnectInternal() {
   switch (params_->proxy()) {
     case ProxyServer::SCHEME_DIRECT:
-      next_state_ = STATE_TCP_CONNECT;
+      next_state_ = STATE_TRANSPORT_CONNECT;
       break;
     case ProxyServer::SCHEME_HTTP:
     case ProxyServer::SCHEME_HTTPS:
@@ -389,7 +415,7 @@ int SSLConnectJob::ConnectInternal() {
 }
 
 SSLClientSocketPool::SSLConnectJobFactory::SSLConnectJobFactory(
-    TCPClientSocketPool* tcp_pool,
+    TransportClientSocketPool* transport_pool,
     SOCKSClientSocketPool* socks_pool,
     HttpProxyClientSocketPool* http_proxy_pool,
     ClientSocketFactory* client_socket_factory,
@@ -399,7 +425,7 @@ SSLClientSocketPool::SSLConnectJobFactory::SSLConnectJobFactory(
     DnsCertProvenanceChecker* dns_cert_checker,
     SSLHostInfoFactory* ssl_host_info_factory,
     NetLog* net_log)
-    : tcp_pool_(tcp_pool),
+    : transport_pool_(transport_pool),
       socks_pool_(socks_pool),
       http_proxy_pool_(http_proxy_pool),
       client_socket_factory_(client_socket_factory),
@@ -411,8 +437,8 @@ SSLClientSocketPool::SSLConnectJobFactory::SSLConnectJobFactory(
       net_log_(net_log) {
   base::TimeDelta max_transport_timeout = base::TimeDelta();
   base::TimeDelta pool_timeout;
-  if (tcp_pool_)
-    max_transport_timeout = tcp_pool_->ConnectionTimeout();
+  if (transport_pool_)
+    max_transport_timeout = transport_pool_->ConnectionTimeout();
   if (socks_pool_) {
     pool_timeout = socks_pool_->ConnectionTimeout();
     if (pool_timeout > max_transport_timeout)
@@ -437,22 +463,27 @@ SSLClientSocketPool::SSLClientSocketPool(
     DnsCertProvenanceChecker* dns_cert_checker,
     SSLHostInfoFactory* ssl_host_info_factory,
     ClientSocketFactory* client_socket_factory,
-    TCPClientSocketPool* tcp_pool,
+    TransportClientSocketPool* transport_pool,
     SOCKSClientSocketPool* socks_pool,
     HttpProxyClientSocketPool* http_proxy_pool,
     SSLConfigService* ssl_config_service,
     NetLog* net_log)
-    : tcp_pool_(tcp_pool),
+    : transport_pool_(transport_pool),
       socks_pool_(socks_pool),
       http_proxy_pool_(http_proxy_pool),
       base_(max_sockets, max_sockets_per_group, histograms,
             base::TimeDelta::FromSeconds(
                 ClientSocketPool::unused_idle_socket_timeout()),
             base::TimeDelta::FromSeconds(kUsedIdleSocketTimeout),
-            new SSLConnectJobFactory(tcp_pool, socks_pool, http_proxy_pool,
-                                     client_socket_factory, host_resolver,
-                                     cert_verifier, dnsrr_resolver,
-                                     dns_cert_checker, ssl_host_info_factory,
+            new SSLConnectJobFactory(transport_pool,
+                                     socks_pool,
+                                     http_proxy_pool,
+                                     client_socket_factory,
+                                     host_resolver,
+                                     cert_verifier,
+                                     dnsrr_resolver,
+                                     dns_cert_checker,
+                                     ssl_host_info_factory,
                                      net_log)),
       ssl_config_service_(ssl_config_service) {
   if (ssl_config_service_)
@@ -469,7 +500,7 @@ ConnectJob* SSLClientSocketPool::SSLConnectJobFactory::NewConnectJob(
     const PoolBase::Request& request,
     ConnectJob::Delegate* delegate) const {
   return new SSLConnectJob(group_name, request.params(), ConnectionTimeout(),
-                           tcp_pool_, socks_pool_, http_proxy_pool_,
+                           transport_pool_, socks_pool_, http_proxy_pool_,
                            client_socket_factory_, host_resolver_,
                            cert_verifier_, dnsrr_resolver_, dns_cert_checker_,
                            ssl_host_info_factory_, delegate, net_log_);
@@ -538,10 +569,10 @@ DictionaryValue* SSLClientSocketPool::GetInfoAsValue(
   DictionaryValue* dict = base_.GetInfoAsValue(name, type);
   if (include_nested_pools) {
     ListValue* list = new ListValue();
-    if (tcp_pool_) {
-      list->Append(tcp_pool_->GetInfoAsValue("tcp_socket_pool",
-                                             "tcp_socket_pool",
-                                             false));
+    if (transport_pool_) {
+      list->Append(transport_pool_->GetInfoAsValue("transport_socket_pool",
+                                                   "transport_socket_pool",
+                                                   false));
     }
     if (socks_pool_) {
       list->Append(socks_pool_->GetInfoAsValue("socks_pool",

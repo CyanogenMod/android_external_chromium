@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
 #include "googleurl/src/gurl.h"
 #include "ui/gfx/native_widget_types.h"
 
@@ -20,7 +20,7 @@ class ListValue;
 class Profile;
 class RenderViewHost;
 class TabContents;
-struct ViewHostMsg_DomMessage_Params;
+struct ExtensionHostMsg_DomMessage_Params;
 
 // A factory function for creating new ExtensionFunction instances.
 typedef ExtensionFunction* (*ExtensionFunctionFactory)();
@@ -86,7 +86,7 @@ class ExtensionFunctionDispatcher {
   Delegate* delegate() { return delegate_; }
 
   // Handle a request to execute an extension function.
-  void HandleRequest(const ViewHostMsg_DomMessage_Params& params);
+  void HandleRequest(const ExtensionHostMsg_DomMessage_Params& params);
 
   // Send a response to a function.
   void SendResponse(ExtensionFunction* api, bool success);
@@ -135,13 +135,6 @@ class ExtensionFunctionDispatcher {
   std::string extension_id_;
 
   scoped_refptr<Peer> peer_;
-
-  // AutomationExtensionFunction requires access to the RenderViewHost
-  // associated with us.  We make it a friend rather than exposing the
-  // RenderViewHost as a public method as we wouldn't want everyone to
-  // start assuming a 1:1 relationship between us and RenderViewHost,
-  // whereas AutomationExtensionFunction is by necessity "tight" with us.
-  friend class AutomationExtensionFunction;
 };
 
 #endif  // CHROME_BROWSER_EXTENSIONS_EXTENSION_FUNCTION_DISPATCHER_H_

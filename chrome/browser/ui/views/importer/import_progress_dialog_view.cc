@@ -5,6 +5,7 @@
 #include "chrome/browser/ui/views/importer/import_progress_dialog_view.h"
 
 #include "base/utf_string_conversions.h"
+#include "chrome/browser/importer/importer_host.h"
 #include "chrome/browser/importer/importer_observer.h"
 #include "chrome/browser/importer/importer_progress_dialog.h"
 #include "grit/chromium_strings.h"
@@ -22,7 +23,7 @@ ImportProgressDialogView::ImportProgressDialogView(
     uint16 items,
     ImporterHost* importer_host,
     ImporterObserver* importer_observer,
-    const std::wstring& source_name,
+    const string16& importer_name,
     bool bookmarks_import)
     : state_bookmarks_(new views::CheckmarkThrobber),
       state_searches_(new views::CheckmarkThrobber),
@@ -48,8 +49,7 @@ ImportProgressDialogView::ImportProgressDialogView(
   std::wstring info_text = bookmarks_import ?
       UTF16ToWide(l10n_util::GetStringUTF16(IDS_IMPORT_BOOKMARKS)) :
       UTF16ToWide(l10n_util::GetStringFUTF16(
-          IDS_IMPORT_PROGRESS_INFO,
-          WideToUTF16(source_name)));
+          IDS_IMPORT_PROGRESS_INFO, importer_name));
   label_info_ = new views::Label(info_text);
   importer_host_->SetObserver(this);
   label_info_->SetMultiLine(true);
@@ -215,6 +215,10 @@ void ImportProgressDialogView::InitControlLayout() {
   }
 }
 
+void ImportProgressDialogView::ImportStarted() {
+  importing_ = true;
+}
+
 void ImportProgressDialogView::ImportItemStarted(importer::ImportItem item) {
   DCHECK(items_ & item);
   switch (item) {
@@ -262,10 +266,6 @@ void ImportProgressDialogView::ImportItemEnded(importer::ImportItem item) {
   }
 }
 
-void ImportProgressDialogView::ImportStarted() {
-  importing_ = true;
-}
-
 void ImportProgressDialogView::ImportEnded() {
   // This can happen because:
   // - the import completed successfully.
@@ -275,7 +275,7 @@ void ImportProgressDialogView::ImportEnded() {
   // In every case, we need to close the UI now.
   importing_ = false;
   importer_host_->SetObserver(NULL);
-  window()->Close();
+  window()->CloseWindow();
   if (importer_observer_)
     importer_observer_->ImportCompleted();
 }
@@ -286,7 +286,7 @@ void ShowImportProgressDialog(HWND parent_window,
                               uint16 items,
                               ImporterHost* importer_host,
                               ImporterObserver* importer_observer,
-                              const ProfileInfo& source_profile,
+                              const SourceProfile& source_profile,
                               Profile* target_profile,
                               bool first_run) {
   DCHECK(items != 0);
@@ -295,8 +295,8 @@ void ShowImportProgressDialog(HWND parent_window,
       items,
       importer_host,
       importer_observer,
-      source_profile.description,
-      source_profile.browser_type == importer::BOOKMARKS_HTML);
+      source_profile.importer_name,
+      source_profile.importer_type == importer::BOOKMARKS_HTML);
 
   views::Window* window = views::Window::CreateChromeWindow(
       parent_window, gfx::Rect(), progress_view);

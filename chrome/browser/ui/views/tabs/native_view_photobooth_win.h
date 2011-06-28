@@ -9,7 +9,7 @@
 #include "chrome/browser/ui/views/tabs/native_view_photobooth.h"
 
 namespace views {
-class WidgetWin;
+class Widget;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -35,19 +35,20 @@ class NativeViewPhotoboothWin : public NativeViewPhotobooth {
   virtual ~NativeViewPhotoboothWin();
 
   // Replaces the view in the photo booth with the specified one.
-  virtual void Replace(gfx::NativeView new_view);
+  virtual void Replace(gfx::NativeView new_view) OVERRIDE;
 
   // Paints the current display image of the window into |canvas|, clipped to
   // |target_bounds|.
-  virtual void PaintScreenshotIntoCanvas(gfx::Canvas* canvas,
-                                         const gfx::Rect& target_bounds);
+  virtual void PaintScreenshotIntoCanvas(
+      gfx::Canvas* canvas,
+      const gfx::Rect& target_bounds) OVERRIDE;
 
  private:
   // Creates a mostly off-screen window to contain the HWND to be captured.
   void CreateCaptureWindow(HWND initial_hwnd);
 
   // The nearly off-screen photo-booth layered window used to hold the HWND.
-  views::WidgetWin* capture_window_;
+  views::Widget* capture_window_;
 
   // The current HWND being captured.
   HWND current_hwnd_;

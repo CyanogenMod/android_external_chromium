@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,13 +10,14 @@
 
 #import <Cocoa/Cocoa.h>
 
-#include "base/scoped_nsobject.h"
-#include "base/scoped_ptr.h"
-#include "base/scoped_vector.h"
+#include "base/memory/scoped_nsobject.h"
+#include "base/memory/scoped_ptr.h"
+#include "base/memory/scoped_vector.h"
 #include "chrome/browser/autocomplete/autocomplete_edit.h"
 #include "chrome/browser/autocomplete/autocomplete_edit_view_mac.h"
 #include "chrome/browser/extensions/image_loading_tracker.h"
 #include "chrome/browser/first_run/first_run.h"
+#include "chrome/browser/prefs/pref_member.h"
 #include "chrome/browser/ui/omnibox/location_bar.h"
 #include "chrome/browser/ui/toolbar/toolbar_model.h"
 #include "chrome/common/content_settings_types.h"
@@ -54,7 +55,8 @@ class LocationBarViewMac : public AutocompleteEditController,
 
   // Overridden from LocationBar:
   virtual void ShowFirstRunBubble(FirstRun::BubbleType bubble_type);
-  virtual void SetSuggestedText(const string16& text);
+  virtual void SetSuggestedText(const string16& text,
+                                InstantCompleteBehavior behavior);
   virtual std::wstring GetInputString() const;
   virtual WindowOpenDisposition GetWindowOpenDisposition() const;
   virtual PageTransition::Type GetPageTransition() const;
@@ -134,10 +136,10 @@ class LocationBarViewMac : public AutocompleteEditController,
   virtual void OnInputInProgress(bool in_progress);
   virtual void OnKillFocus();
   virtual void OnSetFocus();
-  virtual SkBitmap GetFavIcon() const;
+  virtual SkBitmap GetFavicon() const;
   virtual string16 GetTitle() const;
   virtual InstantController* GetInstant();
-  virtual TabContentsWrapper* GetTabContentsWrapper();
+  virtual TabContentsWrapper* GetTabContentsWrapper() const;
 
   NSImage* GetKeywordImage(const string16& keyword);
 
@@ -168,6 +170,9 @@ class LocationBarViewMac : public AutocompleteEditController,
   bool RefreshContentSettingsDecorations();
 
   void ShowFirstRunBubbleInternal(FirstRun::BubbleType bubble_type);
+
+  // Checks if the bookmark star should be enabled or not.
+  bool IsStarEnabled();
 
   scoped_ptr<AutocompleteEditViewMac> edit_view_;
 
@@ -219,6 +224,9 @@ class LocationBarViewMac : public AutocompleteEditController,
 
   // Used to schedule a task for the first run info bubble.
   ScopedRunnableMethodFactory<LocationBarViewMac> first_run_bubble_;
+
+  // Used to change the visibility of the star decoration.
+  BooleanPrefMember edit_bookmarks_enabled_;
 
   DISALLOW_COPY_AND_ASSIGN(LocationBarViewMac);
 };

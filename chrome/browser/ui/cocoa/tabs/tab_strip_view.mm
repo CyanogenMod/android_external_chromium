@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,8 @@
 
 #include "base/logging.h"
 #include "base/mac/mac_util.h"
-#include "chrome/browser/themes/browser_theme_provider.h"
+#include "chrome/browser/themes/theme_service.h"
+#import "chrome/browser/ui/cocoa/nsview_additions.h"
 #import "chrome/browser/ui/cocoa/browser_window_controller.h"
 #import "chrome/browser/ui/cocoa/tabs/tab_strip_controller.h"
 #import "chrome/browser/ui/cocoa/view_id_util.h"
@@ -14,6 +15,7 @@
 @implementation TabStripView
 
 @synthesize newTabButton = newTabButton_;
+@synthesize profileMenuButton = profileMenuButton_;
 @synthesize dropArrowShown = dropArrowShown_;
 @synthesize dropArrowPosition = dropArrowPosition_;
 
@@ -34,24 +36,25 @@
 // responsible for mimicking this bottom border, unless it's the selected
 // tab.
 - (void)drawBorder:(NSRect)bounds {
+  const CGFloat lineWidth = [self cr_lineWidth];
   NSRect borderRect, contentRect;
 
   borderRect = bounds;
-  borderRect.origin.y = 1;
-  borderRect.size.height = 1;
+  borderRect.origin.y = lineWidth;
+  borderRect.size.height = lineWidth;
   [[NSColor colorWithCalibratedWhite:0.0 alpha:0.2] set];
   NSRectFillUsingOperation(borderRect, NSCompositeSourceOver);
-  NSDivideRect(bounds, &borderRect, &contentRect, 1, NSMinYEdge);
+  NSDivideRect(bounds, &borderRect, &contentRect, lineWidth, NSMinYEdge);
 
-  BrowserThemeProvider* themeProvider =
-      static_cast<BrowserThemeProvider*>([[self window] themeProvider]);
+  ThemeService* themeProvider =
+      static_cast<ThemeService*>([[self window] themeProvider]);
   if (!themeProvider)
     return;
 
   NSColor* bezelColor = themeProvider->GetNSColor(
       themeProvider->UsingDefaultTheme() ?
-          BrowserThemeProvider::COLOR_TOOLBAR_BEZEL :
-          BrowserThemeProvider::COLOR_TOOLBAR, true);
+          ThemeService::COLOR_TOOLBAR_BEZEL :
+          ThemeService::COLOR_TOOLBAR, true);
   [bezelColor set];
   NSRectFill(borderRect);
   NSRectFillUsingOperation(borderRect, NSCompositeSourceOver);

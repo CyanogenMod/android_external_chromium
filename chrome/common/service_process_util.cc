@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,21 +8,21 @@
 #include "base/file_util.h"
 #include "base/logging.h"
 #include "base/mac/scoped_nsautorelease_pool.h"
+#include "base/memory/singleton.h"
 #include "base/path_service.h"
 #include "base/process_util.h"
 #include "base/sha1.h"
-#include "base/singleton.h"
 #include "base/string16.h"
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "base/version.h"
-#include "chrome/common/child_process_host.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/chrome_version_info.h"
 #include "chrome/common/service_process_util.h"
+#include "content/common/child_process_host.h"
 
 #if !defined(OS_MACOSX)
 
@@ -162,6 +162,7 @@ IPC::ChannelHandle GetServiceProcessChannel() {
 
 ServiceProcessState::ServiceProcessState() : state_(NULL) {
   CreateAutoRunCommandLine();
+  CreateState();
 }
 
 ServiceProcessState::~ServiceProcessState() {
@@ -173,11 +174,6 @@ ServiceProcessState::~ServiceProcessState() {
   TearDownState();
 }
 
-// static
-ServiceProcessState* ServiceProcessState::GetInstance() {
-  return Singleton<ServiceProcessState>::get();
-}
-
 void ServiceProcessState::SignalStopped() {
   TearDownState();
   shared_mem_service_data_.reset();
@@ -185,9 +181,6 @@ void ServiceProcessState::SignalStopped() {
 
 #if !defined(OS_MACOSX)
 bool ServiceProcessState::Initialize() {
-  if (!InitializeState()) {
-    return false;
-  }
   if (!TakeSingletonLock()) {
     return false;
   }
@@ -203,7 +196,7 @@ bool ServiceProcessState::Initialize() {
 
 bool ServiceProcessState::HandleOtherVersion() {
   std::string running_version;
-  base::ProcessId process_id;
+  base::ProcessId process_id = 0;
   ServiceProcessRunningState state =
       GetServiceProcessRunningState(&running_version, &process_id);
   switch (state) {

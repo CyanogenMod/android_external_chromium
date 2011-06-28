@@ -10,8 +10,7 @@
 #include <vector>
 
 #include "base/i18n/time_formatting.h"
-#include "base/nss_util.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/string_number_conversions.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
@@ -44,9 +43,11 @@ void AddKeyValue(GtkTable* table, int row, const std::string& text,
       gtk_util::IndentWidget(
           gtk_util::LeftAlignMisc(gtk_label_new(text.c_str()))),
       0, 1, row, row + 1);
+  GtkWidget* label = gtk_label_new(value.c_str());
+  gtk_label_set_selectable(GTK_LABEL(label), TRUE);
   gtk_table_attach_defaults(
       table,
-      gtk_util::LeftAlignMisc(gtk_label_new(value.c_str())),
+      gtk_util::LeftAlignMisc(label),
       1, 2, row, row + 1);
 }
 
@@ -485,6 +486,32 @@ void CertificateViewer::FillTreeStoreWithCertFields(
       FIELDS_VALUE,
       x509_certificate_model::ProcessRawBitsSignatureWrap(cert).c_str(),
       -1);
+
+  GtkTreeIter top_fingerprints_iter;
+  gtk_tree_store_append(store, &top_fingerprints_iter, &top);
+  gtk_tree_store_set(
+      store, &top_fingerprints_iter,
+      FIELDS_NAME,
+      l10n_util::GetStringUTF8(IDS_CERT_INFO_FINGERPRINTS_GROUP).c_str(),
+      FIELDS_VALUE, "",
+      -1);
+
+  GtkTreeIter fingerprints_iter;
+  gtk_tree_store_append(store, &fingerprints_iter, &top_fingerprints_iter);
+  gtk_tree_store_set(
+      store, &fingerprints_iter,
+      FIELDS_NAME,
+      l10n_util::GetStringUTF8(IDS_CERT_INFO_SHA256_FINGERPRINT_LABEL).c_str(),
+      FIELDS_VALUE, x509_certificate_model::HashCertSHA256(cert).c_str(),
+      -1);
+
+  gtk_tree_store_append(store, &fingerprints_iter, &top_fingerprints_iter);
+  gtk_tree_store_set(
+      store, &fingerprints_iter,
+      FIELDS_NAME,
+      l10n_util::GetStringUTF8(IDS_CERT_INFO_SHA1_FINGERPRINT_LABEL).c_str(),
+      FIELDS_VALUE, x509_certificate_model::HashCertSHA1(cert).c_str(),
+      -1);
 }
 
 // static
@@ -670,7 +697,7 @@ void CertificateViewer::OnExportClicked(GtkButton *button,
     return;
   }
 
-  ShowCertExportDialog(GTK_WINDOW(viewer->dialog_),
+  ShowCertExportDialog(NULL, GTK_WINDOW(viewer->dialog_),
                        viewer->cert_chain_list_[cert_index]);
 }
 

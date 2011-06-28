@@ -48,6 +48,7 @@ import sys
 import time
 import tlslite
 import tlslite.api
+import tlslite.utils
 
 # The name and availability of the json module varies in python versions.
 try:
@@ -58,9 +59,13 @@ except ImportError:
   except ImportError:
     json = None
 
+import asn1der
 import device_management_backend_pb2 as dm
 import cloud_policy_pb2 as cp
+import chrome_device_policy_pb2 as dp
 
+# ASN.1 object identifier for PKCS#1/RSA.
+PKCS1_RSA_OID = '\x2a\x86\x48\x86\xf7\x0d\x01\x01\x01'
 
 class RequestHandler(object):
   """Decodes and handles device management requests from clients.
@@ -172,7 +177,6 @@ class RequestHandler(object):
 
     # Send back the reply.
     response = dm.DeviceManagementResponse()
-    response.error = dm.DeviceManagementResponse.SUCCESS
     response.register_response.device_management_token = (
         token_info['device_token'])
     response.register_response.machine_name = token_info['machine_name']
@@ -203,7 +207,6 @@ class RequestHandler(object):
 
     # Prepare and send the response.
     response = dm.DeviceManagementResponse()
-    response.error = dm.DeviceManagementResponse.SUCCESS
     response.unregister_response.CopyFrom(dm.DeviceUnregisterResponse())
 
     self.DumpMessage('Response', response)
@@ -242,7 +245,6 @@ class RequestHandler(object):
 
     # Prepare and send the response.
     response = dm.DeviceManagementResponse()
-    response.error = dm.DeviceManagementResponse.SUCCESS
     fetch_response = response.policy_response.response.add()
     fetch_response.policy_data = (
         policy_data.SerializeToString())
@@ -272,7 +274,6 @@ class RequestHandler(object):
 
     # Stuff the policy dictionary into a response message and send it back.
     response = dm.DeviceManagementResponse()
-    response.error = dm.DeviceManagementResponse.SUCCESS
     response.policy_response.CopyFrom(dm.DevicePolicyResponse())
 
     # Respond only if the client requested policy for the cros/device scope,
@@ -344,10 +345,16 @@ class RequestHandler(object):
           group_message.DESCRIPTOR.fields.
       field_value: The value to set.
     '''
-    if field.type == field.TYPE_BOOL:
+    if field.label == field.LABEL_REPEATED:
+      assert type(field_value) == list
+      entries = group_message.__getattribute__(field.name)
+      for list_item in field_value:
+        entries.append(list_item)
+      return
+    elif field.type == field.TYPE_BOOL:
       assert type(field_value) == bool
     elif field.type == field.TYPE_STRING:
-      assert type(field_value) == str
+      assert type(field_value) == str or type(field_value) == unicode
     elif field.type == field.TYPE_INT64:
       assert type(field_value) == int
     elif (field.type == field.TYPE_MESSAGE and
@@ -361,7 +368,31 @@ class RequestHandler(object):
       raise Exception('Unknown field type %s' % field.type)
     group_message.__setattr__(field.name, field_value)
 
-  def GatherPolicySettings(self, settings, policies):
+  def GatherDevicePolicySettings(self, settings, policies):
+    '''Copies all the policies from a dictionary into a protobuf of type
+    CloudDeviceSettingsProto.
+
+    Args:
+      settings: The destination ChromeDeviceSettingsProto protobuf.
+      policies: The source dictionary containing policies in JSON format.
+    '''
+    for group in settings.DESCRIPTOR.fields:
+      # Create protobuf message for group.
+      group_message = eval('dp.' + group.message_type.name + '()')
+      # Indicates if at least one field was set in |group_message|.
+      got_fields = False
+      # Iterate over fields of the message and feed them from the
+      # policy config file.
+      for field in group_message.DESCRIPTOR.fields:
+        field_value = None
+        if field.name in policies:
+          got_fields = True
+          field_value = policies[field.name]
+          self.SetProtobufMessageField(group_message, field, field_value)
+      if got_fields:
+        settings.__getattribute__(group.name).CopyFrom(group_message)
+
+  def GatherUserPolicySettings(self, settings, policies):
     '''Copies all the policies from a dictionary into a protobuf of type
     CloudPolicySettings.
 
@@ -410,32 +441,60 @@ class RequestHandler(object):
     if not token_info:
       return error
 
-    settings = cp.CloudPolicySettings()
-
+    # Response is only given if the scope is specified in the config file.
+    # Normally 'google/chromeos/device' and 'google/chromeos/user' should be
+    # accepted.
+    policy_value = ''
     if (msg.policy_type in token_info['allowed_policy_types'] and
         msg.policy_type in self._server.policy):
-      # Response is only given if the scope is specified in the config file.
-      # Normally 'chromeos/device' and 'chromeos/user' should be accepted.
-      self.GatherPolicySettings(settings,
-                                self._server.policy[msg.policy_type])
+      if msg.policy_type == 'google/chromeos/user':
+        settings = cp.CloudPolicySettings()
+        self.GatherUserPolicySettings(settings,
+                                      self._server.policy[msg.policy_type])
+        policy_value = settings.SerializeToString()
+      elif msg.policy_type == 'google/chromeos/device':
+        settings = dp.ChromeDeviceSettingsProto()
+        self.GatherDevicePolicySettings(settings,
+                                        self._server.policy[msg.policy_type])
+        policy_value = settings.SerializeToString()
 
+    # Figure out the key we want to use. If multiple keys are configured, the
+    # server will rotate through them in a round-robin fashion.
+    signing_key = None
+    req_key = None
+    key_version = 1
+    nkeys = len(self._server.keys)
+    if msg.signature_type == dm.PolicyFetchRequest.SHA1_RSA and nkeys > 0:
+      if msg.public_key_version in range(1, nkeys + 1):
+        # requested key exists, use for signing and rotate.
+        req_key = self._server.keys[msg.public_key_version - 1]['private_key']
+        key_version = (msg.public_key_version % nkeys) + 1
+      signing_key = self._server.keys[key_version - 1]
+
+    # Fill the policy data protobuf.
     policy_data = dm.PolicyData()
-    policy_data.policy_value = settings.SerializeToString()
     policy_data.policy_type = msg.policy_type
     policy_data.timestamp = int(time.time() * 1000)
     policy_data.request_token = token_info['device_token'];
+    policy_data.policy_value = policy_value
     policy_data.machine_name = token_info['machine_name']
+    if signing_key:
+      policy_data.public_key_version = key_version
+    policy_data.username = self._server.username
+    policy_data.device_id = token_info['device_id']
     signed_data = policy_data.SerializeToString()
 
     response = dm.DeviceManagementResponse()
-    response.error = dm.DeviceManagementResponse.SUCCESS
     fetch_response = response.policy_response.response.add()
     fetch_response.policy_data = signed_data
-    fetch_response.policy_data_signature = (
-        self._server.private_key.hashAndSign(signed_data).tostring())
-    for certificate in self._server.cert_chain:
-      fetch_response.certificate_chain.append(
-          certificate.writeBytes().tostring())
+    if signing_key:
+      fetch_response.policy_data_signature = (
+          signing_key['private_key'].hashAndSign(signed_data).tostring())
+      if msg.public_key_version != key_version:
+        fetch_response.new_public_key = signing_key['public_key']
+        if req_key:
+          fetch_response.new_public_key_signature = (
+              req_key.hashAndSign(fetch_response.new_public_key).tostring())
 
     self.DumpMessage('Response', response)
 
@@ -485,16 +544,22 @@ class RequestHandler(object):
 class TestServer(object):
   """Handles requests and keeps global service state."""
 
-  def __init__(self, policy_path, policy_cert_chain):
+  def __init__(self, policy_path, private_key_paths, policy_user):
     """Initializes the server.
 
     Args:
       policy_path: Names the file to read JSON-formatted policy from.
-      policy_cert_chain: List of paths to X.509 certificate files of the
-          certificate chain used for signing responses.
+      private_key_paths: List of paths to read private keys from.
     """
     self._registered_tokens = {}
     self.policy = {}
+
+    # There is no way to for the testserver to know the user name belonging to
+    # the GAIA auth token we received (short of actually talking to GAIA). To
+    # address this, we have a command line parameter to set the username that
+    # the server should report to the client.
+    self.username = policy_user
+
     if json is None:
       print 'No JSON module, cannot parse policy information'
     else :
@@ -503,19 +568,35 @@ class TestServer(object):
       except IOError:
         print 'Failed to load policy from %s' % policy_path
 
-    self.private_key = None
-    self.cert_chain = []
-    for cert_path in policy_cert_chain:
-      try:
-        cert_text = open(cert_path).read()
-      except IOError:
-        print 'Failed to load certificate from %s' % cert_path
-      certificate = tlslite.api.X509()
-      certificate.parse(cert_text)
-      self.cert_chain.append(certificate)
-      if self.private_key is None:
-        self.private_key = tlslite.api.parsePEMKey(cert_text, private=True)
-        assert self.private_key != None
+    self.keys = []
+    if private_key_paths:
+      # Load specified keys from the filesystem.
+      for key_path in private_key_paths:
+        try:
+          key = tlslite.api.parsePEMKey(open(key_path).read(), private=True)
+        except IOError:
+          print 'Failed to load private key from %s' % key_path
+          continue
+
+        assert key != None
+        self.keys.append({ 'private_key' : key })
+    else:
+      # Generate a key if none were specified.
+      key = tlslite.api.generateRSAKey(1024)
+      assert key != None
+      self.keys.append({ 'private_key' : key })
+
+    # Derive the public keys from the loaded private keys.
+    for entry in self.keys:
+      key = entry['private_key']
+
+      algorithm = asn1der.Sequence(
+          [ asn1der.Data(asn1der.OBJECT_IDENTIFIER, PKCS1_RSA_OID),
+            asn1der.Data(asn1der.NULL, '') ])
+      rsa_pubkey = asn1der.Sequence([ asn1der.Integer(key.n),
+                                      asn1der.Integer(key.e) ])
+      pubkey = asn1der.Sequence([ algorithm, asn1der.Bitstring(rsa_pubkey) ])
+      entry['public_key'] = pubkey;
 
   def HandleRequest(self, path, headers, request):
     """Handles a request.

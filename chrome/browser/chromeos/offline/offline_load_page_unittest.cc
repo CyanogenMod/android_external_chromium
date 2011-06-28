@@ -1,14 +1,13 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/chromeos/offline/offline_load_page.h"
-#include "chrome/common/render_messages.h"
-#include "chrome/common/render_messages_params.h"
 #include "content/browser/browser_thread.h"
 #include "content/browser/renderer_host/test_render_view_host.h"
 #include "content/browser/tab_contents/navigation_entry.h"
 #include "content/browser/tab_contents/test_tab_contents.h"
+#include "content/common/view_messages.h"
 
 static const char* kURL1 = "http://www.google.com/";
 static const char* kURL2 = "http://www.gmail.com/";
@@ -66,7 +65,7 @@ class OfflineLoadPageTest : public RenderViewHostTestHarness,
   void Navigate(const char* url, int page_id) {
     ViewHostMsg_FrameNavigate_Params params;
     InitNavigateParams(&params, page_id, GURL(url), PageTransition::TYPED);
-    contents()->TestDidNavigate(contents_->render_view_host(), params);
+    contents()->TestDidNavigate(contents()->render_view_host(), params);
   }
 
   void ShowInterstitial(const char* url) {

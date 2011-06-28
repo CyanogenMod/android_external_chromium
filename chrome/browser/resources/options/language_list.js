@@ -4,10 +4,51 @@
 
 cr.define('options', function() {
   const ArrayDataModel = cr.ui.ArrayDataModel;
-  const LanguageOptions = options.LanguageOptions;
+  const DeletableItem = options.DeletableItem;
+  const DeletableItemList = options.DeletableItemList;
   const List = cr.ui.List;
   const ListItem = cr.ui.ListItem;
   const ListSingleSelectionModel = cr.ui.ListSingleSelectionModel;
+
+  /**
+   * Creates a new Language list item.
+   * @param {String} languageCode the languageCode.
+   * @constructor
+   * @extends {DeletableItem.ListItem}
+   */
+  function LanguageListItem(languageCode) {
+    var el = cr.doc.createElement('li');
+    el.__proto__ = LanguageListItem.prototype;
+    el.languageCode_ = languageCode;
+    el.decorate();
+    return el;
+  };
+
+  LanguageListItem.prototype = {
+    __proto__: DeletableItem.prototype,
+
+    /**
+     * The language code of this language.
+     * @type {String}
+     * @private
+     */
+    languageCode_: null,
+
+    /** @inheritDoc */
+    decorate: function() {
+      DeletableItem.prototype.decorate.call(this);
+
+      var languageCode = this.languageCode_;
+      var languageOptions = options.LanguageOptions.getInstance();
+      this.deletable = languageOptions.languageIsDeletable(languageCode);
+      this.languageCode = languageCode;
+      this.contentElement.textContent =
+          LanguageList.getDisplayNameFromLanguageCode(languageCode);
+      this.title =
+          LanguageList.getNativeDisplayNameFromLanguageCode(languageCode);
+      this.draggable = true;
+    },
+  };
 
   /**
    * Creates a new language list.
@@ -68,7 +109,7 @@ cr.define('options', function() {
   }
 
   LanguageList.prototype = {
-    __proto__: List.prototype,
+    __proto__: DeletableItemList.prototype,
 
     // The list item being dragged.
     draggedItem: null,
@@ -85,7 +126,7 @@ cr.define('options', function() {
 
     /** @inheritDoc */
     decorate: function() {
-      List.prototype.decorate.call(this);
+      DeletableItemList.prototype.decorate.call(this);
       this.selectionModel = new ListSingleSelectionModel;
 
       // HACK(arv): http://crbug.com/40902
@@ -108,16 +149,19 @@ cr.define('options', function() {
     },
 
     createItem: function(languageCode) {
-      var languageDisplayName =
-          LanguageList.getDisplayNameFromLanguageCode(languageCode);
-      var languageNativeDisplayName =
-          LanguageList.getNativeDisplayNameFromLanguageCode(languageCode);
-      return new ListItem({
-        label: languageDisplayName,
-        draggable: true,
-        languageCode: languageCode,
-        title: languageNativeDisplayName  // Show native name as tooltip.
-      });
+      return new LanguageListItem(languageCode);
+    },
+
+    /*
+     * For each item, determines whether it's deletable.
+     */
+    updateDeletable: function() {
+      for (var i = 0; i < this.items.length; ++i) {
+        var item = this.getListItemByIndex(i);
+        var languageCode = item.languageCode;
+        var languageOptions = options.LanguageOptions.getInstance();
+        item.deletable = languageOptions.languageIsDeletable(languageCode);
+      }
     },
 
     /*
@@ -164,17 +208,30 @@ cr.define('options', function() {
       return false;
     },
 
-    /*
-     * Removes the currently selected language.
-     */
-    removeSelectedLanguage: function() {
-      if (this.selectionModel.selectedIndex >= 0) {
-        this.dataModel.splice(this.selectionModel.selectedIndex, 1);
+    /** @inheritDoc */
+    deleteItemAtIndex: function(index) {
+      if (index >= 0) {
+        this.dataModel.splice(index, 1);
         // Once the selected item is removed, there will be no selected item.
         // Select the item pointed by the lead index.
-        this.selectionModel.selectedIndex = this.selectionModel.leadIndex;
+        index = this.selectionModel.leadIndex;
         this.savePreference_();
       }
+      return index;
+    },
+
+    /*
+     * Computes the target item of drop event.
+     * @param {Event} e The drop or dragover event.
+     * @private
+     */
+    getTargetFromDropEvent_ : function(e) {
+      var target = e.target;
+      // e.target may be an inner element of the list item
+      while (target != null && !(target instanceof ListItem)) {
+        target = target.parentNode;
+      }
+      return target;
     },
 
     /*
@@ -211,8 +268,8 @@ cr.define('options', function() {
      * @private
      */
     handleDragOver_: function(e) {
-      var dropTarget = e.target;
-      // Determins whether the drop target is to accept the drop.
+      var dropTarget = this.getTargetFromDropEvent_(e);
+      // Determines whether the drop target is to accept the drop.
       // The drop is only successful on another ListItem.
       if (!(dropTarget instanceof ListItem) ||
           dropTarget == this.draggedItem) {
@@ -235,7 +292,7 @@ cr.define('options', function() {
      * @private
      */
     handleDrop_: function(e) {
-      var dropTarget = e.target;
+      var dropTarget = this.getTargetFromDropEvent_(e);
 
       // Delete the language from the original position.
       var languageCode = this.draggedItem.languageCode;
@@ -368,6 +425,7 @@ cr.define('options', function() {
   };
 
   return {
-    LanguageList: LanguageList
+    LanguageList: LanguageList,
+    LanguageListItem: LanguageListItem
   };
 });

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,24 +14,23 @@
 #include "base/file_path.h"
 #include "base/gtest_prod_util.h"
 #include "base/hash_tables.h"
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
 #include "base/task.h"
-#include "chrome/browser/history/download_create_info.h"
 #include "chrome/browser/ui/shell_dialogs.h"
 #include "content/browser/tab_contents/tab_contents_observer.h"
 #include "googleurl/src/gurl.h"
 
-class SaveFileManager;
-class SaveItem;
-class SavePackage;
 class DownloadItem;
 class DownloadManager;
 class GURL;
 class MessageLoop;
 class PrefService;
 class Profile;
-class TabContents;
-class URLRequestContextGetter;
+struct SaveFileCreateInfo;
+class SaveFileManager;
+class SaveItem;
+class SavePackage;
+struct SavePackageParam;
 class TabContents;
 
 namespace base {
@@ -39,8 +38,10 @@ class Thread;
 class Time;
 }
 
-struct SaveFileCreateInfo;
-struct SavePackageParam;
+namespace net {
+class URLRequestContextGetter;
+}
+
 
 // The SavePackage object manages the process of saving a page as only-html or
 // complete-html and providing the information for displaying saving status.
@@ -164,12 +165,6 @@ class SavePackage : public base::RefCountedThreadSafe<SavePackage>,
   void SaveNextFile(bool process_all_remainder_items);
   void DoSavingProcess();
 
-  // Called when Save Page As entry is commited to the history system.
-  void OnDownloadEntryAdded(DownloadCreateInfo info, int64 db_handle);
-
-  // Called when a Save Page As download is started.
-  void CreateDownloadItem(const FilePath& path, const GURL& url, bool is_otr);
-
   // TabContentsObserver implementation.
   virtual bool OnMessageReceived(const IPC::Message& message);
 
@@ -271,7 +266,7 @@ class SavePackage : public base::RefCountedThreadSafe<SavePackage>,
 
   // The request context which provides application-specific context for
   // net::URLRequest instances.
-  scoped_refptr<URLRequestContextGetter> request_context_getter_;
+  scoped_refptr<net::URLRequestContextGetter> request_context_getter_;
 
   // Non-owning pointer for handling file writing on the file thread.
   SaveFileManager* file_manager_;

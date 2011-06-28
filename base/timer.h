@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -47,6 +47,7 @@
 // because they're flaky on the buildbot, but when you run them locally you
 // should be able to tell the difference.
 
+#include "base/base_api.h"
 #include "base/logging.h"
 #include "base/task.h"
 #include "base/time.h"
@@ -61,7 +62,7 @@ namespace base {
 //
 // This class exists to share code between BaseTimer<T> template instantiations.
 //
-class BaseTimer_Helper {
+class BASE_API BaseTimer_Helper {
  public:
   // Stops the timer.
   ~BaseTimer_Helper() {
@@ -232,7 +233,7 @@ class DelayTimer {
 
  private:
   void DelayFor(TimeDelta delay) {
-    trigger_time_ = Time::Now() + delay;
+    trigger_time_ = TimeTicks::Now() + delay;
 
     // If we already have a timer that will expire at or before the given delay,
     // then we have nothing more to do now.
@@ -249,7 +250,7 @@ class DelayTimer {
       return;
 
     // If we have not waited long enough, then wait some more.
-    const Time now = Time::Now();
+    const TimeTicks now = TimeTicks::Now();
     if (now < trigger_time_) {
       DelayFor(trigger_time_ - now);
       return;
@@ -263,7 +264,7 @@ class DelayTimer {
   const TimeDelta delay_;
 
   OneShotTimer<DelayTimer<Receiver> > timer_;
-  Time trigger_time_;
+  TimeTicks trigger_time_;
 };
 
 }  // namespace base

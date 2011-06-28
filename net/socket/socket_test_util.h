@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,10 +14,10 @@
 #include "base/basictypes.h"
 #include "base/callback.h"
 #include "base/logging.h"
-#include "base/scoped_ptr.h"
-#include "base/scoped_vector.h"
+#include "base/memory/scoped_ptr.h"
+#include "base/memory/scoped_vector.h"
+#include "base/memory/weak_ptr.h"
 #include "base/string16.h"
-#include "base/weak_ptr.h"
 #include "net/base/address_list.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
@@ -31,7 +31,7 @@
 #include "net/socket/socks_client_socket_pool.h"
 #include "net/socket/ssl_client_socket.h"
 #include "net/socket/ssl_client_socket_pool.h"
-#include "net/socket/tcp_client_socket_pool.h"
+#include "net/socket/transport_client_socket_pool.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace net {
@@ -243,17 +243,15 @@ class DynamicSocketDataProvider : public SocketDataProvider {
 // SSLSocketDataProviders only need to keep track of the return code from calls
 // to Connect().
 struct SSLSocketDataProvider {
-  SSLSocketDataProvider(bool async, int result)
-      : connect(async, result),
-        next_proto_status(SSLClientSocket::kNextProtoUnsupported),
-        was_npn_negotiated(false),
-        cert_request_info(NULL) { }
+  SSLSocketDataProvider(bool async, int result);
+  ~SSLSocketDataProvider();
 
   MockConnect connect;
   SSLClientSocket::NextProtoStatus next_proto_status;
   std::string next_proto;
   bool was_npn_negotiated;
   net::SSLCertRequestInfo* cert_request_info;
+  scoped_refptr<X509Certificate> cert_;
 };
 
 // A DataProvider where the client must write a request before the reads (e.g.
@@ -535,7 +533,7 @@ class MockClientSocketFactory : public ClientSocketFactory {
   }
 
   // ClientSocketFactory
-  virtual ClientSocket* CreateTCPClientSocket(
+  virtual ClientSocket* CreateTransportClientSocket(
       const AddressList& addresses,
       NetLog* net_log,
       const NetLog::Source& source);
@@ -582,6 +580,7 @@ class MockClientSocket : public net::SSLClientSocket {
   virtual bool IsConnected() const;
   virtual bool IsConnectedAndIdle() const;
   virtual int GetPeerAddress(AddressList* address) const;
+  virtual int GetLocalAddress(IPEndPoint* address) const;
   virtual const BoundNetLog& NetLog() const;
   virtual void SetSubresourceSpeculation() {}
   virtual void SetOmniboxSpeculation() {}
@@ -623,6 +622,7 @@ class MockTCPClientSocket : public MockClientSocket {
   virtual void Disconnect();
   virtual bool IsConnected() const;
   virtual bool IsConnectedAndIdle() const;
+  virtual int GetPeerAddress(AddressList* address) const;
   virtual bool WasEverUsed() const;
   virtual bool UsingTCPFastOpen() const;
 
@@ -815,7 +815,7 @@ class ClientSocketPoolTest {
   size_t completion_count_;
 };
 
-class MockTCPClientSocketPool : public TCPClientSocketPool {
+class MockTransportClientSocketPool : public TransportClientSocketPool {
  public:
   class MockConnectJob {
    public:
@@ -837,18 +837,18 @@ class MockTCPClientSocketPool : public TCPClientSocketPool {
     DISALLOW_COPY_AND_ASSIGN(MockConnectJob);
   };
 
-  MockTCPClientSocketPool(
+  MockTransportClientSocketPool(
       int max_sockets,
       int max_sockets_per_group,
       ClientSocketPoolHistograms* histograms,
       ClientSocketFactory* socket_factory);
 
-  virtual ~MockTCPClientSocketPool();
+  virtual ~MockTransportClientSocketPool();
 
   int release_count() const { return release_count_; }
   int cancel_count() const { return cancel_count_; }
 
-  // TCPClientSocketPool methods.
+  // TransportClientSocketPool methods.
   virtual int RequestSocket(const std::string& group_name,
                             const void* socket_params,
                             RequestPriority priority,
@@ -867,7 +867,7 @@ class MockTCPClientSocketPool : public TCPClientSocketPool {
   int release_count_;
   int cancel_count_;
 
-  DISALLOW_COPY_AND_ASSIGN(MockTCPClientSocketPool);
+  DISALLOW_COPY_AND_ASSIGN(MockTransportClientSocketPool);
 };
 
 class DeterministicMockClientSocketFactory : public ClientSocketFactory {
@@ -891,9 +891,10 @@ class DeterministicMockClientSocketFactory : public ClientSocketFactory {
   }
 
   // ClientSocketFactory
-  virtual ClientSocket* CreateTCPClientSocket(const AddressList& addresses,
-                                              NetLog* net_log,
-                                              const NetLog::Source& source);
+  virtual ClientSocket* CreateTransportClientSocket(
+      const AddressList& addresses,
+      NetLog* net_log,
+      const NetLog::Source& source);
   virtual SSLClientSocket* CreateSSLClientSocket(
       ClientSocketHandle* transport_socket,
       const HostPortPair& host_and_port,
@@ -918,7 +919,7 @@ class MockSOCKSClientSocketPool : public SOCKSClientSocketPool {
       int max_sockets,
       int max_sockets_per_group,
       ClientSocketPoolHistograms* histograms,
-      TCPClientSocketPool* tcp_pool);
+      TransportClientSocketPool* transport_pool);
 
   virtual ~MockSOCKSClientSocketPool();
 
@@ -936,7 +937,7 @@ class MockSOCKSClientSocketPool : public SOCKSClientSocketPool {
                              ClientSocket* socket, int id);
 
  private:
-  TCPClientSocketPool* const tcp_pool_;
+  TransportClientSocketPool* const transport_pool_;
 
   DISALLOW_COPY_AND_ASSIGN(MockSOCKSClientSocketPool);
 };

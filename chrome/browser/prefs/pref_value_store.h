@@ -12,7 +12,7 @@
 
 #include "base/basictypes.h"
 #include "base/gtest_prod_util.h"
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
 #include "base/values.h"
 #include "chrome/common/pref_store.h"
 #include "content/browser/browser_thread.h"
@@ -78,7 +78,7 @@ class PrefValueStore {
   // Preference::GetValue() instead of calling this method directly.
   bool GetValue(const std::string& name,
                 Value::ValueType type,
-                Value** out_value) const;
+                const Value** out_value) const;
 
   // These methods return true if a preference with the given name is in the
   // indicated pref store, even if that value is currently being overridden by
@@ -107,12 +107,15 @@ class PrefValueStore {
   //   MANAGED_PLATFORM contains all managed preference values that are
   //       provided by a platform-specific policy mechanism (e.g. Windows
   //       Group Policy).
-  //   DEVICE_MANAGEMENT contains all managed preference values supplied
+  //   MANAGED_CLOUD contains all managed preference values supplied
   //       by the device management server (cloud policy).
   //   EXTENSION contains preference values set by extensions.
   //   COMMAND_LINE contains preference values set by command-line switches.
   //   USER contains all user-set preference values.
-  //   RECOMMENDED contains all recommended (policy) preference values.
+  //   RECOMMENDED_PLATFORM contains all recommended (policy) preference values
+  //      that are provided by a platform-specific policy mechanism.
+  //   RECOMMENDED_CLOUD contains all recommended (policy) preference values
+  //      that are provided by the device management server (cloud policy).
   //   DEFAULT contains all application default preference values.
   enum PrefStoreType {
     // INVALID_STORE is not associated with an actual PrefStore but used as
@@ -195,7 +198,7 @@ class PrefValueStore {
   // Get a value from the specified store type.
   bool GetValueFromStore(const char* name,
                          PrefStoreType store,
-                         Value** out_value) const;
+                         const Value** out_value) const;
 
   // Called upon changes in individual pref stores in order to determine whether
   // the user-visible pref value has changed. Triggers the change notification

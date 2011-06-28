@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -34,6 +34,7 @@
 #include "ui/gfx/font.h"
 #include "views/controls/button/menu_button.h"
 #include "views/controls/label.h"
+#include "views/controls/textfield/textfield.h"
 #include "views/controls/throbber.h"
 #include "views/widget/widget_gtk.h"
 
@@ -112,13 +113,13 @@ NewUserView::NewUserView(Delegate* delegate,
       splitter_down1_(NULL),
       splitter_down2_(NULL),
       sign_in_button_(NULL),
-      create_account_link_(NULL),
       guest_link_(NULL),
+      create_account_link_(NULL),
       languages_menubutton_(NULL),
-      accel_focus_pass_(views::Accelerator(ui::VKEY_P, false, false, true)),
-      accel_focus_user_(views::Accelerator(ui::VKEY_U, false, false, true)),
-      accel_login_off_the_record_(
-          views::Accelerator(ui::VKEY_B, false, false, true)),
+      accel_focus_pass_(ui::VKEY_P, false, false, true),
+      accel_focus_user_(ui::VKEY_U, false, false, true),
+      accel_enterprise_enrollment_(ui::VKEY_E, false, true, true),
+      accel_login_off_the_record_(ui::VKEY_B, false, false, true),
       accel_toggle_accessibility_(WizardAccessibilityHelper::GetAccelerator()),
       delegate_(delegate),
       ALLOW_THIS_IN_INITIALIZER_LIST(focus_grabber_factory_(this)),
@@ -147,21 +148,13 @@ void NewUserView::Init() {
     set_background(views::Background::CreateBackgroundPainter(true, painter));
   }
 
-  // Set up fonts.
-  ResourceBundle& rb = ResourceBundle::GetSharedInstance();
-  gfx::Font title_font = rb.GetFont(ResourceBundle::MediumBoldFont).DeriveFont(
-      kLoginTitleFontDelta);
-  gfx::Font title_hint_font = rb.GetFont(ResourceBundle::BoldFont);
-
   title_label_ = new views::Label();
   title_label_->SetHorizontalAlignment(views::Label::ALIGN_LEFT);
-  title_label_->SetFont(title_font);
   title_label_->SetMultiLine(true);
   AddChildView(title_label_);
 
   title_hint_label_ = new views::Label();
   title_hint_label_->SetHorizontalAlignment(views::Label::ALIGN_LEFT);
-  title_hint_label_->SetFont(title_hint_font);
   title_hint_label_->SetColor(SK_ColorGRAY);
   title_hint_label_->SetMultiLine(true);
   AddChildView(title_hint_label_);
@@ -186,17 +179,18 @@ void NewUserView::Init() {
   RecreatePeculiarControls();
 
   AddChildView(sign_in_button_);
-  if (need_create_account_) {
-    InitLink(&create_account_link_);
-  }
   if (need_guest_link_) {
     InitLink(&guest_link_);
+  }
+  if (need_create_account_) {
+    InitLink(&create_account_link_);
   }
   AddChildView(languages_menubutton_);
 
   // Set up accelerators.
   AddAccelerator(accel_focus_user_);
   AddAccelerator(accel_focus_pass_);
+  AddAccelerator(accel_enterprise_enrollment_);
   AddAccelerator(accel_login_off_the_record_);
   AddAccelerator(accel_toggle_accessibility_);
 
@@ -219,6 +213,8 @@ bool NewUserView::AcceleratorPressed(const views::Accelerator& accelerator) {
     username_field_->RequestFocus();
   } else if (accelerator == accel_focus_pass_) {
     password_field_->RequestFocus();
+  } else if (accelerator == accel_enterprise_enrollment_) {
+    delegate_->OnStartEnterpriseEnrollment();
   } else if (accelerator == accel_login_off_the_record_) {
     delegate_->OnLoginAsGuest();
   } else if (accelerator == accel_toggle_accessibility_) {
@@ -284,25 +280,36 @@ void NewUserView::AddChildView(View* view) {
   }
 }
 
-void NewUserView::UpdateLocalizedStrings() {
+void NewUserView::UpdateLocalizedStringsAndFonts() {
+  ResourceBundle& rb = ResourceBundle::GetSharedInstance();
+  gfx::Font title_font = rb.GetFont(ResourceBundle::MediumBoldFont).DeriveFont(
+      kLoginTitleFontDelta);
+  const gfx::Font& title_hint_font = rb.GetFont(ResourceBundle::BoldFont);
+  const gfx::Font& base_font = rb.GetFont(ResourceBundle::BaseFont);
+
+  title_label_->SetFont(title_font);
   title_label_->SetText(UTF16ToWide(
       l10n_util::GetStringUTF16(IDS_LOGIN_TITLE)));
-  this->SetAccessibleName(l10n_util::GetStringUTF16(IDS_LOGIN_TITLE));
+  title_hint_label_->SetFont(title_hint_font);
   title_hint_label_->SetText(UTF16ToWide(
       l10n_util::GetStringUTF16(IDS_LOGIN_TITLE_HINT)));
+  SetAndCorrectTextfieldFont(username_field_, base_font);
   username_field_->set_text_to_display_when_empty(
       l10n_util::GetStringUTF16(IDS_LOGIN_USERNAME));
+  SetAndCorrectTextfieldFont(password_field_, base_font);
   password_field_->set_text_to_display_when_empty(
       l10n_util::GetStringUTF16(IDS_LOGIN_PASSWORD));
   sign_in_button_->SetLabel(UTF16ToWide(
       l10n_util::GetStringUTF16(IDS_LOGIN_BUTTON)));
-  if (need_create_account_) {
-    create_account_link_->SetText(
-        UTF16ToWide(l10n_util::GetStringUTF16(IDS_CREATE_ACCOUNT_BUTTON)));
-  }
   if (need_guest_link_) {
+    guest_link_->SetFont(base_font);
     guest_link_->SetText(UTF16ToWide(
         l10n_util::GetStringUTF16(IDS_BROWSE_WITHOUT_SIGNING_IN_BUTTON)));
+  }
+  if (need_create_account_) {
+    create_account_link_->SetFont(base_font);
+    create_account_link_->SetText(
+        UTF16ToWide(l10n_util::GetStringUTF16(IDS_CREATE_ACCOUNT_BUTTON)));
   }
   delegate_->ClearErrors();
   languages_menubutton_->SetText(
@@ -311,7 +318,7 @@ void NewUserView::UpdateLocalizedStrings() {
 
 void NewUserView::OnLocaleChanged() {
   RecreatePeculiarControls();
-  UpdateLocalizedStrings();
+  UpdateLocalizedStringsAndFonts();
   AddChildView(sign_in_button_);
   AddChildView(languages_menubutton_);
 
@@ -439,8 +446,12 @@ void NewUserView::SetPassword(const std::string& password) {
 }
 
 void NewUserView::Login() {
-  if (login_in_process_ || username_field_->text().empty())
+  if (login_in_process_ ||
+      username_field_->text().empty() ||
+      password_field_->text().empty()) {
+    UpdateSignInButtonState();
     return;
+  }
 
   login_in_process_ = true;
   std::string username = UTF16ToUTF8(username_field_->text());
@@ -475,12 +486,14 @@ void NewUserView::ClearAndFocusControls() {
   SetUsername(std::string());
   SetPassword(std::string());
   username_field_->RequestFocus();
+  UpdateSignInButtonState();
 }
 
 void NewUserView::ClearAndFocusPassword() {
   login_in_process_ = false;
   SetPassword(std::string());
   password_field_->RequestFocus();
+  UpdateSignInButtonState();
 }
 
 gfx::Rect NewUserView::GetMainInputScreenBounds() const {
@@ -537,13 +550,13 @@ void NewUserView::EnableInputControls(bool enabled) {
           prefs::kApplicationLocale));
   username_field_->SetEnabled(enabled);
   password_field_->SetEnabled(enabled);
-  sign_in_button_->SetEnabled(enabled);
-  if (need_create_account_) {
-    create_account_link_->SetEnabled(enabled);
-  }
   if (need_guest_link_) {
     guest_link_->SetEnabled(enabled);
   }
+  if (need_create_account_) {
+    create_account_link_->SetEnabled(enabled);
+  }
+  UpdateSignInButtonState();
 }
 
 bool NewUserView::NavigateAway() {

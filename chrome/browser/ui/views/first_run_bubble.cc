@@ -5,12 +5,12 @@
 #include "chrome/browser/ui/views/first_run_bubble.h"
 
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/browser_list.h"
-#include "chrome/browser/browser_window.h"
 #include "chrome/browser/first_run/first_run.h"
-#include "chrome/browser/search_engines/util.h"
 #include "chrome/browser/metrics/user_metrics.h"
+#include "chrome/browser/search_engines/util.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
@@ -18,8 +18,8 @@
 #include "ui/base/l10n/l10n_font_util.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
-#include "views/controls/button/native_button.h"
 #include "views/controls/button/image_button.h"
+#include "views/controls/button/native_button.h"
 #include "views/controls/label.h"
 #include "views/events/event.h"
 #include "views/focus/focus_manager.h"
@@ -29,11 +29,11 @@
 
 namespace {
 
-// How much extra padding to put around our content over what the InfoBubble
+// How much extra padding to put around our content over what the Bubble
 // provides.
 const int kBubblePadding = 4;
 
-// How much extra padding to put around our content over what the InfoBubble
+// How much extra padding to put around our content over what the Bubble
 // provides in alternative OEM bubble.
 const int kOEMBubblePadding = 4;
 
@@ -511,6 +511,15 @@ FirstRunBubble::~FirstRunBubble() {
 
 void FirstRunBubble::EnableParent() {
   ::EnableWindow(GetParent(), true);
+  // The EnableWindow() call above causes the parent to become active, which
+  // resets the flag set by Bubble's call to DisableInactiveRendering(), so we
+  // have to call it again before activating the bubble to prevent the parent
+  // window from rendering inactive.
+  // TODO(beng): this only works in custom-frame mode, not glass-frame mode.
+  views::NativeWidget* parent =
+      views::NativeWidget::GetNativeWidgetForNativeView(GetParent());
+  if (parent)
+    parent->GetWidget()->GetWindow()->DisableInactiveRendering();
   // Reactivate the FirstRunBubble so it responds to OnActivate messages.
   SetWindowPos(GetParent(), 0, 0, 0, 0,
                SWP_NOSIZE | SWP_NOMOVE | SWP_NOREDRAW | SWP_SHOWWINDOW);
@@ -538,11 +547,10 @@ void FirstRunBubble::OnActivate(UINT action, BOOL minimized, HWND window) {
 
   // Keep window from automatically closing until kLingerTime has passed.
   if (::IsWindowEnabled(GetParent()))
-    InfoBubble::OnActivate(action, minimized, window);
+    Bubble::OnActivate(action, minimized, window);
 }
 
-void FirstRunBubble::InfoBubbleClosing(InfoBubble* info_bubble,
-                                       bool closed_by_escape) {
+void FirstRunBubble::BubbleClosing(Bubble* bubble, bool closed_by_escape) {
   // Make sure our parent window is re-enabled.
   if (!IsWindowEnabled(GetParent()))
     ::EnableWindow(GetParent(), true);

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,8 +15,8 @@
 
 #include "base/basictypes.h"
 #include "base/gtest_prod_util.h"
-#include "base/ref_counted.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/synchronization/lock.h"
 #include "base/task.h"
 #include "base/time.h"
@@ -194,6 +194,11 @@ class CookieMonster : public CookieStore {
   // function must be called before initialization.
   void SetExpiryAndKeyScheme(ExpiryAndKeyScheme key_scheme);
 
+  // Instructs the cookie monster to not delete expired cookies. This is used
+  // in cases where the cookie monster is used as a data structure to keep
+  // arbitrary cookies.
+  void SetKeepExpiredCookies();
+
   // Delegates the call to set the |clear_local_store_on_exit_| flag of the
   // PersistentStore if it exists.
   void SetClearPersistentStoreOnExit(bool clear_local_store);
@@ -230,6 +235,17 @@ class CookieMonster : public CookieStore {
 
   virtual CookieMonster* GetCookieMonster();
 
+  // Debugging method to perform various validation checks on the map.
+  // Currently just checking that there are no null CanonicalCookie pointers
+  // in the map.
+  // Argument |arg| is to allow retaining of arbitrary data if the CHECKs
+  // in the function trip.  TODO(rdsmith):Remove hack.
+  void ValidateMap(int arg);
+
+  // The default list of schemes the cookie monster can handle.
+  static const char* kDefaultCookieableSchemes[];
+  static const int kDefaultCookieableSchemesCount;
+
  private:
   // Testing support.
   // For SetCookieWithCreationTime.
@@ -250,8 +266,16 @@ class CookieMonster : public CookieStore {
   FRIEND_TEST_ALL_PREFIXES(CookieMonsterTest, GetKey);
   FRIEND_TEST_ALL_PREFIXES(CookieMonsterTest, TestGetKey);
 
+  // Internal reasons for deletion, used to populate informative histograms
+  // and to provide a public cause for onCookieChange notifications.
+  //
+  // If you add or remove causes from this list, please be sure to also update
+  // the Delegate::ChangeCause mapping inside ChangeCauseMapping. Moreover,
+  // these are used as array indexes, so avoid reordering to keep the
+  // histogram buckets consistent. New items (if necessary) should be added
+  // at the end of the list, just before DELETE_COOKIE_LAST_ENTRY.
   enum DeletionCause {
-    DELETE_COOKIE_EXPLICIT,
+    DELETE_COOKIE_EXPLICIT = 0,
     DELETE_COOKIE_OVERWRITE,
     DELETE_COOKIE_EXPIRED,
     DELETE_COOKIE_EVICTED,
@@ -265,9 +289,13 @@ class CookieMonster : public CookieStore {
     DELETE_COOKIE_EVICTED_DOMAIN_PRE_SAFE,
 
     // Cookies evicted during domain level garbage collection that
-    // were accessed more rencelyt than kSafeFromGlobalPurgeDays
+    // were accessed more recently than kSafeFromGlobalPurgeDays
     // (and thus would have been preserved by global garbage collection).
     DELETE_COOKIE_EVICTED_DOMAIN_POST_SAFE,
+
+    // A common idiom is to remove a cookie by overwriting it with an
+    // already-expired expiration date. This captures that case.
+    DELETE_COOKIE_EXPIRED_OVERWRITE,
 
     DELETE_COOKIE_LAST_ENTRY
   };
@@ -362,7 +390,8 @@ class CookieMonster : public CookieStore {
   // NOTE: There should never be more than a single matching equivalent cookie.
   bool DeleteAnyEquivalentCookie(const std::string& key,
                                  const CanonicalCookie& ecc,
-                                 bool skip_httponly);
+                                 bool skip_httponly,
+                                 bool already_expired);
 
   // Takes ownership of *cc.
   void InternalInsertCookie(const std::string& key,
@@ -387,7 +416,8 @@ class CookieMonster : public CookieStore {
   void InternalUpdateCookieAccessTime(CanonicalCookie* cc,
                                       const base::Time& current_time);
 
-  // |deletion_cause| argument is for collecting statistics.
+  // |deletion_cause| argument is used for collecting statistics and choosing
+  // the correct Delegate::ChangeCause for OnCookieChanged notifications.
   void InternalDeleteCookie(CookieMap::iterator it, bool sync_to_store,
                             DeletionCause deletion_cause);
 
@@ -439,17 +469,17 @@ class CookieMonster : public CookieStore {
 
   // Histogram variables; see CookieMonster::InitializeHistograms() in
   // cookie_monster.cc for details.
-  scoped_refptr<base::Histogram> histogram_expiration_duration_minutes_;
-  scoped_refptr<base::Histogram> histogram_between_access_interval_minutes_;
-  scoped_refptr<base::Histogram> histogram_evicted_last_access_minutes_;
-  scoped_refptr<base::Histogram> histogram_count_;
-  scoped_refptr<base::Histogram> histogram_domain_count_;
-  scoped_refptr<base::Histogram> histogram_etldp1_count_;
-  scoped_refptr<base::Histogram> histogram_domain_per_etldp1_count_;
-  scoped_refptr<base::Histogram> histogram_number_duplicate_db_cookies_;
-  scoped_refptr<base::Histogram> histogram_cookie_deletion_cause_;
-  scoped_refptr<base::Histogram> histogram_time_get_;
-  scoped_refptr<base::Histogram> histogram_time_load_;
+  base::Histogram* histogram_expiration_duration_minutes_;
+  base::Histogram* histogram_between_access_interval_minutes_;
+  base::Histogram* histogram_evicted_last_access_minutes_;
+  base::Histogram* histogram_count_;
+  base::Histogram* histogram_domain_count_;
+  base::Histogram* histogram_etldp1_count_;
+  base::Histogram* histogram_domain_per_etldp1_count_;
+  base::Histogram* histogram_number_duplicate_db_cookies_;
+  base::Histogram* histogram_cookie_deletion_cause_;
+  base::Histogram* histogram_time_get_;
+  base::Histogram* histogram_time_load_;
 
   CookieMap cookies_;
 
@@ -489,6 +519,8 @@ class CookieMonster : public CookieStore {
 
   base::Time last_statistic_record_time_;
 
+  bool keep_expired_cookies_;
+
   static bool enable_file_scheme_;
 
   DISALLOW_COPY_AND_ASSIGN(CookieMonster);
@@ -507,12 +539,12 @@ class CookieMonster::CanonicalCookie {
                   const std::string& value,
                   const std::string& domain,
                   const std::string& path,
+                  const base::Time& creation,
+                  const base::Time& expiration,
+                  const base::Time& last_access,
                   bool secure,
                   bool httponly,
-                  const base::Time& creation,
-                  const base::Time& last_access,
-                  bool has_expires,
-                  const base::Time& expires);
+                  bool has_expires);
 
   // This constructor does canonicalization but not validation.
   // The result of this constructor should not be relied on in contexts
@@ -526,11 +558,15 @@ class CookieMonster::CanonicalCookie {
   // Creates a canonical cookie from unparsed attribute values.
   // Canonicalizes and validates inputs.  May return NULL if an attribute
   // value is invalid.
-  static CanonicalCookie* Create(
-      const GURL& url, const std::string& name, const std::string& value,
-      const std::string& domain, const std::string& path,
-      const base::Time& creation_time, const base::Time& expiration_time,
-      bool secure, bool http_only);
+  static CanonicalCookie* Create(const GURL& url,
+                                 const std::string& name,
+                                 const std::string& value,
+                                 const std::string& domain,
+                                 const std::string& path,
+                                 const base::Time& creation,
+                                 const base::Time& expiration,
+                                 bool secure,
+                                 bool http_only);
 
   const std::string& Source() const { return source_; }
   const std::string& Name() const { return name_; }
@@ -600,21 +636,45 @@ class CookieMonster::CanonicalCookie {
   std::string domain_;
   std::string path_;
   base::Time creation_date_;
-  base::Time last_access_date_;
   base::Time expiry_date_;
-  bool has_expires_;
+  base::Time last_access_date_;
   bool secure_;
   bool httponly_;
+  bool has_expires_;
 };
 
 class CookieMonster::Delegate
     : public base::RefCountedThreadSafe<CookieMonster::Delegate> {
  public:
+  // The publicly relevant reasons a cookie might be changed.
+  enum ChangeCause {
+    // The cookie was changed directly by a consumer's action.
+    CHANGE_COOKIE_EXPLICIT,
+    // The cookie was automatically removed due to an insert operation that
+    // overwrote it.
+    CHANGE_COOKIE_OVERWRITE,
+    // The cookie was automatically removed as it expired.
+    CHANGE_COOKIE_EXPIRED,
+    // The cookie was automatically evicted during garbage collection.
+    CHANGE_COOKIE_EVICTED,
+    // The cookie was overwritten with an already-expired expiration date.
+    CHANGE_COOKIE_EXPIRED_OVERWRITE
+  };
+
   // Will be called when a cookie is added or removed. The function is passed
   // the respective |cookie| which was added to or removed from the cookies.
-  // If |removed| is true, the cookie was deleted.
+  // If |removed| is true, the cookie was deleted, and |cause| will be set
+  // to the reason for it's removal. If |removed| is false, the cookie was
+  // added, and |cause| will be set to CHANGE_COOKIE_EXPLICIT.
+  //
+  // As a special case, note that updating a cookie's properties is implemented
+  // as a two step process: the cookie to be updated is first removed entirely,
+  // generating a notification with cause CHANGE_COOKIE_OVERWRITE.  Afterwards,
+  // a new cookie is written with the updated values, generating a notification
+  // with cause CHANGE_COOKIE_EXPLICIT.
   virtual void OnCookieChanged(const CookieMonster::CanonicalCookie& cookie,
-                               bool removed) = 0;
+                               bool removed,
+                               ChangeCause cause) = 0;
  protected:
   friend class base::RefCountedThreadSafe<CookieMonster::Delegate>;
   virtual ~Delegate() {}

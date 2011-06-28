@@ -9,7 +9,7 @@
 #include <vector>
 
 #include "base/string16.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/WebRect.h"
+#include "ui/gfx/rect.h"
 
 namespace WebKit {
 class WebAccessibilityCache;
@@ -193,10 +193,17 @@ struct WebAccessibility {
   ~WebAccessibility();
 
  private:
-  // Initialize an already-created struct, same as the constructor a
+  // Initialize an already-created struct, same as the constructor above.
   void Init(const WebKit::WebAccessibilityObject& src,
             WebKit::WebAccessibilityCache* cache,
             bool include_children);
+
+  // Returns true if |ancestor| is the first unignored parent of |child|,
+  // which means that when walking up the parent chain from |child|,
+  // |ancestor| is the *first* ancestor that isn't marked as
+  // accessibilityIsIgnored().
+  bool IsParentUnignoredOf(const WebKit::WebAccessibilityObject& ancestor,
+                           const WebKit::WebAccessibilityObject& child);
 
  public:
   // This is a simple serializable struct. All member variables should be
@@ -206,9 +213,10 @@ struct WebAccessibility {
   string16 value;
   Role role;
   uint32 state;
-  WebKit::WebRect location;
+  gfx::Rect location;
   std::map<int32, string16> attributes;
   std::vector<WebAccessibility> children;
+  std::vector<int32> indirect_child_ids;
   std::vector<std::pair<string16, string16> > html_attributes;
 };
 

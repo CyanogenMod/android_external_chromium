@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,9 +19,13 @@ const char kUrlKey[] = "url";
 
 const char kOnBeforeRedirect[] = "experimental.webRequest.onBeforeRedirect";
 const char kOnBeforeRequest[] = "experimental.webRequest.onBeforeRequest";
+const char kOnBeforeSendHeaders[] =
+    "experimental.webRequest.onBeforeSendHeaders";
 const char kOnCompleted[] = "experimental.webRequest.onCompleted";
 const char kOnErrorOccurred[] = "experimental.webRequest.onErrorOccurred";
 const char kOnHeadersReceived[] = "experimental.webRequest.onHeadersReceived";
 const char kOnRequestSent[] = "experimental.webRequest.onRequestSent";
+
+const char kInvalidRedirectUrl[] = "redirectUrl '*' is not a valid URL.";
 
 }  // namespace extension_webrequest_api_constants

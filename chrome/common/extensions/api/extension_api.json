@@ -191,6 +191,44 @@
         }
       },
       {
+        "name": "isAllowedIncognitoAccess",
+        "type": "function",
+        "description": "Retrieves the state of the extension's access to Incognito-mode (as determined by the user-controlled 'Allowed in Incognito' checkbox.",
+        "min_version": "12.0.706.0",
+        "parameters": [
+          {
+            "type": "function",
+            "name": "callback",
+            "parameters": [
+              {
+                "name": "isAllowedAccess",
+                "type": "boolean",
+                "description": "True if the extension has access to Incognito mode, false otherwise."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "isAllowedFileSchemeAccess",
+        "type": "function",
+        "description": "Retrieves the state of the extension's access to the 'file://' scheme (as determined by the user-controlled 'Allow access to File URLs' checkbox.",
+        "min_version": "12.0.706.0",
+        "parameters": [
+          {
+            "type": "function",
+            "name": "callback",
+            "parameters": [
+              {
+                "name": "isAllowedAccess",
+                "type": "boolean",
+                "description": "True if the extension can access the 'file://' scheme, false otherwise."
+              }
+            ]
+          }
+        ]
+      },
+      {
         "name": "setUpdateUrlData",
         "type": "function",
         "description": "Sets the value of the ap CGI parameter used in the extension's update URL.  This value is ignored for extensions that are hosted in the Chrome Extension Gallery.",
@@ -680,8 +718,8 @@
           "incognito": {"type": "boolean", "description": "Whether the window is incognito."},
           "type": {
             "type": "string",
-            "description": "The type of browser window this is.",
-            "enum": ["normal", "popup", "app"]
+            "description": "The type of browser window this is. The 'panel' type requires the 'experimental' permission.",
+            "enum": ["normal", "popup", "panel", "app"]
           }
         }
       }
@@ -791,12 +829,13 @@
               "top": {"type": "integer", "optional": true, "description": "The number of pixels to position the new window from the top edge of the screen. If not specified, the new window is offset naturally from the last focusd window."},
               "width": {"type": "integer", "minimum": 0, "optional": true, "description": "The width in pixels of the new window. If not specified defaults to a natural width."},
               "height": {"type": "integer", "minimum": 0, "optional": true, "description": "The height in pixels of the new window. If not specified defaults to a natural height."},
+	      "focused": {"type": "boolean", "optional": true, "description": "If true, opens an active window. If false, opens an inactive window."},
               "incognito": {"type": "boolean", "optional": true, "description": "Whether the new window should be an incognito window."},
               "type": {
                 "type": "string",
                 "optional": true,
-                "description": "Specifies what type of browser window to create.",
-                "enum": ["normal", "popup"]
+                "description": "Specifies what type of browser window to create. The 'panel' type requires the 'experimental' permission.",
+                "enum": ["normal", "popup", "panel"]
               }
             },
             "optional": true
@@ -828,7 +867,7 @@
               "top": {"type": "integer", "optional": true, "description": "The offset from the top edge of the screen to move the window to in pixels."},
               "width": {"type": "integer", "minimum": 0, "optional": true, "description": "The width to resize the window to in pixels."},
               "height": {"type": "integer", "minimum": 0, "optional": true, "description": "The height to resize the window to in pixels."},
-              "focused": {"type": "boolean", "optional": true, "description": "It true, brings the window to the front. If false, brings the next window in the z-order to the front."}
+              "focused": {"type": "boolean", "optional": true, "description": "If true, brings the window to the front. If false, brings the next window in the z-order to the front."}
             }
           },
           {
@@ -1202,7 +1241,7 @@
       {
         "name": "captureVisibleTab",
         "type": "function",
-        "description": "Captures the visible area of the currently selected tab in the specified window.",
+        "description": "Captures the visible area of the currently selected tab in the specified window. You must have <a href='manifest.html#permissions'>host permission</a> for the URL displayed by the tab.",
         "parameters": [
           {
             "type": "integer",
@@ -1215,7 +1254,6 @@
             "type": "object",
             "name": "options",
             "optional": true,
-            "min_version": "5.0.372.0",
             "description": "Set parameters of image capture, such as the format of the resulting image.",
             "properties": {
               "format": {
@@ -2777,12 +2815,13 @@
             "properties": {
               "type": {
                 "type": "string",
+                "enum": ["normal", "checkbox", "radio", "separator"],
                 "optional": true,
-                "description": "The type of menu item - one of 'normal', 'checkbox', 'radio', or 'separator'. Defaults to 'normal' if not specified."
+                "description": "The type of menu item. Defaults to 'normal' if not specified."
               },
               "title": {
                 "type": "string",
-                "optional": "true",
+                "optional": true,
                 "description": "The text to be displayed in the item; this is <em>required</em> unless <em>type</em> is 'separator'. When the context is 'selection', you can use <code>%s</code> within the string to show the selected text. For example, if this parameter's value is \"Translate '%s' to Pig Latin\" and the user selects the word \"cool\", the context menu item for the selection is \"Translate 'cool' to Pig Latin\"."
               },
               "checked": {
@@ -2792,10 +2831,13 @@
               },
               "contexts": {
                 "type": "array",
-                "items": {"type": "string"},
+                "items": {
+                  "type": "string",
+                  "enum": ["all", "page", "frame", "selection", "link", "editable", "image", "video", "audio"]
+                },
                 "minItems": 1,
                 "optional": true,
-                "description": "List of contexts this menu item will appear in. Legal values are: 'all', 'page', 'selection', 'link', 'editable', 'image', 'video', and 'audio'. Defaults to ['page']."
+                "description": "List of contexts this menu item will appear in. Defaults to ['page'] if not specified."
               },
               "onclick": {
                 "type": "function",
@@ -2859,11 +2901,12 @@
             "properties": {
               "type": {
                 "type": "string",
+                "enum": ["normal", "checkbox", "radio", "separator"],
                 "optional": true
               },
               "title": {
                 "type": "string",
-                "optional": "true"
+                "optional": true
               },
               "checked": {
                 "type": "boolean",
@@ -2871,7 +2914,10 @@
               },
               "contexts": {
                 "type": "array",
-                "items": {"type": "string"},
+                "items": {
+                  "type": "string",
+                  "enum": ["all", "page", "frame", "selection", "link", "editable", "image", "video", "audio"]
+                },
                 "minItems": 1,
                 "optional": true
               },
@@ -3080,6 +3126,39 @@
     "events": []
   },
   {
+    "namespace": "chromeosInfoPrivate",
+    "nodoc": "true",
+    "functions": [
+      {
+        "name": "get",
+        "description": "Fetches customization values for the given property names. See property names in the declaration of the returned dictionary.",
+        "type": "function",
+        "parameters": [
+          {
+            "name": "propertyNames",
+            "type": "array",
+            "item": {"type": "string", "description": "Chrome OS Property name"}
+          },
+          {
+            "name": "callback",
+            "type": "function",
+            "parameters": [
+              {
+                "name": "propertiesDictionary",
+                "type": "object",
+                "description": "Dictionary which contains all requested properties",
+                "properties": {
+                  "hwid": {"type": "string", "optional": "true", "description": "Hardware ID"},
+                  "homeProvider" : {"type": "string", "optional": "true", "description": "Home provider which is used by the cellular device"}
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
     "namespace": "cookies",
     "types": [
       {
@@ -3191,6 +3270,7 @@
             "type": "function",
             "name": "callback",
             "optional": true,
+            "min_version": "11.0.674.0",
             "parameters": [
               {
                 "name": "cookie", "$ref": "Cookie", "optional": true, "description": "Contains details about the cookie that's been set.  If setting failed for any reason, this will be \"null\", and \"chrome.extension.lastError\" will be set."
@@ -3218,6 +3298,7 @@
             "type": "function",
             "name": "callback",
             "optional": true,
+            "min_version": "11.0.674.0",
             "parameters": [
               {
                 "name": "details",
@@ -3255,14 +3336,15 @@
       {
         "name": "onChanged",
         "type": "function",
-        "description": "Fired when a cookie is set or removed.",
+        "description": "Fired when a cookie is set or removed. As a special case, note that updating a cookie's properties is implemented as a two step process: the cookie to be updated is first removed entirely, generating a notification with \"cause\" of \"overwrite\" .  Afterwards, a new cookie is written with the updated values, generating a second notification with \"cause\" \"explicit\".",
         "parameters": [
           {
             "type": "object",
             "name": "changeInfo",
             "properties": {
               "removed": {"type": "boolean", "description": "True if a cookie was removed."},
-              "cookie": {"$ref": "Cookie", "description": "Information about the cookie that was set or removed."}
+              "cookie": {"$ref": "Cookie", "description": "Information about the cookie that was set or removed."},
+              "cause": {"min_version": "12.0.707.0", "type": "string", "enum": ["evicted", "expired", "explicit", "expired_overwrite", "overwrite"], "description": "The underlying reason behind the cookie's change. If a cookie was inserted, or removed via an explicit call to \"chrome.cookies.remove\", \"cause\" will be \"explicit\". If a cookie was automatically removed due to expiry, \"cause\" will be \"expired\". If a cookie was removed due to being overwritten with an already-expired expiration date, \"cause\" will be set to \"expired_overwrite\".  If a cookie was automatically removed due to garbage collection, \"cause\" will be \"evicted\".  If a cookie was automatically removed due to a \"set\" call that overwrote it, \"cause\" will be \"overwrite\". Plan your response accordingly."}
             }
           }
         ]
@@ -3337,7 +3419,7 @@
               "tabId": {"type": "integer", "description": "The ID of the tab in which the navigation is about to occur."},
               "url": {"type": "string"},
               "frameId": {"type": "integer", "description": "0 indicates the navigation happens in the tab content window; positive value indicates navigation in a subframe. Frame IDs are unique within a tab."},
-              "requestId": {"type": "integer", "description": "The ID of the request to retrieve the document of this navigation. Note that this event is fired prior to the corresponding chrome.experimental.webRequest.onBeforeRequest."},
+              "requestId": {"type": "string", "description": "The ID of the request to retrieve the document of this navigation. Note that this event is fired prior to the corresponding chrome.experimental.webRequest.onBeforeRequest."},
               "timeStamp": {"type": "number", "description": "The time when the browser was about to start the navigation, in milliseconds since the epoch."}
             }
           }
@@ -3456,6 +3538,23 @@
           "tabId": { "type": "integer", "optional": true },
           "windowId": { "type": "integer", "optional": true }
         }
+      },
+      {
+        "id": "BlockingResponse",
+        "type": "object",
+        "description": "Return value for event handlers that have the 'blocking' extraInfoSpec applied. Allows the event handler to modify network requests.",
+        "properties": {
+          "cancel": {
+            "type": "boolean",
+            "optional": true,
+            "description": "If true, the request is cancelled. Used in onBeforeRequest, this prevents the request from being sent."
+          },
+          "redirectUrl": {
+            "type": "string",
+            "optional": true,
+            "description": "If set, the original request is prevented from being sent and is instead redirected to the given URL."
+          }
+        }
       }
     ],
     "functions": [
@@ -3479,11 +3578,27 @@
             "description": "Array of extra information that should be passed to the listener function.",
             "items": {
               "type": "string",
-              "enum": ["requestLine", "requestHeaders", "statusLine", "responseHeaders", "redirectRequestLine", "redirectRequestHeaders"]
+              "enum": ["requestLine", "requestHeaders", "statusLine", "responseHeaders", "redirectRequestLine", "redirectRequestHeaders", "blocking"]
             }
           },
           {"type": "string", "name": "eventName"},
           {"type": "string", "name": "subEventName"}
+        ]
+      },
+      {
+        "name": "eventHandled",
+        "nodoc": true,
+        "type": "function",
+        "description": "Used internally to send a response for a blocked event.",
+        "parameters": [
+          {"type": "string", "name": "eventName"},
+          {"type": "string", "name": "subEventName"},
+          {"type": "string", "name": "requestId"},
+          {
+            "$ref": "BlockingResponse",
+            "optional": true,
+            "name": "response"
+          }
         ]
       }
     ],
@@ -3497,12 +3612,28 @@
             "type": "object",
             "name": "details",
             "properties": {
-              "requestId": {"type": "integer", "description": "The ID of the request. Request IDs are unique within a browser session. As a result, they could be used to relate different events of the same request."},
+              "requestId": {"type": "string", "description": "The ID of the request. Request IDs are unique within a browser session. As a result, they could be used to relate different events of the same request."},
               "url": {"type": "string"},
               "method": {"type": "string", "description": "Standard HTTP method."},
               "tabId": {"type": "integer", "description": "The ID of the tab in which the request takes place. Set to null if the request isn't related to a tab."},
               "type": {"type": "string", "enum": ["main_frame", "sub_frame", "stylesheet", "script", "image", "object", "other"], "description": "How the requested resource will be used."},
               "timeStamp": {"type": "number", "description": "The time when the browser was about to make the request, in milliseconds since the epoch."}
+            }
+          }
+        ]
+      },
+      {
+        "name": "onBeforeSendHeaders",
+        "type": "function",
+        "description": "Fires before sending an HTTP request, once the request headers are available.",
+        "parameters": [
+          {
+            "type": "object",
+            "name": "details",
+            "properties": {
+              "requestId": {"type": "string", "description": "The ID of the request. Request IDs are unique within a browser session. As a result, they could be used to relate different events of the same request."},
+              "url": {"type": "string"},
+              "timeStamp": {"type": "number", "description": "The time when the browser was about to send headers, in milliseconds since the epoch."}
             }
           }
         ]
@@ -3516,7 +3647,7 @@
             "type": "object",
             "name": "details",
             "properties": {
-              "requestId": {"type": "integer", "description": "The ID of the request."},
+              "requestId": {"type": "string", "description": "The ID of the request."},
               "url": {"type": "string"},
               "ip": {"type": "string", "description": "The server IP address that is actually connected to. Note that it may be a literal IPv6 address."},
               "timeStamp": {"type": "number", "description": "The time when the browser finished sending the request, in milliseconds since the epoch."}
@@ -3533,7 +3664,7 @@
             "type": "object",
             "name": "details",
             "properties": {
-              "requestId": {"type": "integer", "description": "The ID of the request."},
+              "requestId": {"type": "string", "description": "The ID of the request."},
               "url": {"type": "string"},
               "statusCode": {"type": "integer", "description": "Standard HTTP status code returned by the server."},
               "timeStamp": {"type": "number", "description": "The time when the status line and response headers were received, in milliseconds since the epoch."}
@@ -3550,7 +3681,7 @@
             "type": "object",
             "name": "details",
             "properties": {
-              "requestId": {"type": "integer", "description": "The ID of the request."},
+              "requestId": {"type": "string", "description": "The ID of the request."},
               "url": {"type": "string", "description": "The URL of the current request."},
               "statusCode": {"type": "integer", "description": "Standard HTTP status code returned by the server."},
               "redirectUrl": {"type": "string", "description": "The new URL."},
@@ -3568,7 +3699,7 @@
             "type": "object",
             "name": "details",
             "properties": {
-              "requestId": {"type": "integer", "description": "The ID of the request."},
+              "requestId": {"type": "string", "description": "The ID of the request."},
               "url": {"type": "string", "description": "The URL of the current request."},
               "statusCode": {"type": "integer", "description": "Standard HTTP status code returned by the server."},
               "timeStamp": {"type": "number", "description": "The time when the response was received completely, in milliseconds since the epoch."}
@@ -3585,7 +3716,7 @@
             "type": "object",
             "name": "details",
             "properties": {
-              "requestId": {"type": "integer", "description": "The ID of the request."},
+              "requestId": {"type": "string", "description": "The ID of the request."},
               "url": {"type": "string", "description": "The URL of the current request."},
               "error": {"type": "string", "description": "The error description."},
               "timeStamp": {"type": "number", "description": "The time when the error occurred, in milliseconds since the epoch."}
@@ -3760,11 +3891,7 @@
         "description": "Proxy settings to be used. The value of this preference is a ProxyConfig object.",
         "value": [
           "proxy",
-          {"$ref": "ProxyConfig"},
-          {
-            "get": "experimental.proxy.get",
-            "set": "experimental.proxy.set"
-          }
+          {"$ref": "ProxyConfig"}
         ]
       }
     },
@@ -4216,6 +4343,10 @@
             "description": "The <a href='manifest.html#version'>version</a> of this extension or app.",
             "type": "string"
           },
+          "mayDisable": {
+            "description": "Whether this extension can be disabled or uninstalled by the user.",
+            "type": "boolean"
+          },
           "enabled": {
             "description": "Whether it is currently enabled or disabled.",
             "type": "boolean"
@@ -4396,7 +4527,266 @@
       }
     ]
   },
-
+  {
+    "namespace":"fileBrowserHandler",
+    "nodoc": "true",
+    "types": [
+      {
+        "id": "FileHandlerExecuteEventDetails",
+        "type": "object",
+        "description": "Event details payload for fileBrowserHandler.onExecute event.",
+        "properties": {
+          "entries": {
+            "type": "any",
+            "description": "Array of Entry instances representing files that are targets of this action (selected in ChromeOS file browser)."
+          },
+          "tab_id" : {
+            "type": "integer",
+            "optional": true,
+            "description": "The ID of the tab that raised this event. Tab IDs are unique within a browser session."
+          }
+        }
+      }
+    ],
+    "events": [
+      {
+        "name": "onExecute",
+        "type": "function",
+        "description": "Fired when file system action is executed from ChromeOS file browser.",
+        "parameters": [
+          {
+            "name": "id",
+            "type": "string",
+            "description": "File browser action id as specified in the listener component's manifest."
+          },
+          {
+            "name": "details",
+            "$ref": "FileHandlerExecuteEventDetails",
+            "description": "File handler execute event details."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "namespace":"fileBrowserPrivate",
+    "nodoc": "true",
+    "types": [
+      {
+        "id": "FileBrowserTask",
+        "type": "object",
+        "description": "Represents information about available browser tasks. A task is an abstraction of an operation that the file browser can perform over a selected file set.",
+        "properties": {
+          "taskId": {"type": "string", "description": "The unique identifier of the task."},
+          "title": {"type": "string", "description": "Task title."},
+          "iconUrl": {"type": "string", "description": "Task icon url (from chrome://extension-icon/...)"}
+        }
+      },
+      {
+        "id": "VolumeInfo",
+        "type": "object",
+        "description": "Mounted disk volume information.",
+        "properties": {
+          "mountPath": {
+            "type": "string",
+            "description": "Disk volume mount point path. The value corresponds to its Entry.fullPath in File API."
+          },
+          "label": {
+            "type": "string",
+            "description": "Volume label."
+          },
+          "deviceType": {
+            "type": "string",
+            "enum": ["flash", "hdd", "optical", "undefined"],
+            "description": "Device type."
+          },
+          "readOnly": {
+            "type": "boolean",
+            "description": "Flag that specifies if volume is mounted in read-only mode."
+          },
+          "totalSizeKB": {
+            "type": "integer",
+            "description": "Total disk volume size in KBs"
+          }
+        }
+      },
+      {
+        "id": "MountEvent",
+        "type": "object",
+        "description": "Payload data for disk mount / unmount event.",
+        "properties": {
+          "eventType": {
+            "type": "string",
+            "enum": ["added", "removed"],
+            "description": "Event type that tells listeners which disk volume even was raised."
+          },
+          "volumeInfo": {
+            "$ref": "VolumeInfo",
+            "description":"Volume information that this mount event applies to."
+          }
+        }
+      }
+    ],
+    "functions": [
+      {
+        "name": "cancelDialog",
+        "type": "function",
+        "description": "Cancel file selection.",
+        "parameters": []
+      },
+      {
+        "name": "executeTask",
+        "description": "Executes file browser task over selected files",
+        "parameters": [
+          {
+            "name": "taskId",
+            "type": "string",
+            "description": "The unique identifier of task to execute."
+          },
+          {
+            "name": "fileURLs",
+            "type": "array",
+            "description": "Array of file URLs",
+            "items": { "type": "string" }
+          },
+          {
+            "name": "callback",
+            "type": "function",
+            "optional": "false",
+            "parameters": [
+              {
+                "name": "success",
+                "type": "boolean",
+                "optional": "true",
+                "description": "True of task execution was successfully initiated."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "getFileTasks",
+        "description": "Gets the of tasks that can be performed over selected files.",
+        "parameters": [
+          {
+            "name": "fileURLs",
+            "type": "array",
+            "description": "Array of selected file URLs",
+            "items": { "type": "string" }
+          },
+          {
+            "name": "callback",
+            "type": "function",
+            "optional": "false",
+            "parameters": [
+              {
+                "name": "tasks",
+                "type": "array",
+                "items": {"$ref": "FileBrowserTask"},
+                "description": "The list of available tasks that can be performed on all of the passed file paths."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "getStrings",
+        "type": "function",
+        "description": "Get Strings.",
+        "parameters": [
+          {
+            "type": "function",
+             "name": "callback",
+             "parameters": [
+              {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": {"type": "string"}
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "requestLocalFileSystem",
+        "description": "Requests access to local file system",
+        "parameters": [
+          {
+            "name": "callback",
+            "type": "function",
+            "optional": "false",
+            "parameters": [
+              {
+                "name" : "fileSystem",
+                "type": "object",
+                "optional": "true",
+                "description": "A DOMFileSystem instance for local file system access. null if the caller has no appropriate permissions."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "selectFiles",
+        "type": "function",
+        "description": "Select multiple files.",
+        "parameters": [
+          {
+            "type": "array",
+            "description": "Array of selected paths",
+            "items": {"type": "string"}
+          }
+        ]
+      },
+      {
+        "name": "selectFile",
+        "type": "function",
+        "description": "Select a file.",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "A selected path"
+          },
+          {
+            "type": "integer",
+            "description": "Index of Filter"
+          }
+        ]
+      },
+      {
+        "name": "viewFiles",
+        "type": "function",
+        "description": "View multiple files.",
+        "parameters": [
+          {
+            "name": "fileUrls",
+            "type": "array",
+            "description": "Array of selected paths",
+            "items": {"type": "string"}
+          },
+          {
+            "name": "id",
+            "type": "string",
+            "description": "File browser handler id as for internal tasks."
+          }
+        ]
+      }
+    ],
+    "events": [
+      {
+        "name": "onDiskChanged",
+        "type": "function",
+        "description": "Fired when disk mount/unmount event is detected.",
+        "parameters": [
+          {
+            "$ref": "MountEvent",
+            "name": "fullPath",
+            "description": "Mount event information."
+          }
+        ]
+      }
+    ]
+  },
   {
     "namespace":"webstorePrivate",
     "nodoc": "true",
@@ -4434,6 +4824,44 @@
             "parameters": []
           }
         ]
+      },
+      {
+        "name": "beginInstallWithManifest",
+        "description": "Initiates the install process for the given extension. This must be called during a user gesture.",
+        "parameters": [
+          {
+            "name": "id",
+            "type": "string",
+            "description": "The id of the extension to be installled.",
+            "minLength": 32,
+            "maxLength": 32
+          },
+          {
+            "name": "icon_data",
+            "type": "string",
+            "description": "An icon as a base64-encoded image, displayed in a confirmation dialog."
+          },
+          {
+            "name": "manifest_json",
+            "type": "string",
+            "description": "A string with the contents of the extension's manifest.json file. During the install process, the browser will check that the downloaded extension's manifest matches what was passed in here.",
+            "minLength": 1
+          },
+          {
+            "name": "callback",
+            "type": "function",
+            "description": "Called when the user has either accepted/rejected the dialog, or some error occurred (such as invalid manifest or icon image data).",
+            "optional": "true",
+            "parameters": [
+              {
+                "name": "result",
+                "type": "string",
+                "description": "A string result code, which will be empty upon success. The possible values in the case of errors include 'unknown_error', 'user_cancelled', 'manifest_error', 'icon_error', 'invalid_id', 'permission_denied', and 'no_gesture'."
+              }
+            ]
+          }
+        ]
+
       },
       {
         "name": "completeInstall",
@@ -4545,7 +4973,7 @@
                   "incognito": {
                     "type": "boolean",
                     "optional": true,
-                    "description": "Whether to return the setting that applies to the incognito session only (default false)."
+                    "description": "Whether to return the setting that applies to the incognito session (default false)."
                   }
                 }
               },
@@ -4563,9 +4991,14 @@
                         "type": "any"
                       },
                       "levelOfControl": {
-                        "description": "One of<br>NotControllable = cannot be controlled by any extension<br>ControlledByOtherExtensions = controlled by extensions with higher precedence<br>ControllableByThisExtension = can be controlled by this extension<br>ControlledByThisExtension = controlled by this extension",
+                        "description": "One of<br><var>NotControllable</var>: cannot be controlled by any extension<br><var>ControlledByOtherExtensions</var>: controlled by extensions with higher precedence<br><var>ControllableByThisExtension</var>: can be controlled by this extension<br><var>ControlledByThisExtension</var>: controlled by this extension",
                         "type": "string",
                         "enum": ["NotControllable", "ControlledByOtherExtensions", "ControllableByThisExtension", "ControlledByThisExtension"]
+                      },
+                      "incognitoSpecific": {
+                        "description": "Whether the effective value is specific to the incognito session.<br>This property will <em>only</em> be present if the <var>incognito</var> property in the <var>details</var> parameter of <code>get()</code> was true.",
+                        "type": "boolean",
+                        "optional": true
                       }
                     }
                   }
@@ -4584,7 +5017,7 @@
                 "description": "What setting to change.",
                 "properties": {
                   "value": {
-                    "description": "The value of the preference.",
+                    "description": "The value of the preference. <br>Note that every preference has a specific value type, which is described together with the preference. An extension should <em>not</em> set a preference value of a different type.",
                     "type": "any"
                   },
                   "incognito": {
@@ -4629,6 +5062,34 @@
               }
             ]
           }
+        ],
+        "events": [
+          {
+            "name": "onChange",
+            "description": "Fired when the value of the preference changes.",
+            "parameters": [
+              {
+                "type": "object",
+                "name": "details",
+                "properties": {
+                  "value": {
+                    "description": "The value of the preference.",
+                    "type": "any"
+                  },
+                  "levelOfControl": {
+                    "description": "One of<br><var>NotControllable</var>: cannot be controlled by any extension<br><var>ControlledByOtherExtensions</var>: controlled by extensions with higher precedence<br><var>ControllableByThisExtension</var>: can be controlled by this extension<br><var>ControlledByThisExtension</var>: controlled by this extension",
+                    "type": "string",
+                    "enum": ["NotControllable", "ControlledByOtherExtensions", "ControllableByThisExtension", "ControlledByThisExtension"]
+                  },
+                  "incognitoSpecific": {
+                    "description": "Whether the value that has changed is specific to the incognito session.<br>This property will <em>only</em> be present if the user has enabled the extension in incognito mode.",
+                    "type": "boolean",
+                    "optional": true
+                  }
+                }
+              }
+            ]
+          }
         ]
       }
     ]
@@ -4640,7 +5101,140 @@
         "$ref": "Preference",
         "value": ["blockThirdPartyCookies", {"type": "boolean"}],
         "description": "Whether third party cookies should be blocked. The value of this preference is of type boolean."
+      },
+      "enableReferrers": {
+        "$ref": "Preference",
+        "value": ["enableReferrers", {"type":"boolean"}],
+        "description": "Whether referrers should be enabled. The value of this preference is of type boolean."
+      },
+      "enableHyperlinkAuditing": {
+        "$ref": "Preference",
+        "value": ["enableHyperlinkAuditing", {"type":"boolean"}],
+        "description": "Whether to enable hyperlink auditing (\"&lt;a ping&gt;\"). The value of this preference is of type boolean."
       }
     }
+  },
+  {
+    "namespace": "experimental.debugger",
+    "functions": [
+      {
+        "name": "attach",
+        "type": "function",
+        "description": "Attaches debugger to the tab with given id.",
+        "parameters": [
+          {
+            "type": "integer",
+            "name": "tabId",
+            "description": "The id of the tab to which you want to attach."
+          },
+          {
+            "type": "function",
+            "name": "callback",
+            "optional": true,
+            "parameters": [],
+            "description": "If an error occurs while attaching to the tab, the callback will be called with no arguments and <a href='extension.html#property-lastError'>chrome.extension.lastError</a> will be set to the error message."
+          }
+        ]
+      },
+      {
+        "name": "detach",
+        "type": "function",
+        "description": "Detaches debugger from a tab with given id.",
+        "parameters": [
+          {
+            "type": "integer",
+            "name": "tabId",
+            "description": "The id of the tab from which you want to detach."
+          },
+          {
+            "type": "function",
+            "name": "callback",
+            "optional": true,
+            "parameters": [],
+            "description": "If an error occurs while detaching from the tab, the callback will be called with no arguments and <a href='extension.html#property-lastError'>chrome.extension.lastError</a> will be set to the error message."
+          }
+        ]
+      },
+      {
+        "name": "sendRequest",
+        "type": "function",
+        "description": "Send given request to the debugger.",
+        "parameters": [
+          {
+            "type": "integer",
+            "name": "tabId",
+            "description": "The id of the tab to which you want to send debugging request."
+          },
+          {
+            "type": "string",
+            "name": "method",
+            "description": "Method name."
+          },
+          {
+            "type": "object",
+            "name": "params",
+            "optional": true,
+            "properties": {},
+            "additionalProperties": { "type": "any" },
+            "description": "JSON object matching Developer Tools / Web Inspector Protocol scheme."
+          },
+          {
+            "type": "function",
+            "name": "callback",
+            "optional": true,
+            "parameters": [
+              {
+                "type": "object",
+                "name": "result",
+                "optional": true,
+                "properties": {},
+                "additionalProperties": { "type": "any" },
+                "description": "JSON object with the request response."
+              }
+            ],
+            "description": "Request response body. If an error occurs while posting the message, the callback will be called with no arguments and <a href='extension.html#property-lastError'>chrome.extension.lastError</a> will be set to the error message."
+          }
+        ]
+      }
+    ],
+    "events": [
+      {
+        "name": "onEvent",
+        "type": "function",
+        "description": "Fired whenever debugger issues instrumentation event.",
+        "parameters": [
+          {
+            "type": "integer",
+            "name": "tabId",
+            "description": "The id of the tab that generated debug evet."
+          },
+          {
+            "type": "string",
+            "name": "method",
+            "description": "Method name."
+          },
+          {
+            "type": "object",
+            "name": "params",
+            "optional": true,
+            "properties": {},
+            "additionalProperties": { "type": "any" },
+            "description": "JSON object matching Developer Tools / Web Inspector Protocol event data scheme."
+          }
+        ]
+      },
+      {
+        "name": "onDetach",
+        "type": "function",
+        "description": "Fired when browser terminates debugging session for the tab.",
+        "parameters": [
+          {
+            "type": "integer",
+            "name": "tabId",
+            "description": "The id of the tab that was detached."
+          }
+        ]
+      }
+    ]
   }
 ]

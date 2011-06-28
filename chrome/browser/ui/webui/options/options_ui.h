@@ -8,36 +8,17 @@
 
 #include <string>
 
-#include "base/scoped_ptr.h"
+#include "base/compiler_specific.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/ui/webui/chrome_url_data_manager.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
-#include "chrome/common/notification_type.h"
 #include "content/browser/webui/web_ui.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
+#include "content/common/notification_type.h"
 
 class GURL;
 class PrefService;
 struct UserMetricsAction;
-
-class OptionsUIHTMLSource : public ChromeURLDataManager::DataSource {
- public:
-  // The constructor takes over ownership of |localized_strings|.
-  explicit OptionsUIHTMLSource(DictionaryValue* localized_strings);
-  virtual ~OptionsUIHTMLSource();
-
-  // Called when the network layer has requested a resource underneath
-  // the path we registered.
-  virtual void StartDataRequest(const std::string& path,
-                                bool is_off_the_record,
-                                int request_id);
-  virtual std::string GetMimeType(const std::string&) const;
-
- private:
-   // Localized strings collection.
-  scoped_ptr<DictionaryValue> localized_strings_;
-
-  DISALLOW_COPY_AND_ASSIGN(OptionsUIHTMLSource);
-};
 
 // The base class handler of Javascript messages of options pages.
 class OptionsPageUIHandler : public WebUIMessageHandler,
@@ -75,9 +56,6 @@ class OptionsPageUIHandler : public WebUIMessageHandler,
     const char* name;
     // The .grd ID for the resource (IDS_*).
     int id;
-    // True if the trailing colon should be stripped on platforms that
-    // don't want trailing colons.
-    bool strip_colon;
   };
   // A helper for simplifying the process of registering strings in WebUI.
   static void RegisterStrings(DictionaryValue* localized_strings,
@@ -95,16 +73,28 @@ class OptionsPageUIHandler : public WebUIMessageHandler,
   DISALLOW_COPY_AND_ASSIGN(OptionsPageUIHandler);
 };
 
-class OptionsUI : public WebUI {
+// An interface for common operations that a host of OptionsPageUIHandlers
+// should provide.
+class OptionsPageUIHandlerHost {
+ public:
+  virtual void InitializeHandlers() = 0;
+};
+
+// The WebUI for chrome:settings.
+class OptionsUI : public WebUI,
+                  public OptionsPageUIHandlerHost {
  public:
   explicit OptionsUI(TabContents* contents);
   virtual ~OptionsUI();
 
   static RefCountedMemory* GetFaviconResourceBytes();
-  virtual void RenderViewCreated(RenderViewHost* render_view_host);
-  virtual void DidBecomeActiveForReusedRenderView();
 
-  void InitializeHandlers();
+  // Overridden from WebUI:
+  virtual void RenderViewCreated(RenderViewHost* render_view_host) OVERRIDE;
+  virtual void DidBecomeActiveForReusedRenderView() OVERRIDE;
+
+  // Overridden from OptionsPageUIHandlerHost:
+  virtual void InitializeHandlers() OVERRIDE;
 
  private:
   // Adds OptionsPageUiHandler to the handlers list if handler is enabled.

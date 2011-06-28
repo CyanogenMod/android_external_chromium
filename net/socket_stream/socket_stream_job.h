@@ -8,7 +8,7 @@
 
 #include <string>
 
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
 #include "base/string16.h"
 #include "net/socket_stream/socket_stream.h"
 
@@ -32,7 +32,9 @@ class SocketStreamJob : public base::RefCountedThreadSafe<SocketStreamJob> {
                                                   ProtocolFactory* factory);
 
   static SocketStreamJob* CreateSocketStreamJob(
-      const GURL& url, SocketStream::Delegate* delegate);
+      const GURL& url,
+      SocketStream::Delegate* delegate,
+      const URLRequestContext& context);
 
   SocketStreamJob();
   void InitSocketStream(SocketStream* socket) {
@@ -61,6 +63,7 @@ class SocketStreamJob : public base::RefCountedThreadSafe<SocketStreamJob> {
   virtual void DetachDelegate();
 
  protected:
+  friend class WebSocketJobTest;
   friend class base::RefCountedThreadSafe<SocketStreamJob>;
   virtual ~SocketStreamJob();
 

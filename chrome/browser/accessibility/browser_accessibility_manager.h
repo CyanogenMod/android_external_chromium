@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 #include <vector>
 
 #include "base/hash_tables.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "build/build_config.h"
 #include "ui/gfx/native_widget_types.h"
 #include "webkit/glue/webaccessibility.h"
@@ -60,7 +60,7 @@ class BrowserAccessibilityManager {
   // header here.
   virtual void NotifyAccessibilityEvent(
       int type,
-      BrowserAccessibility* node) = 0;
+      BrowserAccessibility* node) { }
 
   // Returns the next unique child id.
   static int32 GetNextChildID();
@@ -68,8 +68,8 @@ class BrowserAccessibilityManager {
   // Return a pointer to the root of the tree, does not make a new reference.
   BrowserAccessibility* GetRoot();
 
-  // Removes the BrowserAccessibility child_id from the manager.
-  void Remove(int32 child_id);
+  // Removes the BrowserAccessibility child_id and renderer_id from the manager.
+  void Remove(int32 child_id, int32 renderer_id);
 
   // Return a pointer to the object corresponding to the given child_id,
   // does not make a new reference.
@@ -79,8 +79,10 @@ class BrowserAccessibilityManager {
   // view got focused.
   void GotFocus();
 
-  // Tell the renderer to set focus to this node.
-  void SetFocus(const BrowserAccessibility& node);
+  // Update the focused node to |node|, which may be null.
+  // If |notify| is true, send a message to the renderer to set focus
+  // to this node.
+  void SetFocus(BrowserAccessibility* node, bool notify);
 
   // Tell the renderer to do the default action for this node.
   void DoDefaultAction(const BrowserAccessibility& node);
@@ -91,7 +93,7 @@ class BrowserAccessibilityManager {
   // Called when the renderer process has notified us of about tree changes.
   // Send a notification to MSAA clients of the change.
   void OnAccessibilityNotifications(
-    const std::vector<ViewHostMsg_AccessibilityNotification_Params>& params);
+      const std::vector<ViewHostMsg_AccessibilityNotification_Params>& params);
 
   gfx::NativeView GetParentView();
 
@@ -124,33 +126,19 @@ class BrowserAccessibilityManager {
   void OnAccessibilityObjectTextChange(
       const WebAccessibility& acc_obj);
 
-  // Recursively compare the IDs of our subtree to a new subtree received
-  // from the renderer and return true if their IDs match exactly.
-  bool CanModifyTreeInPlace(
-      BrowserAccessibility* current_root,
-      const WebAccessibility& new_root);
-
-  // Recursively modify a subtree (by reinitializing) to match a new
-  // subtree received from the renderer process. Should only be called
-  // if CanModifyTreeInPlace returned true.
-  void ModifyTreeInPlace(
-      BrowserAccessibility* current_root,
-      const WebAccessibility& new_root);
-
   // Update an accessibility node with an updated WebAccessibility node
   // received from the renderer process. When |include_children| is true
   // the node's children will also be updated, otherwise only the node
   // itself is updated. Returns the updated node or NULL if no node was
   // updated.
   BrowserAccessibility* UpdateNode(
-      const WebAccessibility& acc_obj,
+      const WebAccessibility& src,
       bool include_children);
 
   // Recursively build a tree of BrowserAccessibility objects from
   // the WebAccessibility tree received from the renderer process.
   BrowserAccessibility* CreateAccessibilityTree(
       BrowserAccessibility* parent,
-      int child_id,
       const WebAccessibility& src,
       int index_in_parent);
 

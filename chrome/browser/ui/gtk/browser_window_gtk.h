@@ -10,12 +10,12 @@
 
 #include <map>
 
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/timer.h"
 #include "build/build_config.h"
-#include "chrome/browser/browser_window.h"
 #include "chrome/browser/prefs/pref_member.h"
 #include "chrome/browser/tabs/tab_strip_model_observer.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/gtk/infobars/infobar_arrow_model.h"
 #include "content/common/notification_registrar.h"
 #include "ui/base/gtk/gtk_signal.h"
@@ -31,6 +31,7 @@ class CustomDrawButton;
 class DownloadShelfGtk;
 class FindBarGtk;
 class FullscreenExitBubbleGtk;
+class GlobalMenuBar;
 class InfoBarContainerGtk;
 class LocationBar;
 class StatusBubbleGtk;
@@ -50,8 +51,11 @@ class BrowserWindowGtk : public BrowserWindow,
   explicit BrowserWindowGtk(Browser* browser);
   virtual ~BrowserWindowGtk();
 
+  virtual void Init();
+
   // Overridden from BrowserWindow
   virtual void Show();
+  virtual void ShowInactive();
   virtual void SetBounds(const gfx::Rect& bounds);
   virtual void Close();
   virtual void Activate();
@@ -61,7 +65,7 @@ class BrowserWindowGtk : public BrowserWindow,
   virtual gfx::NativeWindow GetNativeHandle();
   virtual BrowserWindowTesting* GetBrowserWindowTesting();
   virtual StatusBubble* GetStatusBubble();
-  virtual void SelectedTabToolbarSizeChanged(bool is_animating);
+  virtual void ToolbarSizeChanged(bool is_animating);
   virtual void UpdateTitleBar();
   virtual void ShelfVisibilityChanged();
   virtual void UpdateDevTools();
@@ -97,15 +101,8 @@ class BrowserWindowGtk : public BrowserWindow,
   virtual void ShowBookmarkBubble(const GURL& url, bool already_bookmarked);
   virtual bool IsDownloadShelfVisible() const;
   virtual DownloadShelf* GetDownloadShelf();
-  virtual void ShowClearBrowsingDataDialog();
-  virtual void ShowImportDialog();
-  virtual void ShowSearchEnginesDialog();
-  virtual void ShowPasswordManager();
   virtual void ShowRepostFormWarningDialog(TabContents* tab_contents);
-  virtual void ShowContentSettingsWindow(ContentSettingsType content_type,
-                                         Profile* profile);
   virtual void ShowCollectedCookiesDialog(TabContents* tab_contents);
-  virtual void ShowProfileErrorDialog(int message_id);
   virtual void ShowThemeInstallBubble();
   virtual void ConfirmBrowserCloseWithPendingDownloads();
   virtual void ShowHTMLDialog(HtmlDialogUIDelegate* delegate,
@@ -121,7 +118,8 @@ class BrowserWindowGtk : public BrowserWindow,
   virtual bool PreHandleKeyboardEvent(const NativeWebKeyboardEvent& event,
                                       bool* is_keyboard_shortcut);
   virtual void HandleKeyboardEvent(const NativeWebKeyboardEvent& event);
-  virtual void ShowCreateWebAppShortcutsDialog(TabContents*  tab_contents);
+  virtual void ShowCreateWebAppShortcutsDialog(
+      TabContentsWrapper* tab_contents);
   virtual void ShowCreateChromeAppShortcutsDialog(Profile* profile,
                                                   const Extension* app);
   virtual void Cut();
@@ -129,7 +127,7 @@ class BrowserWindowGtk : public BrowserWindow,
   virtual void Paste();
   virtual void ToggleTabStripMode() {}
   virtual void PrepareForInstant();
-  virtual void ShowInstant(TabContents* preview_contents);
+  virtual void ShowInstant(TabContentsWrapper* preview);
   virtual void HideInstant(bool instant_is_active);
   virtual gfx::Rect GetInstantBounds();
 
@@ -167,6 +165,10 @@ class BrowserWindowGtk : public BrowserWindow,
   bool CanClose() const;
 
   bool ShouldShowWindowIcon() const;
+
+  // This should only be called from tests where the debounce timeout introduces
+  // timing issues.
+  void DisableDebounceTimerForTests(bool is_disabled);
 
   // Add the find bar widget to the window hierarchy.
   void AddFindBar(FindBarGtk* findbar);
@@ -244,6 +246,13 @@ class BrowserWindowGtk : public BrowserWindow,
   scoped_ptr<DownloadShelfGtk> download_shelf_;
 
  private:
+  // Shows a fade effect over the tab contents. Repeated calls will be ignored
+  // until the fade is canceled. If |animate| is true the fade should animate.
+  void FadeForInstant(bool animate);
+
+  // Immediately removes the fade.
+  void CancelInstantFade();
+
   // Show or hide the bookmark bar.
   void MaybeShowBookmarkBar(bool animate);
 
@@ -319,6 +328,10 @@ class BrowserWindowGtk : public BrowserWindow,
   // Invalidate all the widgets that need to redraw when the infobar draw state
   // has changed.
   void InvalidateInfoBarBits();
+
+  // Gets the size (width and height) of the infobar arrow. The size depends on
+  // the state of the bookmark bar.
+  gfx::Size GetInfobarArrowSize();
 
   // When the location icon moves, we have to redraw the arrow.
   CHROMEGTK_CALLBACK_1(BrowserWindowGtk, void, OnLocationIconSizeAllocate,
@@ -415,6 +428,10 @@ class BrowserWindowGtk : public BrowserWindow,
 
   GdkWindowState state_;
 
+  // Controls a hidden GtkMenuBar that we keep updated so GNOME can take a look
+  // inside "our menu bar" and present it in the top panel, akin to Mac OS.
+  scoped_ptr<GlobalMenuBar> global_menu_bar_;
+
   // The container for the titlebar + tab strip.
   scoped_ptr<BrowserTitlebar> titlebar_;
 
@@ -489,6 +506,13 @@ class BrowserWindowGtk : public BrowserWindow,
   GtkAccelGroup* accel_group_;
 
   scoped_ptr<FullscreenExitBubbleGtk> fullscreen_exit_bubble_;
+
+  // If true, the debounce timer won't be used and OnDebounceBoundsChanged won't
+  // be called. This should only be enabled in tests where the debounce timeout
+  // introduces timing issues (e.g. in OmniBoxApiTest it dismisses the
+  // autocomplete popup before the results can be read) and the final window
+  // position is unimportant.
+  bool debounce_timer_disabled_;
 
   // The model that tracks the paint state of the arrow for the infobar
   // directly below the toolbar.

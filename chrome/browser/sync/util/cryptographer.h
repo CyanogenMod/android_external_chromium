@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,8 @@
 #include <string>
 
 #include "base/gtest_prod_util.h"
-#include "base/linked_ptr.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/linked_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/sync/protocol/nigori_specifics.pb.h"
 #include "chrome/browser/sync/util/nigori.h"
 
@@ -60,6 +60,10 @@ class Cryptographer {
   // about.
   bool CanDecrypt(const sync_pb::EncryptedData& encrypted) const;
 
+  // Returns whether |encrypted| can be decrypted using the default encryption
+  // key.
+  bool CanDecryptUsingDefaultKey(const sync_pb::EncryptedData& encrypted) const;
+
   // Encrypts |message| into |encrypted|. Returns true unless encryption fails.
   // Note that encryption will fail if |message| isn't valid (eg. a required
   // field isn't set).
@@ -94,7 +98,7 @@ class Cryptographer {
   // false.
   void SetPendingKeys(const sync_pb::EncryptedData& encrypted);
 
-  // Attepmts to decrypt the set of keys that was copied in the previous call to
+  // Attempts to decrypt the set of keys that was copied in the previous call to
   // SetPendingKeys using |params|. Returns true if the pending keys were
   // successfully decrypted and installed.
   bool DecryptPendingKeys(const KeyParams& params);

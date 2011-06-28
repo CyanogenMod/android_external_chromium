@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 
 #include <string>
 
-#include "chrome/common/page_transition_types.h"
+#include "content/common/page_transition_types.h"
 #include "googleurl/src/gurl.h"
 #include "ui/gfx/rect.h"
 #include "webkit/glue/window_open_disposition.h"
@@ -83,10 +83,10 @@ struct NavigateParams {
   // CURRENT_TAB          "     "     "                     NEW_FOREGROUND_TAB
   // OFF_THE_RECORD       target browser profile is incog.  NEW_FOREGROUND_TAB
   //
-  // If disposition is NEW_BACKGROUND_TAB, TabStripModel::ADD_SELECTED is
+  // If disposition is NEW_BACKGROUND_TAB, TabStripModel::ADD_ACTIVE is
   // removed from |tabstrip_add_types| automatically.
   // If disposition is one of NEW_WINDOW, NEW_POPUP, NEW_FOREGROUND_TAB or
-  // SINGLETON_TAB, then TabStripModel::ADD_SELECTED is automatically added to
+  // SINGLETON_TAB, then TabStripModel::ADD_ACTIVE is automatically added to
   // |tabstrip_add_types|.
   WindowOpenDisposition disposition;
 
@@ -102,7 +102,7 @@ struct NavigateParams {
 
   // A bitmask of values defined in TabStripModel::AddTabTypes. Helps
   // determine where to insert a new tab and whether or not it should be
-  // selected, among other properties. Default is ADD_SELECTED.
+  // selected, among other properties. Default is ADD_ACTIVE.
   int tabstrip_add_types;
 
   // If non-empty, the new tab is an app tab.
@@ -115,12 +115,20 @@ struct NavigateParams {
   //             remove this comment.
   gfx::Rect window_bounds;
 
-  // True if the target window should be made visible at the end of the call
-  // to Navigate(). This activates the window if it was already visible.
-  // Default is false.
-  // If disposition is NEW_WINDOW or NEW_POPUP, |show_window| is set to true
-  // automatically.
-  bool show_window;
+  // Determines if and how the target window should be made visible at the end
+  // of the call to Navigate().
+  enum WindowAction {
+    // Do not show or activate the browser window after navigating.
+    NO_ACTION,
+    // Show and activate the browser window after navigating.
+    SHOW_WINDOW,
+    // Show the browser window after navigating but do not activate.
+    SHOW_WINDOW_INACTIVE
+  };
+  // Default is NO_ACTION (don't show or activate the window).
+  // If disposition is NEW_WINDOW or NEW_POPUP, and |window_action| is set to
+  // NO_ACTION, |window_action| will be set to SHOW_WINDOW.
+  WindowAction window_action;
 
   // What to do with the path component of the URL for singleton navigations.
   enum PathBehavior {

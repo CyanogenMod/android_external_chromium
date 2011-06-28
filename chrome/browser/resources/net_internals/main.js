@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -92,6 +92,7 @@ function onLoaded() {
                               'hstsQueryInput', 'hstsQueryForm',
                               'hstsQueryOutput',
                               'hstsAddInput', 'hstsAddForm', 'hstsCheckInput',
+                              'hstsAddPins',
                               'hstsDeleteInput', 'hstsDeleteForm');
 
   var httpCacheView = new HttpCacheView('httpCacheTabContent',
@@ -99,7 +100,9 @@ function onLoaded() {
 
   var socketsView = new SocketsView('socketsTabContent',
                                     'socketPoolDiv',
-                                    'socketPoolGroupsDiv');
+                                    'socketPoolGroupsDiv',
+                                    'socketPoolCloseIdleButton',
+                                    'socketPoolFlushButton');
 
   var spdyView = new SpdyView('spdyTabContent',
                               'spdyEnabledSpan',
@@ -120,6 +123,9 @@ function onLoaded() {
                                            'namespaceProvidersTbody');
   }
 
+  var httpThrottlingView = new HttpThrottlingView(
+      'httpThrottlingTabContent', 'enableHttpThrottlingCheckbox');
+
   // Create a view which lets you tab between the different sub-views.
   var categoryTabSwitcher = new TabSwitcherView('categoryTabHandles');
   g_browser.setTabSwitcher(categoryTabSwitcher);
@@ -136,6 +142,7 @@ function onLoaded() {
     categoryTabSwitcher.addTab('serviceProvidersTab', serviceView, false);
   categoryTabSwitcher.addTab('testTab', testView, false);
   categoryTabSwitcher.addTab('hstsTab', hstsView, false);
+  categoryTabSwitcher.addTab('httpThrottlingTab', httpThrottlingView, false);
 
   // Build a map from the anchor name of each tab handle to its "tab ID".
   // We will consider navigations to the #hash as a switch tab request.
@@ -178,6 +185,7 @@ function BrowserBridge() {
   this.logObservers_ = [];
   this.connectionTestsObservers_ = [];
   this.hstsObservers_ = [];
+  this.httpThrottlingObservers_ = [];
 
   this.pollableDataHelpers_ = {};
   this.pollableDataHelpers_.proxySettings =
@@ -223,6 +231,11 @@ function BrowserBridge() {
   // When viewing a log file, all tabs are hidden except the event view,
   // and all received events are ignored.
   this.isViewingLogFile_ = false;
+
+  // True when cookies and authentication information should be removed from
+  // displayed events.  When true, such information should be hidden from
+  // all pages.
+  this.enableSecurityStripping_ = true;
 }
 
 /*
@@ -314,8 +327,10 @@ BrowserBridge.prototype.sendHSTSQuery = function(domain) {
   chrome.send('hstsQuery', [domain]);
 };
 
-BrowserBridge.prototype.sendHSTSAdd = function(domain, include_subdomains) {
-  chrome.send('hstsAdd', [domain, include_subdomains]);
+BrowserBridge.prototype.sendHSTSAdd = function(domain,
+                                               include_subdomains,
+                                               pins) {
+  chrome.send('hstsAdd', [domain, include_subdomains, pins]);
 };
 
 BrowserBridge.prototype.sendHSTSDelete = function(domain) {
@@ -328,6 +343,14 @@ BrowserBridge.prototype.sendGetHttpCacheInfo = function() {
 
 BrowserBridge.prototype.sendGetSocketPoolInfo = function() {
   chrome.send('getSocketPoolInfo');
+};
+
+BrowserBridge.prototype.sendCloseIdleSockets = function() {
+  chrome.send('closeIdleSockets');
+};
+
+BrowserBridge.prototype.sendFlushSocketPools = function() {
+  chrome.send('flushSocketPools');
 };
 
 BrowserBridge.prototype.sendGetSpdySessionInfo = function() {
@@ -352,7 +375,11 @@ BrowserBridge.prototype.enableIPv6 = function() {
 
 BrowserBridge.prototype.setLogLevel = function(logLevel) {
   chrome.send('setLogLevel', ['' + logLevel]);
-}
+};
+
+BrowserBridge.prototype.enableHttpThrottling = function(enable) {
+  chrome.send('enableHttpThrottling', [enable]);
+};
 
 BrowserBridge.prototype.loadLogFile = function() {
   chrome.send('loadLogFile');
@@ -500,6 +527,14 @@ BrowserBridge.prototype.receivedHSTSResult = function(info) {
 
 BrowserBridge.prototype.receivedHttpCacheInfo = function(info) {
   this.pollableDataHelpers_.httpCacheInfo.update(info);
+};
+
+BrowserBridge.prototype.receivedHttpThrottlingEnabledPrefChanged = function(
+    enabled) {
+  for (var i = 0; i < this.httpThrottlingObservers_.length; ++i) {
+    this.httpThrottlingObservers_[i].onHttpThrottlingEnabledPrefChanged(
+        enabled);
+  }
 };
 
 BrowserBridge.prototype.loadedLogFile = function(logFileContents) {
@@ -730,6 +765,16 @@ BrowserBridge.prototype.addHSTSObserver = function(observer) {
 };
 
 /**
+ * Adds a listener for HTTP throttling-related events. |observer| will be called
+ * back when HTTP throttling is enabled/disabled, through:
+ *
+ *   observer.onHttpThrottlingEnabledPrefChanged(enabled);
+ */
+BrowserBridge.prototype.addHttpThrottlingObserver = function(observer) {
+  this.httpThrottlingObservers_.push(observer);
+};
+
+/**
  * The browser gives us times in terms of "time ticks" in milliseconds.
  * This function converts the tick count to a Date() object.
  *
@@ -819,6 +864,27 @@ BrowserBridge.prototype.deleteAllEvents = function() {
   this.numPassivelyCapturedEvents_ = 0;
   for (var i = 0; i < this.logObservers_.length; ++i)
     this.logObservers_[i].onAllLogEntriesDeleted();
+};
+
+/**
+ * Sets the value of |enableSecurityStripping_| and informs log observers
+ * of the change.
+ */
+BrowserBridge.prototype.setSecurityStripping =
+    function(enableSecurityStripping) {
+  this.enableSecurityStripping_ = enableSecurityStripping;
+  for (var i = 0; i < this.logObservers_.length; ++i) {
+    if (this.logObservers_[i].onSecurityStrippingChanged)
+      this.logObservers_[i].onSecurityStrippingChanged();
+  }
+};
+
+/**
+ * Returns whether or not cookies and authentication information should be
+ * displayed for events that contain them.
+ */
+BrowserBridge.prototype.getSecurityStripping = function() {
+  return this.enableSecurityStripping_;
 };
 
 /**

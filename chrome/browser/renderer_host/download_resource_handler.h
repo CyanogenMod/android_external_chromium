@@ -8,6 +8,7 @@
 
 #include <string>
 
+#include "base/memory/scoped_ptr.h"
 #include "base/timer.h"
 #include "chrome/browser/download/download_file.h"
 #include "content/browser/renderer_host/global_request_id.h"
@@ -79,14 +80,12 @@ class DownloadResourceHandler : public ResourceHandler {
   int render_view_id_;
   scoped_refptr<net::IOBuffer> read_buffer_;
   std::string content_disposition_;
-  GURL url_; // final URL from which we're downloading.
-  GURL original_url_; // original URL before any redirection by the server.
   int64 content_length_;
   DownloadFileManager* download_file_manager_;
   net::URLRequest* request_;
   bool save_as_;  // Request was initiated via "Save As" by the user.
   DownloadSaveInfo save_info_;
-  DownloadBuffer* buffer_;
+  scoped_ptr<DownloadBuffer> buffer_;
   ResourceDispatcherHost* rdh_;
   bool is_paused_;
   base::OneShotTimer<DownloadResourceHandler> pause_timer_;

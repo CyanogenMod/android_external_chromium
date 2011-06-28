@@ -8,8 +8,8 @@
 
 #import <Cocoa/Cocoa.h>
 
-#include "base/scoped_ptr.h"
-#include "base/scoped_nsobject.h"
+#include "base/memory/scoped_nsobject.h"
+#include "base/memory/scoped_ptr.h"
 #import "chrome/browser/ui/cocoa/command_observer_bridge.h"
 #import "chrome/browser/ui/cocoa/tracking_area.h"
 #import "chrome/browser/ui/cocoa/url_drop_target.h"
@@ -26,6 +26,7 @@ class CommandUpdater;
 class LocationBar;
 class LocationBarViewMac;
 @class MenuButton;
+@class ToolbarButton;
 namespace ToolbarControllerInternal {
 class NotificationBridge;
 class WrenchAcceleratorDelegate;
@@ -51,7 +52,7 @@ class WrenchMenuModel;
   IBOutlet MenuButton* backButton_;
   IBOutlet MenuButton* forwardButton_;
   IBOutlet ReloadButton* reloadButton_;
-  IBOutlet NSButton* homeButton_;
+  IBOutlet ToolbarButton* homeButton_;
   IBOutlet MenuButton* wrenchButton_;
   IBOutlet AutocompleteTextField* locationBar_;
   IBOutlet BrowserActionsContainerView* browserActionsContainerView_;
@@ -80,7 +81,6 @@ class WrenchMenuModel;
   // Used for monitoring the optional toolbar button prefs.
   scoped_ptr<ToolbarControllerInternal::NotificationBridge> notificationBridge_;
   BooleanPrefMember showHomeButton_;
-  BooleanPrefMember showPageOptionButtons_;
   BOOL hasToolbar_;  // If NO, we may have only the location bar.
   BOOL hasLocationBar_;  // If |hasToolbar_| is YES, this must also be YES.
   BOOL locationBarAtMinSize_; // If the location bar is at the minimum size.

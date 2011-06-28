@@ -3,8 +3,8 @@
 // found in the LICENSE file.
 
 #include "base/file_util.h"
-#include "base/scoped_temp_dir.h"
-#include "base/scoped_vector.h"
+#include "base/memory/scoped_temp_dir.h"
+#include "base/memory/scoped_vector.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/search_engines/search_engine_type.h"
 #include "chrome/browser/search_engines/search_terms_data.h"
@@ -123,7 +123,7 @@ TEST_F(TemplateURLPrepopulateDataTest, ProvidersFromPrefs) {
   EXPECT_EQ(ASCIIToUTF16("foo"), t_urls[0]->short_name());
   EXPECT_EQ(ASCIIToUTF16("fook"), t_urls[0]->keyword());
   EXPECT_EQ("foo.com", t_urls[0]->url()->GetHost());
-  EXPECT_EQ("foi.com", t_urls[0]->GetFavIconURL().host());
+  EXPECT_EQ("foi.com", t_urls[0]->GetFaviconURL().host());
   EXPECT_EQ(1u, t_urls[0]->input_encodings().size());
   EXPECT_EQ(1001, t_urls[0]->prepopulate_id());
   EXPECT_EQ(SEARCH_ENGINE_GOOGLE, t_urls[0]->search_engine_type());

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,11 @@
 
 #include "base/message_loop.h"
 #include "chrome/browser/prefs/pref_value_store.h"
-#include "chrome/common/notification_details.h"
-#include "chrome/common/notification_source.h"
-#include "chrome/common/notification_type.h"
 #include "chrome/test/testing_pref_service.h"
 #include "content/browser/browser_thread.h"
+#include "content/common/notification_details.h"
+#include "content/common/notification_source.h"
+#include "content/common/notification_type.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace {
@@ -19,12 +19,14 @@ const char kBoolPref[] = "bool";
 const char kIntPref[] = "int";
 const char kDoublePref[] = "double";
 const char kStringPref[] = "string";
+const char kListPref[] = "list";
 
 void RegisterTestPrefs(PrefService* prefs) {
   prefs->RegisterBooleanPref(kBoolPref, false);
   prefs->RegisterIntegerPref(kIntPref, 0);
   prefs->RegisterDoublePref(kDoublePref, 0.0);
   prefs->RegisterStringPref(kStringPref, "default");
+  prefs->RegisterListPref(kListPref);
 }
 
 class GetPrefValueCallback
@@ -179,6 +181,42 @@ TEST(PrefMemberTest, BasicGetAndSet) {
   EXPECT_EQ("bar", prefs.GetString(kStringPref));
   EXPECT_EQ("bar", string.GetValue());
   EXPECT_EQ("bar", *string);
+
+  // Test list
+  ListPrefMember list;
+  list.Init(kListPref, &prefs, NULL);
+
+  // Check the defaults
+  const ListValue* list_value = prefs.GetList(kListPref);
+  ASSERT_TRUE(list_value != NULL);
+  EXPECT_EQ(0u, list_value->GetSize());
+  EXPECT_TRUE(list_value->empty());
+  ASSERT_TRUE(list.GetValue() != NULL);
+  EXPECT_EQ(0u, list.GetValue()->GetSize());
+  EXPECT_TRUE(list.GetValue()->empty());
+  ASSERT_TRUE(*list != NULL);
+  EXPECT_EQ(0u, (*list)->GetSize());
+  EXPECT_TRUE((*list)->empty());
+
+  // Try changing through the member variable.
+  scoped_ptr<ListValue> list_value_numbers(new ListValue());
+  list_value_numbers->Append(new StringValue("one"));
+  list_value_numbers->Append(new StringValue("two"));
+  list_value_numbers->Append(new StringValue("three"));
+  list.SetValue(list_value_numbers.get());
+  EXPECT_TRUE(list_value_numbers->Equals(list.GetValue()));
+  EXPECT_TRUE(list_value_numbers->Equals(prefs.GetList(kListPref)));
+  EXPECT_TRUE(list_value_numbers->Equals(*list));
+
+  // Try changing back through the pref.
+  ListValue* list_value_ints = new ListValue();
+  list_value_ints->Append(new FundamentalValue(1));
+  list_value_ints->Append(new FundamentalValue(2));
+  list_value_ints->Append(new FundamentalValue(3));
+  prefs.SetList(kListPref, list_value_ints); // takes ownership
+  EXPECT_TRUE(list_value_ints->Equals(list.GetValue()));
+  EXPECT_TRUE(list_value_ints->Equals(prefs.GetList(kListPref)));
+  EXPECT_TRUE(list_value_ints->Equals(*list));
 }
 
 TEST(PrefMemberTest, TwoPrefs) {
@@ -234,16 +272,15 @@ TEST(PrefMemberTest, NoInit) {
   IntegerPrefMember pref;
 }
 
-// Flakily triggers an assertion, http://crbug.com/74386.
-TEST(PrefMemberTest, DISABLED_MoveToThread) {
+TEST(PrefMemberTest, MoveToThread) {
+  TestingPrefService prefs;
+  scoped_refptr<GetPrefValueCallback> callback =
+      make_scoped_refptr(new GetPrefValueCallback());
   MessageLoop message_loop;
   BrowserThread ui_thread(BrowserThread::UI, &message_loop);
   BrowserThread io_thread(BrowserThread::IO);
   ASSERT_TRUE(io_thread.Start());
-  TestingPrefService prefs;
   RegisterTestPrefs(&prefs);
-  scoped_refptr<GetPrefValueCallback> callback =
-      make_scoped_refptr(new GetPrefValueCallback());
   callback->Init(kBoolPref, &prefs);
 
   ASSERT_TRUE(callback->FetchValue());

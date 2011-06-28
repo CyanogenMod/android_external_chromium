@@ -9,11 +9,12 @@
 
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/defaults.h"
+#include "chrome/browser/extensions/extension_tab_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/gtk/bookmarks/bookmark_utils_gtk.h"
 #include "chrome/browser/ui/gtk/custom_button.h"
-#include "chrome/browser/ui/gtk/gtk_theme_provider.h"
+#include "chrome/browser/ui/gtk/gtk_theme_service.h"
 #include "chrome/browser/ui/gtk/gtk_util.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "content/browser/tab_contents/tab_contents.h"
@@ -32,13 +33,13 @@
 
 namespace {
 
-const int kFontPixelSize = 13;
+const int kFontPixelSize = 12;
 const int kLeftPadding = 16;
 const int kTopPadding = 6;
 const int kRightPadding = 15;
 const int kBottomPadding = 5;
 const int kDropShadowHeight = 2;
-const int kFavIconTitleSpacing = 4;
+const int kFaviconTitleSpacing = 4;
 const int kTitleCloseButtonSpacing = 5;
 const int kStandardTitleWidth = 175;
 const int kDropShadowOffset = 2;
@@ -77,7 +78,7 @@ const SkScalar kTabBottomCurveWidth = 3;
 const int kCloseButtonVertFuzz = 0;
 const int kCloseButtonHorzFuzz = 5;
 
-SkBitmap* crashed_fav_icon = NULL;
+SkBitmap* crashed_favicon = NULL;
 
 // Gets the bounds of |widget| relative to |parent|.
 gfx::Rect GetWidgetBoundsRelativeToParent(GtkWidget* parent,
@@ -149,7 +150,7 @@ SkColor TabRendererGtk::unselected_title_color_ = SkColorSetRGB(64, 64, 64);
 TabRendererGtk::LoadingAnimation::LoadingAnimation(
     ui::ThemeProvider* theme_provider)
     : data_(new Data(theme_provider)),
-      theme_provider_(theme_provider),
+      theme_service_(theme_provider),
       animation_state_(ANIMATION_NONE),
       animation_frame_(0) {
   registrar_.Add(this,
@@ -160,7 +161,7 @@ TabRendererGtk::LoadingAnimation::LoadingAnimation(
 TabRendererGtk::LoadingAnimation::LoadingAnimation(
     const LoadingAnimation::Data& data)
     : data_(new Data(data)),
-      theme_provider_(NULL),
+      theme_service_(NULL),
       animation_state_(ANIMATION_NONE),
       animation_frame_(0) {
 }
@@ -201,32 +202,32 @@ void TabRendererGtk::LoadingAnimation::Observe(
     const NotificationSource& source,
     const NotificationDetails& details) {
   DCHECK(type == NotificationType::BROWSER_THEME_CHANGED);
-  data_.reset(new Data(theme_provider_));
+  data_.reset(new Data(theme_service_));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // FaviconCrashAnimation
 //
 //  A custom animation subclass to manage the favicon crash animation.
-class TabRendererGtk::FavIconCrashAnimation : public ui::LinearAnimation,
+class TabRendererGtk::FaviconCrashAnimation : public ui::LinearAnimation,
                                               public ui::AnimationDelegate {
  public:
-  explicit FavIconCrashAnimation(TabRendererGtk* target)
+  explicit FaviconCrashAnimation(TabRendererGtk* target)
       : ALLOW_THIS_IN_INITIALIZER_LIST(ui::LinearAnimation(1000, 25, this)),
         target_(target) {
   }
-  virtual ~FavIconCrashAnimation() {}
+  virtual ~FaviconCrashAnimation() {}
 
   // ui::Animation overrides:
   virtual void AnimateToState(double state) {
     const double kHidingOffset = 27;
 
     if (state < .5) {
-      target_->SetFavIconHidingOffset(
+      target_->SetFaviconHidingOffset(
           static_cast<int>(floor(kHidingOffset * 2.0 * state)));
     } else {
-      target_->DisplayCrashedFavIcon();
-      target_->SetFavIconHidingOffset(
+      target_->DisplayCrashedFavicon();
+      target_->SetFaviconHidingOffset(
           static_cast<int>(
               floor(kHidingOffset - ((state - .5) * 2.0 * kHidingOffset))));
     }
@@ -234,13 +235,13 @@ class TabRendererGtk::FavIconCrashAnimation : public ui::LinearAnimation,
 
   // ui::AnimationDelegate overrides:
   virtual void AnimationCanceled(const ui::Animation* animation) {
-    target_->SetFavIconHidingOffset(0);
+    target_->SetFaviconHidingOffset(0);
   }
 
  private:
   TabRendererGtk* target_;
 
-  DISALLOW_COPY_AND_ASSIGN(FavIconCrashAnimation);
+  DISALLOW_COPY_AND_ASSIGN(FaviconCrashAnimation);
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -249,7 +250,7 @@ class TabRendererGtk::FavIconCrashAnimation : public ui::LinearAnimation,
 TabRendererGtk::TabRendererGtk(ui::ThemeProvider* theme_provider)
     : showing_icon_(false),
       showing_close_button_(false),
-      fav_icon_hiding_offset_(0),
+      favicon_hiding_offset_(0),
       should_display_crashed_favicon_(false),
       loading_animation_(theme_provider),
       background_offset_x_(0),
@@ -285,18 +286,20 @@ void TabRendererGtk::UpdateData(TabContents* contents,
                                 bool app,
                                 bool loading_only) {
   DCHECK(contents);
-  theme_provider_ = GtkThemeProvider::GetFrom(contents->profile());
+  theme_service_ = GtkThemeService::GetFrom(contents->profile());
 
   if (!loading_only) {
     data_.title = contents->GetTitle();
-    data_.off_the_record = contents->profile()->IsOffTheRecord();
+    data_.incognito = contents->profile()->IsOffTheRecord();
     data_.crashed = contents->is_crashed();
 
-    SkBitmap* app_icon = contents->GetExtensionAppIcon();
+    SkBitmap* app_icon =
+        TabContentsWrapper::GetCurrentWrapperForContents(contents)->
+            extension_tab_helper()->GetExtensionAppIcon();
     if (app_icon)
       data_.favicon = *app_icon;
     else
-      data_.favicon = contents->GetFavIcon();
+      data_.favicon = contents->GetFavicon();
 
     data_.app = app;
     // This is kind of a hacky way to determine whether our icon is the default
@@ -313,7 +316,7 @@ void TabRendererGtk::UpdateData(TabContents* contents,
   // Loading state also involves whether we show the favicon, since that's where
   // we display the throbber.
   data_.loading = contents->is_loading();
-  data_.show_icon = contents->ShouldDisplayFavIcon();
+  data_.show_icon = contents->ShouldDisplayFavicon();
 }
 
 void TabRendererGtk::UpdateFromModel() {
@@ -327,7 +330,7 @@ void TabRendererGtk::UpdateFromModel() {
   } else {
     if (IsPerformingCrashAnimation())
       StopCrashAnimation();
-    ResetCrashedFavIcon();
+    ResetCrashedFavicon();
   }
 }
 
@@ -364,7 +367,7 @@ bool TabRendererGtk::ValidateLoadingAnimation(AnimationState animation_state) {
   return loading_animation_.ValidateLoadingAnimation(animation_state);
 }
 
-void TabRendererGtk::PaintFavIconArea(GdkEventExpose* event) {
+void TabRendererGtk::PaintFaviconArea(GdkEventExpose* event) {
   DCHECK(ShouldShowIcon());
 
   // The paint area is the favicon bounds, but we're painting into the gdk
@@ -386,15 +389,15 @@ void TabRendererGtk::PaintFavIconArea(GdkEventExpose* event) {
   if (IsSelected()) {
     theme_id = IDR_THEME_TOOLBAR;
   } else {
-    if (!data_.off_the_record) {
+    if (!data_.incognito) {
       theme_id = IDR_THEME_TAB_BACKGROUND;
     } else {
       theme_id = IDR_THEME_TAB_BACKGROUND_INCOGNITO;
     }
-    if (!theme_provider_->HasCustomImage(theme_id))
+    if (!theme_service_->HasCustomImage(theme_id))
       offset_y = background_offset_y_;
   }
-  SkBitmap* tab_bg = theme_provider_->GetBitmapNamed(theme_id);
+  SkBitmap* tab_bg = theme_service_->GetBitmapNamed(theme_id);
   canvas.TileImageInt(*tab_bg,
       x() + favicon_bounds_.x(), offset_y + favicon_bounds_.y(),
       favicon_bounds_.x(), favicon_bounds_.y(),
@@ -409,7 +412,7 @@ void TabRendererGtk::PaintFavIconArea(GdkEventExpose* event) {
       canvas.saveLayerAlpha(&bounds, static_cast<int>(throb_value * 0xff),
                             SkCanvas::kARGB_ClipLayer_SaveFlag);
       canvas.drawARGB(0, 255, 255, 255, SkXfermode::kClear_Mode);
-      SkBitmap* active_bg = theme_provider_->GetBitmapNamed(IDR_THEME_TOOLBAR);
+      SkBitmap* active_bg = theme_service_->GetBitmapNamed(IDR_THEME_TOOLBAR);
       canvas.TileImageInt(*active_bg,
           x() + favicon_bounds_.x(), favicon_bounds_.y(),
           favicon_bounds_.x(), favicon_bounds_.y(),
@@ -450,14 +453,14 @@ gfx::Size TabRendererGtk::GetMinimumUnselectedSize() {
 // static
 gfx::Size TabRendererGtk::GetMinimumSelectedSize() {
   gfx::Size minimum_size = GetMinimumUnselectedSize();
-  minimum_size.set_width(kLeftPadding + kFavIconSize + kRightPadding);
+  minimum_size.set_width(kLeftPadding + kFaviconSize + kRightPadding);
   return minimum_size;
 }
 
 // static
 gfx::Size TabRendererGtk::GetStandardSize() {
   gfx::Size standard_size = GetMinimumUnselectedSize();
-  standard_size.Enlarge(kFavIconTitleSpacing + kStandardTitleWidth, 0);
+  standard_size.Enlarge(kFaviconTitleSpacing + kStandardTitleWidth, 0);
   return standard_size;
 }
 
@@ -470,7 +473,7 @@ int TabRendererGtk::GetMiniWidth() {
 int TabRendererGtk::GetContentHeight() {
   // The height of the content of the Tab is the largest of the favicon,
   // the title text and the close button graphic.
-  int content_height = std::max(kFavIconSize, title_font_height_);
+  int content_height = std::max(kFaviconSize, title_font_height_);
   return std::max(content_height, close_button_height_);
 }
 
@@ -589,7 +592,7 @@ void TabRendererGtk::AnimationEnded(const ui::Animation* animation) {
 
 void TabRendererGtk::StartCrashAnimation() {
   if (!crash_animation_.get())
-    crash_animation_.reset(new FavIconCrashAnimation(this));
+    crash_animation_.reset(new FaviconCrashAnimation(this));
   crash_animation_->Stop();
   crash_animation_->Start();
 }
@@ -604,16 +607,16 @@ bool TabRendererGtk::IsPerformingCrashAnimation() const {
   return crash_animation_.get() && crash_animation_->is_animating();
 }
 
-void TabRendererGtk::SetFavIconHidingOffset(int offset) {
-  fav_icon_hiding_offset_ = offset;
+void TabRendererGtk::SetFaviconHidingOffset(int offset) {
+  favicon_hiding_offset_ = offset;
   SchedulePaint();
 }
 
-void TabRendererGtk::DisplayCrashedFavIcon() {
+void TabRendererGtk::DisplayCrashedFavicon() {
   should_display_crashed_favicon_ = true;
 }
 
-void TabRendererGtk::ResetCrashedFavIcon() {
+void TabRendererGtk::ResetCrashedFavicon() {
   should_display_crashed_favicon_ = false;
 }
 
@@ -671,15 +674,15 @@ void TabRendererGtk::Layout() {
   // Size the Favicon.
   showing_icon_ = ShouldShowIcon();
   if (showing_icon_) {
-    int favicon_top = kTopPadding + (content_height - kFavIconSize) / 2;
+    int favicon_top = kTopPadding + (content_height - kFaviconSize) / 2;
     favicon_bounds_.SetRect(local_bounds.x(), favicon_top,
-                            kFavIconSize, kFavIconSize);
+                            kFaviconSize, kFaviconSize);
     if ((mini() || data_.animating_mini_change) &&
         bounds_.width() < kMiniTabRendererAsNormalTabWidth) {
       int mini_delta = kMiniTabRendererAsNormalTabWidth - GetMiniWidth();
       int ideal_delta = bounds_.width() - GetMiniWidth();
       if (ideal_delta < mini_delta) {
-        int ideal_x = (GetMiniWidth() - kFavIconSize) / 2;
+        int ideal_x = (GetMiniWidth() - kFaviconSize) / 2;
         int x = favicon_bounds_.x() + static_cast<int>(
             (1 - static_cast<float>(ideal_delta) /
              static_cast<float>(mini_delta)) *
@@ -702,9 +705,9 @@ void TabRendererGtk::Layout() {
                                  close_button_height_);
 
     // If the close button color has changed, generate a new one.
-    if (theme_provider_) {
+    if (theme_service_) {
       SkColor tab_text_color =
-        theme_provider_->GetColor(BrowserThemeProvider::COLOR_TAB_TEXT);
+        theme_service_->GetColor(ThemeService::COLOR_TAB_TEXT);
       if (!close_button_color_ || tab_text_color != close_button_color_) {
         close_button_color_ = tab_text_color;
         ResourceBundle& rb = ResourceBundle::GetSharedInstance();
@@ -719,7 +722,7 @@ void TabRendererGtk::Layout() {
 
   if (!mini() || width() >= kMiniTabRendererAsNormalTabWidth) {
     // Size the Title text to fill the remaining space.
-    int title_left = favicon_bounds_.right() + kFavIconTitleSpacing;
+    int title_left = favicon_bounds_.right() + kFaviconTitleSpacing;
     int title_top = kTopPadding;
 
     // If the user has big fonts, the title will appear rendered too far down
@@ -826,42 +829,42 @@ void TabRendererGtk::PaintIcon(gfx::Canvas* canvas) {
     PaintLoadingAnimation(canvas);
   } else {
     canvas->Save();
-    canvas->ClipRectInt(0, 0, width(), height() - kFavIconTitleSpacing);
+    canvas->ClipRectInt(0, 0, width(), height() - kFaviconTitleSpacing);
     if (should_display_crashed_favicon_) {
-      canvas->DrawBitmapInt(*crashed_fav_icon, 0, 0,
-                            crashed_fav_icon->width(),
-                            crashed_fav_icon->height(),
+      canvas->DrawBitmapInt(*crashed_favicon, 0, 0,
+                            crashed_favicon->width(),
+                            crashed_favicon->height(),
                             favicon_bounds_.x(),
-                            favicon_bounds_.y() + fav_icon_hiding_offset_,
-                            kFavIconSize, kFavIconSize,
+                            favicon_bounds_.y() + favicon_hiding_offset_,
+                            kFaviconSize, kFaviconSize,
                             true);
     } else {
       if (!data_.favicon.isNull()) {
-        if (data_.is_default_favicon && theme_provider_->UseGtkTheme()) {
-          GdkPixbuf* favicon = GtkThemeProvider::GetDefaultFavicon(true);
+        if (data_.is_default_favicon && theme_service_->UseGtkTheme()) {
+          GdkPixbuf* favicon = GtkThemeService::GetDefaultFavicon(true);
           canvas->AsCanvasSkia()->DrawGdkPixbuf(
               favicon, favicon_bounds_.x(),
-              favicon_bounds_.y() + fav_icon_hiding_offset_);
+              favicon_bounds_.y() + favicon_hiding_offset_);
         } else {
           // If the favicon is an app icon, it is allowed to be drawn slightly
           // larger than the standard favicon.
-          int favIconHeightOffset = data_.app ? -2 : 0;
-          int favIconWidthDelta = data_.app ?
-              data_.favicon.width() - kFavIconSize : 0;
-          int favIconHeightDelta = data_.app ?
-              data_.favicon.height() - kFavIconSize : 0;
+          int faviconHeightOffset = data_.app ? -2 : 0;
+          int faviconWidthDelta = data_.app ?
+              data_.favicon.width() - kFaviconSize : 0;
+          int faviconHeightDelta = data_.app ?
+              data_.favicon.height() - kFaviconSize : 0;
 
           // TODO(pkasting): Use code in tab_icon_view.cc:PaintIcon() (or switch
           // to using that class to render the favicon).
           canvas->DrawBitmapInt(data_.favicon, 0, 0,
                                 data_.favicon.width(),
                                 data_.favicon.height(),
-                                favicon_bounds_.x() - favIconWidthDelta/2,
-                                favicon_bounds_.y() + favIconHeightOffset
-                                    - favIconHeightDelta/2
-                                    + fav_icon_hiding_offset_,
-                                kFavIconSize + favIconWidthDelta,
-                                kFavIconSize + favIconHeightDelta,
+                                favicon_bounds_.x() - faviconWidthDelta/2,
+                                favicon_bounds_.y() + faviconHeightOffset
+                                    - faviconHeightDelta/2
+                                    + favicon_hiding_offset_,
+                                kFaviconSize + faviconWidthDelta,
+                                kFaviconSize + faviconHeightDelta,
                                 true);
         }
       }
@@ -889,21 +892,20 @@ void TabRendererGtk::PaintTabBackground(gfx::Canvas* canvas) {
 }
 
 void TabRendererGtk::PaintInactiveTabBackground(gfx::Canvas* canvas) {
-  bool is_otr = data_.off_the_record;
 
   // The tab image needs to be lined up with the background image
   // so that it feels partially transparent.
   int offset_x = background_offset_x_;
 
-  int tab_id = is_otr ?
+  int tab_id = data_.incognito ?
       IDR_THEME_TAB_BACKGROUND_INCOGNITO : IDR_THEME_TAB_BACKGROUND;
 
-  SkBitmap* tab_bg = theme_provider_->GetBitmapNamed(tab_id);
+  SkBitmap* tab_bg = theme_service_->GetBitmapNamed(tab_id);
 
   // If the theme is providing a custom background image, then its top edge
   // should be at the top of the tab. Otherwise, we assume that the background
   // image is a composited foreground + frame image.
-  int offset_y = theme_provider_->HasCustomImage(tab_id) ?
+  int offset_y = theme_service_->HasCustomImage(tab_id) ?
       0 : background_offset_y_;
 
   // Draw left edge.
@@ -933,7 +935,7 @@ void TabRendererGtk::PaintInactiveTabBackground(gfx::Canvas* canvas) {
 void TabRendererGtk::PaintActiveTabBackground(gfx::Canvas* canvas) {
   int offset_x = background_offset_x_;
 
-  SkBitmap* tab_bg = theme_provider_->GetBitmapNamed(IDR_THEME_TOOLBAR);
+  SkBitmap* tab_bg = theme_service_->GetBitmapNamed(IDR_THEME_TOOLBAR);
 
   // Draw left edge.
   SkBitmap* theme_l = GetMaskedBitmap(tab_alpha_.image_l, tab_bg, offset_x, 0);
@@ -980,7 +982,7 @@ void TabRendererGtk::PaintLoadingAnimation(gfx::Canvas* canvas) {
 int TabRendererGtk::IconCapacity() const {
   if (height() < GetMinimumUnselectedSize().height())
     return 0;
-  return (width() - kLeftPadding - kRightPadding) / kFavIconSize;
+  return (width() - kLeftPadding - kRightPadding) / kFaviconSize;
 }
 
 bool TabRendererGtk::ShouldShowCloseBox() const {
@@ -1084,7 +1086,7 @@ void TabRendererGtk::InitResources() {
   title_font_ = new gfx::Font(base_font.GetFontName(), kFontPixelSize);
   title_font_height_ = title_font_->GetHeight();
 
-  crashed_fav_icon = rb.GetBitmapNamed(IDR_SAD_FAVICON);
+  crashed_favicon = rb.GetBitmapNamed(IDR_SAD_FAVICON);
 
   initialized_ = true;
 }

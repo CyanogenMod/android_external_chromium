@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,19 +7,20 @@
 #include "chrome/browser/content_settings/host_content_settings_map.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/common/net/url_request_context_getter.h"
 #include "chrome/test/in_process_browser_test.h"
 #include "chrome/test/ui_test_utils.h"
 #include "net/base/cookie_store.h"
 #include "net/base/mock_host_resolver.h"
 #include "net/test/test_server.h"
+#include "net/url_request/url_request_context.cc"
+#include "net/url_request/url_request_context_getter.h"
 
 namespace {
 
 class GetCookiesTask : public Task {
  public:
   GetCookiesTask(const GURL& url,
-                 URLRequestContextGetter* context_getter,
+                 net::URLRequestContextGetter* context_getter,
                  base::WaitableEvent* event,
                  std::string* cookies)
       : url_(url),
@@ -28,13 +29,15 @@ class GetCookiesTask : public Task {
         cookies_(cookies) {}
 
   virtual void Run() {
-    *cookies_ = context_getter_->GetCookieStore()->GetCookies(url_);
+    *cookies_ =
+        context_getter_->GetURLRequestContext()->cookie_store()->
+        GetCookies(url_);
     event_->Signal();
   }
 
  private:
   const GURL& url_;
-  URLRequestContextGetter* const context_getter_;
+  net::URLRequestContextGetter* const context_getter_;
   base::WaitableEvent* const event_;
   std::string* const cookies_;
 
@@ -49,7 +52,7 @@ class CookiePolicyBrowserTest : public InProcessBrowserTest {
     std::string cookies;
     base::WaitableEvent event(true /* manual reset */,
                               false /* not initially signaled */);
-    URLRequestContextGetter* context_getter =
+    net::URLRequestContextGetter* context_getter =
         browser()->profile()->GetRequestContext();
     EXPECT_TRUE(
         BrowserThread::PostTask(

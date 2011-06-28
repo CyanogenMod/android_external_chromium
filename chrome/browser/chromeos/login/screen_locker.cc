@@ -20,10 +20,7 @@
 #include "base/string_util.h"
 #include "base/timer.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/browser_list.h"
-#include "chrome/browser/browser_window.h"
 #include "chrome/browser/chromeos/cros/input_method_library.h"
-#include "chrome/browser/chromeos/cros/keyboard_library.h"
 #include "chrome/browser/chromeos/cros/login_library.h"
 #include "chrome/browser/chromeos/cros/screen_lock_library.h"
 #include "chrome/browser/chromeos/input_method/input_method_util.h"
@@ -39,9 +36,12 @@
 #include "chrome/browser/chromeos/view_ids.h"
 #include "chrome/browser/chromeos/wm_ipc.h"
 #include "chrome/browser/metrics/user_metrics.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "chrome/common/chrome_switches.h"
 #include "content/browser/browser_thread.h"
 #include "content/common/notification_service.h"
@@ -60,19 +60,12 @@ namespace {
 
 // The maximum duration for which locker should try to grab the keyboard and
 // mouse and its interval for regrabbing on failure.
-// This was originally 30 seconds, but is temporarily increaed to 10 min
-// so that a user can report the situation when locker does not kick in.
-// This should be revereted before we moved out from pilot program and it's
-// tracked in crosbug.com/9938.
-const int kMaxGrabFailureSec = 600;
+const int kMaxGrabFailureSec = 30;
 const int64 kRetryGrabIntervalMs = 500;
 
 // Maximum number of times we'll try to grab the keyboard and mouse before
 // giving up.  If we hit the limit, Chrome exits and the session is terminated.
 const int kMaxGrabFailures = kMaxGrabFailureSec * 1000 / kRetryGrabIntervalMs;
-
-// Each keyboard layout has a dummy input method ID which starts with "xkb:".
-const char kValidInputMethodPrefix[] = "xkb:";
 
 // A idle time to show the screen saver in seconds.
 const int kScreenSaverIdleTimeout = 15;
@@ -143,9 +136,8 @@ class ScreenLockObserver : public chromeos::ScreenLockLibrary::Observer,
       for (size_t i = 0; i < active_input_method_list->size(); ++i) {
         const std::string& input_method_id = active_input_method_list->at(i).id;
         saved_active_input_method_list_.push_back(input_method_id);
-        // |active_input_method_list| contains both input method descriptions
-        // and keyboard layout descriptions.
-        if (!StartsWithASCII(input_method_id, kValidInputMethodPrefix, true))
+        // Skip if it's not a keyboard layout.
+        if (!chromeos::input_method::IsKeyboardLayout(input_method_id))
           continue;
         value.string_list_value.push_back(input_method_id);
         if (input_method_id == hardware_keyboard_id) {
@@ -365,14 +357,31 @@ class GrabWidget : public views::WidgetGtk {
   void TryUngrabOtherClients();
 
  private:
-  virtual void HandleGrabBroke() {
+  virtual void HandleGtkGrabBroke() {
     // Input should never be stolen from ScreenLocker once it's
     // grabbed.  If this happens, it's a bug and has to be fixed. We
     // let chrome crash to get a crash report and dump, and
     // SessionManager will terminate the session to logout.
-    CHECK(kbd_grab_status_ != GDK_GRAB_SUCCESS ||
-          mouse_grab_status_ != GDK_GRAB_SUCCESS)
-        << "Grab Broke. quitting";
+    CHECK_NE(GDK_GRAB_SUCCESS, kbd_grab_status_);
+    CHECK_NE(GDK_GRAB_SUCCESS, mouse_grab_status_);
+  }
+
+  // Define separate methods for each error code so that stack trace
+  // will tell which error the grab failed with.
+  void FailedWithGrabAlreadyGrabbed() {
+    LOG(FATAL) << "Grab already grabbed";
+  }
+  void FailedWithGrabInvalidTime() {
+    LOG(FATAL) << "Grab invalid time";
+  }
+  void FailedWithGrabNotViewable() {
+    LOG(FATAL) << "Grab not viewable";
+  }
+  void FailedWithGrabFrozen() {
+    LOG(FATAL) << "Grab frozen";
+  }
+  void FailedWithUnknownError() {
+    LOG(FATAL) << "Grab uknown";
   }
 
   chromeos::ScreenLocker* screen_locker_;
@@ -423,10 +432,29 @@ void GrabWidget::TryGrabAllInputs() {
         kRetryGrabIntervalMs);
   } else {
     gdk_x11_ungrab_server();
-    CHECK_EQ(GDK_GRAB_SUCCESS, kbd_grab_status_)
-        << "Failed to grab keyboard input:" << kbd_grab_status_;
-    CHECK_EQ(GDK_GRAB_SUCCESS, mouse_grab_status_)
-        << "Failed to grab pointer input:" << mouse_grab_status_;
+    GdkGrabStatus status = kbd_grab_status_;
+    if (status == GDK_GRAB_SUCCESS) {
+      status = mouse_grab_status_;
+    }
+    switch (status) {
+      case GDK_GRAB_SUCCESS:
+        break;
+      case GDK_GRAB_ALREADY_GRABBED:
+        FailedWithGrabAlreadyGrabbed();
+        break;
+      case GDK_GRAB_INVALID_TIME:
+        FailedWithGrabInvalidTime();
+        break;
+      case GDK_GRAB_NOT_VIEWABLE:
+        FailedWithGrabNotViewable();
+        break;
+      case GDK_GRAB_FROZEN:
+        FailedWithGrabFrozen();
+        break;
+      default:
+        FailedWithUnknownError();
+        break;
+    }
     DVLOG(1) << "Grab Success";
     screen_locker_->OnGrabInputs();
   }
@@ -689,6 +717,8 @@ ScreenLocker::ScreenLocker(const UserManager::User& user)
 }
 
 void ScreenLocker::Init() {
+  static const GdkColor kGdkBlack = {0, 0, 0, 0};
+
   authenticator_ = LoginUtils::Get()->CreateAuthenticator(this);
 
   gfx::Point left_top(1, 1);
@@ -697,6 +727,8 @@ void ScreenLocker::Init() {
   LockWindow* lock_window = new LockWindow();
   lock_window_ = lock_window;
   lock_window_->Init(NULL, init_bounds);
+  gtk_widget_modify_bg(
+      lock_window_->GetNativeView(), GTK_STATE_NORMAL, &kGdkBlack);
 
   g_signal_connect(lock_window_->GetNativeView(), "client-event",
                    G_CALLBACK(OnClientEventThunk), this);
@@ -764,12 +796,6 @@ void ScreenLocker::Init() {
                               GTK_WINDOW(lock_window_->GetNativeView()));
   g_object_unref(window_group);
 
-  // Don't let X draw default background, which was causing flash on
-  // resume.
-  gdk_window_set_back_pixmap(lock_window_->GetNativeView()->window,
-                             NULL, false);
-  gdk_window_set_back_pixmap(lock_widget_->GetNativeView()->window,
-                             NULL, false);
   lock_window->set_toplevel_focus_widget(lock_widget_->window_contents());
 
   // Create the SystemKeyEventListener so it can listen for system keyboard
@@ -813,7 +839,8 @@ void ScreenLocker::OnLoginSuccess(
     bool pending_requests) {
   VLOG(1) << "OnLoginSuccess: Sending Unlock request.";
   if (authentication_start_time_.is_null()) {
-    LOG(ERROR) << "authentication_start_time_ is not set";
+    if (!username.empty())
+      LOG(WARNING) << "authentication_start_time_ is not set";
   } else {
     base::TimeDelta delta = base::Time::Now() - authentication_start_time_;
     VLOG(1) << "Authentication success time: " << delta.InSecondsF();
@@ -833,8 +860,7 @@ void ScreenLocker::OnLoginSuccess(
     CrosLibrary::Get()->GetScreenLockLibrary()->NotifyScreenUnlockRequested();
 }
 
-void ScreenLocker::InfoBubbleClosing(InfoBubble* info_bubble,
-                                     bool closed_by_escape) {
+void ScreenLocker::BubbleClosing(Bubble* bubble, bool closed_by_escape) {
   error_info_ = NULL;
   screen_lock_view_->SetSignoutEnabled(true);
   if (mouse_event_relay_.get()) {
@@ -867,6 +893,9 @@ void ScreenLocker::OnCaptchaEntered(const std::string& captcha) {
 }
 
 void ScreenLocker::Authenticate(const string16& password) {
+  if (password.empty())
+    return;
+
   authentication_start_time_ = base::Time::Now();
   screen_lock_view_->SetEnabled(false);
   screen_lock_view_->SetSignoutEnabled(false);

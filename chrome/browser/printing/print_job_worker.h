@@ -6,8 +6,8 @@
 #define CHROME_BROWSER_PRINTING_PRINT_JOB_WORKER_H__
 #pragma once
 
-#include "base/ref_counted.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/task.h"
 #include "base/threading/thread.h"
 #include "printing/page_number.h"
@@ -44,8 +44,8 @@ class PrintJobWorker : public base::Thread {
                    bool has_selection,
                    bool use_overlays);
 
-  // Set the new print settings. This function takes ownership of |new_settings|
-  // and frees it.
+  // Set the new print settings. This function takes ownership of
+  // |new_settings|.
   void SetSettings(const DictionaryValue* const new_settings);
 
   // Starts the printing loop. Every pages are printed as soon as the data is
@@ -98,7 +98,8 @@ class PrintJobWorker : public base::Thread {
   // back into the IO thread for GetSettingsDone().
   void GetSettingsWithUIDone(PrintingContext::Result result);
 
-  // Called on the UI thread to update the print settings.
+  // Called on the UI thread to update the print settings. This function takes
+  // the ownership of |new_settings|.
   void UpdatePrintSettings(const DictionaryValue* const new_settings);
 
   // Reports settings back to owner_.

@@ -5,11 +5,10 @@
 #include "chrome/browser/printing/cloud_print/cloud_print_setup_flow.h"
 
 #include "base/json/json_writer.h"
-#include "base/singleton.h"
+#include "base/memory/singleton.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
-#include "chrome/browser/browser_list.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/printing/cloud_print/cloud_print_proxy_service.h"
@@ -21,6 +20,7 @@
 #include "chrome/browser/service/service_process_control_manager.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_dialogs.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/webui/chrome_url_data_manager.h"
 #include "chrome/common/net/gaia/gaia_auth_fetcher.h"
@@ -31,21 +31,36 @@
 #include "content/browser/browser_thread.h"
 #include "content/browser/renderer_host/render_view_host.h"
 #include "content/browser/tab_contents/tab_contents.h"
-#include "content/browser/webui/web_ui_util.h"
 #include "grit/chromium_strings.h"
 #include "grit/locale_settings.h"
 #include "ui/base/l10n/l10n_font_util.h"
 #include "ui/gfx/font.h"
 
-static const wchar_t kGaiaLoginIFrameXPath[] = L"//iframe[@id='gaialogin']";
-static const wchar_t kDoneIframeXPath[] = L"//iframe[@id='setupdone']";
+namespace {
+
+string16& SetupIframeXPath() {
+  static string16 kSetupIframeXPath =
+      ASCIIToUTF16("//iframe[@id='cloudprintsetup']");
+  return kSetupIframeXPath;
+}
+
+string16& DoneIframeXPath() {
+  static string16 kDoneIframeXPath =
+      ASCIIToUTF16("//iframe[@id='setupdone']");
+  return kDoneIframeXPath;
+}
+
+}  // end namespace
 
 ////////////////////////////////////////////////////////////////////////////////
 // CloudPrintSetupFlow implementation.
 
 // static
 CloudPrintSetupFlow* CloudPrintSetupFlow::OpenDialog(
-    Profile* profile, Delegate* delegate, gfx::NativeWindow parent_window) {
+    Profile* profile,
+    const base::WeakPtr<Delegate>& delegate,
+    gfx::NativeWindow parent_window) {
+  DCHECK(profile);
   // Set the arguments for showing the gaia login page.
   DictionaryValue args;
   args.SetString("user", "");
@@ -72,17 +87,18 @@ CloudPrintSetupFlow* CloudPrintSetupFlow::OpenDialog(
     if (browser && browser->window())
       parent_window = browser->window()->GetNativeHandle();
   }
-  DCHECK(profile);
   browser::ShowHtmlDialog(parent_window, profile, flow);
   return flow;
 }
 
-CloudPrintSetupFlow::CloudPrintSetupFlow(const std::string& args,
-                                         Profile* profile,
-                                         Delegate* delegate,
-                                         bool setup_done)
+CloudPrintSetupFlow::CloudPrintSetupFlow(
+    const std::string& args,
+    Profile* profile,
+    const base::WeakPtr<Delegate>& delegate,
+    bool setup_done)
     : web_ui_(NULL),
       dialog_start_args_(args),
+      last_auth_error_(GoogleServiceAuthError::None()),
       setup_done_(setup_done),
       process_control_(NULL),
       delegate_(delegate) {
@@ -134,6 +150,17 @@ void CloudPrintSetupFlow::GetDialogSize(gfx::Size* size) const {
   }
 
 #if !defined(OS_WIN)
+  // NOTE(scottbyer):The following comment comes from
+  // SyncSetupFlow::GetDialogSize, where this hack was copied from. By starting
+  // off development of the UI on Windows, the hack is seemingly backwards.
+
+  // NOTE(akalin): This is a hack to work around a problem with font height on
+  // windows.  Basically font metrics are incorrectly returned in logical units
+  // instead of pixels on Windows.  Logical units are very commonly 96 DPI
+  // so our localized char/line counts are too small by a factor of 96/72.
+  // So we compensate for this on non-windows platform.
+
+  // TODO(scottbyer): Fix the root cause, kill the hacks.
   float scale_hack = 96.f/72.f;
   size->set_width(size->width() * scale_hack);
   size->set_height(size->height() * scale_hack);
@@ -146,14 +173,13 @@ void CloudPrintSetupFlow::OnDialogClosed(const std::string& json_retval) {
   if (authenticator_.get())
     authenticator_->CancelRequest();
 
-  if (delegate_) {
+  if (delegate_)
     delegate_->OnDialogClosed();
-  }
   delete this;
 }
 
 std::string CloudPrintSetupFlow::GetDialogArgs() const {
-    return dialog_start_args_;
+  return dialog_start_args_;
 }
 
 void CloudPrintSetupFlow::OnCloseContents(TabContents* source,
@@ -176,12 +202,6 @@ bool CloudPrintSetupFlow::ShouldShowDialogTitle() const {
 
 ///////////////////////////////////////////////////////////////////////////////
 // GaiaAuthConsumer implementation.
-void CloudPrintSetupFlow::OnClientLoginFailure(
-    const GoogleServiceAuthError& error) {
-  ShowGaiaFailed(error);
-  authenticator_.reset();
-}
-
 void CloudPrintSetupFlow::OnClientLoginSuccess(
     const GaiaAuthConsumer::ClientLoginResult& credentials) {
   // Save the token for the cloud print proxy.
@@ -197,6 +217,13 @@ void CloudPrintSetupFlow::OnClientLoginSuccess(
   ShowSetupDone();
 }
 
+void CloudPrintSetupFlow::OnClientLoginFailure(
+    const GoogleServiceAuthError& error) {
+  last_auth_error_ = error;
+  ShowGaiaFailed(error);
+  authenticator_.reset();
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // Methods called by CloudPrintSetupMessageHandler
 void CloudPrintSetupFlow::Attach(WebUI* web_ui) {
@@ -205,7 +232,8 @@ void CloudPrintSetupFlow::Attach(WebUI* web_ui) {
 
 void CloudPrintSetupFlow::OnUserSubmittedAuth(const std::string& user,
                                               const std::string& password,
-                                              const std::string& captcha) {
+                                              const std::string& captcha,
+                                              const std::string& access_code) {
   // Save the login name only.
   login_ = user;
 
@@ -214,10 +242,17 @@ void CloudPrintSetupFlow::OnUserSubmittedAuth(const std::string& user,
       new GaiaAuthFetcher(this, GaiaConstants::kChromeSource,
                           profile_->GetRequestContext()));
 
-  authenticator_->StartClientLogin(user, password,
-                                   GaiaConstants::kCloudPrintService,
-                                   "", captcha,
-                                   GaiaAuthFetcher::HostedAccountsAllowed);
+  if (!access_code.empty()) {
+    authenticator_->StartClientLogin(user, access_code,
+                                     GaiaConstants::kCloudPrintService,
+                                     std::string(), std::string(),
+                                     GaiaAuthFetcher::HostedAccountsAllowed);
+  } else {
+    authenticator_->StartClientLogin(user, password,
+                                     GaiaConstants::kCloudPrintService,
+                                     last_auth_error_.captcha().token, captcha,
+                                     GaiaAuthFetcher::HostedAccountsAllowed);
+  }
 }
 
 void CloudPrintSetupFlow::OnUserClickedLearnMore() {
@@ -236,24 +271,25 @@ void CloudPrintSetupFlow::OnUserClickedPrintTestPage() {
 // Helper methods for showing contents of the Web UI
 void CloudPrintSetupFlow::ShowGaiaLogin(const DictionaryValue& args) {
   if (web_ui_)
-    web_ui_->CallJavascriptFunction(L"cloudprint.showSetupLogin");
+    web_ui_->CallJavascriptFunction("cloudprint.showSetupLogin");
 
   std::string json;
   base::JSONWriter::Write(&args, false, &json);
-  std::wstring javascript = std::wstring(L"showGaiaLogin") +
-      L"(" + UTF8ToWide(json) + L");";
-  ExecuteJavascriptInIFrame(kGaiaLoginIFrameXPath, javascript);
+  string16 javascript = UTF8ToUTF16("cloudprint.showGaiaLogin(" + json + ");");
+
+  ExecuteJavascriptInIFrame(SetupIframeXPath(), javascript);
 }
 
 void CloudPrintSetupFlow::ShowGaiaSuccessAndSettingUp() {
-  ExecuteJavascriptInIFrame(kGaiaLoginIFrameXPath,
-                            L"showGaiaSuccessAndSettingUp();");
+  ExecuteJavascriptInIFrame(
+      SetupIframeXPath(),
+      ASCIIToUTF16("cloudprint.showGaiaSuccessAndSettingUp();"));
 }
 
 void CloudPrintSetupFlow::ShowGaiaFailed(const GoogleServiceAuthError& error) {
   DictionaryValue args;
   args.SetString("pageToShow", "cloudprintsetup");
-  args.SetString("user", "");
+  args.SetString("user", login_);
   args.SetInteger("error", error.state());
   args.SetBoolean("editable_user", true);
   args.SetString("captchaUrl", error.captcha().image_url.spec());
@@ -263,12 +299,12 @@ void CloudPrintSetupFlow::ShowGaiaFailed(const GoogleServiceAuthError& error) {
 void CloudPrintSetupFlow::ShowSetupDone() {
   setup_done_ = true;
   string16 product_name = l10n_util::GetStringUTF16(IDS_PRODUCT_NAME);
-  std::wstring message =
-      UTF16ToWideHack(l10n_util::GetStringFUTF16(IDS_CLOUD_PRINT_SETUP_DONE,
-                                                 product_name,
-                                                 UTF8ToUTF16(login_)));
-  std::wstring javascript = L"cloudprint.setMessage('" + message + L"');";
-  ExecuteJavascriptInIFrame(kDoneIframeXPath, javascript);
+  string16 message = l10n_util::GetStringFUTF16(IDS_CLOUD_PRINT_SETUP_DONE,
+                                                product_name,
+                                                UTF8ToUTF16(login_));
+  string16 javascript(ASCIIToUTF16("cloudprint.setMessage('") + message +
+                      ASCIIToUTF16("');"));
+  ExecuteJavascriptInIFrame(DoneIframeXPath(), javascript);
 
   if (web_ui_) {
     PrefService* prefs = profile_->GetPrefs();
@@ -282,19 +318,19 @@ void CloudPrintSetupFlow::ShowSetupDone() {
 
     FundamentalValue new_width(done_size.width());
     FundamentalValue new_height(done_size.height());
-    web_ui_->CallJavascriptFunction(L"cloudprint.showSetupDone",
+    web_ui_->CallJavascriptFunction("cloudprint.showSetupDone",
                                     new_width, new_height);
   }
 
-  ExecuteJavascriptInIFrame(kDoneIframeXPath, L"cloudprint.onPageShown();");
+  ExecuteJavascriptInIFrame(DoneIframeXPath(),
+                            ASCIIToUTF16("cloudprint.onPageShown();"));
 }
 
 void CloudPrintSetupFlow::ExecuteJavascriptInIFrame(
-    const std::wstring& iframe_xpath,
-    const std::wstring& js) {
+    const string16& iframe_xpath,
+    const string16& js) {
   if (web_ui_) {
     RenderViewHost* rvh = web_ui_->tab_contents()->render_view_host();
-    rvh->ExecuteJavascriptInWebFrame(WideToUTF16Hack(iframe_xpath),
-                                     WideToUTF16Hack(js));
+    rvh->ExecuteJavascriptInWebFrame(iframe_xpath, js);
   }
 }

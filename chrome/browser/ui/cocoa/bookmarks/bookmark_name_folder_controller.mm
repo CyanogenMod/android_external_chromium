@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -30,7 +30,7 @@
     parent_ = parent;
     newIndex_ = newIndex;
     if (parent) {
-      DCHECK_LE(newIndex, parent->GetChildCount());
+      DCHECK_LE(newIndex, parent->child_count());
     }
     if (node_) {
       initialName_.reset([base::SysUTF16ToNSString(node_->GetTitle()) retain]);
@@ -93,9 +93,9 @@
   if (node_) {
     model->SetTitle(node_, base::SysNSStringToUTF16(name));
   } else {
-    model->AddGroup(parent_,
-                    newIndex_,
-                    base::SysNSStringToUTF16(name));
+    model->AddFolder(parent_,
+                     newIndex_,
+                     base::SysNSStringToUTF16(name));
   }
   [NSApp endSheet:[self window]];
 }

@@ -8,31 +8,9 @@
 #define CHROME_COMMON_URL_CONSTANTS_H_
 #pragma once
 
+#include "content/common/url_constants.h"
+
 namespace chrome {
-
-// Canonical schemes you can use as input to GURL.SchemeIs().
-extern const char kAboutScheme[];
-extern const char kBlobScheme[];
-extern const char kChromeDevToolsScheme[];
-extern const char kChromeInternalScheme[];
-extern const char kChromeUIScheme[];  // The scheme used for WebUIs.
-extern const char kCrosScheme[];      // The scheme used for ChromeOS.
-extern const char kDataScheme[];
-extern const char kExtensionScheme[];
-extern const char kFileScheme[];
-extern const char kFileSystemScheme[];
-extern const char kFtpScheme[];
-extern const char kGearsScheme[];
-extern const char kHttpScheme[];
-extern const char kHttpsScheme[];
-extern const char kJavaScriptScheme[];
-extern const char kMailToScheme[];
-extern const char kMetadataScheme[];
-extern const char kUserScriptScheme[];
-extern const char kViewSourceScheme[];
-
-// Used to separate a standard scheme and the hostname: "://".
-extern const char kStandardSchemeSeparator[];
 
 // Null terminated list of schemes that are savable.
 extern const char* kSavableSchemes[];
@@ -40,11 +18,9 @@ extern const char* kSavableSchemes[];
 // About URLs (including schemes).
 extern const char kAboutAboutURL[];
 extern const char kAboutAppCacheInternalsURL[];
-extern const char kAboutBlankURL[];
 extern const char kAboutBrowserCrash[];
 extern const char kAboutConflicts[];
 extern const char kAboutCacheURL[];
-extern const char kAboutCrashURL[];
 extern const char kAboutKillURL[];
 extern const char kAboutCreditsURL[];
 extern const char kAboutDNSURL[];
@@ -79,7 +55,7 @@ extern const char kChromeUIDownloadsURL[];
 extern const char kChromeUIExtensionIconURL[];
 extern const char kChromeUIExtensionsURL[];
 extern const char kChromeUIFlagsURL[];
-extern const char kChromeUIFavIconURL[];
+extern const char kChromeUIFaviconURL[];
 extern const char kChromeUIHistory2URL[];
 extern const char kChromeUIHistoryURL[];
 extern const char kChromeUIIPCURL[];
@@ -93,15 +69,22 @@ extern const char kChromeUITextfieldsURL[];
 #if defined(OS_CHROMEOS)
 extern const char kChromeUIAboutOSCreditsURL[];
 extern const char kChromeUIActivationMessage[];
+extern const char kChromeUIActiveDownloadsURL[];
+extern const char kChromeUIChooseMobileNetworkURL[];
+extern const char kChromeUICollectedCookiesURL[];
 extern const char kChromeUIFileBrowseURL[];
+extern const char kChromeUIHttpAuthURL[];
 extern const char kChromeUIImageBurnerURL[];
 extern const char kChromeUIKeyboardOverlayURL[];
 extern const char kChromeUIMediaplayerURL[];
 extern const char kChromeUIMobileSetupURL[];
+extern const char kChromeUIProxySettingsURL[];
 extern const char kChromeUIRegisterPageURL[];
 extern const char kChromeUISlideshowURL[];
+extern const char kChromeUISimUnlockURL[];
 extern const char kChromeUISystemInfoURL[];
 extern const char kChromeUIUserImageURL[];
+extern const char kChromeUIEnterpriseEnrollmentURL[];
 #endif
 
 // chrome components of URLs. Should be kept in sync with the full URLs
@@ -115,7 +98,7 @@ extern const char kChromeUIDialogHost[];
 extern const char kChromeUIDownloadsHost[];
 extern const char kChromeUIExtensionIconHost[];
 extern const char kChromeUIExtensionsHost[];
-extern const char kChromeUIFavIconHost[];
+extern const char kChromeUIFaviconHost[];
 extern const char kChromeUIFlagsHost[];
 extern const char kChromeUIGpuInternalsHost[];
 extern const char kChromeUIHistory2Host[];
@@ -137,28 +120,31 @@ extern const char kChromeUIThemePath[];
 extern const char kChromeUIThumbnailPath[];
 
 #if defined(OS_CHROMEOS)
+extern const char kChromeUIActiveDownloadsHost[];
 extern const char kChromeUIActivationMessageHost[];
-extern const char kChromeUIFileBrowseHost[];
+extern const char kChromeUIChooseMobileNetworkHost[];
+extern const char kChromeUICollectedCookiesHost[];
+extern const char kChromeUIHttpAuthHost[];
 extern const char kChromeUIImageBurnerHost[];
 extern const char kChromeUIKeyboardOverlayHost[];
 extern const char kChromeUIMediaplayerHost[];
 extern const char kChromeUIMobileSetupHost[];
+extern const char kChromeUIProxySettingsHost[];
 extern const char kChromeUIRegisterPageHost[];
 extern const char kChromeUISlideshowHost[];
+extern const char kChromeUISimUnlockHost[];
 extern const char kChromeUISystemInfoHost[];
 extern const char kChromeUIMenu[];
 extern const char kChromeUIWrenchMenu[];
 extern const char kChromeUINetworkMenu[];
 extern const char kChromeUIUserImageHost[];
+extern const char kChromeUIEnterpriseEnrollmentHost[];
 #endif
 
 #if defined(OS_CHROMEOS) && defined(TOUCH_UI)
 extern const char kChromeUILoginContainerHost[];
 extern const char kChromeUILoginHost[];
 #endif
-
-// Special URL used to start a navigation to an error page.
-extern const char kUnreachableWebDataURL[];
 
 // AppCache related URL.
 extern const char kAppCacheViewInternalsURL[];
@@ -183,19 +169,24 @@ extern const char kGpuInternalsURL[];
 
 // Options sub-pages.
 extern const char kAdvancedOptionsSubPage[];
-extern const char kAutoFillSubPage[];
+extern const char kAutofillSubPage[];
 extern const char kBrowserOptionsSubPage[];
 extern const char kClearBrowserDataSubPage[];
 extern const char kContentSettingsSubPage[];
 extern const char kContentSettingsExceptionsSubPage[];
 extern const char kImportDataSubPage[];
+extern const char kInstantConfirmPage[];
+extern const char kLanguageOptionsSubPage[];
 extern const char kPersonalOptionsSubPage[];
+extern const char kPasswordManagerSubPage[];
 extern const char kSearchEnginesSubPage[];
+extern const char kSyncSetupSubPage[];
 #if defined(OS_CHROMEOS)
 extern const char kInternetOptionsSubPage[];
-extern const char kLanguageOptionsSubPage[];
 extern const char kSystemOptionsSubPage[];
 #endif
+
+extern const char kPasswordManagerLearnMoreURL[];
 
 // General help link for Chrome.
 extern const char kChromeHelpURL[];
@@ -219,8 +210,11 @@ extern const char kChromiumProjectURL[];
 // first run dialog.
 extern const char kLearnMoreReportingURL[];
 
-// The URL for the "Learn more" page for the blocked/outdated plugin infobar.
+// The URL for the "Learn more" page for the outdated plugin infobar.
 extern const char kOutdatedPluginLearnMoreURL[];
+
+// The URL for the "Learn more" page for the blocked plugin infobar.
+extern const char kBlockedPluginLearnMoreURL[];
 
 // Call near the beginning of startup to register Chrome's internal URLs that
 // should be parsed as "standard" with the googleurl library.

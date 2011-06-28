@@ -13,7 +13,7 @@ namespace extension_tabs_module_constants {
 // Keys used in serializing tab data & events.
 extern const char kAllFramesKey[];
 extern const char kCodeKey[];
-extern const char kFavIconUrlKey[];
+extern const char kFaviconUrlKey[];
 extern const char kFileKey[];
 extern const char kFocusedKey[];
 extern const char kFormatKey[];
@@ -55,6 +55,7 @@ extern const char kStatusValueComplete[];
 extern const char kStatusValueLoading[];
 extern const char kWindowTypeValueNormal[];
 extern const char kWindowTypeValuePopup[];
+extern const char kWindowTypeValuePanel[];
 extern const char kWindowTypeValueApp[];
 
 // Error messages.

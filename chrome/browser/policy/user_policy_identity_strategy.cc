@@ -13,10 +13,10 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/guid.h"
 #include "chrome/common/net/gaia/gaia_constants.h"
-#include "chrome/common/notification_details.h"
-#include "chrome/common/notification_service.h"
-#include "chrome/common/notification_source.h"
 #include "content/browser/browser_thread.h"
+#include "content/common/notification_details.h"
+#include "content/common/notification_service.h"
+#include "content/common/notification_source.h"
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/login/user_manager.h"
@@ -166,7 +166,11 @@ std::string UserPolicyIdentityStrategy::GetDeviceID() {
 }
 
 std::string UserPolicyIdentityStrategy::GetMachineID() {
-  return "";
+  return std::string();
+}
+
+std::string UserPolicyIdentityStrategy::GetMachineModel() {
+  return std::string();
 }
 
 em::DeviceRegisterRequest_Type
@@ -177,7 +181,6 @@ UserPolicyIdentityStrategy::GetPolicyRegisterType() {
 std::string UserPolicyIdentityStrategy::GetPolicyType() {
   return kChromeUserPolicyType;
 }
-
 
 bool UserPolicyIdentityStrategy::GetCredentials(std::string* username,
                                                 std::string* auth_token) {

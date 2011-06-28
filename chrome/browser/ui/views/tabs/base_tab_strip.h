@@ -8,7 +8,8 @@
 
 #include <vector>
 
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
+#include "chrome/browser/ui/views/tabs/abstract_tab_strip_view.h"
 #include "chrome/browser/ui/views/tabs/base_tab.h"
 #include "chrome/browser/ui/views/tabs/tab_controller.h"
 #include "views/animation/bounds_animator.h"
@@ -19,7 +20,7 @@ class DraggedTabController;
 class TabStripController;
 
 // Base class for the view tab strip implementations.
-class BaseTabStrip : public views::View,
+class BaseTabStrip : public AbstractTabStripView,
                      public TabController {
  public:
   enum Type {
@@ -31,21 +32,6 @@ class BaseTabStrip : public views::View,
   virtual ~BaseTabStrip();
 
   Type type() const { return type_; }
-
-  // Set the background offset used by inactive tabs to match the frame image.
-  virtual void SetBackgroundOffset(const gfx::Point& offset) = 0;
-
-  // Returns true if the specified point(TabStrip coordinates) is
-  // in the window caption area of the browser window.
-  virtual bool IsPositionInWindowCaption(const gfx::Point& point) = 0;
-
-  // Updates the loading animations displayed by tabs in the tabstrip to the
-  // next frame.
-  void UpdateLoadingAnimations();
-
-  // Returns true if Tabs in this TabStrip are currently changing size or
-  // position.
-  virtual bool IsAnimating() const;
 
   // Starts highlighting the tab at the specified index.
   virtual void StartHighlight(int model_index) = 0;
@@ -63,9 +49,7 @@ class BaseTabStrip : public views::View,
   virtual BaseTab* CreateTabForDragging() = 0;
 
   // Adds a tab at the specified index.
-  void AddTabAt(int model_index,
-                bool foreground,
-                const TabRendererData& data);
+  void AddTabAt(int model_index, const TabRendererData& data);
 
   // Invoked from the controller when the close initiates from the TabController
   // (the user clicked the tab close button or middle clicked the tab). This is
@@ -99,7 +83,7 @@ class BaseTabStrip : public views::View,
 
   // Returns the index of the specified tab in the model coordiate system, or
   // -1 if tab is closing or not valid.
-  virtual int GetModelIndexOfBaseTab(const BaseTab* tab) const;
+  int GetModelIndexOfBaseTab(const BaseTab* tab) const;
 
   // Gets the number of Tabs in the tab strip.
   // WARNING: this is the number of tabs displayed by the tabstrip, which if
@@ -126,22 +110,32 @@ class BaseTabStrip : public views::View,
   // Returns true if a tab is being dragged into this tab strip.
   bool IsActiveDropTarget() const;
 
+  // AbstractTabStripView implementation
+  virtual bool IsTabStripEditable() const OVERRIDE;
+  virtual bool IsTabStripCloseable() const OVERRIDE;
+  virtual void UpdateLoadingAnimations() OVERRIDE;
+
   // TabController overrides:
-  virtual void SelectTab(BaseTab* tab);
-  virtual void CloseTab(BaseTab* tab);
-  virtual void ShowContextMenuForTab(BaseTab* tab, const gfx::Point& p);
-  virtual bool IsTabSelected(const BaseTab* tab) const;
-  virtual bool IsTabPinned(const BaseTab* tab) const;
-  virtual bool IsTabCloseable(const BaseTab* tab) const;
+  virtual void SelectTab(BaseTab* tab) OVERRIDE;
+  virtual void ExtendSelectionTo(BaseTab* tab) OVERRIDE;
+  virtual void ToggleSelected(BaseTab* tab) OVERRIDE;
+  virtual void AddSelectionFromAnchorTo(BaseTab* tab) OVERRIDE;
+  virtual void CloseTab(BaseTab* tab) OVERRIDE;
+  virtual void ShowContextMenuForTab(BaseTab* tab,
+                                     const gfx::Point& p) OVERRIDE;
+  virtual bool IsActiveTab(const BaseTab* tab) const OVERRIDE;
+  virtual bool IsTabSelected(const BaseTab* tab) const OVERRIDE;
+  virtual bool IsTabPinned(const BaseTab* tab) const OVERRIDE;
+  virtual bool IsTabCloseable(const BaseTab* tab) const OVERRIDE;
   virtual void MaybeStartDrag(BaseTab* tab,
-                              const views::MouseEvent& event);
-  virtual void ContinueDrag(const views::MouseEvent& event);
-  virtual bool EndDrag(bool canceled);
+                              const views::MouseEvent& event) OVERRIDE;
+  virtual void ContinueDrag(const views::MouseEvent& event) OVERRIDE;
+  virtual bool EndDrag(bool canceled) OVERRIDE;
   virtual BaseTab* GetTabAt(BaseTab* tab,
-                            const gfx::Point& tab_in_tab_coordinates);
+                            const gfx::Point& tab_in_tab_coordinates) OVERRIDE;
 
   // View overrides:
-  virtual void Layout();
+  virtual void Layout() OVERRIDE;
 
  protected:
   // The Tabs we contain, and their last generated "good" bounds.
@@ -151,16 +145,16 @@ class BaseTabStrip : public views::View,
   };
 
   // View overrides.
-  virtual bool OnMouseDragged(const views::MouseEvent& event);
-  virtual void OnMouseReleased(const views::MouseEvent& event,
-                               bool canceled);
+  virtual bool OnMouseDragged(const views::MouseEvent& event) OVERRIDE;
+  virtual void OnMouseReleased(const views::MouseEvent& event) OVERRIDE;
+  virtual void OnMouseCaptureLost() OVERRIDE;
 
   // Creates and returns a new tab. The caller owners the returned tab.
   virtual BaseTab* CreateTab() = 0;
 
   // Invoked from |AddTabAt| after the newly created tab has been inserted.
   // Subclasses should either start an animation, or layout.
-  virtual void StartInsertTabAnimation(int model_index, bool foreground) = 0;
+  virtual void StartInsertTabAnimation(int model_index) = 0;
 
   // Invoked from |MoveTab| after |tab_data_| has been updated to animate the
   // move.
@@ -187,6 +181,20 @@ class BaseTabStrip : public views::View,
   // Resets the bounds of all non-closing tabs.
   virtual void GenerateIdealBounds() = 0;
 
+  // Invoked during drag to layout the tabs being dragged in |tabs| at
+  // |location|. If |initial_drag| is true, this is the initial layout after the
+  // user moved the mouse far enough to trigger a drag.
+  virtual void LayoutDraggedTabsAt(const std::vector<BaseTab*>& tabs,
+                                   BaseTab* active_tab,
+                                   const gfx::Point& location,
+                                   bool initial_drag) = 0;
+
+  // Calculates the bounds needed for each of the tabs, placing the result in
+  // |bounds|.
+  virtual void CalculateBoundsForDraggedTabs(
+      const std::vector<BaseTab*>& tabs,
+      std::vector<gfx::Rect>* bounds) = 0;
+
   void set_ideal_bounds(int index, const gfx::Rect& bounds) {
     tab_data_[index].ideal_bounds = bounds;
   }
@@ -202,9 +210,13 @@ class BaseTabStrip : public views::View,
   // Destroys the active drag controller.
   void DestroyDragController();
 
-  // Used by DraggedTabController when the user starts or stops dragging a tab.
-  void StartedDraggingTab(BaseTab* tab);
-  void StoppedDraggingTab(BaseTab* tab);
+  // Used by DraggedTabController when the user starts or stops dragging tabs.
+  void StartedDraggingTabs(const std::vector<BaseTab*>& tabs);
+  void StoppedDraggingTabs(const std::vector<BaseTab*>& tabs);
+
+  // Returns the size needed for the specified tabs. This is invoked during drag
+  // and drop to calculate offsets and positioning.
+  virtual int GetSizeNeededForTabs(const std::vector<BaseTab*>& tabs) = 0;
 
   // See description above field for details.
   bool attaching_dragged_tab() const { return attaching_dragged_tab_; }
@@ -221,10 +233,21 @@ class BaseTabStrip : public views::View,
   // Invoked from Layout if the size changes or layout is really needed.
   virtual void DoLayout();
 
+  // Returns true if Tabs in this TabStrip are currently changing size or
+  // position.
+  bool IsAnimating() const;
+
+  // Get tab at a point in local view coordinates.
+  BaseTab* GetTabAtLocal(const gfx::Point& local_point);
+
  private:
   class RemoveTabDelegate;
 
   friend class DraggedTabController;
+
+  // Invoked from StoppedDraggingTabs to cleanup |tab|. If |tab| is known
+  // |is_first_tab| is set to true.
+  void StoppedDraggingTab(BaseTab* tab, bool* is_first_tab);
 
   // See description above field for details.
   void set_attaching_dragged_tab(bool value) { attaching_dragged_tab_ = value; }

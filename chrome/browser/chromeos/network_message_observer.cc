@@ -8,13 +8,13 @@
 #include "base/stl_util-inl.h"
 #include "base/string_number_conversions.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/browser_list.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/cros/network_library.h"
 #include "chrome/browser/chromeos/notifications/balloon_view_host.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/time_format.h"
 #include "grit/generated_resources.h"
@@ -62,8 +62,6 @@ NetworkMessageObserver::~NetworkMessageObserver() {
   notification_connection_error_.Hide();
   notification_low_data_.Hide();
   notification_no_data_.Hide();
-  STLDeleteValues(&cellular_networks_);
-  STLDeleteValues(&wifi_networks_);
 }
 
 // static
@@ -162,88 +160,105 @@ void NetworkMessageObserver::ShowLowDataNotification(
       false, false);
 }
 
-void NetworkMessageObserver::OnNetworkManagerChanged(NetworkLibrary* obj) {
-  const WifiNetworkVector& wifi_networks = obj->wifi_networks();
-  const CellularNetworkVector& cellular_networks = obj->cellular_networks();
+bool NetworkMessageObserver::CheckNetworkFailed(const Network* network) {
+  if (network->failed()) {
+    NetworkStateMap::iterator iter =
+        network_states_.find(network->service_path());
+    // If the network did not previously exist, then don't do anything.
+    // For example, if the user travels to a location and finds a service
+    // that has previously failed, we don't want to show a notification.
+    if (iter == network_states_.end())
+      return false;
+    // If network connection failed, display a notification.
+    // We only do this if we were trying to make a new connection.
+    // So if a previously connected network got disconnected for any reason,
+    // we don't display notification.
+    ConnectionState prev_state = iter->second;
+    if (Network::IsConnectingState(prev_state))
+      return true;
+  }
+  return false;
+}
 
-  std::string new_failed_network;
-  // Check to see if we have any newly failed wifi network.
-  for (WifiNetworkVector::const_iterator it = wifi_networks.begin();
-       it < wifi_networks.end(); it++) {
-    const WifiNetwork* wifi = *it;
-    if (wifi->failed()) {
-      ServicePathWifiMap::iterator iter =
-          wifi_networks_.find(wifi->service_path());
-      // If the network did not previously exist, then don't do anything.
-      // For example, if the user travels to a location and finds a service
-      // that has previously failed, we don't want to show a notification.
-      if (iter == wifi_networks_.end())
-        continue;
+void NetworkMessageObserver::OnNetworkManagerChanged(NetworkLibrary* cros) {
+  const Network* new_failed_network = NULL;
+  // Check to see if we have any newly failed networks.
+  for (WifiNetworkVector::const_iterator it = cros->wifi_networks().begin();
+       it != cros->wifi_networks().end(); it++) {
+    const WifiNetwork* net = *it;
+    if (CheckNetworkFailed(net)) {
+      new_failed_network = net;
+      break;  // There should only be one failed network.
+    }
+  }
 
-      const WifiNetwork* wifi_old = iter->second;
-      // If network connection failed, display a notification.
-      // We only do this if we were trying to make a new connection.
-      // So if a previously connected network got disconnected for any reason,
-      // we don't display notification.
-      if (wifi_old->connecting()) {
-        new_failed_network = wifi->name();
-        // Like above, there should only be one newly failed network.
-        break;
+  if (!new_failed_network) {
+    for (CellularNetworkVector::const_iterator it =
+             cros->cellular_networks().begin();
+         it != cros->cellular_networks().end(); it++) {
+      const CellularNetwork* net = *it;
+      if (CheckNetworkFailed(net)) {
+        new_failed_network = net;
+        break;  // There should only be one failed network.
       }
     }
   }
 
-  // Refresh stored networks.
-  STLDeleteValues(&wifi_networks_);
-  wifi_networks_.clear();
-  for (WifiNetworkVector::const_iterator it = wifi_networks.begin();
-       it < wifi_networks.end(); it++) {
-    const WifiNetwork* wifi = *it;
-    wifi_networks_[wifi->service_path()] = new WifiNetwork(*wifi);
+  if (!new_failed_network) {
+    for (VirtualNetworkVector::const_iterator it =
+             cros->virtual_networks().begin();
+         it != cros->virtual_networks().end(); it++) {
+      const VirtualNetwork* net = *it;
+      if (CheckNetworkFailed(net)) {
+        new_failed_network = net;
+        break;  // There should only be one failed network.
+      }
+    }
   }
 
-  STLDeleteValues(&cellular_networks_);
-  cellular_networks_.clear();
-  for (CellularNetworkVector::const_iterator it = cellular_networks.begin();
-       it < cellular_networks.end(); it++) {
-    const CellularNetwork* cellular = *it;
-    cellular_networks_[cellular->service_path()] =
-        new CellularNetwork(*cellular);
-  }
+  network_states_.clear();
+  for (WifiNetworkVector::const_iterator it = cros->wifi_networks().begin();
+       it != cros->wifi_networks().end(); it++)
+    network_states_[(*it)->service_path()] = (*it)->state();
+  for (CellularNetworkVector::const_iterator it =
+           cros->cellular_networks().begin();
+       it != cros->cellular_networks().end(); it++)
+    network_states_[(*it)->service_path()] = (*it)->state();
+  for (VirtualNetworkVector::const_iterator it =
+           cros->virtual_networks().begin();
+       it != cros->virtual_networks().end(); it++)
+    network_states_[(*it)->service_path()] = (*it)->state();
 
   // Show connection error notification if necessary.
-  if (!new_failed_network.empty()) {
+  if (new_failed_network) {
     // Hide if already shown to force show it in case user has closed it.
     if (notification_connection_error_.visible())
       notification_connection_error_.Hide();
     notification_connection_error_.Show(l10n_util::GetStringFUTF16(
         IDS_NETWORK_CONNECTION_ERROR_MESSAGE,
-        ASCIIToUTF16(new_failed_network)), false, false);
+        UTF8ToUTF16(new_failed_network->name())), false, false);
   }
 }
 
 void NetworkMessageObserver::OnCellularDataPlanChanged(NetworkLibrary* cros) {
-  if (!ShouldShowMobilePlanNotifications()) {
+  if (!ShouldShowMobilePlanNotifications())
     return;
-  }
-
   const CellularNetwork* cellular = cros->cellular_network();
-  if (!cellular)
+  if (!cellular || !cellular->SupportsDataPlan())
     return;
+
   const CellularDataPlanVector* plans =
       cros->GetDataPlans(cellular->service_path());
-
   // If no plans available, check to see if we need a new plan.
   if (!plans || plans->empty()) {
-    // If previously, we had a low data notification, we know that a plan was
-    // near expiring. In that case, because the plan has disappeared, we assume
-    // that it expired.
-    // Note: even if a user dismissed the notification, it's still visible.
-    if (notification_low_data_.visible()) {
+    // If previously, we had low data, we know that a plan was near expiring.
+    // In that case, because the plan disappeared, we assume that it expired.
+    if (cellular_data_left_ == CellularNetwork::DATA_LOW) {
       ShowNoDataNotification(cellular_data_plan_type_);
     } else if (cellular->needs_new_plan()) {
       ShowNeedsPlanNotification(cellular);
     }
+    SaveLastCellularInfo(cellular, NULL);
     return;
   }
 
@@ -255,6 +270,7 @@ void NetworkMessageObserver::OnCellularDataPlanChanged(NetworkLibrary* cros) {
   // For example, if there is another data plan available when this runs out.
   for (++iter; iter != plans->end(); ++iter) {
     if (IsApplicableBackupPlan(current_plan, *iter)) {
+      SaveLastCellularInfo(cellular, current_plan);
       return;
     }
   }
@@ -271,18 +287,34 @@ void NetworkMessageObserver::OnCellularDataPlanChanged(NetworkLibrary* cros) {
   if (cellular->data_left() == CellularNetwork::DATA_NONE) {
     ShowNoDataNotification(current_plan->plan_type);
   } else if (cellular->data_left() == CellularNetwork::DATA_VERY_LOW) {
-    ShowLowDataNotification(current_plan);
+    // Only show low data notification if we transition to very low data
+    // and we are on the same plan. This is so that users don't get a
+    // notification whenever they connect to a low data 3g network.
+    if (!new_plan && (cellular_data_left_ != CellularNetwork::DATA_VERY_LOW))
+      ShowLowDataNotification(current_plan);
   }
 
-  cellular_service_path_ = cellular->service_path();
-  cellular_data_plan_unique_id_ = current_plan->GetUniqueIdentifier();
-  cellular_data_plan_type_ = current_plan->plan_type;
+  SaveLastCellularInfo(cellular, current_plan);
 }
 
-void NetworkMessageObserver::OnConnectionInitiated(NetworkLibrary* obj,
+void NetworkMessageObserver::OnConnectionInitiated(NetworkLibrary* cros,
                                                    const Network* network) {
   // If user initiated any network connection, we hide the error notification.
   notification_connection_error_.Hide();
+}
+
+void NetworkMessageObserver::SaveLastCellularInfo(
+    const CellularNetwork* cellular, const CellularDataPlan* plan) {
+  DCHECK(cellular);
+  cellular_service_path_ = cellular->service_path();
+  cellular_data_left_ = cellular->data_left();
+  if (plan) {
+    cellular_data_plan_unique_id_ = plan->GetUniqueIdentifier();
+    cellular_data_plan_type_ = plan->plan_type;
+  } else {
+    cellular_data_plan_unique_id_ = std::string();
+    cellular_data_plan_type_ = CELLULAR_DATA_PLAN_UNKNOWN;
+  }
 }
 
 }  // namespace chromeos

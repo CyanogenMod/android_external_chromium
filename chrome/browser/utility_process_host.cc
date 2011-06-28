@@ -1,27 +1,25 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/utility_process_host.h"
 
-#include "app/app_switches.h"
 #include "base/command_line.h"
 #include "base/file_util.h"
 #include "base/message_loop.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/indexed_db_key.h"
-#include "chrome/common/serialized_script_value.h"
 #include "chrome/common/utility_messages.h"
+#include "content/common/indexed_db_key.h"
+#include "content/common/serialized_script_value.h"
 #include "ipc/ipc_switches.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/base/ui_base_switches.h"
 
-UtilityProcessHost::UtilityProcessHost(ResourceDispatcherHost* rdh,
-                                       Client* client,
+UtilityProcessHost::UtilityProcessHost(Client* client,
                                        BrowserThread::ID client_thread_id)
-    : BrowserChildProcessHost(UTILITY_PROCESS, rdh),
+    : BrowserChildProcessHost(UTILITY_PROCESS),
       client_(client),
       client_thread_id_(client_thread_id),
       is_batch_mode_(false) {
@@ -66,6 +64,15 @@ bool UtilityProcessHost::StartImageDecoding(
   return true;
 }
 
+bool UtilityProcessHost::StartImageDecodingBase64(
+    const std::string& base64_encoded_data) {
+  if (!StartProcess(FilePath()))
+    return false;
+
+  Send(new UtilityMsg_DecodeImageBase64(base64_encoded_data));
+  return true;
+}
+
 bool UtilityProcessHost::StartIDBKeysFromValuesAndKeyPath(
     int id, const std::vector<SerializedScriptValue>& serialized_values,
     const string16& key_path)  {
@@ -84,6 +91,13 @@ bool UtilityProcessHost::StartInjectIDBKey(
     return false;
 
   Send(new UtilityMsg_InjectIDBKey(key, value, key_path));
+  return true;
+}
+
+bool UtilityProcessHost::StartJSONParsing(const std::string& json) {
+  if (!StartProcess(FilePath()))
+    return false;
+  Send(new UtilityMsg_ParseJSON(json));
   return true;
 }
 
@@ -210,6 +224,10 @@ bool UtilityProcessHost::Client::OnMessageReceived(
                         Client::OnIDBKeysFromValuesAndKeyPathFailed)
     IPC_MESSAGE_HANDLER(UtilityHostMsg_InjectIDBKey_Finished,
                         Client::OnInjectIDBKeyFinished)
+    IPC_MESSAGE_HANDLER(UtilityHostMsg_ParseJSON_Succeeded,
+                        Client::OnJSONParseSucceeded)
+    IPC_MESSAGE_HANDLER(UtilityHostMsg_ParseJSON_Failed,
+                        Client::OnJSONParseFailed)
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP_EX()
   return handled;

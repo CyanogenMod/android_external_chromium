@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,9 +13,9 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/webdata/web_data_service.h"
 #include "chrome/common/chrome_constants.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
 #include "content/browser/browser_thread.h"
+#include "content/common/notification_service.h"
 
 using webkit_glue::PasswordForm;
 
@@ -93,23 +93,20 @@ void PasswordStoreDefault::RemoveLoginsCreatedBetweenImpl(
 
 void PasswordStoreDefault::GetLoginsImpl(
     GetLoginsRequest* request, const webkit_glue::PasswordForm& form) {
-  std::vector<PasswordForm*> forms;
-  login_db_->GetLogins(form, &forms);
-  NotifyConsumer(request, forms);
+  login_db_->GetLogins(form, &request->value);
+  ForwardLoginsResult(request);
 }
 
 void PasswordStoreDefault::GetAutofillableLoginsImpl(
     GetLoginsRequest* request) {
-  std::vector<PasswordForm*> forms;
-  FillAutofillableLogins(&forms);
-  NotifyConsumer(request, forms);
+  FillAutofillableLogins(&request->value);
+  ForwardLoginsResult(request);
 }
 
 void PasswordStoreDefault::GetBlacklistLoginsImpl(
     GetLoginsRequest* request) {
-  std::vector<PasswordForm*> forms;
-  FillBlacklistLogins(&forms);
-  NotifyConsumer(request, forms);
+  FillBlacklistLogins(&request->value);
+  ForwardLoginsResult(request);
 }
 
 bool PasswordStoreDefault::FillAutofillableLogins(

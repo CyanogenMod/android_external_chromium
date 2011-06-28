@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 
 #include <string>
 
-#include "base/singleton.h"
+#include "base/memory/singleton.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "third_party/cros/chromeos_cryptohome.h"
 
@@ -25,7 +25,8 @@ class CryptohomeLibrary {
     virtual void OnComplete(bool success, int return_code) = 0;
   };
 
-  virtual ~CryptohomeLibrary() {}
+  CryptohomeLibrary();
+  virtual ~CryptohomeLibrary();
 
   // Asks cryptohomed to try to find the cryptohome for |user_email| and then
   // use |passhash| to unlock the key.
@@ -131,6 +132,28 @@ class CryptohomeLibrary {
   // Clears Tpm password. Password should be cleared after it was generated and
   // shown to user.
   virtual void TpmClearStoredPassword() = 0;
+
+  virtual bool InstallAttributesGet(const std::string& name,
+                                    std::string* value) = 0;
+  virtual bool InstallAttributesSet(const std::string& name,
+                                    const std::string& value) = 0;
+  virtual int InstallAttributesCount() = 0;
+  virtual bool InstallAttributesFinalize() = 0;
+  virtual bool InstallAttributesIsReady() = 0;
+  virtual bool InstallAttributesIsSecure() = 0;
+  virtual bool InstallAttributesIsInvalid() = 0;
+  virtual bool InstallAttributesIsFirstInstall() = 0;
+
+  // Get the PKCS#11 token info from the TPM.  This is different from
+  // the TpmGetPassword because it's getting the PKCS#11 user PIN and
+  // not the TPM password.
+  virtual void Pkcs11GetTpmTokenInfo(std::string* label,
+                                     std::string* user_pin) = 0;
+
+  // Gets the status of the TPM.  This is different from TpmIsReady
+  // because it's getting the staus of the PKCS#11 initialization of
+  // the TPM token, not the TPM itself.
+  virtual bool Pkcs11IsTpmTokenReady() = 0;
 
   // Factory function, creates a new instance and returns ownership.
   // For normal usage, access the singleton via CrosLibrary::Get().

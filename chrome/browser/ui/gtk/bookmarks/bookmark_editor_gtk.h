@@ -7,7 +7,7 @@
 #pragma once
 
 #include "base/gtest_prod_util.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/string16.h"
 #include "chrome/browser/bookmarks/bookmark_editor.h"
 #include "chrome/browser/bookmarks/bookmark_model_observer.h"
@@ -78,7 +78,7 @@ class BookmarkEditorGtk : public BookmarkEditor,
                                    const BookmarkNode* node) {}
   virtual void BookmarkNodeChildrenReordered(BookmarkModel* model,
                                              const BookmarkNode* node);
-  virtual void BookmarkNodeFavIconLoaded(BookmarkModel* model,
+  virtual void BookmarkNodeFaviconLoaded(BookmarkModel* model,
                                          const BookmarkNode* node) {}
 
   // Resets the model of the tree and updates the various buttons appropriately.
@@ -100,9 +100,9 @@ class BookmarkEditorGtk : public BookmarkEditor,
   // the URL being edited.
   void ApplyEdits(GtkTreeIter* selected_parent);
 
-  // Adds a new group parented on |parent| and sets |child| to point to this
-  // new group.
-  void AddNewGroup(GtkTreeIter* parent, GtkTreeIter* child);
+  // Adds a new folder parented on |parent| and sets |child| to point to this
+  // new folder.
+  void AddNewFolder(GtkTreeIter* parent, GtkTreeIter* child);
 
   CHROMEGTK_CALLBACK_0(BookmarkEditorGtk, void, OnSelectionChanged);
   CHROMEGTK_CALLBACK_1(BookmarkEditorGtk, void, OnResponse, int);

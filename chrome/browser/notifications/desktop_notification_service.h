@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,12 +10,16 @@
 #include <vector>
 
 #include "base/basictypes.h"
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/string16.h"
+#include "chrome/browser/content_settings/content_settings_notification_provider.h"
+#include "chrome/browser/content_settings/content_settings_provider.h"
 #include "chrome/browser/prefs/pref_change_registrar.h"
+#include "chrome/browser/profiles/profile_keyed_service.h"
 #include "chrome/common/content_settings.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
 #include "googleurl/src/gurl.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebTextDirection.h"
 
@@ -25,11 +29,12 @@ class NotificationsPrefsCache;
 class PrefService;
 class Profile;
 class TabContents;
-struct ViewHostMsg_ShowNotification_Params;
+struct DesktopNotificationHostMsg_Show_Params;
 
 // The DesktopNotificationService is an object, owned by the Profile,
 // which provides the creation of desktop "toasts" to web pages and workers.
-class DesktopNotificationService : public NotificationObserver {
+class DesktopNotificationService : public NotificationObserver,
+                                   public ProfileKeyedService {
  public:
   enum DesktopNotificationSource {
     PageNotification,
@@ -42,7 +47,9 @@ class DesktopNotificationService : public NotificationObserver {
 
   // Requests permission (using an info-bar) for a given origin.
   // |callback_context| contains an opaque value to pass back to the
-  // requesting process when the info-bar finishes.
+  // requesting process when the info-bar finishes.  A NULL tab can be given if
+  // none exist (i.e. background tab), in which case the currently selected tab
+  // will be used.
   void RequestPermission(const GURL& origin,
                          int process_id,
                          int route_id,
@@ -54,7 +61,7 @@ class DesktopNotificationService : public NotificationObserver {
   // whether the script is in a worker or page. |params| contains all the
   // other parameters supplied by the worker or page.
   bool ShowDesktopNotification(
-      const ViewHostMsg_ShowNotification_Params& params,
+      const DesktopNotificationHostMsg_Show_Params& params,
       int process_id, int route_id, DesktopNotificationSource source);
 
   // Cancels a notification.  If it has already been shown, it will be
@@ -127,9 +134,6 @@ class DesktopNotificationService : public NotificationObserver {
   // Takes a notification object and shows it in the UI.
   void ShowNotification(const Notification& notification);
 
-  // Save a permission change to the profile.
-  void PersistPermissionChange(const GURL& origin, bool is_allowed);
-
   // Returns a display name for an origin, to be used in permission infobar
   // or on the frame of the notification toast.  Different from the origin
   // itself when dealing with extensions.
@@ -148,6 +152,8 @@ class DesktopNotificationService : public NotificationObserver {
   // Non-owned pointer to the notification manager which manages the
   // UI for desktop toasts.
   NotificationUIManager* ui_manager_;
+
+  scoped_ptr<content_settings::NotificationProvider> provider_;
 
   PrefChangeRegistrar prefs_registrar_;
   NotificationRegistrar notification_registrar_;

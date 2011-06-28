@@ -4,11 +4,11 @@
 
 #include <string>
 
-#include "base/utf_string_conversions.h"
 #include "base/basictypes.h"
-#include "base/ref_counted.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/string16.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/autofill/autofill_common_test.h"
 #include "chrome/browser/autofill/autofill_profile.h"
 #include "chrome/browser/autofill/personal_data_manager.h"
@@ -35,8 +35,7 @@ static const char* kTestFormString =
     "<form action=\"http://www.example.com/\" method=\"POST\">"
     "<label for=\"firstname\">First name:</label>"
     " <input type=\"text\" id=\"firstname\""
-    "        onFocus=\"domAutomationController.send(true)\""
-    " /><br />"
+    "        onFocus=\"domAutomationController.send(true)\" /><br />"
     "<label for=\"lastname\">Last name:</label>"
     " <input type=\"text\" id=\"lastname\" /><br />"
     "<label for=\"address1\">Address line 1:</label>"
@@ -63,9 +62,9 @@ static const char* kTestFormString =
     " <input type=\"text\" id=\"phone\" /><br />"
     "</form>";
 
-class AutoFillTest : public InProcessBrowserTest {
+class AutofillTest : public InProcessBrowserTest {
  protected:
-  AutoFillTest() {
+  AutofillTest() {
     set_show_window(true);
     EnableDOMAutomation();
   }
@@ -77,7 +76,7 @@ class AutoFillTest : public InProcessBrowserTest {
   void CreateTestProfile() {
     autofill_test::DisableSystemServices(browser()->profile());
 
-    AutoFillProfile profile;
+    AutofillProfile profile;
     autofill_test::SetProfileInfo(
         &profile, "Milton", "C.", "Waddams",
         "red.swingline@initech.com", "Initech", "4120 Freidrich Lane",
@@ -88,7 +87,7 @@ class AutoFillTest : public InProcessBrowserTest {
         browser()->profile()->GetPersonalDataManager();
     ASSERT_TRUE(personal_data_manager);
 
-    std::vector<AutoFillProfile> profiles(1, profile);
+    std::vector<AutofillProfile> profiles(1, profile);
     personal_data_manager->SetProfiles(&profiles);
   }
 
@@ -215,7 +214,7 @@ class AutoFillTest : public InProcessBrowserTest {
 };
 
 // Test that basic form fill is working.
-IN_PROC_BROWSER_TEST_F(AutoFillTest, BasicFormFill) {
+IN_PROC_BROWSER_TEST_F(AutofillTest, BasicFormFill) {
   CreateTestProfile();
 
   // Load the test page.
@@ -223,12 +222,12 @@ IN_PROC_BROWSER_TEST_F(AutoFillTest, BasicFormFill) {
   ASSERT_NO_FATAL_FAILURE(ui_test_utils::NavigateToURL(browser(),
       GURL(std::string(kDataURIPrefix) + kTestFormString)));
 
-  // Invoke AutoFill.
+  // Invoke Autofill.
   TryBasicFormFill();
 }
 
 // Test that form filling can be initiated by pressing the down arrow.
-IN_PROC_BROWSER_TEST_F(AutoFillTest, AutoFillViaDownArrow) {
+IN_PROC_BROWSER_TEST_F(AutofillTest, AutofillViaDownArrow) {
   CreateTestProfile();
 
   // Load the test page.
@@ -239,7 +238,7 @@ IN_PROC_BROWSER_TEST_F(AutoFillTest, AutoFillViaDownArrow) {
   // Focus a fillable field.
   FocusFirstNameField();
 
-  // Press the down arrow to initiate AutoFill and wait for the popup to be
+  // Press the down arrow to initiate Autofill and wait for the popup to be
   // shown.
   ASSERT_TRUE(ui_test_utils::SendKeyPressAndWait(
       browser(), ui::VKEY_DOWN, false, false, false, false,
@@ -263,9 +262,122 @@ IN_PROC_BROWSER_TEST_F(AutoFillTest, AutoFillViaDownArrow) {
   ExpectFilledTestForm();
 }
 
+// Test that a JavaScript onchange event is fired after auto-filling a form.
+IN_PROC_BROWSER_TEST_F(AutofillTest, OnChangeAfterAutofill) {
+  CreateTestProfile();
+
+  const char* kOnChangeScript =
+      "<script>"
+      "focused_fired = false;"
+      "unfocused_fired = false;"
+      "changed_select_fired = false;"
+      "unchanged_select_fired = false;"
+      "document.getElementById('firstname').onchange = function() {"
+      "  focused_fired = true;"
+      "};"
+      "document.getElementById('lastname').onchange = function() {"
+      "  unfocused_fired = true;"
+      "};"
+      "document.getElementById('state').onchange = function() {"
+      "  changed_select_fired = true;"
+      "};"
+      "document.getElementById('country').onchange = function() {"
+      "  unchanged_select_fired = true;"
+      "};"
+      "document.getElementById('country').value = 'US';"
+      "</script>";
+
+  // Load the test page.
+  ASSERT_TRUE(ui_test_utils::BringBrowserWindowToFront(browser()));
+  ASSERT_NO_FATAL_FAILURE(ui_test_utils::NavigateToURL(browser(),
+      GURL(std::string(kDataURIPrefix) + kTestFormString + kOnChangeScript)));
+
+  // Invoke Autofill.
+  FocusFirstNameField();
+
+  // Start filling the first name field with "M" and wait for the popup to be
+  // shown.
+  ASSERT_TRUE(ui_test_utils::SendKeyPressAndWait(
+      browser(), ui::VKEY_M, false, true, false, false,
+      NotificationType::AUTOFILL_DID_SHOW_SUGGESTIONS,
+      Source<RenderViewHost>(render_view_host())));
+
+  // Press the down arrow to select the suggestion and preview the autofilled
+  // form.
+  ASSERT_TRUE(ui_test_utils::SendKeyPressAndWait(
+      browser(), ui::VKEY_DOWN, false, false, false, false,
+      NotificationType::AUTOFILL_DID_FILL_FORM_DATA,
+      Source<RenderViewHost>(render_view_host())));
+
+  // Press Enter to accept the autofill suggestions.
+  ASSERT_TRUE(ui_test_utils::SendKeyPressAndWait(
+      browser(), ui::VKEY_RETURN, false, false, false, false,
+      NotificationType::AUTOFILL_DID_FILL_FORM_DATA,
+      Source<RenderViewHost>(render_view_host())));
+
+  // The form should be filled.
+  ExpectFilledTestForm();
+
+  // The change event should have already fired for unfocused fields, both of
+  // <input> and of <select> type. However, it should not yet have fired for the
+  // focused field.
+  bool focused_fired = false;
+  bool unfocused_fired = false;
+  bool changed_select_fired = false;
+  bool unchanged_select_fired = false;
+  ASSERT_TRUE(ui_test_utils::ExecuteJavaScriptAndExtractBool(
+      render_view_host(), L"",
+      L"domAutomationController.send(focused_fired);", &focused_fired));
+  ASSERT_TRUE(ui_test_utils::ExecuteJavaScriptAndExtractBool(
+      render_view_host(), L"",
+      L"domAutomationController.send(unfocused_fired);", &unfocused_fired));
+  ASSERT_TRUE(ui_test_utils::ExecuteJavaScriptAndExtractBool(
+      render_view_host(), L"",
+      L"domAutomationController.send(changed_select_fired);",
+      &changed_select_fired));
+  ASSERT_TRUE(ui_test_utils::ExecuteJavaScriptAndExtractBool(
+      render_view_host(), L"",
+      L"domAutomationController.send(unchanged_select_fired);",
+      &unchanged_select_fired));
+  EXPECT_FALSE(focused_fired);
+  EXPECT_TRUE(unfocused_fired);
+  EXPECT_TRUE(changed_select_fired);
+  EXPECT_FALSE(unchanged_select_fired);
+
+  // Unfocus the first name field. Its change event should fire.
+  ASSERT_TRUE(ui_test_utils::ExecuteJavaScriptAndExtractBool(
+      render_view_host(), L"",
+      L"document.getElementById('firstname').blur();"
+      L"domAutomationController.send(focused_fired);", &focused_fired));
+  EXPECT_TRUE(focused_fired);
+}
+
+// Test that we can autofill forms distinguished only by their |id| attribute.
+IN_PROC_BROWSER_TEST_F(AutofillTest, AutofillFormsDistinguishedById) {
+  CreateTestProfile();
+
+  // Load the test page.
+  const std::string kURL =
+      std::string(kDataURIPrefix) + kTestFormString +
+      "<script>"
+      "var mainForm = document.forms[0];"
+      "mainForm.id = 'mainForm';"
+      "var newForm = document.createElement('form');"
+      "newForm.action = mainForm.action;"
+      "newForm.method = mainForm.method;"
+      "newForm.id = 'newForm';"
+      "mainForm.parentNode.insertBefore(newForm, mainForm);"
+      "</script>";
+  ASSERT_TRUE(ui_test_utils::BringBrowserWindowToFront(browser()));
+  ASSERT_NO_FATAL_FAILURE(ui_test_utils::NavigateToURL(browser(), GURL(kURL)));
+
+  // Invoke Autofill.
+  TryBasicFormFill();
+}
+
 // Test that form filling works after reloading the current page.
 // This test brought to you by http://crbug.com/69204
-IN_PROC_BROWSER_TEST_F(AutoFillTest, AutoFillAfterReload) {
+IN_PROC_BROWSER_TEST_F(AutofillTest, AutofillAfterReload) {
   CreateTestProfile();
 
   // Load the test page.
@@ -274,17 +386,17 @@ IN_PROC_BROWSER_TEST_F(AutoFillTest, AutoFillAfterReload) {
       GURL(std::string(kDataURIPrefix) + kTestFormString)));
 
   // Reload the page.
-  NavigationController* controller =
-      &browser()->GetSelectedTabContentsWrapper()->tab_contents()->controller();
-  controller->Reload(false);
-  ui_test_utils::WaitForLoadStop(controller);
+  TabContents* tab =
+      browser()->GetSelectedTabContentsWrapper()->tab_contents();
+  tab->controller().Reload(false);
+  ui_test_utils::WaitForLoadStop(tab);
 
-  // Invoke AutoFill.
+  // Invoke Autofill.
   TryBasicFormFill();
 }
 
 // Test that autofill works after page translation.
-IN_PROC_BROWSER_TEST_F(AutoFillTest, AutoFillAfterTranslate) {
+IN_PROC_BROWSER_TEST_F(AutofillTest, AutofillAfterTranslate) {
   CreateTestProfile();
 
   GURL url(std::string(kDataURIPrefix) +
@@ -322,10 +434,8 @@ IN_PROC_BROWSER_TEST_F(AutoFillTest, AutoFillAfterTranslate) {
   ASSERT_NO_FATAL_FAILURE(ui_test_utils::NavigateToURL(browser(), url));
 
   // Get translation bar.
-  int page_id = browser()->GetSelectedTabContents()->controller().
-      GetLastCommittedEntry()->page_id();
-  render_view_host()->OnMessageReceived(ViewHostMsg_PageContents(
-      0, url, page_id, ASCIIToUTF16("test"), "ja", true));
+  render_view_host()->OnMessageReceived(ViewHostMsg_TranslateLanguageDetermined(
+      0, "ja", true));
   TranslateInfoBarDelegate* infobar = browser()->GetSelectedTabContents()->
       GetInfoBarDelegateAt(0)->AsTranslateInfoBarDelegate();
 

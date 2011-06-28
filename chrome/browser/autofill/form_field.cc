@@ -4,17 +4,24 @@
 
 #include "chrome/browser/autofill/form_field.h"
 
+#include <stddef.h>
+#include <string>
+#include <utility>
+
+#include "base/logging.h"
 #include "base/string_util.h"
+#include "base/stringprintf.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/autofill/address_field.h"
 #include "chrome/browser/autofill/autofill_field.h"
 #include "chrome/browser/autofill/credit_card_field.h"
+#include "chrome/browser/autofill/field_types.h"
+#include "chrome/browser/autofill/form_structure.h"
 #include "chrome/browser/autofill/name_field.h"
 #include "chrome/browser/autofill/phone_field.h"
 #include "grit/autofill_resources.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/WebRegularExpression.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/WebString.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "unicode/regex.h"
 
 // Field names from the ECML specification; see RFC 3106.  We've
 // made these names lowercase since we convert labels and field names to
@@ -63,6 +70,23 @@ const char kEcmlCardExpireDay[] = "ecom_payment_card_expdate_day";
 const char kEcmlCardExpireMonth[] = "ecom_payment_card_expdate_month";
 const char kEcmlCardExpireYear[] = "ecom_payment_card_expdate_year";
 
+namespace autofill {
+
+bool MatchString(const string16& input, const string16& pattern) {
+  UErrorCode status = U_ZERO_ERROR;
+  icu::UnicodeString icu_pattern(pattern.data(), pattern.length());
+  icu::UnicodeString icu_input(input.data(), input.length());
+  icu::RegexMatcher matcher(icu_pattern, icu_input,
+                            UREGEX_CASE_INSENSITIVE, status);
+  DCHECK(U_SUCCESS(status));
+
+  UBool match = matcher.find(0, status);
+  DCHECK(U_SUCCESS(status));
+  return !!match;
+}
+
+}  // namespace autofill
+
 class EmailField : public FormField {
  public:
   virtual bool GetFieldInfo(FieldTypeMap* field_type_map) const {
@@ -102,42 +126,22 @@ bool FormField::Match(AutofillField* field,
                       const string16& pattern,
                       bool match_label_only) {
   if (match_label_only) {
-    if (MatchLabel(field, pattern)) {
+    if (autofill::MatchString(field->label, pattern)) {
       return true;
     }
   } else {
     // For now, we apply the same pattern to the field's label and the field's
     // name.  Matching the name is a bit of a long shot for many patterns, but
     // it generally doesn't hurt to try.
-    if (MatchLabel(field, pattern) || MatchName(field, pattern)) {
+    if (autofill::MatchString(field->label, pattern) ||
+        autofill::MatchString(field->name, pattern)) {
       return true;
     }
   }
-
   return false;
 }
 
-// static
-bool FormField::MatchName(AutofillField* field, const string16& pattern) {
-  // TODO(jhawkins): Remove StringToLowerASCII.  WebRegularExpression needs to
-  // be fixed to take WebTextCaseInsensitive into account.
-  WebKit::WebRegularExpression re(WebKit::WebString(pattern),
-                                  WebKit::WebTextCaseInsensitive);
-  bool match = re.match(
-      WebKit::WebString(StringToLowerASCII(field->name()))) != -1;
-  return match;
-}
 
-// static
-bool FormField::MatchLabel(AutofillField* field, const string16& pattern) {
-  // TODO(jhawkins): Remove StringToLowerASCII.  WebRegularExpression needs to
-  // be fixed to take WebTextCaseInsensitive into account.
-  WebKit::WebRegularExpression re(WebKit::WebString(pattern),
-                                  WebKit::WebTextCaseInsensitive);
-  bool match = re.match(
-      WebKit::WebString(StringToLowerASCII(field->label()))) != -1;
-  return match;
-}
 
 // static
 FormField* FormField::ParseFormField(
@@ -220,7 +224,8 @@ bool FormField::ParseLabelAndName(
   if (!field)
     return false;
 
-  if (MatchLabel(field, pattern) && MatchName(field, pattern)) {
+  if (autofill::MatchString(field->label, pattern) &&
+      autofill::MatchString(field->name, pattern)) {
     if (dest)
       *dest = field;
     (*iter)++;
@@ -350,7 +355,7 @@ bool FormFieldSet::CheckECML(FormStructure* fields) {
 
   const string16 ecom(ASCIIToUTF16("ecom"));
   for (size_t index = 0; index < num_fields; ++index) {
-    const string16& utf16_name = fields->field(index)->name();
+    const string16& utf16_name = fields->field(index)->name;
     if (StartsWith(utf16_name, ecom, true)) {
       std::string name(UTF16ToASCII(utf16_name));
       for (size_t i = 0; i < ARRAYSIZE_UNSAFE(form_fields); ++i) {

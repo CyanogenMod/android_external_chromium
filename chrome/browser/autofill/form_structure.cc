@@ -28,7 +28,7 @@ const char kFormMethodPost[] = "post";
 
 // XML elements and attributes.
 const char kAttributeAcceptedFeatures[] = "accepts";
-const char kAttributeAutoFillUsed[] = "autofillused";
+const char kAttributeAutofillUsed[] = "autofillused";
 const char kAttributeAutofillType[] = "autofilltype";
 const char kAttributeClientVersion[] = "clientversion";
 const char kAttributeDataPresent[] = "datapresent";
@@ -37,8 +37,8 @@ const char kAttributeSignature[] = "signature";
 const char kAcceptedFeatures[] = "e"; // e=experiments
 const char kClientVersion[] = "6.1.1715.1442/en (GGLL)";
 const char kXMLDeclaration[] = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>";
-const char kXMLElementAutoFillQuery[] = "autofillquery";
-const char kXMLElementAutoFillUpload[] = "autofillupload";
+const char kXMLElementAutofillQuery[] = "autofillquery";
+const char kXMLElementAutofillUpload[] = "autofillupload";
 const char kXMLElementForm[] = "form";
 const char kXMLElementField[] = "field";
 
@@ -66,19 +66,18 @@ FormStructure::FormStructure(const FormData& form)
   for (field = form.fields.begin();
        field != form.fields.end(); field++) {
     // Add all supported form fields (including with empty names) to the
-    // signature.  This is a requirement for AutoFill servers.
+    // signature.  This is a requirement for Autofill servers.
     form_signature_field_names_.append("&");
-    form_signature_field_names_.append(UTF16ToUTF8(field->name()));
+    form_signature_field_names_.append(UTF16ToUTF8(field->name));
 
     // Generate a unique name for this field by appending a counter to the name.
-    string16 unique_name = field->name() +
+    string16 unique_name = field->name +
         base::IntToString16(fields_.size() + 1);
     fields_.push_back(new AutofillField(*field, unique_name));
   }
 
   // Terminate the vector with a NULL item.
   fields_.push_back(NULL);
-  GetHeuristicAutofillTypes();
 
   std::string method = UTF16ToUTF8(form.method);
   if (StringToLowerASCII(method) == kFormMethodPost) {
@@ -92,24 +91,55 @@ FormStructure::FormStructure(const FormData& form)
 
 FormStructure::~FormStructure() {}
 
-bool FormStructure::EncodeUploadRequest(bool auto_fill_used,
+void FormStructure::DetermineHeuristicTypes() {
+  has_credit_card_field_ = false;
+  has_autofillable_field_ = false;
+  autofill_count_ = 0;
+
+  FieldTypeMap field_type_map;
+  GetHeuristicFieldInfo(&field_type_map);
+
+  for (size_t index = 0; index < field_count(); index++) {
+    AutofillField* field = fields_[index];
+    DCHECK(field);
+    FieldTypeMap::iterator iter = field_type_map.find(field->unique_name());
+
+    AutofillFieldType heuristic_autofill_type;
+    if (iter == field_type_map.end()) {
+      heuristic_autofill_type = UNKNOWN_TYPE;
+    } else {
+      heuristic_autofill_type = iter->second;
+      ++autofill_count_;
+    }
+
+    field->set_heuristic_type(heuristic_autofill_type);
+
+    AutofillType autofill_type(field->type());
+    if (autofill_type.group() == AutofillType::CREDIT_CARD)
+      has_credit_card_field_ = true;
+    if (autofill_type.field_type() != UNKNOWN_TYPE)
+      has_autofillable_field_ = true;
+  }
+}
+
+bool FormStructure::EncodeUploadRequest(bool autofill_used,
                                         std::string* encoded_xml) const {
   DCHECK(encoded_xml);
   encoded_xml->clear();
-  bool auto_fillable = ShouldBeParsed(true);
-  DCHECK(auto_fillable);  // Caller should've checked for search pages.
-  if (!auto_fillable)
+  bool autofillable = ShouldBeParsed(true);
+  DCHECK(autofillable);  // Caller should've checked for search pages.
+  if (!autofillable)
     return false;
 
   // Set up the <autofillupload> element and its attributes.
   buzz::XmlElement autofill_request_xml(
-      (buzz::QName(kXMLElementAutoFillUpload)));
+      (buzz::QName(kXMLElementAutofillUpload)));
   autofill_request_xml.SetAttr(buzz::QName(kAttributeClientVersion),
                                kClientVersion);
   autofill_request_xml.SetAttr(buzz::QName(kAttributeFormSignature),
                                FormSignature());
-  autofill_request_xml.SetAttr(buzz::QName(kAttributeAutoFillUsed),
-                               auto_fill_used ? "true" : "false");
+  autofill_request_xml.SetAttr(buzz::QName(kAttributeAutofillUsed),
+                               autofill_used ? "true" : "false");
   autofill_request_xml.SetAttr(buzz::QName(kAttributeDataPresent),
                                ConvertPresenceBitsToString().c_str());
 
@@ -135,7 +165,7 @@ bool FormStructure::EncodeQueryRequest(const ScopedVector<FormStructure>& forms,
 
   // Set up the <autofillquery> element and attributes.
   buzz::XmlElement autofill_request_xml(
-      (buzz::QName(kXMLElementAutoFillQuery)));
+      (buzz::QName(kXMLElementAutofillQuery)));
   autofill_request_xml.SetAttr(buzz::QName(kAttributeClientVersion),
                                kClientVersion);
   autofill_request_xml.SetAttr(buzz::QName(kAttributeAcceptedFeatures),
@@ -184,7 +214,7 @@ void FormStructure::ParseQueryResponse(const std::string& response_xml,
   // Parse the field types from the server response to the query.
   std::vector<AutofillFieldType> field_types;
   std::string experiment_id;
-  AutoFillQueryXmlParser parse_handler(&field_types, upload_required,
+  AutofillQueryXmlParser parse_handler(&field_types, upload_required,
                                        &experiment_id);
   buzz::XmlParser parser(&parse_handler);
   parser.Parse(response_xml.c_str(), response_xml.length(), true);
@@ -235,7 +265,7 @@ void FormStructure::ParseQueryResponse(const std::string& response_xml,
         form->has_autofillable_field_ = true;
     }
 
-    form->UpdateAutoFillCount();
+    form->UpdateAutofillCount();
   }
 
   AutofillMetrics::ServerQueryMetric metric;
@@ -269,28 +299,14 @@ std::string FormStructure::FormSignature() const {
   return Hash64Bit(form_string);
 }
 
-bool FormStructure::IsAutoFillable(bool require_method_post) const {
+bool FormStructure::IsAutofillable(bool require_method_post) const {
   if (autofill_count() < kRequiredFillableFields)
     return false;
 
   return ShouldBeParsed(require_method_post);
 }
 
-bool FormStructure::HasAutoFillableValues() const {
-  if (autofill_count_ == 0)
-    return false;
-
-  for (std::vector<AutofillField*>::const_iterator iter = begin();
-       iter != end(); ++iter) {
-    AutofillField* field = *iter;
-    if (field && !field->IsEmpty() && field->IsFieldFillable())
-      return true;
-  }
-
-  return false;
-}
-
-void FormStructure::UpdateAutoFillCount() {
+void FormStructure::UpdateAutofillCount() {
   autofill_count_ = 0;
   for (std::vector<AutofillField*>::const_iterator iter = begin();
        iter != end(); ++iter) {
@@ -311,6 +327,147 @@ bool FormStructure::ShouldBeParsed(bool require_method_post) const {
     return false;
 
   return !require_method_post || (method_ == POST);
+}
+
+void FormStructure::UpdateFromCache(const FormStructure& cached_form) {
+  // Map from field signatures to cached fields.
+  std::map<std::string, const AutofillField*> cached_fields;
+  for (size_t i = 0; i < cached_form.field_count(); ++i) {
+    const AutofillField* field = cached_form.field(i);
+    cached_fields[field->FieldSignature()] = field;
+  }
+
+  for (std::vector<AutofillField*>::const_iterator iter = begin();
+       iter != end(); ++iter) {
+    AutofillField* field = *iter;
+    if (!field)
+      continue;
+
+    std::map<std::string, const AutofillField*>::const_iterator
+        cached_field = cached_fields.find(field->FieldSignature());
+    if (cached_field != cached_fields.end()) {
+      field->set_heuristic_type(cached_field->second->heuristic_type());
+      field->set_server_type(cached_field->second->server_type());
+    }
+  }
+
+  UpdateAutofillCount();
+
+  server_experiment_id_ = cached_form.server_experiment_id();
+}
+
+void FormStructure::LogQualityMetrics(
+    const AutofillMetrics& metric_logger) const {
+  std::string experiment_id = server_experiment_id();
+  for (size_t i = 0; i < field_count(); ++i) {
+    const AutofillField* field = this->field(i);
+    metric_logger.Log(AutofillMetrics::FIELD_SUBMITTED, experiment_id);
+
+    // No further logging for empty fields nor for fields where the entered data
+    // does not appear to already exist in the user's stored Autofill data.
+    const FieldTypeSet& field_types = field->possible_types();
+    DCHECK(!field_types.empty());
+    if (field_types.count(EMPTY_TYPE) || field_types.count(UNKNOWN_TYPE))
+      continue;
+
+    // Collapse field types that Chrome treats as identical, e.g. home and
+    // billing address fields.
+    FieldTypeSet collapsed_field_types;
+    for (FieldTypeSet::const_iterator it = field_types.begin();
+         it != field_types.end();
+         ++it) {
+      // Since we currently only support US phone numbers, the (city code + main
+      // digits) number is almost always identical to the whole phone number.
+      // TODO(isherman): Improve this logic once we add support for
+      // international numbers.
+      if (*it == PHONE_HOME_CITY_AND_NUMBER)
+        collapsed_field_types.insert(PHONE_HOME_WHOLE_NUMBER);
+      else if (*it == PHONE_FAX_CITY_AND_NUMBER)
+        collapsed_field_types.insert(PHONE_FAX_WHOLE_NUMBER);
+      else
+        collapsed_field_types.insert(AutofillType::GetEquivalentFieldType(*it));
+    }
+
+    // Capture the field's type, if it is unambiguous.
+    AutofillFieldType field_type = UNKNOWN_TYPE;
+    if (collapsed_field_types.size() == 1)
+      field_type = *collapsed_field_types.begin();
+
+    AutofillFieldType heuristic_type = field->heuristic_type();
+    AutofillFieldType server_type = field->server_type();
+    AutofillFieldType predicted_type = field->type();
+
+    // Log heuristic, server, and overall type quality metrics, independently of
+    // whether the field was autofilled.
+    if (heuristic_type == UNKNOWN_TYPE) {
+      metric_logger.Log(AutofillMetrics::HEURISTIC_TYPE_UNKNOWN,
+                        field_type, experiment_id);
+    } else if (field_types.count(heuristic_type)) {
+      metric_logger.Log(AutofillMetrics::HEURISTIC_TYPE_MATCH,
+                        field_type, experiment_id);
+    } else {
+      metric_logger.Log(AutofillMetrics::HEURISTIC_TYPE_MISMATCH,
+                        field_type, experiment_id);
+    }
+
+    if (server_type == NO_SERVER_DATA) {
+      metric_logger.Log(AutofillMetrics::SERVER_TYPE_UNKNOWN,
+                        field_type, experiment_id);
+    } else if (field_types.count(server_type)) {
+      metric_logger.Log(AutofillMetrics::SERVER_TYPE_MATCH,
+                        field_type, experiment_id);
+    } else {
+      metric_logger.Log(AutofillMetrics::SERVER_TYPE_MISMATCH,
+                        field_type, experiment_id);
+    }
+
+    if (predicted_type == UNKNOWN_TYPE) {
+      metric_logger.Log(AutofillMetrics::PREDICTED_TYPE_UNKNOWN,
+                        field_type, experiment_id);
+    } else if (field_types.count(predicted_type)) {
+      metric_logger.Log(AutofillMetrics::PREDICTED_TYPE_MATCH,
+                        field_type, experiment_id);
+    } else {
+      metric_logger.Log(AutofillMetrics::PREDICTED_TYPE_MISMATCH,
+                        field_type, experiment_id);
+    }
+
+    // TODO(isherman): <select> fields don't support |is_autofilled()|, so we
+    // have to skip them for the remaining metrics.
+    if (field->form_control_type == ASCIIToUTF16("select-one"))
+      continue;
+
+    if (field->is_autofilled) {
+      metric_logger.Log(AutofillMetrics::FIELD_AUTOFILLED, experiment_id);
+    } else {
+      metric_logger.Log(AutofillMetrics::FIELD_NOT_AUTOFILLED,
+                        experiment_id);
+
+      if (heuristic_type == UNKNOWN_TYPE) {
+        metric_logger.Log(
+            AutofillMetrics::NOT_AUTOFILLED_HEURISTIC_TYPE_UNKNOWN,
+            experiment_id);
+      } else if (field_types.count(heuristic_type)) {
+        metric_logger.Log(AutofillMetrics::NOT_AUTOFILLED_HEURISTIC_TYPE_MATCH,
+                          experiment_id);
+      } else {
+        metric_logger.Log(
+            AutofillMetrics::NOT_AUTOFILLED_HEURISTIC_TYPE_MISMATCH,
+            experiment_id);
+      }
+
+      if (server_type == NO_SERVER_DATA) {
+        metric_logger.Log(AutofillMetrics::NOT_AUTOFILLED_SERVER_TYPE_UNKNOWN,
+                          experiment_id);
+      } else if (field_types.count(server_type)) {
+        metric_logger.Log(AutofillMetrics::NOT_AUTOFILLED_SERVER_TYPE_MATCH,
+                          experiment_id);
+      } else {
+        metric_logger.Log(AutofillMetrics::NOT_AUTOFILLED_SERVER_TYPE_MISMATCH,
+                          experiment_id);
+      }
+    }
+  }
 }
 
 void FormStructure::set_possible_types(int index, const FieldTypeSet& types) {
@@ -366,36 +523,6 @@ std::string FormStructure::Hash64Bit(const std::string& str) {
                    ((static_cast<uint64>(hash_bin[7])) & 0xFF);
 
   return base::Uint64ToString(hash64);
-}
-
-void FormStructure::GetHeuristicAutofillTypes() {
-  has_credit_card_field_ = false;
-  has_autofillable_field_ = false;
-
-  FieldTypeMap field_type_map;
-  GetHeuristicFieldInfo(&field_type_map);
-
-  for (size_t index = 0; index < field_count(); index++) {
-    AutofillField* field = fields_[index];
-    DCHECK(field);
-    FieldTypeMap::iterator iter = field_type_map.find(field->unique_name());
-
-    AutofillFieldType heuristic_auto_fill_type;
-    if (iter == field_type_map.end()) {
-      heuristic_auto_fill_type = UNKNOWN_TYPE;
-    } else {
-      heuristic_auto_fill_type = iter->second;
-      ++autofill_count_;
-    }
-
-    field->set_heuristic_type(heuristic_auto_fill_type);
-
-    AutofillType autofill_type(field->type());
-    if (autofill_type.group() == AutofillType::CREDIT_CARD)
-      has_credit_card_field_ = true;
-    if (autofill_type.field_type() != UNKNOWN_TYPE)
-      has_autofillable_field_ = true;
-  }
 }
 
 void FormStructure::GetHeuristicFieldInfo(FieldTypeMap* field_type_map) {

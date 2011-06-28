@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,9 +10,9 @@
 #include <signal.h>
 
 #include "base/basictypes.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/message_loop.h"
 #include "base/message_pump_libevent.h"
-#include "base/scoped_ptr.h"
 
 #if defined(OS_LINUX)
 #include "chrome/common/multi_process_lock.h"
@@ -20,11 +20,17 @@ MultiProcessLock* TakeServiceRunningLock(bool waiting);
 #endif  // OS_LINUX
 
 #if defined(OS_MACOSX)
+#include "base/files/file_path_watcher.h"
 #include "base/mac/scoped_cftyperef.h"
+
 class CommandLine;
 CFDictionaryRef CreateServiceProcessLaunchdPlist(CommandLine* cmd_line,
                                                  bool for_auto_launch);
 #endif  // OS_MACOSX
+
+namespace base {
+class WaitableEvent;
+}
 
 // Watches for |kShutDownMessage| to be written to the file descriptor it is
 // watching. When it reads |kShutDownMessage|, it performs |shutdown_task_|.
@@ -54,10 +60,17 @@ struct ServiceProcessState::StateData
 
   // WatchFileDescriptor needs to be set up by the thread that is going
   // to be monitoring it.
-  void SignalReady();
+  void SignalReady(base::WaitableEvent* signal, bool* success);
+
+
+  // TODO(jhawkins): Either make this a class or rename these public member
+  // variables to remove the trailing underscore.
 
 #if defined(OS_MACOSX)
+  bool WatchExecutable();
+
   base::mac::ScopedCFTypeRef<CFDictionaryRef> launchd_conf_;
+  base::files::FilePathWatcher executable_watcher_;
 #endif  // OS_MACOSX
 #if defined(OS_LINUX)
   scoped_ptr<MultiProcessLock> initializing_lock_;

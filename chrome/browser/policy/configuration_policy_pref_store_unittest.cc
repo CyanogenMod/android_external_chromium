@@ -3,13 +3,13 @@
 // found in the LICENSE file.
 
 #include "base/file_path.h"
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
 #include "chrome/browser/policy/configuration_policy_pref_store.h"
 #include "chrome/browser/policy/mock_configuration_policy_provider.h"
 #include "chrome/browser/prefs/proxy_config_dictionary.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/pref_store_observer_mock.h"
+#include "content/common/notification_service.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -61,7 +61,7 @@ TEST_P(ConfigurationPolicyPrefStoreListTest, SetValue) {
   in_value->Append(Value::CreateStringValue("test2,"));
   provider_.AddPolicy(GetParam().type(), in_value);
   store_->OnUpdatePolicy();
-  Value* value;
+  const Value* value;
   EXPECT_EQ(PrefStore::READ_OK,
             store_->GetValue(GetParam().pref_name(), &value));
   EXPECT_TRUE(in_value->Equals(value));
@@ -82,7 +82,9 @@ INSTANTIATE_TEST_CASE_P(
         TypeAndName(kPolicyDisabledPluginsExceptions,
                     prefs::kPluginsDisabledPluginsExceptions),
         TypeAndName(kPolicyEnabledPlugins,
-                    prefs::kPluginsEnabledPlugins)));
+                    prefs::kPluginsEnabledPlugins),
+        TypeAndName(kPolicyDisabledSchemes,
+                    prefs::kDisabledSchemes)));
 
 // Test cases for string-valued policy settings.
 class ConfigurationPolicyPrefStoreStringTest
@@ -99,7 +101,7 @@ TEST_P(ConfigurationPolicyPrefStoreStringTest, SetValue) {
   provider_.AddPolicy(GetParam().type(),
                       Value::CreateStringValue("http://chromium.org"));
   store_->OnUpdatePolicy();
-  Value* value;
+  const Value* value;
   EXPECT_EQ(PrefStore::READ_OK,
             store_->GetValue(GetParam().pref_name(), &value));
   EXPECT_TRUE(StringValue("http://chromium.org").Equals(value));
@@ -121,6 +123,8 @@ INSTANTIATE_TEST_CASE_P(
                     prefs::kAuthServerWhitelist),
         TypeAndName(kPolicyAuthNegotiateDelegateWhitelist,
                     prefs::kAuthNegotiateDelegateWhitelist),
+        TypeAndName(kPolicyDownloadDirectory,
+                    prefs::kDownloadDefaultDirectory),
         TypeAndName(kPolicyGSSAPILibraryName,
                     prefs::kGSSAPILibraryName)));
 
@@ -138,7 +142,7 @@ TEST_P(ConfigurationPolicyPrefStoreBooleanTest, GetDefault) {
 TEST_P(ConfigurationPolicyPrefStoreBooleanTest, SetValue) {
   provider_.AddPolicy(GetParam().type(), Value::CreateBooleanValue(false));
   store_->OnUpdatePolicy();
-  Value* value;
+  const Value* value;
   bool result = true;
   EXPECT_EQ(PrefStore::READ_OK,
             store_->GetValue(GetParam().pref_name(), &value));
@@ -163,7 +167,7 @@ INSTANTIATE_TEST_CASE_P(
         TypeAndName(kPolicySearchSuggestEnabled,
                     prefs::kSearchSuggestEnabled),
         TypeAndName(kPolicyDnsPrefetchingEnabled,
-                    prefs::kDnsPrefetchingEnabled),
+                    prefs::kNetworkPredictionEnabled),
         TypeAndName(kPolicyDisableSpdy,
                     prefs::kDisableSpdy),
         TypeAndName(kPolicySafeBrowsingEnabled,
@@ -194,8 +198,24 @@ INSTANTIATE_TEST_CASE_P(
                     prefs::kEnableAuthNegotiatePort),
         TypeAndName(kPolicyInstantEnabled,
                     prefs::kInstantEnabled),
+        TypeAndName(kPolicyDisablePluginFinder,
+                    prefs::kDisablePluginFinder),
+        TypeAndName(kPolicyClearSiteDataOnExit,
+                    prefs::kClearSiteDataOnExit),
+        TypeAndName(kPolicyDefaultBrowserSettingEnabled,
+                    prefs::kDefaultBrowserSettingEnabled),
         TypeAndName(kPolicyDisable3DAPIs,
-                    prefs::kDisable3DAPIs)));
+                    prefs::kDisable3DAPIs),
+        TypeAndName(kPolicyTranslateEnabled,
+                    prefs::kEnableTranslate),
+        TypeAndName(kPolicyAllowOutdatedPlugins,
+                    prefs::kPluginsAllowOutdated),
+        TypeAndName(kPolicyBookmarkBarEnabled,
+                    prefs::kEnableBookmarkBar),
+        TypeAndName(kPolicyEditBookmarksEnabled,
+                    prefs::kEditBookmarksEnabled),
+        TypeAndName(kPolicyAllowFileSelectionDialogs,
+                    prefs::kAllowFileSelectionDialogs)));
 
 #if defined(OS_CHROMEOS)
 INSTANTIATE_TEST_CASE_P(
@@ -220,7 +240,7 @@ TEST_P(ConfigurationPolicyPrefStoreIntegerTest, GetDefault) {
 TEST_P(ConfigurationPolicyPrefStoreIntegerTest, SetValue) {
   provider_.AddPolicy(GetParam().type(), Value::CreateIntegerValue(2));
   store_->OnUpdatePolicy();
-  Value* value = NULL;
+  const Value* value = NULL;
   EXPECT_EQ(PrefStore::READ_OK,
             store_->GetValue(GetParam().pref_name(), &value));
   EXPECT_TRUE(FundamentalValue(2).Equals(value));
@@ -233,7 +253,7 @@ INSTANTIATE_TEST_CASE_P(
         TypeAndName(kPolicyRestoreOnStartup,
                     prefs::kRestoreOnStartup),
         TypeAndName(kPolicyPolicyRefreshRate,
-                    prefs::kPolicyUserPolicyRefreshRate)));
+                    prefs::kPolicyRefreshRate)));
 
 // Test cases for the proxy policy settings.
 class ConfigurationPolicyPrefStoreProxyTest : public testing::Test {
@@ -245,11 +265,11 @@ class ConfigurationPolicyPrefStoreProxyTest : public testing::Test {
       const std::string& expected_proxy_pac_url,
       const std::string& expected_proxy_bypass_list,
       const ProxyPrefs::ProxyMode& expected_proxy_mode) {
-    Value* value = NULL;
+    const Value* value = NULL;
     ASSERT_EQ(PrefStore::READ_OK,
               store.GetValue(prefs::kProxy, &value));
     ASSERT_EQ(Value::TYPE_DICTIONARY, value->GetType());
-    ProxyConfigDictionary dict(static_cast<DictionaryValue*>(value));
+    ProxyConfigDictionary dict(static_cast<const DictionaryValue*>(value));
     std::string s;
     if (expected_proxy_server.empty()) {
       EXPECT_FALSE(dict.GetProxyServer(&s));
@@ -308,6 +328,19 @@ TEST_F(ConfigurationPolicyPrefStoreProxyTest, ManualOptionsReversedApplyOrder) {
       ProxyPrefs::MODE_FIXED_SERVERS);
 }
 
+TEST_F(ConfigurationPolicyPrefStoreProxyTest, ManualOptionsInvalid) {
+  MockConfigurationPolicyProvider provider;
+  provider.AddPolicy(kPolicyProxyServerMode,
+                     Value::CreateIntegerValue(
+                         kPolicyManuallyConfiguredProxyServerMode));
+
+  scoped_refptr<ConfigurationPolicyPrefStore> store(
+      new ConfigurationPolicyPrefStore(&provider));
+  const Value* value = NULL;
+  EXPECT_EQ(PrefStore::READ_NO_VALUE, store->GetValue(prefs::kProxy, &value));
+}
+
+
 TEST_F(ConfigurationPolicyPrefStoreProxyTest, NoProxyServerMode) {
   MockConfigurationPolicyProvider provider;
   provider.AddPolicy(kPolicyProxyServerMode,
@@ -353,6 +386,36 @@ TEST_F(ConfigurationPolicyPrefStoreProxyTest, AutoDetectProxyModeName) {
 
 TEST_F(ConfigurationPolicyPrefStoreProxyTest, PacScriptProxyMode) {
   MockConfigurationPolicyProvider provider;
+  provider.AddPolicy(kPolicyProxyPacUrl,
+                     Value::CreateStringValue("http://short.org/proxy.pac"));
+  provider.AddPolicy(
+      kPolicyProxyMode,
+      Value::CreateStringValue(ProxyPrefs::kPacScriptProxyModeName));
+
+  scoped_refptr<ConfigurationPolicyPrefStore> store(
+      new ConfigurationPolicyPrefStore(&provider));
+  VerifyProxyPrefs(*store, "", "http://short.org/proxy.pac", "",
+                   ProxyPrefs::MODE_PAC_SCRIPT);
+}
+
+TEST_F(ConfigurationPolicyPrefStoreProxyTest, PacScriptProxyModeInvalid) {
+  MockConfigurationPolicyProvider provider;
+  provider.AddPolicy(
+      kPolicyProxyMode,
+      Value::CreateStringValue(ProxyPrefs::kPacScriptProxyModeName));
+
+  scoped_refptr<ConfigurationPolicyPrefStore> store(
+      new ConfigurationPolicyPrefStore(&provider));
+  const Value* value = NULL;
+  EXPECT_EQ(PrefStore::READ_NO_VALUE, store->GetValue(prefs::kProxy, &value));
+}
+
+// Regression test for http://crbug.com/78016, CPanel returns empty strings
+// for unset properties.
+TEST_F(ConfigurationPolicyPrefStoreProxyTest, PacScriptProxyModeBug78016) {
+  MockConfigurationPolicyProvider provider;
+  provider.AddPolicy(kPolicyProxyServer,
+                     Value::CreateStringValue(""));
   provider.AddPolicy(kPolicyProxyPacUrl,
                      Value::CreateStringValue("http://short.org/proxy.pac"));
   provider.AddPolicy(
@@ -416,7 +479,7 @@ TEST_F(ConfigurationPolicyPrefStoreProxyTest, ProxyInvalid) {
 
     scoped_refptr<ConfigurationPolicyPrefStore> store(
         new ConfigurationPolicyPrefStore(&provider));
-    Value* value = NULL;
+    const Value* value = NULL;
     EXPECT_EQ(PrefStore::READ_NO_VALUE,
               store->GetValue(prefs::kProxy, &value));
   }
@@ -438,7 +501,7 @@ TEST_F(ConfigurationPolicyPrefStoreDefaultSearchTest, MinimallyDefined) {
   scoped_refptr<ConfigurationPolicyPrefStore> store(
       new ConfigurationPolicyPrefStore(&provider));
 
-  Value* value = NULL;
+  const Value* value = NULL;
   EXPECT_EQ(PrefStore::READ_OK,
             store->GetValue(prefs::kDefaultSearchProviderSearchURL, &value));
   EXPECT_TRUE(StringValue(search_url).Equals(value));
@@ -496,7 +559,7 @@ TEST_F(ConfigurationPolicyPrefStoreDefaultSearchTest, FullyDefined) {
   scoped_refptr<ConfigurationPolicyPrefStore> store(
       new ConfigurationPolicyPrefStore(&provider));
 
-  Value* value = NULL;
+  const Value* value = NULL;
   EXPECT_EQ(PrefStore::READ_OK,
             store->GetValue(prefs::kDefaultSearchProviderSearchURL, &value));
   EXPECT_TRUE(StringValue(search_url).Equals(value));
@@ -625,37 +688,37 @@ TEST_F(ConfigurationPolicyPrefStoreSyncTest, Disabled) {
   provider_.AddPolicy(kPolicySyncDisabled, Value::CreateBooleanValue(true));
   store_->OnUpdatePolicy();
   // Sync should be flagged as managed.
-  Value* value = NULL;
+  const Value* value = NULL;
   EXPECT_EQ(PrefStore::READ_OK, store_->GetValue(prefs::kSyncManaged, &value));
   ASSERT_TRUE(value != NULL);
   EXPECT_TRUE(FundamentalValue(true).Equals(value));
 }
 
-// Test cases for the AutoFill policy setting.
-class ConfigurationPolicyPrefStoreAutoFillTest
+// Test cases for the Autofill policy setting.
+class ConfigurationPolicyPrefStoreAutofillTest
     : public ConfigurationPolicyPrefStoreTestBase<testing::Test> {
 };
 
-TEST_F(ConfigurationPolicyPrefStoreAutoFillTest, Default) {
+TEST_F(ConfigurationPolicyPrefStoreAutofillTest, Default) {
   EXPECT_EQ(PrefStore::READ_NO_VALUE,
             store_->GetValue(prefs::kSyncManaged, NULL));
 }
 
-TEST_F(ConfigurationPolicyPrefStoreAutoFillTest, Enabled) {
+TEST_F(ConfigurationPolicyPrefStoreAutofillTest, Enabled) {
   provider_.AddPolicy(kPolicyAutoFillEnabled, Value::CreateBooleanValue(true));
   store_->OnUpdatePolicy();
-  // Enabling AutoFill should not set the pref.
+  // Enabling Autofill should not set the pref.
   EXPECT_EQ(PrefStore::READ_NO_VALUE,
             store_->GetValue(prefs::kSyncManaged, NULL));
 }
 
-TEST_F(ConfigurationPolicyPrefStoreAutoFillTest, Disabled) {
+TEST_F(ConfigurationPolicyPrefStoreAutofillTest, Disabled) {
   provider_.AddPolicy(kPolicyAutoFillEnabled, Value::CreateBooleanValue(false));
   store_->OnUpdatePolicy();
-  // Disabling AutoFill should switch the pref to managed.
-  Value* value = NULL;
+  // Disabling Autofill should switch the pref to managed.
+  const Value* value = NULL;
   EXPECT_EQ(PrefStore::READ_OK,
-            store_->GetValue(prefs::kAutoFillEnabled, &value));
+            store_->GetValue(prefs::kAutofillEnabled, &value));
   EXPECT_TRUE(FundamentalValue(false).Equals(value));
 }
 
@@ -675,7 +738,7 @@ class ConfigurationPolicyPrefStoreRefreshTest
 };
 
 TEST_F(ConfigurationPolicyPrefStoreRefreshTest, Refresh) {
-  Value* value = NULL;
+  const Value* value = NULL;
   EXPECT_EQ(PrefStore::READ_NO_VALUE,
             store_->GetValue(prefs::kHomePage, NULL));
 

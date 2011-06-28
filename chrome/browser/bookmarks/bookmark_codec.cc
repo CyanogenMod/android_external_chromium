@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -101,13 +101,13 @@ Value* BookmarkCodec::EncodeNode(const BookmarkNode* node) {
   } else {
     value->SetString(kTypeKey, kTypeFolder);
     value->SetString(kDateModifiedKey,
-                     base::Int64ToString(node->date_group_modified().
+                     base::Int64ToString(node->date_folder_modified().
                                    ToInternalValue()));
     UpdateChecksumWithFolderNode(id, title);
 
     ListValue* child_values = new ListValue();
     value->Set(kChildrenKey, child_values);
-    for (int i = 0; i < node->GetChildCount(); ++i)
+    for (int i = 0; i < node->child_count(); ++i)
       child_values->Append(EncodeNode(node->GetChild(i)));
   }
   return value;
@@ -159,8 +159,8 @@ bool BookmarkCodec::DecodeHelper(BookmarkNode* bb_node,
   // the file.
   bb_node->set_type(BookmarkNode::BOOKMARK_BAR);
   other_folder_node->set_type(BookmarkNode::OTHER_NODE);
-  bb_node->SetTitle(l10n_util::GetStringUTF16(IDS_BOOMARK_BAR_FOLDER_NAME));
-  other_folder_node->SetTitle(
+  bb_node->set_title(l10n_util::GetStringUTF16(IDS_BOOMARK_BAR_FOLDER_NAME));
+  other_folder_node->set_title(
       l10n_util::GetStringUTF16(IDS_BOOMARK_BAR_OTHER_FOLDER_NAME));
 
   return true;
@@ -247,7 +247,7 @@ bool BookmarkCodec::DecodeNode(const DictionaryValue& value,
       return false;  // Node invalid.
 
     if (parent)
-      parent->Add(parent->GetChildCount(), node);
+      parent->Add(node, parent->child_count());
     node->set_type(BookmarkNode::URL);
     UpdateChecksumWithUrlNode(id_string, title, url_string);
   } else {
@@ -272,10 +272,10 @@ bool BookmarkCodec::DecodeNode(const DictionaryValue& value,
     node->set_type(BookmarkNode::FOLDER);
     int64 internal_time;
     base::StringToInt64(last_modified_date, &internal_time);
-    node->set_date_group_modified(Time::FromInternalValue(internal_time));
+    node->set_date_folder_modified(Time::FromInternalValue(internal_time));
 
     if (parent)
-      parent->Add(parent->GetChildCount(), node);
+      parent->Add(node, parent->child_count());
 
     UpdateChecksumWithFolderNode(id_string, title);
 
@@ -283,7 +283,7 @@ bool BookmarkCodec::DecodeNode(const DictionaryValue& value,
       return false;
   }
 
-  node->SetTitle(title);
+  node->set_title(title);
   node->set_date_added(date_added);
   return true;
 }
@@ -299,7 +299,7 @@ void BookmarkCodec::ReassignIDs(BookmarkNode* bb_node,
 void BookmarkCodec::ReassignIDsHelper(BookmarkNode* node) {
   DCHECK(node);
   node->set_id(++maximum_id_);
-  for (int i = 0; i < node->GetChildCount(); ++i)
+  for (int i = 0; i < node->child_count(); ++i)
     ReassignIDsHelper(node->GetChild(i));
 }
 

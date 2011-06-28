@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,22 +7,19 @@
 #include <string>
 #include <vector>
 
-#include "base/scoped_ptr.h"
-#include "build/build_config.h"
-#include "chrome/common/sqlite_utils.h"
-
-#if defined(USE_NSS)
-#include <pk11pub.h>
-#include <pk11sdr.h>
-#endif  // defined(USE_NSS)
-
+#include "app/sql/connection.h"
+#include "app/sql/statement.h"
 #include "base/base64.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/string_split.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "webkit/glue/password_form.h"
 
-using webkit_glue::PasswordForm;
+#if defined(USE_NSS)
+#include <pk11pub.h>
+#include <pk11sdr.h>
+#endif  // defined(USE_NSS)
 
 // This method is based on some Firefox code in
 //   security/manager/ssl/src/nsSDR.cpp
@@ -114,7 +111,7 @@ string16 NSSDecryptor::Decrypt(const std::string& crypt) const {
 // http://kb.mozillazine.org/Signons2.txt
 // http://kb.mozillazine.org/Signons3.txt
 void NSSDecryptor::ParseSignons(const std::string& content,
-                                std::vector<PasswordForm>* forms) {
+                                std::vector<webkit_glue::PasswordForm>* forms) {
   forms->clear();
 
   // Splits the file content into lines.
@@ -143,7 +140,7 @@ void NSSDecryptor::ParseSignons(const std::string& content,
   // Reads never-saved list. Domains are stored one per line.
   size_t i;
   for (i = 1; i < lines.size() && lines[i].compare(".") != 0; ++i) {
-    PasswordForm form;
+    webkit_glue::PasswordForm form;
     form.origin = GURL(lines[i]).ReplaceComponents(rep);
     form.signon_realm = form.origin.GetOrigin().spec();
     form.blacklisted_by_user = true;
@@ -165,7 +162,7 @@ void NSSDecryptor::ParseSignons(const std::string& content,
     if (end - begin < 5)
       continue;
 
-    PasswordForm form;
+    webkit_glue::PasswordForm form;
 
     // The first line is the site URL.
     // For HTTP authentication logins, the URL may contain http realm,
@@ -236,14 +233,13 @@ void NSSDecryptor::ParseSignons(const std::string& content,
 
 bool NSSDecryptor::ReadAndParseSignons(const FilePath& sqlite_file,
     std::vector<webkit_glue::PasswordForm>* forms) {
-  sqlite3* sqlite;
-  if (sqlite_utils::OpenSqliteDb(sqlite_file, &sqlite) != SQLITE_OK)
+  sql::Connection db;
+  if (!db.Open(sqlite_file))
     return false;
-  sqlite_utils::scoped_sqlite_db_ptr db(sqlite);
 
-  SQLStatement s;
-  const char* stmt = "SELECT hostname FROM moz_disabledHosts";
-  if (s.prepare(db.get(), stmt) != SQLITE_OK)
+  const char* query = "SELECT hostname FROM moz_disabledHosts";
+  sql::Statement s(db.GetUniqueStatement(query));
+  if (!s)
     return false;
 
   GURL::Replacements rep;
@@ -252,50 +248,50 @@ bool NSSDecryptor::ReadAndParseSignons(const FilePath& sqlite_file,
   rep.ClearUsername();
   rep.ClearPassword();
   // Read domains for which passwords are never saved.
-  while (s.step() == SQLITE_ROW) {
-    PasswordForm form;
-    form.origin = GURL(s.column_string(0)).ReplaceComponents(rep);
+  while (s.Step()) {
+    webkit_glue::PasswordForm form;
+    form.origin = GURL(s.ColumnString(0)).ReplaceComponents(rep);
     form.signon_realm = form.origin.GetOrigin().spec();
     form.blacklisted_by_user = true;
     forms->push_back(form);
   }
 
-  SQLStatement s2;
-  const char* stmt2 = "SELECT hostname, httpRealm, formSubmitURL, "
-                      "usernameField, passwordField, encryptedUsername, "
-                      "encryptedPassword FROM moz_logins";
+  const char* query2 = "SELECT hostname, httpRealm, formSubmitURL, "
+                       "usernameField, passwordField, encryptedUsername, "
+                       "encryptedPassword FROM moz_logins";
 
-  if (s2.prepare(db.get(), stmt2) != SQLITE_OK)
+  sql::Statement s2(db.GetUniqueStatement(query2));
+  if (!s2)
     return false;
 
-  while (s2.step() == SQLITE_ROW) {
+  while (s2.Step()) {
     GURL url;
-    std::string realm(s2.column_string(1));
+    std::string realm(s2.ColumnString(1));
     if (!realm.empty()) {
       // In this case, the scheme may not exsit. Assume HTTP.
-      std::string host(s2.column_string(0));
+      std::string host(s2.ColumnString(0));
       if (host.find("://") == std::string::npos)
         host = "http://" + host;
       url = GURL(host);
     } else {
-      url = GURL(s2.column_string(0));
+      url = GURL(s2.ColumnString(0));
     }
     // Skip this row if the URL is not valid.
     if (!url.is_valid())
       continue;
 
-    PasswordForm form;
+    webkit_glue::PasswordForm form;
     form.origin = url.ReplaceComponents(rep);
     form.signon_realm = form.origin.GetOrigin().spec();
     if (!realm.empty())
       form.signon_realm += realm;
     form.ssl_valid = form.origin.SchemeIsSecure();
     // The user name, password and action.
-    form.username_element = UTF8ToUTF16(s2.column_string(3));
-    form.username_value = Decrypt(s2.column_string(5));
-    form.password_element = UTF8ToUTF16(s2.column_string(4));
-    form.password_value = Decrypt(s2.column_string(6));
-    form.action = GURL(s2.column_string(2)).ReplaceComponents(rep);
+    form.username_element = s2.ColumnString16(3);
+    form.username_value = Decrypt(s2.ColumnString(5));
+    form.password_element = s2.ColumnString16(4);
+    form.password_value = Decrypt(s2.ColumnString(6));
+    form.action = GURL(s2.ColumnString(2)).ReplaceComponents(rep);
     forms->push_back(form);
   }
   return true;

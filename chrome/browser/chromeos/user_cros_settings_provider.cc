@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,18 +9,20 @@
 
 #include "base/hash_tables.h"
 #include "base/logging.h"
-#include "base/singleton.h"
+#include "base/memory/singleton.h"
 #include "base/string_util.h"
 #include "base/task.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/cros/login_library.h"
+#include "chrome/browser/chromeos/cros/network_library.h"
 #include "chrome/browser/chromeos/cros_settings.h"
 #include "chrome/browser/chromeos/cros_settings_names.h"
 #include "chrome/browser/chromeos/login/ownership_service.h"
 #include "chrome/browser/chromeos/login/user_manager.h"
 #include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/prefs/scoped_user_pref_update.h"
 #include "content/browser/browser_thread.h"
 
 namespace chromeos {
@@ -33,10 +35,12 @@ const char kTrustedSuffix[] = "/trusted";
 
 // For all our boolean settings following is applicable:
 // true is default permissive value and false is safe prohibitic value.
+// Exception: kSignedDataRoamingEnabled which has default value of false.
 const char* kBooleanSettings[] = {
   kAccountsPrefAllowNewUser,
   kAccountsPrefAllowGuest,
-  kAccountsPrefShowUserNamesOnSignIn
+  kAccountsPrefShowUserNamesOnSignIn,
+  kSignedDataRoamingEnabled,
 };
 
 const char* kStringSettings[] = {
@@ -48,10 +52,13 @@ const char* kListSettings[] = {
 };
 
 bool IsControlledBooleanSetting(const std::string& pref_path) {
-  return std::find(kBooleanSettings,
-                   kBooleanSettings + arraysize(kBooleanSettings),
-                   pref_path) !=
-      kBooleanSettings + arraysize(kBooleanSettings);
+  // TODO(nkostylev): Using std::find for 4 value array generates this warning
+  // in chroot stl_algo.h:231: error: array subscript is above array bounds.
+  // GCC 4.4.3
+  return (pref_path == kAccountsPrefAllowNewUser) ||
+         (pref_path == kAccountsPrefAllowGuest) ||
+         (pref_path == kAccountsPrefShowUserNamesOnSignIn) ||
+         (pref_path == kSignedDataRoamingEnabled);
 }
 
 bool IsControlledStringSetting(const std::string& pref_path) {
@@ -72,7 +79,10 @@ void RegisterSetting(PrefService* local_state, const std::string& pref_path) {
   local_state->RegisterBooleanPref((pref_path + kTrustedSuffix).c_str(),
                                    false);
   if (IsControlledBooleanSetting(pref_path)) {
-    local_state->RegisterBooleanPref(pref_path.c_str(), true);
+    if (pref_path == kSignedDataRoamingEnabled)
+      local_state->RegisterBooleanPref(pref_path.c_str(), false);
+    else
+      local_state->RegisterBooleanPref(pref_path.c_str(), true);
   } else if (IsControlledStringSetting(pref_path)) {
     local_state->RegisterStringPref(pref_path.c_str(), "");
   } else {
@@ -81,10 +91,14 @@ void RegisterSetting(PrefService* local_state, const std::string& pref_path) {
   }
 }
 
-Value* CreateSettingsBooleanValue(bool value, bool managed) {
+// Create a settings boolean value with "managed" and "disabled" property.
+// "managed" property is true if the setting is managed by administrator.
+// "disabled" property is true if the UI for the setting should be disabled.
+Value* CreateSettingsBooleanValue(bool value, bool managed, bool disabled) {
   DictionaryValue* dict = new DictionaryValue;
   dict->Set("value", Value::CreateBooleanValue(value));
   dict->Set("managed", Value::CreateBooleanValue(managed));
+  dict->Set("disabled", Value::CreateBooleanValue(disabled));
   return dict;
 }
 
@@ -120,15 +134,13 @@ bool GetUserWhitelist(ListValue* user_list) {
   DCHECK(!prefs->IsManagedPreference(kAccountsPrefUsers));
 
   std::vector<std::string> whitelist;
-  if (!CrosLibrary::Get()->EnsureLoaded() ||
-      !CrosLibrary::Get()->GetLoginLibrary()->EnumerateWhitelisted(
-          &whitelist)) {
+  if (!SignedSettings::EnumerateWhitelist(&whitelist)) {
     LOG(WARNING) << "Failed to retrieve user whitelist.";
     return false;
   }
 
-  ListValue* cached_whitelist = prefs->GetMutableList(kAccountsPrefUsers);
-  cached_whitelist->Clear();
+  ListPrefUpdate cached_whitelist_update(prefs, kAccountsPrefUsers);
+  cached_whitelist_update->Clear();
 
   const UserManager::User& self = UserManager::Get()->logged_in_user();
   bool is_owner = UserManager::Get()->current_user_is_owner();
@@ -144,7 +156,7 @@ bool GetUserWhitelist(ListValue* user_list) {
       user_list->Append(user);
     }
 
-    cached_whitelist->Append(Value::CreateStringValue(email));
+    cached_whitelist_update->Append(Value::CreateStringValue(email));
   }
 
   prefs->ScheduleSavePersistentPrefs();
@@ -187,6 +199,13 @@ class UserCrosSettingsTrust : public SignedSettingsHelper::Callback {
     }
   }
 
+  void Reload() {
+    for (size_t i = 0; i < arraysize(kBooleanSettings); ++i)
+      StartFetchingSetting(kBooleanSettings[i]);
+    for (size_t i = 0; i < arraysize(kStringSettings); ++i)
+      StartFetchingSetting(kStringSettings[i]);
+  }
+
   void Set(const std::string& path, Value* in_value) {
     PrefService* prefs = g_browser_process->local_state();
     DCHECK(!prefs->IsManagedPreference(path.c_str()));
@@ -202,6 +221,7 @@ class UserCrosSettingsTrust : public SignedSettingsHelper::Callback {
     if (IsControlledBooleanSetting(path)) {
       bool bool_value = false;
       if (in_value->GetAsBoolean(&bool_value)) {
+        OnBooleanPropertyChange(path, bool_value);
         std::string value = bool_value ? kTrueIncantation : kFalseIncantation;
         SignedSettingsHelper::Get()->StartStorePropertyOp(path, value, this);
         UpdateCacheBool(path, bool_value, USE_VALUE_SUPPLIED);
@@ -227,10 +247,7 @@ class UserCrosSettingsTrust : public SignedSettingsHelper::Callback {
       : ownership_service_(OwnershipService::GetSharedInstance()),
         retries_left_(kNumRetriesLimit) {
     // Start prefetching Boolean and String preferences.
-    for (size_t i = 0; i < arraysize(kBooleanSettings); ++i)
-      StartFetchingSetting(kBooleanSettings[i]);
-    for (size_t i = 0; i < arraysize(kStringSettings); ++i)
-      StartFetchingSetting(kStringSettings[i]);
+    Reload();
   }
 
   ~UserCrosSettingsTrust() {
@@ -238,6 +255,36 @@ class UserCrosSettingsTrust : public SignedSettingsHelper::Callback {
         CrosLibrary::Get()->EnsureLoaded()) {
       // Cancels all pending callbacks from us.
       SignedSettingsHelper::Get()->CancelCallback(this);
+    }
+  }
+
+  // Called right before boolean property is changed.
+  void OnBooleanPropertyChange(const std::string& path, bool new_value) {
+    if (path == kSignedDataRoamingEnabled) {
+      if (!CrosLibrary::Get()->EnsureLoaded())
+        return;
+
+      NetworkLibrary* cros = CrosLibrary::Get()->GetNetworkLibrary();
+      cros->SetCellularDataRoamingAllowed(new_value);
+    }
+  }
+
+  // Called right after signed value was checked.
+  void OnBooleanPropertyRetrieve(const std::string& path,
+                                 bool value,
+                                 UseValue use_value) {
+    if (path == kSignedDataRoamingEnabled) {
+      if (!CrosLibrary::Get()->EnsureLoaded())
+        return;
+
+      NetworkLibrary* cros = CrosLibrary::Get()->GetNetworkLibrary();
+      const NetworkDevice* cellular = cros->FindCellularDevice();
+      if (cellular) {
+        bool device_value = cellular->data_roaming_allowed();
+        bool new_value = (use_value == USE_VALUE_SUPPLIED) ? value : false;
+        if (device_value != new_value)
+          cros->SetCellularDataRoamingAllowed(new_value);
+      }
     }
   }
 
@@ -278,7 +325,8 @@ class UserCrosSettingsTrust : public SignedSettingsHelper::Callback {
         else
           VLOG(1) << "Retrieved cros setting " << name << "=" << value;
         if (IsControlledBooleanSetting(name)) {
-          // We assume our boolean settings are true before explicitly set.
+          OnBooleanPropertyRetrieve(name, (value == kTrueIncantation),
+              fallback_to_default ? USE_VALUE_DEFAULT : USE_VALUE_SUPPLIED);
           UpdateCacheBool(name, (value == kTrueIncantation),
               fallback_to_default ? USE_VALUE_DEFAULT : USE_VALUE_SUPPLIED);
         } else if (IsControlledStringSetting(name)) {
@@ -302,6 +350,7 @@ class UserCrosSettingsTrust : public SignedSettingsHelper::Callback {
         if (IsControlledBooleanSetting(name)) {
           // For boolean settings we can just set safe (false) values
           // and continue as trusted.
+          OnBooleanPropertyRetrieve(name, false, USE_VALUE_SUPPLIED);
           UpdateCacheBool(name, false, USE_VALUE_SUPPLIED);
         } else {
           prefs->ClearPref((name + kTrustedSuffix).c_str());
@@ -408,9 +457,19 @@ bool UserCrosSettingsProvider::RequestTrustedShowUsersOnSignin(Task* callback) {
       kAccountsPrefShowUserNamesOnSignIn, callback);
 }
 
+bool UserCrosSettingsProvider::RequestTrustedDataRoamingEnabled(
+    Task* callback) {
+  return UserCrosSettingsTrust::GetInstance()->RequestTrustedEntity(
+      kSignedDataRoamingEnabled, callback);
+}
+
 bool UserCrosSettingsProvider::RequestTrustedOwner(Task* callback) {
   return UserCrosSettingsTrust::GetInstance()->RequestTrustedEntity(
       kDeviceOwner, callback);
+}
+
+void UserCrosSettingsProvider::Reload() {
+  UserCrosSettingsTrust::GetInstance()->Reload();
 }
 
 // static
@@ -425,7 +484,15 @@ bool UserCrosSettingsProvider::cached_allow_new_user() {
   // Trigger prefetching if singleton object still does not exist.
   UserCrosSettingsTrust::GetInstance();
   return g_browser_process->local_state()->GetBoolean(
-    kAccountsPrefAllowNewUser);
+      kAccountsPrefAllowNewUser);
+}
+
+// static
+bool UserCrosSettingsProvider::cached_data_roaming_enabled() {
+  // Trigger prefetching if singleton object still does not exist.
+  UserCrosSettingsTrust::GetInstance();
+  return g_browser_process->local_state()->GetBoolean(
+      kSignedDataRoamingEnabled);
 }
 
 // static
@@ -486,8 +553,10 @@ void UserCrosSettingsProvider::DoSet(const std::string& path,
 bool UserCrosSettingsProvider::Get(const std::string& path,
                                    Value** out_value) const {
   if (IsControlledBooleanSetting(path)) {
+    PrefService* prefs = g_browser_process->local_state();
     *out_value = CreateSettingsBooleanValue(
-        g_browser_process->local_state()->GetBoolean(path.c_str()),
+        prefs->GetBoolean(path.c_str()),
+        prefs->IsManagedPreference(path.c_str()),
         !UserManager::Get()->current_user_is_owner());
     return true;
   } else if (path == kAccountsPrefUsers) {
@@ -501,15 +570,16 @@ bool UserCrosSettingsProvider::Get(const std::string& path,
 }
 
 bool UserCrosSettingsProvider::HandlesSetting(const std::string& path) {
-  return ::StartsWithASCII(path, "cros.accounts.", true);
+  return ::StartsWithASCII(path, "cros.accounts.", true) ||
+      ::StartsWithASCII(path, "cros.signed.", true);
 }
 
 void UserCrosSettingsProvider::WhitelistUser(const std::string& email) {
   SignedSettingsHelper::Get()->StartWhitelistOp(
       email, true, UserCrosSettingsTrust::GetInstance());
   PrefService* prefs = g_browser_process->local_state();
-  ListValue* cached_whitelist = prefs->GetMutableList(kAccountsPrefUsers);
-  cached_whitelist->Append(Value::CreateStringValue(email));
+  ListPrefUpdate cached_whitelist_update(prefs, kAccountsPrefUsers);
+  cached_whitelist_update->Append(Value::CreateStringValue(email));
   prefs->ScheduleSavePersistentPrefs();
 }
 
@@ -518,9 +588,9 @@ void UserCrosSettingsProvider::UnwhitelistUser(const std::string& email) {
       email, false, UserCrosSettingsTrust::GetInstance());
 
   PrefService* prefs = g_browser_process->local_state();
-  ListValue* cached_whitelist = prefs->GetMutableList(kAccountsPrefUsers);
+  ListPrefUpdate cached_whitelist_update(prefs, kAccountsPrefUsers);
   StringValue email_value(email);
-  if (cached_whitelist->Remove(email_value) != -1)
+  if (cached_whitelist_update->Remove(email_value) != -1)
     prefs->ScheduleSavePersistentPrefs();
 }
 

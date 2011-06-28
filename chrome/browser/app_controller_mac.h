@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,15 +10,14 @@
 #include <vector>
 
 #import "base/mac/cocoa_protocols.h"
-#include "base/scoped_nsobject.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_nsobject.h"
+#include "base/memory/scoped_ptr.h"
 
 @class AboutWindowController;
 class BookmarkMenuBridge;
 class CommandUpdater;
 class GURL;
 class HistoryMenuBridge;
-@class PreferencesWindowController;
 class Profile;
 
 // The application controller object, created by loading the MainMenu nib.
@@ -32,7 +31,6 @@ class Profile;
   // (and Browser*s).
   scoped_ptr<BookmarkMenuBridge> bookmarkMenuBridge_;
   scoped_ptr<HistoryMenuBridge> historyMenuBridge_;
-  PreferencesWindowController* prefsController_;  // Weak.
   AboutWindowController* aboutController_;  // Weak.
 
   // If we're told to open URLs (in particular, via |-application:openFiles:| by
@@ -81,6 +79,9 @@ class Profile;
 // Redirect in the menu item from the expected target of "File's
 // Owner" (NSAppliation) for a Branded About Box
 - (IBAction)orderFrontStandardAboutPanel:(id)sender;
+
+// Toggles the "Confirm to Quit" preference.
+- (IBAction)toggleConfirmToQuit:(id)sender;
 
 // Delegate method to return the dock menu.
 - (NSMenu*)applicationDockMenu:(NSApplication*)sender;

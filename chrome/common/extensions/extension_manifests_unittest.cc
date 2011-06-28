@@ -1,12 +1,12 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/command_line.h"
 #include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/path_service.h"
-#include "base/scoped_ptr.h"
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
@@ -16,7 +16,9 @@
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/extensions/extension_error_utils.h"
 #include "chrome/common/extensions/extension_sidebar_defaults.h"
-#include "chrome/common/json_value_serializer.h"
+#include "chrome/common/extensions/file_browser_handler.h"
+#include "chrome/common/extensions/url_pattern.h"
+#include "content/common/json_value_serializer.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace errors = extension_manifest_errors;
@@ -48,8 +50,10 @@ class ExtensionManifestTest : public testing::Test {
     FilePath path;
     PathService::Get(chrome::DIR_TEST_DATA, &path);
     path = path.AppendASCII("extensions").AppendASCII("manifest_tests");
-    return Extension::Create(path.DirName(), location, *value, false,
-                             strict_error_checks, error);
+    int flags = Extension::NO_FLAGS;
+    if (strict_error_checks)
+      flags |= Extension::STRICT_ERROR_CHECKS;
+    return Extension::Create(path.DirName(), location, *value, flags, error);
   }
 
   scoped_refptr<Extension> LoadExtension(const std::string& name,
@@ -252,7 +256,11 @@ TEST_F(ExtensionManifestTest, AppLaunchURL) {
                      errors::kInvalidLaunchLocalPath);
   LoadAndExpectError("launch_path_invalid_value.json",
                      errors::kInvalidLaunchLocalPath);
-  LoadAndExpectError("launch_url_invalid_type.json",
+  LoadAndExpectError("launch_url_invalid_type_1.json",
+                     errors::kInvalidLaunchWebURL);
+  LoadAndExpectError("launch_url_invalid_type_2.json",
+                     errors::kInvalidLaunchWebURL);
+  LoadAndExpectError("launch_url_invalid_type_3.json",
                      errors::kInvalidLaunchWebURL);
 
   scoped_refptr<Extension> extension;
@@ -362,6 +370,8 @@ TEST_F(ExtensionManifestTest, DevToolsExtensions) {
   extension = LoadAndExpectSuccess("devtools_extension.json");
   EXPECT_EQ(extension->url().spec() + "devtools.html",
             extension->devtools_url().spec());
+  EXPECT_TRUE(extension->HasEffectiveAccessToAllHosts());
+
   *CommandLine::ForCurrentProcess() = old_command_line;
 }
 
@@ -401,9 +411,11 @@ TEST_F(ExtensionManifestTest, Sidebar) {
 
 TEST_F(ExtensionManifestTest, DisallowHybridApps) {
   LoadAndExpectError("disallow_hybrid_1.json",
-                     errors::kHostedAppsCannotIncludeExtensionFeatures);
+      ExtensionErrorUtils::FormatErrorMessage(
+          errors::kHostedAppsCannotIncludeExtensionFeatures,
+          keys::kBrowserAction));
   LoadAndExpectError("disallow_hybrid_2.json",
-                     errors::kHostedAppsCannotIncludeExtensionFeatures);
+                     errors::kBackgroundPermissionNeeded);
 }
 
 TEST_F(ExtensionManifestTest, OptionsPageInApps) {
@@ -546,4 +558,54 @@ TEST_F(ExtensionManifestTest, ForbidPortsInPermissions) {
   // in a future version of chrome, validation is to loose
   // to flag this case.
   LoadStrictAndExpectSuccess("forbid_ports_in_permissions.json");
+}
+
+TEST_F(ExtensionManifestTest, IsolatedApps) {
+  // Requires --enable-experimental-app-manifests
+  scoped_refptr<Extension> extension(
+      LoadAndExpectSuccess("isolated_app_valid.json"));
+  EXPECT_FALSE(extension->is_storage_isolated());
+
+  CommandLine old_command_line = *CommandLine::ForCurrentProcess();
+  CommandLine::ForCurrentProcess()->AppendSwitch(
+      switches::kEnableExperimentalAppManifests);
+  scoped_refptr<Extension> extension2(
+      LoadAndExpectSuccess("isolated_app_valid.json"));
+  EXPECT_TRUE(extension2->is_storage_isolated());
+  *CommandLine::ForCurrentProcess() = old_command_line;
+}
+
+
+TEST_F(ExtensionManifestTest, FileBrowserHandlers) {
+  LoadAndExpectError("filebrowser_invalid_actions_1.json",
+      errors::kInvalidFileBrowserHandler);
+  LoadAndExpectError("filebrowser_invalid_actions_2.json",
+      errors::kInvalidFileBrowserHandler);
+  LoadAndExpectError("filebrowser_invalid_action_id.json",
+      errors::kInvalidPageActionId);
+  LoadAndExpectError("filebrowser_invalid_action_title.json",
+      errors::kInvalidPageActionDefaultTitle);
+  LoadAndExpectError("filebrowser_invalid_action_id.json",
+      errors::kInvalidPageActionId);
+  LoadAndExpectError("filebrowser_invalid_file_filters_1.json",
+      errors::kInvalidFileFiltersList);
+  LoadAndExpectError("filebrowser_invalid_file_filters_2.json",
+      ExtensionErrorUtils::FormatErrorMessage(
+          errors::kInvalidFileFilterValue, base::IntToString(0)));
+  LoadAndExpectError("filebrowser_invalid_file_filters_url.json",
+      ExtensionErrorUtils::FormatErrorMessage(errors::kInvalidURLPatternError,
+                                              "http:*.html"));
+
+  scoped_refptr<Extension> extension(
+      LoadAndExpectSuccess("filebrowser_valid.json"));
+  ASSERT_TRUE(extension->file_browser_handlers() != NULL);
+  ASSERT_EQ(extension->file_browser_handlers()->size(), 1U);
+  const FileBrowserHandler* action =
+      extension->file_browser_handlers()->at(0).get();
+  EXPECT_EQ(action->title(), "Default title");
+  EXPECT_EQ(action->icon_path(), "icon.png");
+  const FileBrowserHandler::PatternList& patterns = action->file_url_patterns();
+  ASSERT_EQ(patterns.size(), 1U);
+  ASSERT_TRUE(action->MatchesURL(
+      GURL("filesystem:chrome-extension://foo/local/test.txt")));
 }

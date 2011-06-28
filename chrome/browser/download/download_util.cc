@@ -15,6 +15,7 @@
 #include "base/i18n/rtl.h"
 #include "base/i18n/time_formatting.h"
 #include "base/lazy_instance.h"
+#include "base/metrics/histogram.h"
 #include "base/path_service.h"
 #include "base/string16.h"
 #include "base/string_number_conversions.h"
@@ -22,12 +23,14 @@
 #include "base/sys_string_conversions.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/utf_string_conversions.h"
+#include "base/value_conversions.h"
 #include "base/values.h"
 #include "base/win/windows_version.h"
 #include "chrome/browser/download/download_extensions.h"
 #include "chrome/browser/download/download_item.h"
 #include "chrome/browser/download/download_item_model.h"
 #include "chrome/browser/download/download_manager.h"
+#include "chrome/browser/download/download_types.h"
 #include "chrome/browser/extensions/crx_installer.h"
 #include "chrome/browser/extensions/extension_install_ui.h"
 #include "chrome/browser/extensions/extension_service.h"
@@ -36,12 +39,12 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/chrome_paths.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/time_format.h"
 #include "content/browser/browser_thread.h"
 #include "content/browser/renderer_host/render_view_host.h"
 #include "content/browser/renderer_host/resource_dispatcher_host.h"
 #include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/notification_service.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "grit/theme_resources.h"
@@ -72,11 +75,15 @@
 
 #if defined(OS_WIN)
 #include "base/win/scoped_comptr.h"
-#include "chrome/browser/browser_list.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "ui/base/dragdrop/drag_source.h"
 #include "ui/base/dragdrop/os_exchange_data_provider_win.h"
 #endif
+
+// TODO(phajdan.jr): Find some standard location for this, maintaining
+// the same value on all platforms.
+static const double PI = 3.141592653589793;
 
 namespace download_util {
 
@@ -244,7 +251,7 @@ void GenerateExtension(const FilePath& file_name,
 
 void GenerateFileNameFromInfo(DownloadCreateInfo* info,
                               FilePath* generated_name) {
-  GenerateFileName(GURL(info->url),
+  GenerateFileName(GURL(info->url()),
                    info->content_disposition,
                    info->referrer_charset,
                    info->mime_type,
@@ -335,6 +342,11 @@ void OpenChromeExtension(Profile* profile,
   installer->set_is_gallery_install(is_gallery_download);
   installer->InstallCrx(download_item.full_path());
   installer->set_allow_silent_install(is_gallery_download);
+}
+
+void RecordDownloadCount(DownloadCountTypes type) {
+  UMA_HISTOGRAM_ENUMERATION(
+      "Download.Counts", type, DOWNLOAD_COUNT_TYPES_LAST_ENTRY);
 }
 
 // Download progress painting --------------------------------------------------
@@ -472,9 +484,44 @@ void PaintDownloadComplete(gfx::Canvas* canvas,
 
   // Start at full opacity, then loop back and forth five times before ending
   // at zero opacity.
-  static const double PI = 3.141592653589793;
   double opacity = sin(animation_progress * PI * kCompleteAnimationCycles +
                    PI/2) / 2 + 0.5;
+
+  canvas->SaveLayerAlpha(static_cast<int>(255.0 * opacity), complete_bounds);
+  canvas->AsCanvasSkia()->drawARGB(0, 255, 255, 255, SkXfermode::kClear_Mode);
+  canvas->DrawBitmapInt(*complete, complete_bounds.x(), complete_bounds.y());
+  canvas->Restore();
+}
+
+void PaintDownloadInterrupted(gfx::Canvas* canvas,
+#if defined(TOOLKIT_VIEWS)
+                              views::View* containing_view,
+#endif
+                              int origin_x,
+                              int origin_y,
+                              double animation_progress,
+                              PaintDownloadProgressSize size) {
+  // Load up our common bitmaps.
+  if (!g_foreground_16) {
+    ResourceBundle& rb = ResourceBundle::GetSharedInstance();
+    g_foreground_16 = rb.GetBitmapNamed(IDR_DOWNLOAD_PROGRESS_FOREGROUND_16);
+    g_foreground_32 = rb.GetBitmapNamed(IDR_DOWNLOAD_PROGRESS_FOREGROUND_32);
+  }
+
+  SkBitmap* complete = (size == BIG) ? g_foreground_32 : g_foreground_16;
+
+  gfx::Rect complete_bounds(origin_x, origin_y,
+                            complete->width(), complete->height());
+#if defined(TOOLKIT_VIEWS)
+  // Mirror the positions if necessary.
+  complete_bounds.set_x(containing_view->GetMirroredXForRect(complete_bounds));
+#endif
+
+  // Start at zero opacity, then loop back and forth five times before ending
+  // at full opacity.
+  double opacity = sin(
+      (1.0 - animation_progress) * PI * kCompleteAnimationCycles + PI/2) / 2 +
+          0.5;
 
   canvas->SaveLayerAlpha(static_cast<int>(255.0 * opacity), complete_bounds);
   canvas->AsCanvasSkia()->drawARGB(0, 255, 255, 255, SkXfermode::kClear_Mode);
@@ -571,7 +618,7 @@ DictionaryValue* CreateDownloadItemValue(DownloadItem* download, int id) {
       base::TimeFormatShortDate(download->start_time()));
   file_value->SetInteger("id", id);
   file_value->Set("file_path",
-                  Value::CreateFilePathValue(download->GetTargetFilePath()));
+                  base::CreateFilePathValue(download->GetTargetFilePath()));
   // Keep file names as LTR.
   string16 file_name = download->GetFileNameToReportUser().LossyDisplayName();
   file_name = base::i18n::GetDisplayStringInLTRDirectionality(file_name);
@@ -579,7 +626,7 @@ DictionaryValue* CreateDownloadItemValue(DownloadItem* download, int id) {
   file_value->SetString("url", download->url().spec());
   file_value->SetBoolean("otr", download->is_otr());
 
-  if (download->state() == DownloadItem::IN_PROGRESS) {
+  if (download->IsInProgress()) {
     if (download->safety_state() == DownloadItem::DANGEROUS) {
       file_value->SetString("state", "DANGEROUS");
       DCHECK(download->danger_type() == DownloadItem::DANGEROUS_FILE ||
@@ -595,15 +642,25 @@ DictionaryValue* CreateDownloadItemValue(DownloadItem* download, int id) {
     }
 
     file_value->SetString("progress_status_text",
-       GetProgressStatusText(download));
+        GetProgressStatusText(download));
 
     file_value->SetInteger("percent",
         static_cast<int>(download->PercentComplete()));
     file_value->SetInteger("received",
         static_cast<int>(download->received_bytes()));
-  } else if (download->state() == DownloadItem::CANCELLED) {
+  } else if (download->IsInterrupted()) {
+    file_value->SetString("state", "INTERRUPTED");
+
+    file_value->SetString("progress_status_text",
+        GetProgressStatusText(download));
+
+    file_value->SetInteger("percent",
+        static_cast<int>(download->PercentComplete()));
+    file_value->SetInteger("received",
+        static_cast<int>(download->received_bytes()));
+  } else if (download->IsCancelled()) {
     file_value->SetString("state", "CANCELLED");
-  } else if (download->state() == DownloadItem::COMPLETE) {
+  } else if (download->IsComplete()) {
     if (download->safety_state() == DownloadItem::DANGEROUS) {
       file_value->SetString("state", "DANGEROUS");
     } else {
@@ -736,7 +793,7 @@ void DownloadUrl(
     ResourceDispatcherHost* rdh,
     int render_process_host_id,
     int render_view_id,
-    URLRequestContextGetter* request_context_getter) {
+    net::URLRequestContextGetter* request_context_getter) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
 
   net::URLRequestContext* context =
@@ -756,7 +813,9 @@ void CancelDownloadRequest(ResourceDispatcherHost* rdh,
                            int render_process_id,
                            int request_id) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
-  rdh->CancelRequest(render_process_id, request_id, false);
+  // |rdh| may be NULL in unit tests.
+  if (rdh)
+    rdh->CancelRequest(render_process_id, request_id, false);
 }
 
 void NotifyDownloadInitiated(int render_process_id, int render_view_id) {
@@ -831,7 +890,7 @@ bool IsDangerous(DownloadCreateInfo* info, Profile* profile, bool auto_open) {
     // Extensions that are not from the gallery are considered dangerous.
     ExtensionService* service = profile->GetExtensionService();
     if (!service ||
-        !service->IsDownloadFromGallery(info->url, info->referrer_url))
+        !service->IsDownloadFromGallery(info->url(), info->referrer_url))
       return true;
   }
   return false;

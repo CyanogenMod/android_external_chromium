@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,15 +9,15 @@
 #import <Cocoa/Cocoa.h>
 #include <map>
 
-#include "base/ref_counted.h"
-#include "base/scoped_nsobject.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_nsobject.h"
 #import "chrome/browser/favicon_service.h"
 #include "chrome/browser/history/history.h"
 #include "chrome/browser/sessions/session_id.h"
 #include "chrome/browser/sessions/tab_restore_service.h"
 #include "chrome/browser/sessions/tab_restore_service_observer.h"
-#include "chrome/common/notification_observer.h"
 #include "content/browser/cancelable_request.h"
+#include "content/common/notification_observer.h"
 
 class NavigationEntry;
 class NotificationRegistrar;
@@ -187,10 +187,7 @@ class HistoryMenuBridge : public NotificationObserver,
   // sets the image on the menu. Called on the same same thread that
   // GetFaviconForHistoryItem() was called on (UI thread).
   void GotFaviconData(FaviconService::Handle handle,
-                      bool know_favicon,
-                      scoped_refptr<RefCountedMemory> data,
-                      bool expired,
-                      GURL url);
+                      history::FaviconData favicon);
 
   // Cancels a favicon load request for a given HistoryItem, if one is in
   // progress.

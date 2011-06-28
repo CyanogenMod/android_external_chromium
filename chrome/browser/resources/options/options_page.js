@@ -205,7 +205,8 @@ cr.define('options', function() {
     if ((!rootPage || !rootPage.sticky) && overlay.parentPage)
       this.showPageByName(overlay.parentPage.name, false);
 
-    this.registeredOverlayPages[overlayName].visible = true;
+    overlay.visible = true;
+    if (overlay.didShowPage) overlay.didShowPage();
     return true;
   };
 
@@ -216,6 +217,15 @@ cr.define('options', function() {
    */
   OptionsPage.isOverlayVisible_ = function() {
     return this.getVisibleOverlay_() != null;
+  };
+
+  /**
+   * @return {boolean} True if the visible overlay should be closed.
+   * @private
+   */
+  OptionsPage.shouldCloseOverlay_ = function() {
+    var overlay = this.getVisibleOverlay_();
+    return overlay && overlay.shouldClose();
   };
 
   /**
@@ -241,6 +251,7 @@ cr.define('options', function() {
       return;
 
     overlay.visible = false;
+    if (overlay.didClosePage) overlay.didClosePage();
     this.updateHistoryState_();
   };
 
@@ -437,11 +448,23 @@ cr.define('options', function() {
   OptionsPage.setState = function(data) {
     if (data && data.pageName) {
       // It's possible an overlay may be the last top-level page shown.
-      if (this.isOverlayVisible_())
+      if (this.isOverlayVisible_() &&
+          this.registeredOverlayPages[data.pageName] == undefined) {
         this.hideOverlay_();
+      }
 
       this.showPageByName(data.pageName, false);
     }
+  };
+
+  /**
+   * Callback for window.onbeforeunload. Used to notify overlays that they will
+   * be closed.
+   */
+  OptionsPage.willClose = function() {
+    var overlay = this.getVisibleOverlay_();
+    if (overlay && overlay.didClosePage)
+      overlay.didClosePage();
   };
 
   /**
@@ -499,33 +522,36 @@ cr.define('options', function() {
     chrome.send('coreOptionsInitialize');
     this.initialized_ = true;
 
-    var self = this;
-    // Close subpages if the user clicks on the html body. Listen in the
-    // capturing phase so that we can stop the click from doing anything.
-    document.body.addEventListener('click',
-                                   this.bodyMouseEventHandler_.bind(this),
-                                   true);
-    // We also need to cancel mousedowns on non-subpage content.
-    document.body.addEventListener('mousedown',
-                                   this.bodyMouseEventHandler_.bind(this),
-                                   true);
-
-    // Hook up the close buttons.
-    subpageCloseButtons = document.querySelectorAll('.close-subpage');
-    for (var i = 0; i < subpageCloseButtons.length; i++) {
-      subpageCloseButtons[i].onclick = function() {
-        self.closeTopSubPage_();
-      };
-    };
-
-    // Install handler for key presses.
-    document.addEventListener('keydown', this.keyDownEventHandler_.bind(this));
-
-    document.addEventListener('focus', this.manageFocusChange_.bind(this),
-                              true);
-
     document.addEventListener('scroll', this.handleScroll_.bind(this));
     window.addEventListener('resize', this.handleResize_.bind(this));
+
+    if (!document.documentElement.classList.contains('hide-menu')) {
+      // Close subpages if the user clicks on the html body. Listen in the
+      // capturing phase so that we can stop the click from doing anything.
+      document.body.addEventListener('click',
+                                     this.bodyMouseEventHandler_.bind(this),
+                                     true);
+      // We also need to cancel mousedowns on non-subpage content.
+      document.body.addEventListener('mousedown',
+                                     this.bodyMouseEventHandler_.bind(this),
+                                     true);
+
+      var self = this;
+      // Hook up the close buttons.
+      subpageCloseButtons = document.querySelectorAll('.close-subpage');
+      for (var i = 0; i < subpageCloseButtons.length; i++) {
+        subpageCloseButtons[i].onclick = function() {
+          self.closeTopSubPage_();
+        };
+      };
+
+      // Install handler for key presses.
+      document.addEventListener('keydown',
+                                this.keyDownEventHandler_.bind(this));
+
+      document.addEventListener('focus', this.manageFocusChange_.bind(this),
+                                true);
+    }
 
     // Calculate and store the horizontal locations of elements that may be
     // frozen later.
@@ -659,6 +685,16 @@ cr.define('options', function() {
     if (!topPage || topPage.isOverlay || !topPage.parentPage)
       return;
 
+    // Do nothing if the client coordinates are not within the source element.
+    // This situation is indicative of a Webkit bug where clicking on a
+    // radio/checkbox label span will generate an event with client coordinates
+    // of (-scrollX, -scrollY).
+    // See https://bugs.webkit.org/show_bug.cgi?id=56606
+    if (event.clientX == -document.body.scrollLeft &&
+        event.clientY == -document.body.scrollTop) {
+      return;
+    }
+
     // Don't interfere with navbar clicks.
     if ($('navbar').contains(event.target))
       return;
@@ -694,10 +730,22 @@ cr.define('options', function() {
   OptionsPage.keyDownEventHandler_ = function(event) {
     // Close the top overlay or sub-page on esc.
     if (event.keyCode == 27) {  // Esc
-      if (this.isOverlayVisible_())
-        this.closeOverlay();
-      else
+      if (this.isOverlayVisible_()) {
+        if (this.shouldCloseOverlay_())
+          this.closeOverlay();
+      } else {
         this.closeTopSubPage_();
+      }
+    }
+  };
+
+  OptionsPage.setClearPluginLSODataEnabled = function(enabled) {
+    if (enabled) {
+      document.documentElement.setAttribute(
+          'flashPluginSupportsClearSiteData', '');
+    } else {
+      document.documentElement.removeAttribute(
+          'flashPluginSupportsClearSiteData');
     }
   };
 
@@ -938,6 +986,15 @@ cr.define('options', function() {
      * @return {boolean} True if the page should be shown
      */
     canShowPage: function() {
+      return true;
+    },
+
+    /**
+     * Whether an overlay should be closed. Used by overlay implementation to
+     * handle special closing behaviors.
+     * @return {boolean} True if the overlay should be closed.
+     */
+    shouldClose: function() {
       return true;
     },
   };

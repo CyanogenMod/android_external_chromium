@@ -10,7 +10,7 @@
 
 #include <string>
 
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/timer.h"
 #include "chrome/browser/ui/gtk/owned_widget_gtk.h"
 #include "chrome/browser/ui/status_bubble.h"
@@ -21,7 +21,7 @@
 #include "ui/base/gtk/gtk_signal.h"
 #include "ui/gfx/point.h"
 
-class GtkThemeProvider;
+class GtkThemeService;
 class Profile;
 
 namespace ui {
@@ -114,7 +114,7 @@ class StatusBubbleGtk : public StatusBubble,
   NotificationRegistrar registrar_;
 
   // Provides colors.
-  GtkThemeProvider* theme_provider_;
+  GtkThemeService* theme_service_;
 
   // The toplevel event box.
   OwnedWidgetGtk container_;

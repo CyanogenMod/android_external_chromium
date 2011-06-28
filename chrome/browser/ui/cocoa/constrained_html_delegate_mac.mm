@@ -4,13 +4,15 @@
 
 #include "chrome/browser/ui/webui/constrained_html_ui.h"
 
-#include "base/scoped_nsobject.h"
+#import <Cocoa/Cocoa.h>
+
+#include "base/memory/scoped_nsobject.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/cocoa/constrained_window_mac.h"
 #include "chrome/browser/ui/webui/html_dialog_ui.h"
 #include "chrome/browser/ui/webui/html_dialog_tab_contents_delegate.h"
 #include "content/browser/tab_contents/tab_contents.h"
-#import <Cocoa/Cocoa.h>
+#include "ui/gfx/size.h"
 
 class ConstrainedHtmlDelegateMac :
     public ConstrainedWindowMacDelegateCustomSheet,
@@ -38,7 +40,6 @@ class ConstrainedHtmlDelegateMac :
 
   // HtmlDialogTabContentsDelegate ---------------------------------------------
   void MoveContents(TabContents* source, const gfx::Rect& pos) {}
-  void ToolbarSizeChanged(TabContents* source, bool is_animating) {}
   void HandleKeyboardEvent(const NativeWebKeyboardEvent& event) {}
 
   void set_window(ConstrainedWindow* window) {
@@ -121,7 +122,7 @@ void ConstrainedHtmlDelegateMac::OnDialogClose() {
 }
 
 // static
-void ConstrainedHtmlUI::CreateConstrainedHtmlDialog(
+ConstrainedWindow* ConstrainedHtmlUI::CreateConstrainedHtmlDialog(
     Profile* profile,
     HtmlDialogUIDelegate* delegate,
     TabContents* overshadowed) {
@@ -132,6 +133,7 @@ void ConstrainedHtmlUI::CreateConstrainedHtmlDialog(
   ConstrainedWindow* constrained_window =
       overshadowed->CreateConstrainedDialog(constrained_delegate);
   constrained_delegate->set_window(constrained_window);
+  return constrained_window;
 }
 
 @implementation ConstrainedHtmlDialogSheetCocoa

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,8 +11,8 @@
 
 #include "base/callback.h"
 #include "base/command_line.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/metrics/histogram.h"
-#include "base/scoped_ptr.h"
 #include "base/stl_util-inl.h"
 #include "base/string_util.h"
 #include "chrome/browser/extensions/extension_service.h"
@@ -24,13 +24,13 @@
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/browser_window.h"
-#include "chrome/common/notification_registrar.h"
-#include "chrome/common/notification_service.h"
 #include "content/browser/renderer_host/render_widget_host.h"
 #include "content/browser/renderer_host/render_widget_host_view.h"
 #include "content/browser/tab_contents/navigation_controller.h"
 #include "content/browser/tab_contents/tab_contents.h"
 #include "content/browser/tab_contents/tab_contents_view.h"
+#include "content/common/notification_registrar.h"
+#include "content/common/notification_service.h"
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/boot_times_loader.h"
@@ -202,10 +202,10 @@ void TabLoader::LoadNextTab() {
     if (tab->tab_contents()) {
       int tab_index;
       Browser* browser = Browser::GetBrowserForController(tab, &tab_index);
-      if (browser && browser->selected_index() != tab_index) {
-        // By default tabs are marked as visible. As only the selected tab is
-        // visible we need to explicitly tell non-selected tabs they are hidden.
-        // Without this call non-selected tabs are not marked as backgrounded.
+      if (browser && browser->active_index() != tab_index) {
+        // By default tabs are marked as visible. As only the active tab is
+        // visible we need to explicitly tell non-active tabs they are hidden.
+        // Without this call non-active tabs are not marked as backgrounded.
         //
         // NOTE: We need to do this here rather than when the tab is added to
         // the Browser as at that time not everything has been created, so that
@@ -300,7 +300,7 @@ void TabLoader::Observe(NotificationType type,
           // contention.
           std::string time_for_count =
               StringPrintf("SessionRestore.FirstTabPainted_%d", tab_count_);
-          scoped_refptr<base::Histogram> counter_for_count =
+          base::Histogram* counter_for_count =
               base::Histogram::FactoryTimeGet(
                   time_for_count,
                   base::TimeDelta::FromMilliseconds(10),
@@ -388,7 +388,7 @@ void TabLoader::HandleTabClosedOrLoaded(NavigationController* tab) {
     // Record a time for the number of tabs, to help track down contention.
     std::string time_for_count =
         StringPrintf("SessionRestore.AllTabsLoaded_%d", tab_count_);
-    scoped_refptr<base::Histogram> counter_for_count =
+    base::Histogram* counter_for_count =
         base::Histogram::FactoryTimeGet(
             time_for_count,
             base::TimeDelta::FromMilliseconds(10),
@@ -653,8 +653,11 @@ class SessionRestoreImpl : public NotificationObserver {
 
     // Record an app launch, if applicable.
     GURL url = tab.navigations.at(tab.current_navigation_index).virtual_url();
-    DCHECK(browser->profile()->GetExtensionService());
-    if (browser->profile()->GetExtensionService()->IsInstalledApp(url)) {
+    if (
+#if defined(OS_CHROMEOS)
+        browser->profile()->GetExtensionService() &&
+#endif
+        browser->profile()->GetExtensionService()->IsInstalledApp(url)) {
       UMA_HISTOGRAM_ENUMERATION(extension_misc::kAppLaunchHistogram,
                                 extension_misc::APP_LAUNCH_SESSION_RESTORE,
                                 extension_misc::APP_LAUNCH_BUCKET_BOUNDARY);
@@ -681,7 +684,7 @@ class SessionRestoreImpl : public NotificationObserver {
     browser->set_maximized_state(is_maximized ?
         Browser::MAXIMIZED_STATE_MAXIMIZED :
         Browser::MAXIMIZED_STATE_UNMAXIMIZED);
-    browser->CreateBrowserWindow();
+    browser->InitBrowserWindow();
     return browser;
   }
 
@@ -689,13 +692,13 @@ class SessionRestoreImpl : public NotificationObserver {
                    int initial_tab_count,
                    int selected_session_index) {
     if (browser_ == browser) {
-      browser->SelectTabContentsAt(browser->tab_count() - 1, true);
+      browser->ActivateTabAt(browser->tab_count() - 1, true);
       return;
     }
 
     DCHECK(browser);
     DCHECK(browser->tab_count());
-    browser->SelectTabContentsAt(
+    browser->ActivateTabAt(
         std::min(initial_tab_count + std::max(0, selected_session_index),
                  browser->tab_count() - 1), true);
     browser->window()->Show();
@@ -710,7 +713,7 @@ class SessionRestoreImpl : public NotificationObserver {
     for (size_t i = 0; i < urls.size(); ++i) {
       int add_types = TabStripModel::ADD_FORCE_INDEX;
       if (i == 0)
-        add_types |= TabStripModel::ADD_SELECTED;
+        add_types |= TabStripModel::ADD_ACTIVE;
       int index = browser->GetIndexForInsertionDuringRestore(i);
       browser::NavigateParams params(browser, urls[i],
                                      PageTransition::START_PAGE);

@@ -112,7 +112,8 @@ HistoryURLProviderParams::HistoryURLProviderParams(
       trim_http(trim_http),
       cancel(false),
       failed(false),
-      languages(languages) {
+      languages(languages),
+      dont_suggest_exact_input(false) {
 }
 
 HistoryURLProviderParams::~HistoryURLProviderParams() {}
@@ -235,6 +236,7 @@ void HistoryURLProvider::DoAutocomplete(history::HistoryBackend* backend,
   // Checking |is_history_what_you_typed_match| tells us whether
   // SuggestExactInput() succeeded in constructing a valid match.
   if (what_you_typed_match.is_history_what_you_typed_match &&
+      (!backend || !params->dont_suggest_exact_input) &&
       FixupExactSuggestion(db, params->input, &what_you_typed_match,
                            &history_matches)) {
     // Got an exact match for the user's input.  Treat it as the best match
@@ -421,6 +423,13 @@ bool HistoryURLProvider::PromoteMatchForInlineAutocomplete(
        !history::IsHostOnly(match.url_info.url())))
     return false;
 
+  // In the case where the user has typed "foo.com" and visited (but not typed)
+  // "foo/", and the input is "foo", we can reach here for "foo.com" during the
+  // first pass but have the second pass suggest the exact input as a better
+  // URL.  Since we need both passes to agree, and since during the first pass
+  // there's no way to know about "foo/", make reaching this point prevent any
+  // future pass from suggesting the exact input as a better match.
+  params->dont_suggest_exact_input = true;
   params->matches.push_back(HistoryMatchToACMatch(params, match,
                                                   INLINE_AUTOCOMPLETE, 0));
   return true;
@@ -576,6 +585,8 @@ void HistoryURLProvider::RunAutocompletePasses(
     matches_.push_back(SuggestExactInput(input, trim_http));
 
   // We'll need the history service to run both passes, so try to obtain it.
+  if (!profile_)
+    return;
   HistoryService* const history_service =
       profile_->GetHistoryService(Profile::EXPLICIT_ACCESS);
   if (!history_service)
@@ -585,7 +596,7 @@ void HistoryURLProvider::RunAutocompletePasses(
   // onto the |params_| member for later deletion below if we need to run pass
   // 2.
   std::string languages(languages_);
-  if (languages.empty() && profile_) {
+  if (languages.empty()) {
     languages =
         profile_->GetPrefs()->GetString(prefs::kAcceptLanguages);
   }
@@ -629,7 +640,7 @@ void HistoryURLProvider::RunAutocompletePasses(
 
   // Pass 2: Ask the history service to call us back on the history thread,
   // where we can read the full on-disk DB.
-  if (!input.synchronous_only()) {
+  if (input.matches_requested() == AutocompleteInput::ALL_MATCHES) {
     done_ = false;
     params_ = params.release();  // This object will be destroyed in
                                  // QueryComplete() once we're done with it.

@@ -24,57 +24,6 @@ message ChromeInitialSettingsProto {
   optional EnrollmentProvision enrollment_provision = 1 [default = UNMANAGED];
 }
 
-// A setting is a set of generic name value pairs.
-// TODO(gfeher): remove this after Chrome OS TT is over.
-message GenericSetting {
-  repeated GenericNamedValue named_value = 1;
-}
-
-// Generic value container.
-message GenericValue {
-  enum ValueType {
-    VALUE_TYPE_BOOL = 1;
-    VALUE_TYPE_INT64 = 2;
-    VALUE_TYPE_STRING = 3;
-    VALUE_TYPE_DOUBLE = 4;
-    VALUE_TYPE_BYTES = 5;
-    VALUE_TYPE_BOOL_ARRAY = 6;
-    VALUE_TYPE_INT64_ARRAY = 7;
-    VALUE_TYPE_STRING_ARRAY = 8;
-    VALUE_TYPE_DOUBLE_ARRAY = 9;
-  }
-
-  optional ValueType value_type = 1 [default = VALUE_TYPE_STRING];
-
-  // basic value types
-  optional bool bool_value = 2;
-  optional int64 int64_value = 3;
-  optional string string_value = 4;
-  optional double double_value = 5;
-  optional bytes bytes_value = 6;
-  repeated bool bool_array = 7;
-  repeated int64 int64_array = 8;
-  repeated string string_array = 9;
-  repeated double double_array = 10;
-}
-
-// Generic name value pair container.
-message GenericNamedValue {
-  required string name = 1;
-  optional GenericValue value = 2;
-}
-
-// Identify a single device policy setting key/value pair.
-// TODO(gfeher): remove this after Chrome OS TT is over.
-message DevicePolicySetting {
-  // key of the policy setting
-  required string policy_key = 1;
-  // value of the setting
-  optional GenericSetting policy_value = 2;
-  // watermark for setting value.
-  optional string watermark = 3;
-}
-
 // Request from device to server to register device.
 message DeviceRegisterRequest {
   // Reregister device without erasing server state.  It can be used
@@ -143,7 +92,7 @@ message PolicyFetchRequest {
   // The policy type names are case insensitive.
   //
   // Possible values for Chrome OS are:
-  //   google/chromeos/device => ChromeSettingsProto
+  //   google/chromeos/device => ChromeDeviceSettingsProto
   //   google/chromeos/user => ChromeSettingsProto
   //   google/chromeos/unregistered_user => ChromeInitialSettingsProto
   optional string policy_type = 1;
@@ -154,9 +103,16 @@ message PolicyFetchRequest {
   // Tell server what kind of security signature is required.
   enum SignatureType {
     NONE = 0;
-    X509 = 1;
+    SHA1_RSA = 1;
   }
   optional SignatureType signature_type = 3 [default = NONE];
+
+  // The version number of the public key that is currently stored
+  // on the client. This should be the last number the server had
+  // supplied as new_public_key_version in PolicyData.
+  // This field is unspecified if the client does not yet have a
+  // public key.
+  optional int32 public_key_version = 4;
 }
 
 // This message is included in serialized form in PolicyFetchResponse
@@ -192,6 +148,19 @@ message PolicyData {
   // |machine_name| in DeviceRegisterResponse but it might have
   // changed since then.
   optional string machine_name = 5;
+
+  // Version number of the server's current public key. (The key that
+  // was used to sign this response. Numbering should start at 1 and be
+  // increased by 1 at each key rotation.)
+  optional int32 public_key_version = 6;
+
+  // The user this policy is intended for. In case of device policy, the name
+  // of the owner (who registered the device).
+  optional string username = 7;
+
+  // In this field the DMServer should echo back the "deviceid" HTTP parameter
+  // from the request.
+  optional string device_id = 8;
 }
 
 message PolicyFetchResponse {
@@ -204,20 +173,20 @@ message PolicyFetchResponse {
   // Human readable error message for customer support purpose.
   optional string error_message = 2;
 
-  // This is a serialized bytes of PolicyData protobuf above.
+  // This is a serialized |PolicyData| protobuf (defined above).
   optional bytes policy_data = 3;
 
   // Signature of the policy data above.
   optional bytes policy_data_signature = 4;
 
-  // The chain of DER-encoded X.509 certificates of the server's
-  // signing key.  The first element should be the certificate whose
-  // private key was used for signing the response, and each of the
-  // following certificates signs the previous one.
-  //
-  // If this field does not exist, it means the policy_data is not
-  // signed.
-  repeated bytes certificate_chain = 5;
+  // If the public key has been rotated on the server, the new public
+  // key is sent here. It is already used for |policy_data_signature|
+  // above, whereas |new_public_key_signature| is created using the
+  // old key (so the client can trust the new key). If this is the
+  // first time when the client requests policies (so it doesn't have
+  // on old public key), then |new_public_key_signature| is empty.
+  optional bytes new_public_key = 5;
+  optional bytes new_public_key_signature = 6;
 }
 
 // Request from device to server for reading policies.
@@ -237,10 +206,6 @@ message DevicePolicyRequest {
 
 // Response from server to device for reading policies.
 message DevicePolicyResponse {
-  // the result of the settings.
-  // TODO(gfeher): remove this after Chrome OS TT is over.
-  repeated DevicePolicySetting setting = 1;
-
   // The policy fetch response.
   repeated PolicyFetchResponse response = 3;
 }
@@ -255,7 +220,7 @@ message DevicePolicyResponse {
 //   * request: MUST BE one of register/unregister/policy/ping
 //   * devicetype: MUST BE "1" for Android or "2" for Chrome OS.
 //   * apptype: MUST BE Android or Chrome.
-//   * deviceid: MUST BE no more than 64-char in [\x20-\x7E].
+//   * deviceid: MUST BE no more than 64-char in [\x21-\x7E].
 //   * agent: MUST BE no more than 64-char long.
 // * HTTP Authorization header MUST be in the following formats:
 //   * For register and ping requests
@@ -277,27 +242,21 @@ message DeviceManagementRequest {
 }
 
 // Response from server to device.
+//
+// The server uses the following numbers as HTTP status codes
+// to report top-level errors.
+//
+// 200 OK: valid response is returned to client.
+// 400 Bad Request: invalid argument.
+// 401 Unauthorized: invalid auth cookie or DM token.
+// 403 Forbidden: device management is not allowed.
+// 404 Not Found: the request URL is invalid.
+// 491 Request Pending: the request is pending approval.
+// 500 Internal Server Error: most likely a bug in DM server.
+// 503 Service Unavailable: most likely a backend error.
+// 901 Device Not Found: the device id is not found.
+// 902 Policy Not Found: the policy is not found.
 message DeviceManagementResponse {
-  // Error code to client.
-  enum ErrorCode {
-    SUCCESS = 0;
-    // Returned for register request when device management is not supported
-    // for the domain.
-    DEVICE_MANAGEMENT_NOT_SUPPORTED = 1;
-    // Returned when the device is not found.
-    DEVICE_NOT_FOUND  = 2;
-    // Returned when passed in device management token doesn't match the token
-    // on server side.
-    DEVICE_MANAGEMENT_TOKEN_INVALID  = 3;
-    // Returned when device registration is pending approval (if required).
-    ACTIVATION_PENDING = 4;
-    // Returned when the policy is not found.
-    POLICY_NOT_FOUND  = 5;
-  }
-
-  // Error code for this request.
-  required ErrorCode error = 1;
-
   // Error message.
   optional string error_message = 2;
 

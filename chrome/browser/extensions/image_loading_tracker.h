@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,9 @@
 
 #include <map>
 
-#include "base/ref_counted.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
+#include "base/memory/ref_counted.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
 
 class Extension;
 class ExtensionResource;
@@ -53,7 +53,8 @@ class ImageLoadingTracker : public NotificationObserver {
     // ExtensionResource where the |image| came from and the |index| represents
     // the index of the image just loaded (starts at 0 and increments every
     // time LoadImage is called).
-    virtual void OnImageLoaded(SkBitmap* image, ExtensionResource resource,
+    virtual void OnImageLoaded(SkBitmap* image,
+                               const ExtensionResource& resource,
                                int index) = 0;
   };
 

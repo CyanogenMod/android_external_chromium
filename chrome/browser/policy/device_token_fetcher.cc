@@ -7,15 +7,17 @@
 #include <algorithm>
 
 #include "base/message_loop.h"
-#include "chrome/browser/policy/cloud_policy_cache.h"
+#include "chrome/browser/policy/cloud_policy_cache_base.h"
 #include "chrome/browser/policy/device_management_service.h"
 #include "chrome/browser/policy/proto/device_management_constants.h"
 #include "chrome/browser/policy/proto/device_management_local.pb.h"
 
 namespace {
 
-// Retry after 3 seconds (with exponential backoff) after token fetch errors.
-const int64 kTokenFetchErrorDelayMilliseconds = 3 * 1000;
+// Retry after 5 minutes (with exponential backoff) after token fetch errors.
+const int64 kTokenFetchErrorDelayMilliseconds = 5 * 60 * 1000;
+// Retry after max 3 hours after token fetch errors.
+const int64 kTokenFetchErrorMaxDelayMilliseconds = 3 * 60 * 60 * 1000;
 // For unmanaged devices, check once per day whether they're still unmanaged.
 const int64 kUnmanagedDeviceRefreshRateMilliseconds = 24 * 60 * 60 * 1000;
 
@@ -27,23 +29,30 @@ namespace em = enterprise_management;
 
 DeviceTokenFetcher::DeviceTokenFetcher(
     DeviceManagementService* service,
-    CloudPolicyCache* cache)
+    CloudPolicyCacheBase* cache,
+    PolicyNotifier* notifier)
     : ALLOW_THIS_IN_INITIALIZER_LIST(method_factory_(this)) {
   Initialize(service,
              cache,
+             notifier,
              kTokenFetchErrorDelayMilliseconds,
+             kTokenFetchErrorMaxDelayMilliseconds,
              kUnmanagedDeviceRefreshRateMilliseconds);
 }
 
 DeviceTokenFetcher::DeviceTokenFetcher(
     DeviceManagementService* service,
-    CloudPolicyCache* cache,
+    CloudPolicyCacheBase* cache,
+    PolicyNotifier* notifier,
     int64 token_fetch_error_delay_ms,
+    int64 token_fetch_error_max_delay_ms,
     int64 unmanaged_device_refresh_rate_ms)
     : ALLOW_THIS_IN_INITIALIZER_LIST(method_factory_(this)) {
   Initialize(service,
              cache,
+             notifier,
              token_fetch_error_delay_ms,
+             token_fetch_error_max_delay_ms,
              unmanaged_device_refresh_rate_ms);
 }
 
@@ -55,12 +64,14 @@ void DeviceTokenFetcher::FetchToken(
     const std::string& auth_token,
     const std::string& device_id,
     em::DeviceRegisterRequest_Type policy_type,
-    const std::string& machine_id) {
+    const std::string& machine_id,
+    const std::string& machine_model) {
   SetState(STATE_INACTIVE);
   auth_token_ = auth_token;
   device_id_ = device_id;
   policy_type_ = policy_type;
   machine_id_ = machine_id;
+  machine_model_ = machine_model;
   FetchTokenInternal();
 }
 
@@ -77,12 +88,29 @@ void DeviceTokenFetcher::FetchTokenInternal() {
   request.set_type(policy_type_);
   if (!machine_id_.empty())
     request.set_machine_id(machine_id_);
-  request.set_machine_model(kRegisterRequestMachineModel);
+  if (!machine_model_.empty())
+    request.set_machine_model(machine_model_);
   backend_->ProcessRegisterRequest(auth_token_, device_id_, request, this);
+}
+
+void DeviceTokenFetcher::SetUnmanagedState() {
+  // The call to |cache_->SetUnmanaged()| has to happen first because it sets
+  // the timestamp that |SetState()| needs to determine the correct refresh
+  // time.
+  cache_->SetUnmanaged();
+  SetState(STATE_UNMANAGED);
 }
 
 const std::string& DeviceTokenFetcher::GetDeviceToken() {
   return device_token_;
+}
+
+void DeviceTokenFetcher::StopAutoRetry() {
+  CancelRetryTask();
+  backend_.reset();
+  device_token_.clear();
+  auth_token_.clear();
+  device_id_.clear();
 }
 
 void DeviceTokenFetcher::AddObserver(DeviceTokenFetcher::Observer* observer) {
@@ -106,20 +134,37 @@ void DeviceTokenFetcher::HandleRegisterResponse(
 }
 
 void DeviceTokenFetcher::OnError(DeviceManagementBackend::ErrorCode code) {
-  if (code == DeviceManagementBackend::kErrorServiceManagementNotSupported) {
-    cache_->SetUnmanaged();
-    SetState(STATE_UNMANAGED);
+  switch (code) {
+    case DeviceManagementBackend::kErrorServiceManagementNotSupported:
+      cache_->SetUnmanaged();
+      SetState(STATE_UNMANAGED);
+      break;
+    case DeviceManagementBackend::kErrorRequestFailed:
+    case DeviceManagementBackend::kErrorTemporaryUnavailable:
+    case DeviceManagementBackend::kErrorServiceDeviceNotFound:
+      SetState(STATE_TEMPORARY_ERROR);
+      break;
+    case DeviceManagementBackend::kErrorServiceManagementTokenInvalid:
+      // Most probably the GAIA auth cookie has expired. We can not do anything
+      // until the user logs-in again.
+      SetState(STATE_BAD_AUTH);
+      break;
+    default:
+      SetState(STATE_ERROR);
   }
-  SetState(STATE_ERROR);
 }
 
 void DeviceTokenFetcher::Initialize(DeviceManagementService* service,
-                                    CloudPolicyCache* cache,
+                                    CloudPolicyCacheBase* cache,
+                                    PolicyNotifier* notifier,
                                     int64 token_fetch_error_delay_ms,
+                                    int64 token_fetch_error_max_delay_ms,
                                     int64 unmanaged_device_refresh_rate_ms) {
   service_ = service;
   cache_ = cache;
+  notifier_ = notifier;
   token_fetch_error_delay_ms_ = token_fetch_error_delay_ms;
+  token_fetch_error_max_delay_ms_ = token_fetch_error_max_delay_ms;
   effective_token_fetch_error_delay_ms_ = token_fetch_error_delay_ms;
   unmanaged_device_refresh_rate_ms_ = unmanaged_device_refresh_rate_ms;
   state_ = STATE_INACTIVE;
@@ -140,19 +185,48 @@ void DeviceTokenFetcher::SetState(FetcherState state) {
       device_token_.clear();
       auth_token_.clear();
       device_id_.clear();
+      notifier_->Inform(CloudPolicySubsystem::UNENROLLED,
+                        CloudPolicySubsystem::NO_DETAILS,
+                        PolicyNotifier::TOKEN_FETCHER);
       break;
     case STATE_TOKEN_AVAILABLE:
       FOR_EACH_OBSERVER(Observer, observer_list_, OnDeviceTokenAvailable());
+      notifier_->Inform(CloudPolicySubsystem::SUCCESS,
+                        CloudPolicySubsystem::NO_DETAILS,
+                        PolicyNotifier::TOKEN_FETCHER);
       break;
     case STATE_UNMANAGED:
       delayed_work_at = cache_->last_policy_refresh_time() +
           base::TimeDelta::FromMilliseconds(unmanaged_device_refresh_rate_ms_);
+      notifier_->Inform(CloudPolicySubsystem::UNMANAGED,
+                        CloudPolicySubsystem::NO_DETAILS,
+                        PolicyNotifier::TOKEN_FETCHER);
       break;
-    case STATE_ERROR:
+    case STATE_TEMPORARY_ERROR:
       delayed_work_at = base::Time::Now() +
           base::TimeDelta::FromMilliseconds(
               effective_token_fetch_error_delay_ms_);
-      effective_token_fetch_error_delay_ms_ *= 2;
+      effective_token_fetch_error_delay_ms_ =
+          std::min(effective_token_fetch_error_delay_ms_ * 2,
+                   token_fetch_error_max_delay_ms_);
+      notifier_->Inform(CloudPolicySubsystem::NETWORK_ERROR,
+                        CloudPolicySubsystem::DMTOKEN_NETWORK_ERROR,
+                        PolicyNotifier::TOKEN_FETCHER);
+      break;
+    case STATE_ERROR:
+      effective_token_fetch_error_delay_ms_ = token_fetch_error_max_delay_ms_;
+      delayed_work_at = base::Time::Now() +
+          base::TimeDelta::FromMilliseconds(
+              effective_token_fetch_error_delay_ms_);
+      notifier_->Inform(CloudPolicySubsystem::NETWORK_ERROR,
+                        CloudPolicySubsystem::DMTOKEN_NETWORK_ERROR,
+                        PolicyNotifier::TOKEN_FETCHER);
+      break;
+    case STATE_BAD_AUTH:
+      // Can't do anything, need to wait for new credentials.
+      notifier_->Inform(CloudPolicySubsystem::BAD_GAIA_TOKEN,
+                        CloudPolicySubsystem::NO_DETAILS,
+                        PolicyNotifier::TOKEN_FETCHER);
       break;
   }
 
@@ -177,6 +251,8 @@ void DeviceTokenFetcher::ExecuteRetryTask() {
       break;
     case STATE_UNMANAGED:
     case STATE_ERROR:
+    case STATE_TEMPORARY_ERROR:
+    case STATE_BAD_AUTH:
       FetchTokenInternal();
       break;
   }

@@ -10,11 +10,13 @@
 #include <string>
 #include <vector>
 
+#include "base/memory/scoped_ptr.h"
 #include "base/message_loop.h"
-#include "base/scoped_ptr.h"
 #include "base/utf_string_conversions.h"
+#include "chrome/browser/autocomplete/autocomplete.h"
 #include "chrome/browser/autocomplete/autocomplete_match.h"
 #include "chrome/browser/history/history.h"
+#include "chrome/browser/history/in_memory_url_index.h"
 #include "chrome/browser/history/url_database.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/common/pref_names.h"
@@ -41,29 +43,33 @@ struct TestURLInfo {
   {"http://news.google.com/?ned=us&topic=n", "Google News - U.S.", 2, 2, 0},
   {"http://news.google.com/", "Google News", 1, 1, 0},
   {"http://foo.com/", "Dir", 5, 5, 0},
-  {"http://foo.com/dir/", "Dir", 2, 2, 0},
+  {"http://foo.com/dir/", "Dir", 2, 1, 10},
   {"http://foo.com/dir/another/", "Dir", 5, 1, 0},
   {"http://foo.com/dir/another/again/", "Dir", 10, 0, 0},
   {"http://foo.com/dir/another/again/myfile.html", "File", 10, 2, 0},
-  {"http://startest.com/y/a", "A", 5, 2, 0},
-  {"http://startest.com/y/b", "B", 1, 2, 0},
-  {"http://startest.com/x/c", "C", 1, 1, 1},
-  {"http://startest.com/x/d", "D", 1, 1, 1},
-  {"http://startest.com/y/e", "E", 1, 1, 2},
-  {"http://startest.com/y/f", "F", 1, 1, 2},
-  {"http://startest.com/y/g", "G", 1, 1, 4},
-  {"http://startest.com/y/h", "H", 1, 1, 4},
-  {"http://startest.com/y/i", "I", 1, 1, 5},
-  {"http://startest.com/y/j", "J", 1, 1, 5},
-  {"http://startest.com/y/k", "K", 1, 1, 6},
-  {"http://startest.com/y/l", "L", 1, 1, 6},
-  {"http://startest.com/y/m", "M", 1, 1, 6},
-  {"http://abcdefghixyzjklmnopqrstuvw.com/a", "An XYZ", 1, 1, 0},
+  {"http://visitedest.com/y/a", "VA", 5, 1, 0},
+  {"http://visitedest.com/y/b", "VB", 4, 1, 0},
+  {"http://visitedest.com/x/c", "VC", 3, 1, 0},
+  {"http://visitedest.com/x/d", "VD", 2, 1, 0},
+  {"http://visitedest.com/y/e", "VE", 1, 1, 0},
+  {"http://typeredest.com/y/a", "TA", 3, 5, 0},
+  {"http://typeredest.com/y/b", "TB", 3, 4, 0},
+  {"http://typeredest.com/x/c", "TC", 3, 3, 0},
+  {"http://typeredest.com/x/d", "TD", 3, 2, 0},
+  {"http://typeredest.com/y/e", "TE", 3, 1, 0},
+  {"http://daysagoest.com/y/a", "DA", 1, 1, 0},
+  {"http://daysagoest.com/y/b", "DB", 1, 1, 1},
+  {"http://daysagoest.com/x/c", "DC", 1, 1, 2},
+  {"http://daysagoest.com/x/d", "DD", 1, 1, 3},
+  {"http://daysagoest.com/y/e", "DE", 1, 1, 4},
+  {"http://abcdefghixyzjklmnopqrstuvw.com/a", "", 3, 1, 0},
   {"http://spaces.com/path%20with%20spaces/foo.html", "Spaces", 2, 2, 0},
-  {"http://abcdefghijklxyzmnopqrstuvw.com/a", "An XYZ", 1, 1, 0},
-  {"http://abcdefxyzghijklmnopqrstuvw.com/a", "An XYZ", 1, 1, 0},
-  {"http://abcxyzdefghijklmnopqrstuvw.com/a", "An XYZ", 1, 1, 0},
-  {"http://xyzabcdefghijklmnopqrstuvw.com/a", "An XYZ", 1, 1, 0},
+  {"http://abcdefghijklxyzmnopqrstuvw.com/a", "", 3, 1, 0},
+  {"http://abcdefxyzghijklmnopqrstuvw.com/a", "", 3, 1, 0},
+  {"http://abcxyzdefghijklmnopqrstuvw.com/a", "", 3, 1, 0},
+  {"http://xyzabcdefghijklmnopqrstuvw.com/a", "", 3, 1, 0},
+  {"http://cda.com/Dogs%20Cats%20Gorillas%20Sea%20Slugs%20and%20Mice",
+   "Dogs & Cats & Mice", 1, 1, 0},
 };
 
 class HistoryQuickProviderTest : public TestingBrowserProcessTest,
@@ -108,6 +114,8 @@ class HistoryQuickProviderTest : public TestingBrowserProcessTest,
 
   scoped_ptr<TestingProfile> profile_;
   HistoryService* history_service_;
+
+  ACMatches ac_matches_;  // The resulting matches after running RunTest.
 
  private:
   scoped_refptr<HistoryQuickProvider> provider_;
@@ -172,27 +180,32 @@ void HistoryQuickProviderTest::RunTest(const string16 text,
   std::sort(expected_urls.begin(), expected_urls.end());
 
   MessageLoop::current()->RunAllPending();
-  AutocompleteInput input(text, string16(), false, false, true, false);
+  AutocompleteInput input(text, string16(), false, false, true,
+                          AutocompleteInput::ALL_MATCHES);
   provider_->Start(input, false);
   EXPECT_TRUE(provider_->done());
 
-  ACMatches matches = provider_->matches();
+  ac_matches_ = provider_->matches();
+
+  // We should have gotten back at most AutocompleteProvider::kMaxMatches.
+  EXPECT_LE(ac_matches_.size(), AutocompleteProvider::kMaxMatches);
+
   // If the number of expected and actual matches aren't equal then we need
   // test no further, but let's do anyway so that we know which URLs failed.
-  EXPECT_EQ(expected_urls.size(), matches.size());
+  EXPECT_EQ(expected_urls.size(), ac_matches_.size());
 
   // Verify that all expected URLs were found and that all found URLs
   // were expected.
   std::set<std::string> leftovers =
       for_each(expected_urls.begin(), expected_urls.end(),
-               SetShouldContain(matches)).LeftOvers();
-  EXPECT_TRUE(leftovers.empty());
+               SetShouldContain(ac_matches_)).LeftOvers();
+  EXPECT_EQ(0U, leftovers.size());
 
   // See if we got the expected top scorer.
-  if (!matches.empty()) {
-    std::partial_sort(matches.begin(), matches.begin() + 1,
-                      matches.end(), AutocompleteMatch::MoreRelevant);
-    EXPECT_EQ(expected_top_result, matches[0].destination_url.spec());
+  if (!ac_matches_.empty()) {
+    std::partial_sort(ac_matches_.begin(), ac_matches_.begin() + 1,
+                      ac_matches_.end(), AutocompleteMatch::MoreRelevant);
+    EXPECT_EQ(expected_top_result, ac_matches_[0].destination_url.spec());
   }
 }
 
@@ -207,12 +220,12 @@ TEST_F(HistoryQuickProviderTest, SimpleSingleMatch) {
 TEST_F(HistoryQuickProviderTest, MultiMatch) {
   string16 text(ASCIIToUTF16("foo"));
   std::vector<std::string> expected_urls;
+  // Scores high because of typed_count.
   expected_urls.push_back("http://foo.com/");
-  expected_urls.push_back("http://foo.com/dir/");
+  // Scores high because of visit count.
   expected_urls.push_back("http://foo.com/dir/another/");
-  expected_urls.push_back("http://foo.com/dir/another/again/");
+  // Scores high because of high visit count.
   expected_urls.push_back("http://foo.com/dir/another/again/myfile.html");
-  expected_urls.push_back("http://spaces.com/path%20with%20spaces/foo.html");
   RunTest(text, expected_urls, "http://foo.com/");
 }
 
@@ -222,19 +235,102 @@ TEST_F(HistoryQuickProviderTest, StartRelativeMatch) {
   expected_urls.push_back("http://xyzabcdefghijklmnopqrstuvw.com/a");
   expected_urls.push_back("http://abcxyzdefghijklmnopqrstuvw.com/a");
   expected_urls.push_back("http://abcdefxyzghijklmnopqrstuvw.com/a");
-  expected_urls.push_back("http://abcdefghixyzjklmnopqrstuvw.com/a");
-  expected_urls.push_back("http://abcdefghijklxyzmnopqrstuvw.com/a");
   RunTest(text, expected_urls, "http://xyzabcdefghijklmnopqrstuvw.com/a");
 }
 
-TEST_F(HistoryQuickProviderTest, RecencyMatch) {
-  string16 text(ASCIIToUTF16("startest"));
+TEST_F(HistoryQuickProviderTest, VisitCountMatches) {
+  string16 text(ASCIIToUTF16("visitedest"));
   std::vector<std::string> expected_urls;
-  expected_urls.push_back("http://startest.com/y/a");
-  expected_urls.push_back("http://startest.com/y/b");
-  expected_urls.push_back("http://startest.com/x/c");
-  expected_urls.push_back("http://startest.com/x/d");
-  expected_urls.push_back("http://startest.com/y/e");
-  expected_urls.push_back("http://startest.com/y/f");
-  RunTest(text, expected_urls, "http://startest.com/y/a");
+  expected_urls.push_back("http://visitedest.com/y/a");
+  expected_urls.push_back("http://visitedest.com/y/b");
+  expected_urls.push_back("http://visitedest.com/x/c");
+  RunTest(text, expected_urls, "http://visitedest.com/y/a");
+}
+
+TEST_F(HistoryQuickProviderTest, TypedCountMatches) {
+  string16 text(ASCIIToUTF16("typeredest"));
+  std::vector<std::string> expected_urls;
+  expected_urls.push_back("http://typeredest.com/y/a");
+  expected_urls.push_back("http://typeredest.com/y/b");
+  expected_urls.push_back("http://typeredest.com/x/c");
+  RunTest(text, expected_urls, "http://typeredest.com/y/a");
+}
+
+TEST_F(HistoryQuickProviderTest, DaysAgoMatches) {
+  string16 text(ASCIIToUTF16("daysagoest"));
+  std::vector<std::string> expected_urls;
+  expected_urls.push_back("http://daysagoest.com/y/a");
+  expected_urls.push_back("http://daysagoest.com/y/b");
+  expected_urls.push_back("http://daysagoest.com/x/c");
+  RunTest(text, expected_urls, "http://daysagoest.com/y/a");
+}
+
+TEST_F(HistoryQuickProviderTest, EncodingLimitMatch) {
+  string16 text(ASCIIToUTF16("ice"));
+  std::vector<std::string> expected_urls;
+  std::string url(
+      "http://cda.com/Dogs%20Cats%20Gorillas%20Sea%20Slugs%20and%20Mice");
+  expected_urls.push_back(url);
+  RunTest(text, expected_urls, url);
+  // Verify that the matches' ACMatchClassifications offsets are in range.
+  ACMatchClassifications content(ac_matches_[0].contents_class);
+  // The max offset accounts for 6 occurrences of '%20' plus the 'http://'.
+  const size_t max_offset = url.size() - ((6 * 2) + 7);
+  for (ACMatchClassifications::const_iterator citer = content.begin();
+       citer != content.end(); ++citer)
+    EXPECT_LT(citer->offset, max_offset);
+  ACMatchClassifications description(ac_matches_[0].description_class);
+  std::string page_title("Dogs & Cats & Mice");
+  for (ACMatchClassifications::const_iterator diter = description.begin();
+       diter != description.end(); ++diter)
+    EXPECT_LT(diter->offset, page_title.size());
+}
+
+TEST_F(HistoryQuickProviderTest, Spans) {
+  // Test SpansFromTermMatch
+  history::TermMatches matches_a;
+  // Simulates matches: '.xx.xxx..xx...xxxxx..' which will test no match at
+  // either beginning or end as well as adjacent matches.
+  matches_a.push_back(history::TermMatch(1, 1, 2));
+  matches_a.push_back(history::TermMatch(2, 4, 3));
+  matches_a.push_back(history::TermMatch(3, 9, 1));
+  matches_a.push_back(history::TermMatch(3, 10, 1));
+  matches_a.push_back(history::TermMatch(4, 14, 5));
+  ACMatchClassifications spans_a =
+      HistoryQuickProvider::SpansFromTermMatch(matches_a, 20);
+  // ACMatch spans should be: 'NM-NM---N-M-N--M----N-'
+  ASSERT_EQ(9U, spans_a.size());
+  EXPECT_EQ(0U, spans_a[0].offset);
+  EXPECT_EQ(ACMatchClassification::NONE, spans_a[0].style);
+  EXPECT_EQ(1U, spans_a[1].offset);
+  EXPECT_EQ(ACMatchClassification::MATCH, spans_a[1].style);
+  EXPECT_EQ(3U, spans_a[2].offset);
+  EXPECT_EQ(ACMatchClassification::NONE, spans_a[2].style);
+  EXPECT_EQ(4U, spans_a[3].offset);
+  EXPECT_EQ(ACMatchClassification::MATCH, spans_a[3].style);
+  EXPECT_EQ(7U, spans_a[4].offset);
+  EXPECT_EQ(ACMatchClassification::NONE, spans_a[4].style);
+  EXPECT_EQ(9U, spans_a[5].offset);
+  EXPECT_EQ(ACMatchClassification::MATCH, spans_a[5].style);
+  EXPECT_EQ(11U, spans_a[6].offset);
+  EXPECT_EQ(ACMatchClassification::NONE, spans_a[6].style);
+  EXPECT_EQ(14U, spans_a[7].offset);
+  EXPECT_EQ(ACMatchClassification::MATCH, spans_a[7].style);
+  EXPECT_EQ(19U, spans_a[8].offset);
+  EXPECT_EQ(ACMatchClassification::NONE, spans_a[8].style);
+  // Simulates matches: 'xx.xx' which will test matches at both beginning an
+  // end.
+  history::TermMatches matches_b;
+  matches_b.push_back(history::TermMatch(1, 0, 2));
+  matches_b.push_back(history::TermMatch(2, 3, 2));
+  ACMatchClassifications spans_b =
+      HistoryQuickProvider::SpansFromTermMatch(matches_b, 5);
+  // ACMatch spans should be: 'M-NM-'
+  ASSERT_EQ(3U, spans_b.size());
+  EXPECT_EQ(0U, spans_b[0].offset);
+  EXPECT_EQ(ACMatchClassification::MATCH, spans_b[0].style);
+  EXPECT_EQ(2U, spans_b[1].offset);
+  EXPECT_EQ(ACMatchClassification::NONE, spans_b[1].style);
+  EXPECT_EQ(3U, spans_b[2].offset);
+  EXPECT_EQ(ACMatchClassification::MATCH, spans_b[2].style);
 }

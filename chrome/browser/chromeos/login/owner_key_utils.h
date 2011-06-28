@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,12 +10,12 @@
 
 #include "base/basictypes.h"
 #include "base/gtest_prod_util.h"
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
 #include "chrome/browser/chromeos/cros/login_library.h"
 
 class FilePath;
 
-namespace base {
+namespace crypto {
 class RSAPrivateKey;
 }
 
@@ -60,12 +60,12 @@ class OwnerKeyUtils : public base::RefCounted<OwnerKeyUtils> {
   // and populate |OUT_signature|.
   virtual bool Sign(const std::string& data,
                     std::vector<uint8>* OUT_signature,
-                    base::RSAPrivateKey* key) = 0;
+                    crypto::RSAPrivateKey* key) = 0;
 
   // Looks for the private key associated with |key| in the default slot,
   // and returns it if it can be found.  Returns NULL otherwise.
   // Caller takes ownership.
-  virtual base::RSAPrivateKey* FindPrivateKey(
+  virtual crypto::RSAPrivateKey* FindPrivateKey(
       const std::vector<uint8>& key) = 0;
 
   virtual FilePath GetOwnerKeyFilePath() = 0;
@@ -76,7 +76,7 @@ class OwnerKeyUtils : public base::RefCounted<OwnerKeyUtils> {
   // DER encodes public half of |pair| and writes it out to |key_file|.
   // The blob on disk is a DER-encoded X509 SubjectPublicKeyInfo object.
   // Returns false on error.
-  virtual bool ExportPublicKeyToFile(base::RSAPrivateKey* pair,
+  virtual bool ExportPublicKeyToFile(crypto::RSAPrivateKey* pair,
                                      const FilePath& key_file) = 0;
 
  private:

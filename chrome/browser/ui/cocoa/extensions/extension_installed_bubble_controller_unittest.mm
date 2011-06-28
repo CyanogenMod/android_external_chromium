@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,10 +7,10 @@
 #include "base/basictypes.h"
 #include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/path_service.h"
-#include "base/scoped_ptr.h"
 #include "base/values.h"
-#import "chrome/browser/browser_window.h"
+#import "chrome/browser/ui/browser_window.h"
 #import "chrome/browser/ui/cocoa/browser_test_helper.h"
 #import "chrome/browser/ui/cocoa/cocoa_test_helper.h"
 #import "chrome/browser/ui/cocoa/extensions/extension_installed_bubble_controller.h"
@@ -100,8 +100,8 @@ class ExtensionInstalledBubbleControllerTest : public CocoaTest {
     }
 
     std::string error;
-    return Extension::Create(
-        path, Extension::INVALID, extension_input_value, false, true, &error);
+    return Extension::Create(path, Extension::INVALID, extension_input_value,
+                             Extension::STRICT_ERROR_CHECKS, &error);
   }
 
   // Allows us to create the window and browser for testing.

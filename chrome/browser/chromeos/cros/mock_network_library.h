@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,8 +23,14 @@ class MockNetworkLibrary : public NetworkLibrary {
   MOCK_METHOD2(RemoveNetworkObserver, void(const std::string&,
                                            NetworkObserver*));
   MOCK_METHOD1(RemoveObserverForAllNetworks, void(NetworkObserver*));
+  MOCK_METHOD2(AddNetworkDeviceObserver, void(const std::string&,
+                                              NetworkDeviceObserver*));
+  MOCK_METHOD2(RemoveNetworkDeviceObserver, void(const std::string&,
+                                                 NetworkDeviceObserver*));
   MOCK_METHOD1(AddCellularDataPlanObserver, void(CellularDataPlanObserver*));
   MOCK_METHOD1(RemoveCellularDataPlanObserver, void(CellularDataPlanObserver*));
+  MOCK_METHOD1(AddPinOperationObserver, void(PinOperationObserver*));
+  MOCK_METHOD1(RemovePinOperationObserver, void(PinOperationObserver*));
   MOCK_METHOD1(AddUserActionObserver, void(UserActionObserver*));
   MOCK_METHOD1(RemoveUserActionObserver, void(UserActionObserver*));
   MOCK_METHOD0(Lock, void(void));
@@ -57,38 +63,54 @@ class MockNetworkLibrary : public NetworkLibrary {
 
   MOCK_CONST_METHOD1(FindNetworkDeviceByPath,
                      NetworkDevice*(const std::string&));
+  MOCK_CONST_METHOD0(FindCellularDevice, const NetworkDevice*(void));
+  MOCK_CONST_METHOD0(FindWifiDevice, const NetworkDevice*(void));
+  MOCK_CONST_METHOD0(FindEthernetDevice, const NetworkDevice*(void));
+  MOCK_CONST_METHOD1(FindNetworkByPath,
+                     Network*(const std::string&));
   MOCK_CONST_METHOD1(FindWifiNetworkByPath,
                      WifiNetwork*(const std::string&));
   MOCK_CONST_METHOD1(FindCellularNetworkByPath,
                      CellularNetwork*(const std::string&));
+  MOCK_CONST_METHOD1(FindVirtualNetworkByPath,
+                     VirtualNetwork*(const std::string&));
+  MOCK_CONST_METHOD1(FindNetworkFromRemembered,Network*(const Network*));
   MOCK_CONST_METHOD1(GetDataPlans,
                      CellularDataPlanVector*(const std::string&));
   MOCK_CONST_METHOD1(GetSignificantDataPlan,
                      CellularDataPlan*(const std::string&));
 
-  MOCK_METHOD0(RequestWifiScan, void(void));
+  MOCK_METHOD2(ChangePin, void(const std::string&, const std::string&));
+  MOCK_METHOD2(ChangeRequirePin, void(bool, const std::string&));
+  MOCK_METHOD1(EnterPin, void(const std::string&));
+  MOCK_METHOD2(UnblockPin, void(const std::string&, const std::string&));
+
+  MOCK_METHOD0(RequestCellularScan, void());
+  MOCK_METHOD1(RequestCellularRegister, void(const std::string&));
+  MOCK_METHOD1(SetCellularDataRoamingAllowed, void(bool));
+
+  MOCK_METHOD0(RequestNetworkScan, void(void));
   MOCK_METHOD1(GetWifiAccessPoints, bool(WifiAccessPointVector*));
-  MOCK_METHOD4(ConnectToWifiNetwork, bool(WifiNetwork*,
+  MOCK_METHOD1(ConnectToWifiNetwork, void(WifiNetwork*));
+  MOCK_METHOD1(ConnectToWifiNetwork, void(const std::string&));
+  MOCK_METHOD5(ConnectToWifiNetwork, void(ConnectionSecurity security,
+                                          const std::string&,
                                           const std::string&,
                                           const std::string&,
                                           const std::string&));
-  MOCK_METHOD4(ConnectToWifiNetwork, bool(const std::string&,
-                                          const std::string&,
-                                          const std::string&,
-                                          const std::string&));
-  MOCK_METHOD6(ConnectToWifiNetwork, bool(ConnectionSecurity security,
-                                          const std::string&,
-                                          const std::string&,
-                                          const std::string&,
-                                          const std::string&,
-                                          bool));
-  MOCK_METHOD1(ConnectToCellularNetwork, bool(const CellularNetwork*));
-  MOCK_METHOD1(RefreshCellularDataPlans, void(const CellularNetwork* network));
+  MOCK_METHOD1(ConnectToCellularNetwork, void(CellularNetwork*));
+  MOCK_METHOD1(ConnectToVirtualNetwork, void(VirtualNetwork*));
+  MOCK_METHOD5(ConnectToVirtualNetworkPSK, void(const std::string&,
+                                                const std::string&,
+                                                const std::string&,
+                                                const std::string&,
+                                                const std::string&));
   MOCK_METHOD0(SignalCellularPlanPayment, void(void));
   MOCK_METHOD0(HasRecentCellularPlanPayment, bool(void));
 
-  MOCK_METHOD1(DisconnectFromWirelessNetwork, void(const WirelessNetwork*));
+  MOCK_METHOD1(DisconnectFromNetwork, void(const Network*));
   MOCK_METHOD1(ForgetWifiNetwork, void(const std::string&));
+  MOCK_CONST_METHOD0(GetCellularHomeCarrierId, std::string(void));
 
   MOCK_CONST_METHOD0(ethernet_available, bool(void));
   MOCK_CONST_METHOD0(wifi_available, bool(void));
@@ -101,14 +123,17 @@ class MockNetworkLibrary : public NetworkLibrary {
   MOCK_CONST_METHOD0(wifi_scanning, bool(void));
 
   MOCK_CONST_METHOD0(active_network, const Network*(void));
+  MOCK_CONST_METHOD0(connected_network, const Network*(void));
+
   MOCK_CONST_METHOD0(offline_mode, bool(void));
 
   MOCK_METHOD1(EnableEthernetNetworkDevice, void(bool));
   MOCK_METHOD1(EnableWifiNetworkDevice, void(bool));
   MOCK_METHOD1(EnableCellularNetworkDevice, void(bool));
   MOCK_METHOD1(EnableOfflineMode, void(bool));
-  MOCK_METHOD2(GetIPConfigs, NetworkIPConfigVector(const std::string&,
-                                                   std::string*));
+  MOCK_METHOD3(GetIPConfigs, NetworkIPConfigVector(const std::string&,
+                                                   std::string*,
+                                                   HardwareAddressFormat));
   MOCK_METHOD1(GetHtmlInfo, std::string(int));
 };
 

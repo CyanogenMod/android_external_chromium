@@ -16,7 +16,8 @@
 
 #include "base/string16.h"
 #include "chrome/browser/first_run/first_run.h"
-#include "chrome/common/page_transition_types.h"
+#include "chrome/browser/instant/instant_delegate.h"
+#include "content/common/page_transition_types.h"
 #include "webkit/glue/window_open_disposition.h"
 
 class AutocompleteEditView;
@@ -33,7 +34,8 @@ class LocationBar {
 
   // Sets the suggested text to show in the omnibox. This is shown in addition
   // to the current text of the omnibox.
-  virtual void SetSuggestedText(const string16& text) = 0;
+  virtual void SetSuggestedText(const string16& text,
+                                InstantCompleteBehavior behavior) = 0;
 
   // Returns the string of text entered in the location bar.
   virtual std::wstring GetInputString() const = 0;

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #pragma once
 
 #include "base/hash_tables.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/task.h"
 #include "views/focus/focus_manager.h"
 #include "views/view.h"
@@ -41,19 +41,20 @@ class AccessiblePaneView : public views::View,
   virtual bool SetPaneFocusAndFocusDefault(int view_storage_id);
 
   // Overridden from views::View:
-  virtual FocusTraversable* GetPaneFocusTraversable();
-  virtual bool AcceleratorPressed(const views::Accelerator& accelerator);
-  virtual void SetVisible(bool flag);
-  virtual AccessibilityTypes::Role GetAccessibleRole();
+  virtual FocusTraversable* GetPaneFocusTraversable() OVERRIDE;
+  virtual bool AcceleratorPressed(const views::Accelerator& accelerator)
+      OVERRIDE;
+  virtual void SetVisible(bool flag) OVERRIDE;
+  virtual void GetAccessibleState(ui::AccessibleViewState* state) OVERRIDE;
 
   // Overridden from views::FocusChangeListener:
   virtual void FocusWillChange(View* focused_before,
-                               View* focused_now);
+                               View* focused_now) OVERRIDE;
 
   // Overridden from views::FocusTraversable:
-  virtual views::FocusSearch* GetFocusSearch();
-  virtual FocusTraversable* GetFocusTraversableParent();
-  virtual View* GetFocusTraversableParentView();
+  virtual views::FocusSearch* GetFocusSearch() OVERRIDE;
+  virtual FocusTraversable* GetFocusTraversableParent() OVERRIDE;
+  virtual View* GetFocusTraversableParentView() OVERRIDE;
 
  protected:
   // A subclass can override this to provide a default focusable child

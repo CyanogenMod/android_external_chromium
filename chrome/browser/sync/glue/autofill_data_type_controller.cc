@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,8 +14,8 @@
 #include "chrome/browser/sync/profile_sync_factory.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/webdata/web_data_service.h"
-#include "chrome/common/notification_service.h"
 #include "content/browser/browser_thread.h"
+#include "content/common/notification_service.h"
 
 namespace browser_sync {
 
@@ -39,6 +39,12 @@ AutofillDataTypeController::AutofillDataTypeController(
 
 AutofillDataTypeController::~AutofillDataTypeController() {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+
+  // TODO(zea): remove once crbug.com/61804 is resolved.
+  CHECK_EQ(state_, NOT_RUNNING) << "AutofillDataTypeController destroyed "
+                                << "without being stopped.";
+  CHECK(!change_processor_.get()) << "AutofillDataTypeController destroyed "
+                                  << "while holding a change processor.";
 }
 
 void AutofillDataTypeController::Start(StartCallback* start_callback) {
@@ -46,7 +52,7 @@ void AutofillDataTypeController::Start(StartCallback* start_callback) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   DCHECK(start_callback);
   if (state() != NOT_RUNNING) {
-    start_callback->Run(BUSY);
+    start_callback->Run(BUSY, FROM_HERE);
     delete start_callback;
     return;
   }
@@ -100,6 +106,11 @@ void AutofillDataTypeController::Observe(NotificationType type,
                               &AutofillDataTypeController::StartImpl));
 }
 
+// TODO(sync): Blocking the UI thread at shutdown is bad. If we had a way of
+// distinguishing chrome shutdown from sync shutdown, we should be able to avoid
+// this (http://crbug.com/55662). Further, all this functionality should be
+// abstracted to a higher layer, where we could ensure all datatypes are doing
+// the same thing (http://crbug.com/76232).
 void AutofillDataTypeController::Stop() {
   VLOG(1) << "Stopping autofill data type controller.";
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
@@ -116,13 +127,15 @@ void AutofillDataTypeController::Stop() {
     }
     // Wait for the model association to abort.
     abort_association_complete_.Wait();
-    StartDoneImpl(ABORTED, STOPPING);
+    StartDoneImpl(ABORTED, STOPPING, FROM_HERE);
   }
 
   // If Stop() is called while Start() is waiting for the personal
   // data manager or web data service to load, abort the start.
   if (state_ == MODEL_STARTING)
-    StartDoneImpl(ABORTED, STOPPING);
+    StartDoneImpl(ABORTED, STOPPING, FROM_HERE);
+
+  DCHECK(!start_callback_.get());
 
   // Deactivate the change processor on the UI thread. We dont want to listen
   // for any more changes or process them from server.
@@ -140,27 +153,33 @@ void AutofillDataTypeController::Stop() {
     // particular, during shutdown we may attempt to destroy the
     // profile_sync_service before we've removed its observers (BUG 61804).
     datatype_stopped_.Wait();
+  } else if (change_processor_.get()) {
+    // TODO(zea): remove once crbug.com/61804 is resolved.
+    LOG(FATAL) << "AutofillDataTypeController::Stop() called after DB thread"
+               << " killed.";
   }
+  CHECK(!change_processor_.get()) << "AutofillChangeProcessor not released.";
 }
 
 bool AutofillDataTypeController::enabled() {
   return true;
 }
 
-syncable::ModelType AutofillDataTypeController::type() {
+syncable::ModelType AutofillDataTypeController::type() const {
   return syncable::AUTOFILL;
 }
 
-browser_sync::ModelSafeGroup AutofillDataTypeController::model_safe_group() {
+browser_sync::ModelSafeGroup AutofillDataTypeController::model_safe_group()
+    const {
   return browser_sync::GROUP_DB;
 }
 
-const char* AutofillDataTypeController::name() const {
+std::string AutofillDataTypeController::name() const {
   // For logging only.
   return "autofill";
 }
 
-DataTypeController::State AutofillDataTypeController::state() {
+DataTypeController::State AutofillDataTypeController::state() const {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   return state_;
 }
@@ -199,6 +218,11 @@ void AutofillDataTypeController::StartImpl() {
     change_processor_.reset(sync_components.change_processor);
   }
 
+  if (!model_associator_->CryptoReadyIfNecessary()) {
+    StartFailed(NEEDS_CRYPTO);
+    return;
+  }
+
   bool sync_has_nodes = false;
   if (!model_associator_->SyncModelHasUserCreatedNodes(&sync_has_nodes)) {
     StartFailed(UNRECOVERABLE_ERROR);
@@ -234,18 +258,20 @@ void AutofillDataTypeController::StartDone(
                                 this,
                                 &AutofillDataTypeController::StartDoneImpl,
                                 result,
-                                new_state));
+                                new_state,
+                                FROM_HERE));
   }
 }
 
 void AutofillDataTypeController::StartDoneImpl(
     DataTypeController::StartResult result,
-    DataTypeController::State new_state) {
+    DataTypeController::State new_state,
+    const tracked_objects::Location& location) {
   VLOG(1) << "Autofill data type controller StartDoneImpl called.";
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
   set_state(new_state);
-  start_callback_->Run(result);
+  start_callback_->Run(result, location);
   start_callback_.reset();
 
   if (result == UNRECOVERABLE_ERROR || result == ASSOCIATION_FAILED) {

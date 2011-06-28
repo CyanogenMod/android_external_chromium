@@ -1,13 +1,13 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <vector>
 
 #include "base/json/json_reader.h"
+#include "base/memory/scoped_temp_dir.h"
+#include "base/memory/scoped_vector.h"
 #include "base/path_service.h"
-#include "base/scoped_temp_dir.h"
-#include "base/scoped_vector.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/extensions/extension_event_router.h"
@@ -16,11 +16,11 @@
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_constants.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/test/testing_profile.h"
 #include "content/browser/browser_thread.h"
-#include "testing/gtest/include/gtest/gtest.h"
+#include "content/common/notification_service.h"
 #include "testing/gmock/include/gmock/gmock.h"
+#include "testing/gtest/include/gtest/gtest.h"
 #include "webkit/glue/context_menu.h"
 
 using testing::_;
@@ -31,8 +31,11 @@ using testing::SaveArg;
 // Base class for tests.
 class ExtensionMenuManagerTest : public testing::Test {
  public:
-  ExtensionMenuManagerTest() : next_id_(1) {}
-  ~ExtensionMenuManagerTest() {}
+  ExtensionMenuManagerTest()
+      : ui_thread_(BrowserThread::UI, &message_loop_),
+        file_thread_(BrowserThread::FILE, &message_loop_),
+        next_id_(1) {
+  }
 
   // Returns a test item.
   ExtensionMenuItem* CreateTestItem(Extension* extension) {
@@ -51,6 +54,10 @@ class ExtensionMenuManagerTest : public testing::Test {
   }
 
  protected:
+  MessageLoopForUI message_loop_;
+  BrowserThread ui_thread_;
+  BrowserThread file_thread_;
+
   ExtensionMenuManager manager_;
   ExtensionList extensions_;
   TestExtensionPrefs prefs_;
@@ -409,9 +416,6 @@ TEST_F(ExtensionMenuManagerTest, RemoveOneByOne) {
 }
 
 TEST_F(ExtensionMenuManagerTest, ExecuteCommand) {
-  MessageLoopForUI message_loop;
-  BrowserThread ui_thread(BrowserThread::UI, &message_loop);
-
   MockTestingProfile profile;
 
   scoped_ptr<MockExtensionEventRouter> mock_event_router(

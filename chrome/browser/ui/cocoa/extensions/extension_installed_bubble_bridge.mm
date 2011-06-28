@@ -9,7 +9,10 @@
 #include "chrome/browser/tab_contents/simple_alert_infobar_delegate.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_dialogs.h"
+#include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_window.h"
 #import "chrome/browser/ui/cocoa/extensions/extension_installed_bubble_controller.h"
+#include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_action.h"
 #include "grit/generated_resources.h"
@@ -46,7 +49,7 @@ namespace browser {
 void ShowExtensionInstalledBubble(
     const Extension* extension,
     Browser* browser,
-    SkBitmap icon,
+    const SkBitmap& icon,
     Profile* profile) {
   if ((extension->browser_action()) || !extension->omnibox_keyword().empty() ||
       (extension->page_action() &&

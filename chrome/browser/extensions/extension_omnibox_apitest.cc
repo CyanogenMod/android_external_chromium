@@ -11,16 +11,20 @@
 #include "chrome/browser/autocomplete/autocomplete_edit_view.h"
 #include "chrome/browser/autocomplete/autocomplete_match.h"
 #include "chrome/browser/autocomplete/autocomplete_popup_model.h"
-#include "chrome/browser/browser_window.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/omnibox/location_bar.h"
-#include "chrome/common/notification_type.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/ui_test_utils.h"
+#include "content/common/notification_type.h"
+
+#if defined(TOOLKIT_GTK)
+#include "chrome/browser/ui/gtk/browser_window_gtk.h"
+#endif
 
 // Basic test is flaky on ChromeOS.
 // http://crbug.com/52929
@@ -76,6 +80,14 @@ class OmniboxApiTest : public ExtensionApiTest {
 };
 
 IN_PROC_BROWSER_TEST_F(OmniboxApiTest, MAYBE_Basic) {
+#if defined(TOOLKIT_GTK)
+  // Disable the timer because, on Lucid at least, it triggers resize/move
+  // behavior in the browser window, which dismisses the autocomplete popup
+  // before the results can be read.
+  static_cast<BrowserWindowGtk*>(
+      browser()->window())->DisableDebounceTimerForTests(true);
+#endif
+
   ASSERT_TRUE(test_server()->Start());
   ASSERT_TRUE(RunExtensionTest("omnibox")) << message_;
 
@@ -89,8 +101,9 @@ IN_PROC_BROWSER_TEST_F(OmniboxApiTest, MAYBE_Basic) {
   // Test that our extension's keyword is suggested to us when we partially type
   // it.
   {
-    autocomplete_controller->Start(ASCIIToUTF16("keywor"), string16(),
-                                   true, false, true, false);
+    autocomplete_controller->Start(
+        ASCIIToUTF16("keywor"), string16(), true, false, true,
+        AutocompleteInput::ALL_MATCHES);
 
     WaitForAutocompleteDone(autocomplete_controller);
     EXPECT_TRUE(autocomplete_controller->done());
@@ -114,8 +127,9 @@ IN_PROC_BROWSER_TEST_F(OmniboxApiTest, MAYBE_Basic) {
 
   // Test that our extension can send suggestions back to us.
   {
-    autocomplete_controller->Start(ASCIIToUTF16("keyword suggestio"),
-                                   string16(), true, false, true, false);
+    autocomplete_controller->Start(
+        ASCIIToUTF16("keyword suggestio"), string16(), true, false, true,
+        AutocompleteInput::ALL_MATCHES);
 
     WaitForAutocompleteDone(autocomplete_controller);
     EXPECT_TRUE(autocomplete_controller->done());
@@ -178,8 +192,9 @@ IN_PROC_BROWSER_TEST_F(OmniboxApiTest, MAYBE_Basic) {
 
   {
     ResultCatcher catcher;
-    autocomplete_controller->Start(ASCIIToUTF16("keyword command"), string16(),
-                                   true, false, true, false);
+    autocomplete_controller->Start(
+        ASCIIToUTF16("keyword command"), string16(), true, false, true,
+        AutocompleteInput::ALL_MATCHES);
     location_bar->AcceptInput();
     EXPECT_TRUE(catcher.GetNextResult()) << catcher.message();
   }

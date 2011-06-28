@@ -16,8 +16,10 @@ class TabContentsWrapperTestHarness : public RenderViewHostTestHarness {
   TabContentsWrapperTestHarness();
   virtual ~TabContentsWrapperTestHarness();
 
-  TestTabContents* contents();
+  virtual TestTabContents* contents() OVERRIDE;
   TabContentsWrapper* contents_wrapper();
+
+  void SetContents(TestTabContents* contents);
 
  protected:
   // testing::Test

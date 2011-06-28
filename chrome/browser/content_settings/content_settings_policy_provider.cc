@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,11 +13,11 @@
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/prefs/scoped_user_pref_update.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/common/notification_details.h"
-#include "chrome/common/notification_service.h"
-#include "chrome/common/notification_source.h"
 #include "chrome/common/pref_names.h"
 #include "content/browser/browser_thread.h"
+#include "content/common/notification_details.h"
+#include "content/common/notification_service.h"
+#include "content/common/notification_source.h"
 #include "webkit/plugins/npapi/plugin_group.h"
 #include "webkit/plugins/npapi/plugin_list.h"
 
@@ -93,8 +93,6 @@ const PrefsForManagedContentSettingsMapEntry
     CONTENT_SETTING_BLOCK
   }
 };
-
-const std::string NO_IDENTIFIER = "";
 
 }  // namespace
 
@@ -359,7 +357,7 @@ void PolicyProvider::GetContentSettingsFromPreferences(
           pattern,
           pattern,
           kPrefsForManagedContentSettingsMap[i].content_type,
-          NO_IDENTIFIER,
+          ProviderInterface::ResourceIdentifier(NO_RESOURCE_IDENTIFIER),
           kPrefsForManagedContentSettingsMap[i].setting));
     }
   }
@@ -401,7 +399,7 @@ ContentSetting PolicyProvider::GetContentSetting(
       requesting_url,
       embedding_url,
       content_type,
-      NO_IDENTIFIER);
+      NO_RESOURCE_IDENTIFIER);
 }
 
 void PolicyProvider::ClearAllContentSettingsRules(

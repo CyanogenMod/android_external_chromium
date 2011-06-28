@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,12 +13,11 @@
 #include "base/basictypes.h"
 #include "base/format_macros.h"
 #include "base/gtest_prod_util.h"
+#include "base/memory/scoped_vector.h"
 #include "base/observer_list.h"
-#include "base/scoped_vector.h"
 #include "base/string_util.h"
 #include "base/threading/non_thread_safe.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/browser_window.h"
 #include "chrome/browser/sessions/session_id.h"
 #include "chrome/browser/sessions/session_service.h"
 #include "chrome/browser/sessions/session_types.h"
@@ -27,6 +26,7 @@
 #include "chrome/browser/sync/glue/model_associator.h"
 #include "chrome/browser/sync/protocol/session_specifics.pb.h"
 #include "chrome/browser/sync/syncable/model_type.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "content/browser/tab_contents/tab_contents.h"
 
 class Profile;
@@ -67,6 +67,9 @@ class SessionModelAssociator
   virtual void AbortAssociation() {
     // No implementation needed, this associator runs on the main thread.
   }
+
+  // See ModelAssociator interface.
+  virtual bool CryptoReadyIfNecessary();
 
   // Returns sync id for the given chrome model id.
   // Returns sync_api::kInvalidId if the sync node is not found for the given
@@ -331,7 +334,7 @@ class SessionModelAssociator
   // Used to populate a session window from the session specifics window
   // provided. Tracks any foreign session data created through |tracker|.
   static void PopulateSessionWindowFromSpecifics(
-      std::string foreign_session_tag,
+      const std::string& foreign_session_tag,
       const sync_pb::SessionWindow& window,
       const int64 mtime,
       SessionWindow* session_window,

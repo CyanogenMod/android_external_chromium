@@ -14,13 +14,11 @@ using namespace views;
 class DOMViewTest : public InProcessBrowserTest {
  public:
   Widget* CreatePopupWindow() {
-    Widget* window =
-        Widget::CreatePopupWidget(Widget::NotTransparent,
-                                  Widget::AcceptEvents,
-                                  Widget::DeleteOnDestroy,
-                                  Widget::DontMirrorOriginInRTL);
-    window->Init(NULL, gfx::Rect(0, 0, 400, 400));
-    return window;
+    Widget::CreateParams params(Widget::CreateParams::TYPE_POPUP);
+    params.mirror_origin_in_rtl = false;
+    Widget* widget = Widget::CreateWidget(params);
+    widget->Init(NULL, gfx::Rect(0, 0, 400, 400));
+    return widget;
   }
 };
 

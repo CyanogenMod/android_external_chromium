@@ -7,17 +7,17 @@
 #include "base/message_loop.h"
 #include "base/sys_string_conversions.h"
 #include "base/task.h"
-#include "chrome/browser/browser_list.h"
 #include "chrome/browser/google/google_util.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ui/browser_list.h"
 #import "chrome/browser/ui/cocoa/browser_window_controller.h"
 #import "chrome/browser/ui/cocoa/hyperlink_button_cell.h"
 #import "chrome/browser/ui/cocoa/info_bubble_view.h"
 #import "chrome/browser/ui/cocoa/info_bubble_window.h"
 #import "chrome/browser/ui/cocoa/location_bar/location_bar_view_mac.h"
 #include "chrome/common/url_constants.h"
-#include "content/browser/certificate_viewer.h"
 #include "content/browser/cert_store.h"
+#include "content/browser/certificate_viewer.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "net/base/cert_status_flags.h"
@@ -275,10 +275,6 @@ void ShowPageInfoBubble(gfx::NativeWindow parent,
       [[PageInfoContentView alloc] initWithFrame:contentFrame]);
   [contentView setSubviews:subviews];
 
-  // Replace the window's content.
-  [[[self window] contentView] setSubviews:
-      [NSArray arrayWithObject:contentView]];
-
   NSRect windowFrame = NSMakeRect(0, 0, kWindowWidth, offset);
   windowFrame.size = [[[self window] contentView] convertSize:windowFrame.size
                                                        toView:nil];
@@ -292,6 +288,10 @@ void ShowPageInfoBubble(gfx::NativeWindow parent,
   [[self window] setFrame:windowFrame
                   display:YES
                   animate:[[self window] isVisible]];
+
+  // Replace the window's content.
+  [[[self window] contentView] setSubviews:
+      [NSArray arrayWithObject:contentView]];
 
   NSPoint anchorPoint =
       [self anchorPointForWindowWithHeight:NSHeight(windowFrame)
@@ -320,6 +320,7 @@ void ShowPageInfoBubble(gfx::NativeWindow parent,
 // in the bubble.
 - (void)configureTextFieldAsLabel:(NSTextField*)textField {
   [textField setEditable:NO];
+  [textField setSelectable:YES];
   [textField setDrawsBackground:NO];
   [textField setBezeled:NO];
 }
@@ -382,8 +383,7 @@ void ShowPageInfoBubble(gfx::NativeWindow parent,
   scoped_refptr<net::X509Certificate> cert;
   CertStore::GetInstance()->RetrieveCert(certID_, &cert);
 
-  // Don't bother showing certificates if there isn't one. Gears runs
-  // with no OS root certificate.
+  // Don't bother showing certificates if there isn't one.
   if (!cert.get() || !cert->os_cert_handle()) {
     // This should only ever happen in unit tests.
     [certButton setEnabled:NO];

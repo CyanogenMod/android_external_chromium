@@ -72,6 +72,8 @@ class AboutPageHandler::UpdateObserver
   explicit UpdateObserver(AboutPageHandler* handler) : page_handler_(handler) {}
   virtual ~UpdateObserver() {}
 
+  AboutPageHandler* page_handler() const { return page_handler_; }
+
  private:
   virtual void UpdateStatusChanged(chromeos::UpdateLibrary* object) {
     page_handler_->UpdateStatus(object->status());
@@ -106,6 +108,7 @@ void AboutPageHandler::GetLocalizedValues(DictionaryValue* localized_strings) {
 
   static OptionsStringResource resources[] = {
 #if defined (OS_CHROMEOS)
+    { "firmware", IDS_ABOUT_PAGE_FIRMWARE },
     { "product", IDS_PRODUCT_OS_NAME },
     { "os", IDS_PRODUCT_OS_NAME },
     { "loading", IDS_ABOUT_PAGE_LOADING },
@@ -120,9 +123,9 @@ void AboutPageHandler::GetLocalizedValues(DictionaryValue* localized_strings) {
     { "more_info", IDS_ABOUT_PAGE_MORE_INFO },
     { "copyright", IDS_ABOUT_VERSION_COPYRIGHT },
     { "channel", IDS_ABOUT_PAGE_CHANNEL },
-    { "release", IDS_ABOUT_PAGE_CHANNEL_RELEASE },
+    { "stable", IDS_ABOUT_PAGE_CHANNEL_STABLE },
     { "beta", IDS_ABOUT_PAGE_CHANNEL_BETA },
-    { "development", IDS_ABOUT_PAGE_CHANNEL_DEVELOPMENT },
+    { "dev", IDS_ABOUT_PAGE_CHANNEL_DEVELOPMENT },
     { "canary", IDS_ABOUT_PAGE_CHANNEL_CANARY },
     { "channel_warning_header", IDS_ABOUT_PAGE_CHANNEL_WARNING_HEADER },
     { "channel_warning_text", IDS_ABOUT_PAGE_CHANNEL_WARNING_TEXT },
@@ -270,18 +273,15 @@ void AboutPageHandler::RegisterMessages() {
 void AboutPageHandler::PageReady(const ListValue* args) {
 #if defined(OS_CHROMEOS)
   // Version information is loaded from a callback
+  loader_.EnablePlatformVersions(true);
   loader_.GetVersion(&consumer_,
                      NewCallback(this, &AboutPageHandler::OnOSVersion),
                      chromeos::VersionLoader::VERSION_FULL);
+  loader_.GetFirmware(&consumer_,
+                      NewCallback(this, &AboutPageHandler::OnOSFirmware));
 
   chromeos::UpdateLibrary* update_library =
       chromeos::CrosLibrary::Get()->GetUpdateLibrary();
-
-  // Update the channel information.
-  std::string channel = update_library->GetReleaseTrack();
-  scoped_ptr<Value> channel_string(Value::CreateStringValue(channel));
-  web_ui_->CallJavascriptFunction(L"AboutPage.updateSelectedOptionCallback",
-                                  *channel_string);
 
   update_observer_.reset(new UpdateObserver(this));
   update_library->AddObserver(update_observer_.get());
@@ -294,6 +294,11 @@ void AboutPageHandler::PageReady(const ListValue* args) {
   // already complete, update_observer_ won't receive a notification.
   // This is why we manually update the WebUI page above.
   CheckNow(NULL);
+
+  // Request the channel information. Use the observer to track the about
+  // page handler and ensure it does not get deleted before the callback.
+  update_library->GetReleaseTrack(UpdateSelectedChannel,
+                                  update_observer_.get());
 #endif
 }
 
@@ -303,7 +308,7 @@ void AboutPageHandler::SetReleaseTrack(const ListValue* args) {
     LOG(WARNING) << "Non-owner tried to change release track.";
     return;
   }
-  const std::string channel = WideToUTF8(ExtractStringValue(args));
+  const std::string channel = UTF16ToUTF8(ExtractStringValue(args));
   chromeos::CrosLibrary::Get()->GetUpdateLibrary()->SetReleaseTrack(channel);
 #endif
 }
@@ -315,7 +320,9 @@ void AboutPageHandler::CheckNow(const ListValue* args) {
   if (chromeos::CrosLibrary::Get()->EnsureLoaded() &&
       (!WizardController::default_controller() ||
         WizardController::IsDeviceRegistered())) {
-    chromeos::CrosLibrary::Get()->GetUpdateLibrary()->CheckForUpdate();
+    chromeos::CrosLibrary::Get()->GetUpdateLibrary()->
+        RequestUpdateCheck(NULL,   // no callback
+                           NULL);  // no userdata
   }
 }
 
@@ -390,20 +397,20 @@ void AboutPageHandler::UpdateStatus(
     // can read it, hence insert delay for this.
     scoped_ptr<Value> insert_delay(Value::CreateBooleanValue(
         status.status == chromeos::UPDATE_STATUS_CHECKING_FOR_UPDATE));
-    web_ui_->CallJavascriptFunction(L"AboutPage.updateStatusCallback",
+    web_ui_->CallJavascriptFunction("AboutPage.updateStatusCallback",
                                     *update_message, *insert_delay);
 
     scoped_ptr<Value> enabled_value(Value::CreateBooleanValue(enabled));
-    web_ui_->CallJavascriptFunction(L"AboutPage.updateEnableCallback",
+    web_ui_->CallJavascriptFunction("AboutPage.updateEnableCallback",
                                     *enabled_value);
 
     scoped_ptr<Value> image_string(Value::CreateStringValue(image));
-    web_ui_->CallJavascriptFunction(L"AboutPage.setUpdateImage",
+    web_ui_->CallJavascriptFunction("AboutPage.setUpdateImage",
                                     *image_string);
   }
   // We'll change the "Check For Update" button to "Restart" button.
   if (status.status == chromeos::UPDATE_STATUS_UPDATED_NEED_REBOOT) {
-    web_ui_->CallJavascriptFunction(L"AboutPage.changeToRestartButton");
+    web_ui_->CallJavascriptFunction("AboutPage.changeToRestartButton");
   }
 }
 
@@ -411,8 +418,36 @@ void AboutPageHandler::OnOSVersion(chromeos::VersionLoader::Handle handle,
                                    std::string version) {
   if (version.size()) {
     scoped_ptr<Value> version_string(Value::CreateStringValue(version));
-    web_ui_->CallJavascriptFunction(L"AboutPage.updateOSVersionCallback",
+    web_ui_->CallJavascriptFunction("AboutPage.updateOSVersionCallback",
                                     *version_string);
   }
 }
-#endif
+
+void AboutPageHandler::OnOSFirmware(chromeos::VersionLoader::Handle handle,
+                                    std::string firmware) {
+  if (firmware.size()) {
+    scoped_ptr<Value> firmware_string(Value::CreateStringValue(firmware));
+    web_ui_->CallJavascriptFunction("AboutPage.updateOSFirmwareCallback",
+                                    *firmware_string);
+  }
+}
+
+// Callback from UpdateEngine with channel information.
+// static
+void AboutPageHandler::UpdateSelectedChannel(void* user_data,
+                                             const char* channel) {
+  if (!user_data || !channel) {
+    LOG(WARNING) << "UpdateSelectedChannel returned NULL.";
+    return;
+  }
+  UpdateObserver* observer = static_cast<UpdateObserver*>(user_data);
+  if (chromeos::CrosLibrary::Get()->GetUpdateLibrary()->HasObserver(observer)) {
+    // If UpdateLibrary still has the observer, then the page handler is valid.
+    AboutPageHandler* handler = observer->page_handler();
+    scoped_ptr<Value> channel_string(Value::CreateStringValue(channel));
+    handler->web_ui_->CallJavascriptFunction(
+        "AboutPage.updateSelectedOptionCallback", *channel_string);
+  }
+}
+
+#endif  // defined(OS_CHROMEOS)

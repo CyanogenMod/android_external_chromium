@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,7 +27,7 @@ class PowerMenuButton : public StatusAreaButton,
                         public ui::MenuModel,
                         public PowerLibrary::Observer {
  public:
-  PowerMenuButton();
+  PowerMenuButton(StatusAreaHost* host);
   virtual ~PowerMenuButton();
 
   // ui::MenuModel implementation.
@@ -41,7 +41,7 @@ class PowerMenuButton : public StatusAreaButton,
       ui::Accelerator* accelerator) const { return false; }
   virtual bool IsItemCheckedAt(int index) const { return false; }
   virtual int GetGroupIdAt(int index) const { return 0; }
-  virtual bool GetIconAt(int index, SkBitmap* icon) const { return false; }
+  virtual bool GetIconAt(int index, SkBitmap* icon) { return false; }
   virtual ui::ButtonMenuItemModel* GetButtonMenuItemAt(int index) const {
     return NULL;
   }
@@ -50,6 +50,7 @@ class PowerMenuButton : public StatusAreaButton,
   virtual void HighlightChangedTo(int index) {}
   virtual void ActivatedAt(int index) {}
   virtual void MenuWillShow() {}
+  virtual void SetMenuModelDelegate(ui::MenuModelDelegate* delegate) {}
 
   // PowerLibrary::Observer implementation.
   virtual void PowerChanged(PowerLibrary* obj);
@@ -61,6 +62,9 @@ class PowerMenuButton : public StatusAreaButton,
   virtual int icon_width() { return 26; }
 
  private:
+  // views::View
+  virtual void OnLocaleChanged() OVERRIDE;
+
   // views::ViewMenuDelegate implementation.
   virtual void RunMenu(views::View* source, const gfx::Point& pt);
 

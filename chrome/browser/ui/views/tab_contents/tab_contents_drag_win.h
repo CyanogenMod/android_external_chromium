@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,8 @@
 #define CHROME_BROWSER_UI_VIEWS_TAB_CONTENTS_TAB_CONTENTS_DRAG_WIN_H_
 #pragma once
 
-#include "base/ref_counted.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/threading/platform_thread.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebDragOperation.h"
@@ -15,7 +15,7 @@
 #include "ui/gfx/point.h"
 
 class DragDropThread;
-class TabContentsViewWin;
+class NativeTabContentsViewWin;
 class WebDragSource;
 struct WebDropData;
 
@@ -28,7 +28,7 @@ class TabContentsDragWin
     : public ui::DataObjectImpl::Observer,
       public base::RefCountedThreadSafe<TabContentsDragWin> {
  public:
-  explicit TabContentsDragWin(TabContentsViewWin* view);
+  explicit TabContentsDragWin(NativeTabContentsViewWin* view);
   virtual ~TabContentsDragWin();
 
   // Called on UI thread.
@@ -76,8 +76,8 @@ class TabContentsDragWin
 
   // All the member variables below are accessed on UI thread.
 
-  // Keep track of the TabContentsViewWin it is associated with.
-  TabContentsViewWin* view_;
+  // Keep track of the TabContentsViewViews it is associated with.
+  NativeTabContentsViewWin* view_;
 
   // |drag_source_| is our callback interface passed to the system when we
   // want to initiate a drag and drop operation.  We use it to tell if a

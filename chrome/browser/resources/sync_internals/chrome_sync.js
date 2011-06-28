@@ -77,6 +77,8 @@ chrome.sync.onAuthError = new Event();
 chrome.sync.onUpdatedToken = new Event();
 chrome.sync.onPassphraseRequired = new Event();
 chrome.sync.onPassphraseAccepted = new Event();
+chrome.sync.onEncryptionComplete = new Event();
+chrome.sync.onMigrationNeededForTypes = new Event();
 chrome.sync.onInitializationComplete = new Event();
 chrome.sync.onPaused = new Event();
 chrome.sync.onResumed = new Event();
@@ -117,6 +119,12 @@ chrome.sync.getNotificationState_ =
     new AsyncFunction('getNotificationState');
 chrome.sync.getNotificationState = function(callback) {
   chrome.sync.getNotificationState_.call(callback);
+}
+
+chrome.sync.getNotificationInfo_ =
+    new AsyncFunction('getNotificationInfo');
+chrome.sync.getNotificationInfo = function(callback) {
+  chrome.sync.getNotificationInfo_.call(callback);
 }
 
 // Node lookup functions.
@@ -180,6 +188,14 @@ function onPassphraseAccepted(bootstrapToken) {
   chrome.sync.onPassphraseAccepted.dispatch_(bootstrapToken);
 }
 
+function onEncryptionComplete(encrypted_types) {
+  chrome.sync.onEncryptionComplete.dispatch_(encrypted_types);
+}
+
+function onMigrationNeededForTypes(model_types) {
+  chrome.sync.onMigrationNeededForTypes.dispatch_(model_types);
+}
+
 function onInitializationComplete() {
   chrome.sync.onInitializationComplete.dispatch_();
 }
@@ -220,4 +236,8 @@ function onGetRootNodeFinished(rootNode) {
 
 function onGetNodeByIdFinished(node) {
   chrome.sync.getNodeById_.handleReply(node);
+}
+
+function onGetNotificationInfoFinished(notificationInfo) {
+  chrome.sync.getNotificationInfo_.handleReply(notificationInfo);
 }

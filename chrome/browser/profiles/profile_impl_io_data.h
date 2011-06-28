@@ -7,10 +7,12 @@
 #pragma once
 
 #include "base/basictypes.h"
-#include "base/ref_counted.h"
+#include "base/hash_tables.h"
+#include "base/memory/ref_counted.h"
 #include "chrome/browser/profiles/profile_io_data.h"
 
 namespace net {
+class CookiePolicy;
 class NetworkDelegate;
 class DnsCertProvenanceChecker;
 class HttpTransactionFactory;
@@ -34,16 +36,25 @@ class ProfileImplIOData : public ProfileIOData {
               int cache_max_size,
               const FilePath& media_cache_path,
               int media_cache_max_size,
-              const FilePath& extensions_cookie_path);
+              const FilePath& extensions_cookie_path,
+              const FilePath& app_path);
 
+    const content::ResourceContext& GetResourceContext() const;
     scoped_refptr<ChromeURLRequestContextGetter>
         GetMainRequestContextGetter() const;
     scoped_refptr<ChromeURLRequestContextGetter>
         GetMediaRequestContextGetter() const;
     scoped_refptr<ChromeURLRequestContextGetter>
         GetExtensionsRequestContextGetter() const;
+    scoped_refptr<ChromeURLRequestContextGetter>
+        GetIsolatedAppRequestContextGetter(
+            const std::string& app_id) const;
 
    private:
+    typedef base::hash_map<std::string,
+                           scoped_refptr<ChromeURLRequestContextGetter> >
+        ChromeURLRequestContextGetterMap;
+
     // Lazily initialize ProfileParams. We do this on the calls to
     // Get*RequestContextGetter(), so we only initialize ProfileParams right
     // before posting a task to the IO thread to start using them. This prevents
@@ -63,6 +74,7 @@ class ProfileImplIOData : public ProfileIOData {
         media_request_context_getter_;
     mutable scoped_refptr<ChromeURLRequestContextGetter>
         extensions_request_context_getter_;
+    mutable ChromeURLRequestContextGetterMap app_request_context_getter_map_;
     const scoped_refptr<ProfileImplIOData> io_data_;
 
     Profile* const profile_;
@@ -86,34 +98,39 @@ class ProfileImplIOData : public ProfileIOData {
     FilePath media_cache_path;
     int media_cache_max_size;
     FilePath extensions_cookie_path;
-    IOThread* io_thread;
-
-    ProfileParams profile_params;
   };
+
+  typedef base::hash_map<std::string, net::HttpTransactionFactory* >
+      HttpTransactionFactoryMap;
 
   ProfileImplIOData();
   virtual ~ProfileImplIOData();
 
-  // Lazily initializes ProfileImplIOData.
-  virtual void LazyInitializeInternal() const;
-  virtual scoped_refptr<ChromeURLRequestContext>
-      AcquireMainRequestContext() const;
+  virtual void LazyInitializeInternal(ProfileParams* profile_params) const;
+  virtual scoped_refptr<RequestContext> InitializeAppRequestContext(
+      scoped_refptr<ChromeURLRequestContext> main_context,
+      const std::string& app_id) const;
   virtual scoped_refptr<ChromeURLRequestContext>
       AcquireMediaRequestContext() const;
   virtual scoped_refptr<ChromeURLRequestContext>
-      AcquireExtensionsRequestContext() const;
+      AcquireIsolatedAppRequestContext(
+          scoped_refptr<ChromeURLRequestContext> main_context,
+          const std::string& app_id) const;
 
   // Lazy initialization params.
   mutable scoped_ptr<LazyParams> lazy_params_;
 
-  mutable scoped_refptr<RequestContext> main_request_context_;
   mutable scoped_refptr<RequestContext> media_request_context_;
-  mutable scoped_refptr<RequestContext> extensions_request_context_;
 
-  mutable scoped_ptr<net::NetworkDelegate> network_delegate_;
-  mutable scoped_ptr<net::DnsCertProvenanceChecker> dns_cert_checker_;
   mutable scoped_ptr<net::HttpTransactionFactory> main_http_factory_;
   mutable scoped_ptr<net::HttpTransactionFactory> media_http_factory_;
+
+  // One HttpTransactionFactory per isolated app.
+  mutable HttpTransactionFactoryMap app_http_factory_map_;
+
+  // Parameters needed for isolated apps.
+  FilePath app_path_;
+  mutable bool clear_local_state_on_exit_;
 
   DISALLOW_COPY_AND_ASSIGN(ProfileImplIOData);
 };

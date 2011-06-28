@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,8 @@
 #include <string>
 
 #include "base/file_path.h"
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
+#include "base/version.h"
 #include "chrome/browser/extensions/extension_install_ui.h"
 #include "chrome/browser/extensions/sandboxed_extension_unpacker.h"
 #include "chrome/common/extensions/extension.h"
@@ -54,6 +55,22 @@ class CrxInstaller
   // crbug.com/54916
   static void SetWhitelistedInstallId(const std::string& id);
 
+  // Exempt the next extension install with |id| from displaying a confirmation
+  // prompt, since the user already agreed to the install via
+  // beginInstallWithManifest. We require that the extension manifest matches
+  // |parsed_manifest| which is what was used to prompt with. Ownership of
+  // |parsed_manifest| is transferred here.
+  static void SetWhitelistedManifest(const std::string& id,
+                                     DictionaryValue* parsed_manifest);
+
+  // Returns the previously stored manifest from a call to
+  // SetWhitelistedManifest.
+  static const DictionaryValue* GetWhitelistedManifest(const std::string& id);
+
+  // Removes any whitelisted manifest for |id| and returns it. The caller owns
+  // the return value and is responsible for deleting it.
+  static DictionaryValue* RemoveWhitelistedManifest(const std::string& id);
+
   // Returns whether |id| is whitelisted - only call this on the UI thread.
   static bool IsIdWhitelisted(const std::string& id);
 
@@ -92,6 +109,10 @@ class CrxInstaller
 
   const std::string& expected_id() const { return expected_id_; }
   void set_expected_id(const std::string& val) { expected_id_ = val; }
+
+  void set_expected_version(const Version& val) {
+    expected_version_.reset(val.Clone());
+  }
 
   bool delete_source() const { return delete_source_; }
   void set_delete_source(bool val) { delete_source_ = val; }
@@ -132,6 +153,10 @@ class CrxInstaller
                                const FilePath& extension_dir,
                                const Extension* extension);
 
+  // Returns true if we can skip confirmation because the install was
+  // whitelisted.
+  bool CanSkipConfirmation();
+
   // Runs on the UI thread. Confirms with the user (via ExtensionInstallUI) that
   // it is OK to install this extension.
   void ConfirmInstall();
@@ -163,6 +188,12 @@ class CrxInstaller
   // For updates and external installs we have an ID we're expecting the
   // extension to contain.
   std::string expected_id_;
+
+  // If non-NULL, contains the expected version of the extension we're
+  // installing.  Important for external sources, where claiming the wrong
+  // version could cause unnessisary unpacking of an extension at every
+  // restart.
+  scoped_ptr<Version> expected_version_;
 
   // Whether manual extension installation is enabled. We can't just check this
   // before trying to install because themes are special-cased to always be

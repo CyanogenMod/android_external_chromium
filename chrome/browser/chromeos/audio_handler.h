@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,10 @@
 #pragma once
 
 #include "base/basictypes.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/threading/thread.h"
 
+class InProcessBrowserTest;
 template <typename T> struct DefaultSingletonTraits;
 
 namespace chromeos {
@@ -21,7 +22,6 @@ class AudioHandler {
   static AudioHandler* GetInstance();
 
   // Get volume level in our internal 0-100% range, 0 being pure silence.
-  // Volume may go above 100% if another process changes PulseAudio's volume.
   // Returns default of 0 on error.  This function will block until the volume
   // is retrieved or fails.  Blocking call.
   double GetVolumePercent();
@@ -48,8 +48,7 @@ class AudioHandler {
 
  private:
   enum MixerType {
-    MIXER_TYPE_PULSEAUDIO = 0,
-    MIXER_TYPE_ALSA,
+    MIXER_TYPE_ALSA = 0,
     MIXER_TYPE_NONE,
   };
 
@@ -57,9 +56,13 @@ class AudioHandler {
   // and constructor/destructor private as recommended for Singletons.
   friend struct DefaultSingletonTraits<AudioHandler>;
 
+  friend class ::InProcessBrowserTest;
+  // Disable audio in browser tests. This is a workaround for the bug
+  // crosbug.com/17058. Remove this once it's fixed.
+  static void Disable();
+
   // Connect to the current mixer_type_.
   bool TryToConnect(bool async);
-  void UseNextMixer();
 
   void OnMixerInitialized(bool success);
 
@@ -81,7 +84,7 @@ class AudioHandler {
   double max_volume_db_;
   double min_volume_db_;
 
-  // Which mixer is being used, PulseAudio, ALSA or none.
+  // Which mixer is being used, ALSA or none.
   MixerType mixer_type_;
 
   DISALLOW_COPY_AND_ASSIGN(AudioHandler);
@@ -92,4 +95,3 @@ class AudioHandler {
 DISABLE_RUNNABLE_METHOD_REFCOUNT(chromeos::AudioHandler);
 
 #endif  // CHROME_BROWSER_CHROMEOS_AUDIO_HANDLER_H_
-

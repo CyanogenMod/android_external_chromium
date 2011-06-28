@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,14 +10,19 @@
 #include <vector>
 
 #include "base/gtest_prod_util.h"
+#include "base/memory/ref_counted.h"
+#include "base/task.h"
+#include "chrome/browser/profiles/profile_keyed_service.h"
 #include "chrome/browser/tab_contents/background_contents.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
-#include "chrome/common/window_container_type.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
+#include "content/common/window_container_type.h"
 #include "googleurl/src/gurl.h"
 #include "webkit/glue/window_open_disposition.h"
 
 class CommandLine;
+class DictionaryValue;
+class NotificationDelegate;
 class PrefService;
 class Profile;
 class TabContents;
@@ -37,7 +42,8 @@ struct BackgroundContentsOpenedDetails;
 // BackgroundContents and their parent app, and shutting them down when the
 // parent app is unloaded.
 class BackgroundContentsService : private NotificationObserver,
-                                  public BackgroundContents::Delegate {
+                                  public BackgroundContents::Delegate,
+                                  public ProfileKeyedService {
  public:
   BackgroundContentsService(Profile* profile, const CommandLine* command_line);
   virtual ~BackgroundContentsService();
@@ -74,10 +80,18 @@ class BackgroundContentsService : private NotificationObserver,
                                                const string16& frame_name,
                                                const string16& application_id);
 
+  // Load the manifest-specified background page for the specified hosted app.
+  // If the manifest doesn't specify one, then load the BackgroundContents
+  // registered in the pref. This is typically used to reload a crashed
+  // background page.
+  void LoadBackgroundContentsForExtension(Profile* profile,
+                                          const std::string& extension_id);
+
  private:
   friend class BackgroundContentsServiceTest;
   friend class MockBackgroundContents;
   friend class TaskManagerBrowserTest;
+
   FRIEND_TEST_ALL_PREFIXES(BackgroundContentsServiceTest,
                            BackgroundContentsCreateDestroy);
   FRIEND_TEST_ALL_PREFIXES(BackgroundContentsServiceTest,
@@ -97,6 +111,16 @@ class BackgroundContentsService : private NotificationObserver,
 
   // Loads all registered BackgroundContents at startup.
   void LoadBackgroundContentsFromPrefs(Profile* profile);
+
+  // Load a BackgroundContent; the settings are read from the provided
+  // dictionary.
+  void LoadBackgroundContentsFromDictionary(Profile* profile,
+                                            const std::string& extension_id,
+                                            const DictionaryValue* contents);
+
+  // Load the manifest-specified BackgroundContents for all apps for the
+  // profile.
+  void LoadBackgroundContentsFromManifests(Profile* profile);
 
   // Creates a single BackgroundContents associated with the specified |appid|,
   // creates an associated RenderView with the name specified by |frame_name|,
@@ -129,7 +153,7 @@ class BackgroundContentsService : private NotificationObserver,
   bool IsTracked(BackgroundContents* contents) const;
 
   // PrefService used to store list of background pages (or NULL if this is
-  // running under an off-the-record profile).
+  // running under an incognito profile).
   PrefService* prefs_;
   NotificationRegistrar registrar_;
 

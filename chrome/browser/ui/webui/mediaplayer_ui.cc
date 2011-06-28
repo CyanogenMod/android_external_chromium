@@ -6,18 +6,19 @@
 
 #include "base/command_line.h"
 #include "base/logging.h"
+#include "base/memory/singleton.h"
+#include "base/memory/weak_ptr.h"
 #include "base/message_loop.h"
 #include "base/path_service.h"
-#include "base/singleton.h"
 #include "base/string_piece.h"
 #include "base/string_util.h"
 #include "base/threading/thread.h"
 #include "base/time.h"
 #include "base/values.h"
-#include "base/weak_ptr.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/download/download_manager.h"
 #include "chrome/browser/download/download_util.h"
+#include "chrome/browser/extensions/file_manager_util.h"
 #include "chrome/browser/history/history_types.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/profiles/profile.h"
@@ -66,7 +67,7 @@ class MediaplayerUIHTMLSource : public ChromeURLDataManager::DataSource {
   // Called when the network layer has requested a resource underneath
   // the path we registered.
   virtual void StartDataRequest(const std::string& path,
-                                bool is_off_the_record,
+                                bool is_incognito,
                                 int request_id);
   virtual std::string GetMimeType(const std::string&) const {
     return "text/html";
@@ -114,7 +115,7 @@ class MediaplayerHandler : public WebUIMessageHandler,
 
   void PlaybackMediaFile(const GURL& url);
 
-  void EnqueueMediaFile(const GURL& url);
+  void EnqueueMediaFileUrl(const GURL& url);
 
   void GetPlaylistValue(ListValue& args);
 
@@ -160,7 +161,7 @@ MediaplayerUIHTMLSource::MediaplayerUIHTMLSource(bool is_playlist)
 }
 
 void MediaplayerUIHTMLSource::StartDataRequest(const std::string& path,
-                                               bool is_off_the_record,
+                                               bool is_incognito,
                                                int request_id) {
   DictionaryValue localized_strings;
   // TODO(dhg): Fix the strings that are currently hardcoded so they
@@ -211,7 +212,7 @@ WebUIMessageHandler* MediaplayerHandler::Attach(WebUI* web_ui) {
   // Create our favicon data source.
   Profile* profile = web_ui->GetProfile();
   profile->GetChromeURLDataManager()->AddDataSource(
-      new FavIconSource(profile));
+      new FaviconSource(profile));
 
   return WebUIMessageHandler::Attach(web_ui);
 }
@@ -252,9 +253,8 @@ void MediaplayerHandler::GetPlaylistValue(ListValue& urls) {
 }
 
 void MediaplayerHandler::PlaybackMediaFile(const GURL& url) {
-  current_playlist_.clear();
   current_playlist_.push_back(MediaplayerHandler::MediaUrl(url));
-  FirePlaylistChanged(url.spec(), true, 0);
+  FirePlaylistChanged(url.spec(), true, current_playlist_.size() - 1);
   MediaPlayer::GetInstance()->NotifyPlaylistChanged();
 }
 
@@ -285,7 +285,7 @@ void MediaplayerHandler::FirePlaylistChanged(const std::string& path,
   info_value.SetString(kPropertyPath, path);
   info_value.SetBoolean(kPropertyForce, force);
   info_value.SetInteger(kPropertyOffset, offset);
-  web_ui_->CallJavascriptFunction(L"playlistChanged", info_value, urls);
+  web_ui_->CallJavascriptFunction("playlistChanged", info_value, urls);
 }
 
 void MediaplayerHandler::SetCurrentPlaylistOffset(int offset) {
@@ -300,7 +300,7 @@ void MediaplayerHandler::SetCurrentPlaylist(
   FirePlaylistChanged(std::string(), false, current_offset_);
 }
 
-void MediaplayerHandler::EnqueueMediaFile(const GURL& url) {
+void MediaplayerHandler::EnqueueMediaFileUrl(const GURL& url) {
   current_playlist_.push_back(MediaplayerHandler::MediaUrl(url));
   FirePlaylistChanged(url.spec(), false, current_offset_);
   MediaPlayer::GetInstance()->NotifyPlaylistChanged();
@@ -357,37 +357,43 @@ MediaPlayer* MediaPlayer::GetInstance() {
   return Singleton<MediaPlayer>::get();
 }
 
-void MediaPlayer::EnqueueMediaURL(const GURL& url, Browser* creator) {
-  if (!Enabled()) {
-    return;
+void MediaPlayer::EnqueueMediaFile(Profile* profile, const FilePath& file_path,
+                                   Browser* creator) {
+  static GURL origin_url(kMediaplayerURL);
+  GURL url;
+  if (!FileManagerUtil::ConvertFileToFileSystemUrl(profile, file_path,
+                                                   origin_url, &url)) {
   }
+  EnqueueMediaFileUrl(url, creator);
+}
+
+void MediaPlayer::EnqueueMediaFileUrl(const GURL& url, Browser* creator) {
   if (handler_ == NULL) {
     unhandled_urls_.push_back(url);
     PopupMediaPlayer(creator);
   } else {
-    handler_->EnqueueMediaFile(url);
+    handler_->EnqueueMediaFileUrl(url);
   }
 }
 
-void MediaPlayer::ForcePlayMediaURL(const GURL& url, Browser* creator) {
-  if (!Enabled()) {
-    return;
+void MediaPlayer::ForcePlayMediaFile(Profile* profile,
+                                     const FilePath& file_path,
+                                     Browser* creator) {
+  static GURL origin_url(kMediaplayerURL);
+  GURL url;
+  if (!FileManagerUtil::ConvertFileToFileSystemUrl(profile, file_path,
+                                                   origin_url, &url)) {
   }
+  ForcePlayMediaURL(url, creator);
+}
+
+void MediaPlayer::ForcePlayMediaURL(const GURL& url, Browser* creator) {
   if (handler_ == NULL) {
     unhandled_urls_.push_back(url);
     PopupMediaPlayer(creator);
   } else {
     handler_->PlaybackMediaFile(url);
   }
-}
-
-bool MediaPlayer::Enabled() {
-#if defined(OS_CHROMEOS)
-  return CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kEnableMediaPlayer);
-#else
-  return true;
-#endif
 }
 
 void MediaPlayer::TogglePlaylistWindowVisible() {
@@ -425,7 +431,7 @@ void MediaPlayer::SetNewHandler(MediaplayerHandler* handler,
   mediaplayer_tab_ = contents;
   RegisterListeners();
   for (size_t x = 0; x < unhandled_urls_.size(); x++) {
-    handler_->EnqueueMediaFile(unhandled_urls_[x]);
+    handler_->EnqueueMediaFileUrl(unhandled_urls_[x]);
   }
   unhandled_urls_.clear();
 }
@@ -569,7 +575,7 @@ net::URLRequestJob* MediaPlayer::MaybeInterceptResponse(
   if (supported_mime_types_.find(mime_type) != supported_mime_types_.end()) {
     if (request->referrer() != chrome::kChromeUIMediaplayerURL &&
         !request->referrer().empty()) {
-      EnqueueMediaURL(request->url(), NULL);
+      EnqueueMediaFileUrl(request->url(), NULL);
       request->Cancel();
     }
   }

@@ -34,7 +34,6 @@ class BookmarkEditorGtkTest : public testing::Test {
 
   virtual void SetUp() {
     profile_.reset(new TestingProfile());
-    profile_->set_has_history_service(true);
     profile_->CreateBookmarkModel(true);
     profile_->BlockUntilBookmarkModelLoaded();
 
@@ -78,17 +77,17 @@ class BookmarkEditorGtkTest : public testing::Test {
     model_->AddURL(model_->GetBookmarkBarNode(), 0, ASCIIToUTF16("a"),
                    GURL(test_base + "a"));
     const BookmarkNode* f1 =
-        model_->AddGroup(model_->GetBookmarkBarNode(), 1, ASCIIToUTF16("F1"));
+        model_->AddFolder(model_->GetBookmarkBarNode(), 1, ASCIIToUTF16("F1"));
     model_->AddURL(f1, 0, ASCIIToUTF16("f1a"), GURL(test_base + "f1a"));
-    const BookmarkNode* f11 = model_->AddGroup(f1, 1, ASCIIToUTF16("F11"));
+    const BookmarkNode* f11 = model_->AddFolder(f1, 1, ASCIIToUTF16("F11"));
     model_->AddURL(f11, 0, ASCIIToUTF16("f11a"), GURL(test_base + "f11a"));
-    model_->AddGroup(model_->GetBookmarkBarNode(), 2, ASCIIToUTF16("F2"));
+    model_->AddFolder(model_->GetBookmarkBarNode(), 2, ASCIIToUTF16("F2"));
 
     // Children of the other node.
     model_->AddURL(model_->other_node(), 0, ASCIIToUTF16("oa"),
                    GURL(test_base + "oa"));
     const BookmarkNode* of1 =
-        model_->AddGroup(model_->other_node(), 1, ASCIIToUTF16("OF1"));
+        model_->AddFolder(model_->other_node(), 1, ASCIIToUTF16("OF1"));
     model_->AddURL(of1, 0, ASCIIToUTF16("of1a"), GURL(test_base + "of1a"));
   }
 };
@@ -233,11 +232,11 @@ TEST_F(BookmarkEditorGtkTest, MoveToNewParent) {
 
   // Create two nodes: "F21" as a child of "F2" and "F211" as a child of "F21".
   GtkTreeIter f21_iter;
-  editor.AddNewGroup(&f2_iter, &f21_iter);
+  editor.AddNewFolder(&f2_iter, &f21_iter);
   gtk_tree_store_set(editor.tree_store_, &f21_iter,
                      bookmark_utils::FOLDER_NAME, "F21", -1);
   GtkTreeIter f211_iter;
-  editor.AddNewGroup(&f21_iter, &f211_iter);
+  editor.AddNewFolder(&f21_iter, &f211_iter);
   gtk_tree_store_set(editor.tree_store_, &f211_iter,
                      bookmark_utils::FOLDER_NAME, "F211", -1);
 
@@ -250,7 +249,7 @@ TEST_F(BookmarkEditorGtkTest, MoveToNewParent) {
   const BookmarkNode* mf2 = bb_node->GetChild(1);
 
   // F2 in the model should have two children now: F21 and the node edited.
-  ASSERT_EQ(2, mf2->GetChildCount());
+  ASSERT_EQ(2, mf2->child_count());
   // F21 should be first.
   ASSERT_EQ(ASCIIToUTF16("F21"), mf2->GetChild(0)->GetTitle());
   // Then a.
@@ -258,7 +257,7 @@ TEST_F(BookmarkEditorGtkTest, MoveToNewParent) {
 
   // F21 should have one child, F211.
   const BookmarkNode* mf21 = mf2->GetChild(0);
-  ASSERT_EQ(1, mf21->GetChildCount());
+  ASSERT_EQ(1, mf21->child_count());
   ASSERT_EQ(ASCIIToUTF16("F211"), mf21->GetChild(0)->GetTitle());
 }
 
@@ -279,7 +278,7 @@ TEST_F(BookmarkEditorGtkTest, NewURL) {
 
   const BookmarkNode* bb_node =
       profile_->GetBookmarkModel()->GetBookmarkBarNode();
-  ASSERT_EQ(4, bb_node->GetChildCount());
+  ASSERT_EQ(4, bb_node->child_count());
 
   const BookmarkNode* new_node = bb_node->GetChild(3);
   EXPECT_EQ(ASCIIToUTF16("new_a"), new_node->GetTitle());
@@ -300,7 +299,7 @@ TEST_F(BookmarkEditorGtkTest, ChangeURLNoTree) {
   editor.ApplyEdits(NULL);
 
   const BookmarkNode* other_node = profile_->GetBookmarkModel()->other_node();
-  ASSERT_EQ(2, other_node->GetChildCount());
+  ASSERT_EQ(2, other_node->child_count());
 
   const BookmarkNode* new_node = other_node->GetChild(0);
 
@@ -319,7 +318,7 @@ TEST_F(BookmarkEditorGtkTest, ChangeTitleNoTree) {
   editor.ApplyEdits();
 
   const BookmarkNode* other_node = profile_->GetBookmarkModel()->other_node();
-  ASSERT_EQ(2, other_node->GetChildCount());
+  ASSERT_EQ(2, other_node->child_count());
 
   const BookmarkNode* new_node = other_node->GetChild(0);
   EXPECT_EQ(ASCIIToUTF16("new_a"), new_node->GetTitle());

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,13 +10,15 @@
 
 #include "base/basictypes.h"
 #include "base/format_macros.h"
+#include "base/memory/scoped_ptr.h"
+#include "base/memory/scoped_temp_dir.h"
 #include "base/message_loop.h"
-#include "base/scoped_ptr.h"
-#include "base/scoped_temp_dir.h"
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
+#include "chrome/browser/sync/engine/http_post_provider_factory.h"
+#include "chrome/browser/sync/engine/http_post_provider_interface.h"
 #include "chrome/browser/sync/engine/model_safe_worker.h"
 #include "chrome/browser/sync/engine/syncapi.h"
 #include "chrome/browser/sync/js_arg_list.h"
@@ -24,6 +26,8 @@
 #include "chrome/browser/sync/js_event_handler.h"
 #include "chrome/browser/sync/js_event_router.h"
 #include "chrome/browser/sync/js_test_util.h"
+#include "chrome/browser/sync/notifier/sync_notifier.h"
+#include "chrome/browser/sync/notifier/sync_notifier_observer.h"
 #include "chrome/browser/sync/protocol/password_specifics.pb.h"
 #include "chrome/browser/sync/protocol/proto_value_conversions.h"
 #include "chrome/browser/sync/sessions/sync_session.h"
@@ -32,10 +36,9 @@
 #include "chrome/browser/sync/syncable/syncable.h"
 #include "chrome/browser/sync/syncable/syncable_id.h"
 #include "chrome/browser/sync/util/cryptographer.h"
-#include "chrome/test/sync/engine/test_directory_setter_upper.h"
+#include "chrome/test/sync/engine/test_user_share.h"
 #include "chrome/test/values_test_util.h"
 #include "content/browser/browser_thread.h"
-#include "jingle/notifier/base/notifier_options.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -54,6 +57,7 @@ using syncable::ModelTypeSet;
 using test::ExpectDictionaryValue;
 using test::ExpectStringValue;
 using testing::_;
+using testing::AtLeast;
 using testing::Invoke;
 using testing::SaveArg;
 using testing::StrictMock;
@@ -164,34 +168,29 @@ int64 MakeServerNodeForType(UserShare* share,
 class SyncApiTest : public testing::Test {
  public:
   virtual void SetUp() {
-    setter_upper_.SetUp();
-    share_.dir_manager.reset(setter_upper_.manager());
-    share_.name = setter_upper_.name();
+    test_user_share_.SetUp();
   }
 
   virtual void TearDown() {
-    // |share_.dir_manager| does not actually own its value.
-    ignore_result(share_.dir_manager.release());
-    setter_upper_.TearDown();
+    test_user_share_.TearDown();
   }
 
  protected:
-  UserShare share_;
-  browser_sync::TestDirectorySetterUpper setter_upper_;
+  browser_sync::TestUserShare test_user_share_;
 };
 
 TEST_F(SyncApiTest, SanityCheckTest) {
   {
-    ReadTransaction trans(&share_);
+    ReadTransaction trans(test_user_share_.user_share());
     EXPECT_TRUE(trans.GetWrappedTrans() != NULL);
   }
   {
-    WriteTransaction trans(&share_);
+    WriteTransaction trans(test_user_share_.user_share());
     EXPECT_TRUE(trans.GetWrappedTrans() != NULL);
   }
   {
     // No entries but root should exist
-    ReadTransaction trans(&share_);
+    ReadTransaction trans(test_user_share_.user_share());
     ReadNode node(&trans);
     // Metahandle 1 can be root, sanity check 2
     EXPECT_FALSE(node.InitByIdLookup(2));
@@ -200,16 +199,17 @@ TEST_F(SyncApiTest, SanityCheckTest) {
 
 TEST_F(SyncApiTest, BasicTagWrite) {
   {
-    ReadTransaction trans(&share_);
+    ReadTransaction trans(test_user_share_.user_share());
     ReadNode root_node(&trans);
     root_node.InitByRootLookup();
     EXPECT_EQ(root_node.GetFirstChildId(), 0);
   }
 
-  ignore_result(MakeNode(&share_, syncable::BOOKMARKS, "testtag"));
+  ignore_result(MakeNode(test_user_share_.user_share(),
+                         syncable::BOOKMARKS, "testtag"));
 
   {
-    ReadTransaction trans(&share_);
+    ReadTransaction trans(test_user_share_.user_share());
     ReadNode node(&trans);
     EXPECT_TRUE(node.InitByClientTagLookup(syncable::BOOKMARKS,
         "testtag"));
@@ -239,18 +239,21 @@ TEST_F(SyncApiTest, GenerateSyncableHash) {
 
 TEST_F(SyncApiTest, ModelTypesSiloed) {
   {
-    WriteTransaction trans(&share_);
+    WriteTransaction trans(test_user_share_.user_share());
     ReadNode root_node(&trans);
     root_node.InitByRootLookup();
     EXPECT_EQ(root_node.GetFirstChildId(), 0);
   }
 
-  ignore_result(MakeNode(&share_, syncable::BOOKMARKS, "collideme"));
-  ignore_result(MakeNode(&share_, syncable::PREFERENCES, "collideme"));
-  ignore_result(MakeNode(&share_, syncable::AUTOFILL, "collideme"));
+  ignore_result(MakeNode(test_user_share_.user_share(),
+                         syncable::BOOKMARKS, "collideme"));
+  ignore_result(MakeNode(test_user_share_.user_share(),
+                         syncable::PREFERENCES, "collideme"));
+  ignore_result(MakeNode(test_user_share_.user_share(),
+                         syncable::AUTOFILL, "collideme"));
 
   {
-    ReadTransaction trans(&share_);
+    ReadTransaction trans(test_user_share_.user_share());
 
     ReadNode bookmarknode(&trans);
     EXPECT_TRUE(bookmarknode.InitByClientTagLookup(syncable::BOOKMARKS,
@@ -272,13 +275,13 @@ TEST_F(SyncApiTest, ModelTypesSiloed) {
 
 TEST_F(SyncApiTest, ReadMissingTagsFails) {
   {
-    ReadTransaction trans(&share_);
+    ReadTransaction trans(test_user_share_.user_share());
     ReadNode node(&trans);
     EXPECT_FALSE(node.InitByClientTagLookup(syncable::BOOKMARKS,
         "testtag"));
   }
   {
-    WriteTransaction trans(&share_);
+    WriteTransaction trans(test_user_share_.user_share());
     WriteNode node(&trans);
     EXPECT_FALSE(node.InitByClientTagLookup(syncable::BOOKMARKS,
         "testtag"));
@@ -293,7 +296,7 @@ TEST_F(SyncApiTest, TestDeleteBehavior) {
   std::wstring test_title(L"test1");
 
   {
-    WriteTransaction trans(&share_);
+    WriteTransaction trans(test_user_share_.user_share());
     ReadNode root_node(&trans);
     root_node.InitByRootLookup();
 
@@ -314,7 +317,7 @@ TEST_F(SyncApiTest, TestDeleteBehavior) {
 
   // Ensure we can delete something with a tag.
   {
-    WriteTransaction trans(&share_);
+    WriteTransaction trans(test_user_share_.user_share());
     WriteNode wnode(&trans);
     EXPECT_TRUE(wnode.InitByClientTagLookup(syncable::BOOKMARKS,
         "testtag"));
@@ -327,7 +330,7 @@ TEST_F(SyncApiTest, TestDeleteBehavior) {
   // Lookup of a node which was deleted should return failure,
   // but have found some data about the node.
   {
-    ReadTransaction trans(&share_);
+    ReadTransaction trans(test_user_share_.user_share());
     ReadNode node(&trans);
     EXPECT_FALSE(node.InitByClientTagLookup(syncable::BOOKMARKS,
         "testtag"));
@@ -337,7 +340,7 @@ TEST_F(SyncApiTest, TestDeleteBehavior) {
   }
 
   {
-    WriteTransaction trans(&share_);
+    WriteTransaction trans(test_user_share_.user_share());
     ReadNode folder_node(&trans);
     EXPECT_TRUE(folder_node.InitByIdLookup(folder_id));
 
@@ -354,7 +357,7 @@ TEST_F(SyncApiTest, TestDeleteBehavior) {
 
   // Now look up should work.
   {
-    ReadTransaction trans(&share_);
+    ReadTransaction trans(test_user_share_.user_share());
     ReadNode node(&trans);
     EXPECT_TRUE(node.InitByClientTagLookup(syncable::BOOKMARKS,
         "testtag"));
@@ -365,9 +368,12 @@ TEST_F(SyncApiTest, TestDeleteBehavior) {
 
 TEST_F(SyncApiTest, WriteAndReadPassword) {
   KeyParams params = {"localhost", "username", "passphrase"};
-  share_.dir_manager->cryptographer()->AddKey(params);
   {
-    WriteTransaction trans(&share_);
+    ReadTransaction trans(test_user_share_.user_share());
+    trans.GetCryptographer()->AddKey(params);
+  }
+  {
+    WriteTransaction trans(test_user_share_.user_share());
     ReadNode root_node(&trans);
     root_node.InitByRootLookup();
 
@@ -379,7 +385,7 @@ TEST_F(SyncApiTest, WriteAndReadPassword) {
     password_node.SetPasswordSpecifics(data);
   }
   {
-    ReadTransaction trans(&share_);
+    ReadTransaction trans(test_user_share_.user_share());
     ReadNode root_node(&trans);
     root_node.InitByRootLookup();
 
@@ -420,25 +426,23 @@ void CheckNodeValue(const BaseNode& node, const DictionaryValue& value) {
       ADD_FAILURE();
     }
   }
-  {
-    scoped_ptr<DictionaryValue> expected_specifics(
-        browser_sync::EntitySpecificsToValue(
-            node.GetEntry()->Get(syncable::SPECIFICS)));
-    Value* specifics = NULL;
-    EXPECT_TRUE(value.Get("specifics", &specifics));
-    EXPECT_TRUE(Value::Equals(specifics, expected_specifics.get()));
-  }
   ExpectInt64Value(node.GetExternalId(), value, "externalId");
   ExpectInt64Value(node.GetPredecessorId(), value, "predecessorId");
   ExpectInt64Value(node.GetSuccessorId(), value, "successorId");
   ExpectInt64Value(node.GetFirstChildId(), value, "firstChildId");
+  {
+    scoped_ptr<DictionaryValue> expected_entry(node.GetEntry()->ToValue());
+    Value* entry = NULL;
+    EXPECT_TRUE(value.Get("entry", &entry));
+    EXPECT_TRUE(Value::Equals(entry, expected_entry.get()));
+  }
   EXPECT_EQ(11u, value.size());
 }
 
 }  // namespace
 
 TEST_F(SyncApiTest, BaseNodeToValue) {
-  ReadTransaction trans(&share_);
+  ReadTransaction trans(test_user_share_.user_share());
   ReadNode node(&trans);
   node.InitByRootLookup();
   scoped_ptr<DictionaryValue> value(node.ToValue());
@@ -518,10 +522,11 @@ class MockExtraChangeRecordData
 }  // namespace
 
 TEST_F(SyncApiTest, ChangeRecordToValue) {
-  int64 child_id = MakeNode(&share_, syncable::BOOKMARKS, "testtag");
+  int64 child_id = MakeNode(test_user_share_.user_share(),
+                            syncable::BOOKMARKS, "testtag");
   sync_pb::EntitySpecifics child_specifics;
   {
-    ReadTransaction trans(&share_);
+    ReadTransaction trans(test_user_share_.user_share());
     ReadNode node(&trans);
     EXPECT_TRUE(node.InitByIdLookup(child_id));
     child_specifics = node.GetEntry()->Get(syncable::SPECIFICS);
@@ -529,7 +534,7 @@ TEST_F(SyncApiTest, ChangeRecordToValue) {
 
   // Add
   {
-    ReadTransaction trans(&share_);
+    ReadTransaction trans(test_user_share_.user_share());
     SyncManager::ChangeRecord record;
     record.action = SyncManager::ChangeRecord::ACTION_ADD;
     record.id = 1;
@@ -541,7 +546,7 @@ TEST_F(SyncApiTest, ChangeRecordToValue) {
 
   // Update
   {
-    ReadTransaction trans(&share_);
+    ReadTransaction trans(test_user_share_.user_share());
     SyncManager::ChangeRecord record;
     record.action = SyncManager::ChangeRecord::ACTION_UPDATE;
     record.id = child_id;
@@ -553,7 +558,7 @@ TEST_F(SyncApiTest, ChangeRecordToValue) {
 
   // Delete (no extra)
   {
-    ReadTransaction trans(&share_);
+    ReadTransaction trans(test_user_share_.user_share());
     SyncManager::ChangeRecord record;
     record.action = SyncManager::ChangeRecord::ACTION_DELETE;
     record.id = child_id + 1;
@@ -564,7 +569,7 @@ TEST_F(SyncApiTest, ChangeRecordToValue) {
 
   // Delete (with extra)
   {
-    ReadTransaction trans(&share_);
+    ReadTransaction trans(test_user_share_.user_share());
     SyncManager::ChangeRecord record;
     record.action = SyncManager::ChangeRecord::ACTION_DELETE;
     record.id = child_id + 1;
@@ -612,28 +617,67 @@ class SyncManagerObserverMock : public SyncManager::Observer {
   MOCK_METHOD1(OnPassphraseRequired, void(bool));  // NOLINT
   MOCK_METHOD0(OnPassphraseFailed, void());  // NOLINT
   MOCK_METHOD1(OnPassphraseAccepted, void(const std::string&));  // NOLINT
-  MOCK_METHOD0(OnPaused, void());  // NOLINT
-  MOCK_METHOD0(OnResumed, void());  // NOLINT
   MOCK_METHOD0(OnStopSyncingPermanently, void());  // NOLINT
   MOCK_METHOD1(OnUpdatedToken, void(const std::string&));  // NOLINT
+  MOCK_METHOD1(OnMigrationNeededForTypes, void(const ModelTypeSet&));
   MOCK_METHOD0(OnClearServerDataFailed, void());  // NOLINT
   MOCK_METHOD0(OnClearServerDataSucceeded, void());  // NOLINT
   MOCK_METHOD1(OnEncryptionComplete, void(const ModelTypeSet&));  // NOLINT
 };
 
+class SyncNotifierMock : public sync_notifier::SyncNotifier {
+ public:
+  MOCK_METHOD1(AddObserver, void(sync_notifier::SyncNotifierObserver*));
+  MOCK_METHOD1(RemoveObserver, void(sync_notifier::SyncNotifierObserver*));
+  MOCK_METHOD1(SetState, void(const std::string&));
+  MOCK_METHOD2(UpdateCredentials,
+               void(const std::string&, const std::string&));
+  MOCK_METHOD1(UpdateEnabledTypes,
+               void(const syncable::ModelTypeSet&));
+  MOCK_METHOD0(SendNotification, void());
+};
+
 class SyncManagerTest : public testing::Test,
                         public ModelSafeWorkerRegistrar {
  protected:
-  SyncManagerTest() : ui_thread_(BrowserThread::UI, &ui_loop_) {}
+  SyncManagerTest()
+      : ui_thread_(BrowserThread::UI, &ui_loop_),
+        sync_notifier_observer_(NULL),
+        update_enabled_types_call_count_(0) {}
 
   // Test implementation.
   void SetUp() {
     ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
+
+    SyncCredentials credentials;
+    credentials.email = "foo@bar.com";
+    credentials.sync_token = "sometoken";
+
+    sync_notifier_mock_.reset(new StrictMock<SyncNotifierMock>());
+    EXPECT_CALL(*sync_notifier_mock_, AddObserver(_)).
+        WillOnce(Invoke(this, &SyncManagerTest::SyncNotifierAddObserver));
+    EXPECT_CALL(*sync_notifier_mock_, SetState(""));
+    EXPECT_CALL(*sync_notifier_mock_,
+                UpdateCredentials(credentials.email, credentials.sync_token));
+    EXPECT_CALL(*sync_notifier_mock_, UpdateEnabledTypes(_)).
+        Times(AtLeast(1)).
+        WillRepeatedly(
+            Invoke(this, &SyncManagerTest::SyncNotifierUpdateEnabledTypes));
+    EXPECT_CALL(*sync_notifier_mock_, RemoveObserver(_)).
+        WillOnce(Invoke(this, &SyncManagerTest::SyncNotifierRemoveObserver));
+
+    EXPECT_FALSE(sync_notifier_observer_);
+
     sync_manager_.Init(temp_dir_.path(), "bogus", 0, false,
                        new TestHttpPostProviderFactory(), this, "bogus",
-                       SyncCredentials(), notifier::NotifierOptions(),
-                       "", true /* setup_for_test_mode */);
+                       credentials, sync_notifier_mock_.get(), "",
+                       true /* setup_for_test_mode */);
+
+    EXPECT_TRUE(sync_notifier_observer_);
     sync_manager_.AddObserver(&observer_);
+
+    EXPECT_EQ(1, update_enabled_types_call_count_);
+
     ModelSafeRoutingInfo routes;
     GetModelSafeRoutingInfo(&routes);
     for (ModelSafeRoutingInfo::iterator i = routes.begin(); i != routes.end();
@@ -650,6 +694,7 @@ class SyncManagerTest : public testing::Test,
   void TearDown() {
     sync_manager_.RemoveObserver(&observer_);
     sync_manager_.Shutdown();
+    EXPECT_FALSE(sync_notifier_observer_);
   }
 
   // ModelSafeWorkerRegistrar implementation.
@@ -674,14 +719,14 @@ class SyncManagerTest : public testing::Test,
       return false;
 
     // Set the nigori cryptographer information.
-    Cryptographer* cryptographer = share->dir_manager->cryptographer();
+    WriteTransaction trans(share);
+    Cryptographer* cryptographer = trans.GetCryptographer();
     if (!cryptographer)
       return false;
     KeyParams params = {"localhost", "dummy", "foobar"};
     cryptographer->AddKey(params);
     sync_pb::NigoriSpecifics nigori;
     cryptographer->GetKeys(nigori.mutable_encrypted());
-    WriteTransaction trans(share);
     WriteNode node(&trans);
     node.InitByIdLookup(nigori_id);
     node.SetNigoriSpecifics(nigori);
@@ -694,6 +739,31 @@ class SyncManagerTest : public testing::Test,
     return type_roots_[type];
   }
 
+  void SyncNotifierAddObserver(
+      sync_notifier::SyncNotifierObserver* sync_notifier_observer) {
+    EXPECT_EQ(NULL, sync_notifier_observer_);
+    sync_notifier_observer_ = sync_notifier_observer;
+  }
+
+  void SyncNotifierRemoveObserver(
+      sync_notifier::SyncNotifierObserver* sync_notifier_observer) {
+    EXPECT_EQ(sync_notifier_observer_, sync_notifier_observer);
+    sync_notifier_observer_ = NULL;
+  }
+
+  void SyncNotifierUpdateEnabledTypes(
+      const syncable::ModelTypeSet& types) {
+    ModelSafeRoutingInfo routes;
+    GetModelSafeRoutingInfo(&routes);
+    syncable::ModelTypeSet expected_types;
+    for (ModelSafeRoutingInfo::const_iterator it = routes.begin();
+         it != routes.end(); ++it) {
+      expected_types.insert(it->first);
+    }
+    EXPECT_EQ(expected_types, types);
+    ++update_enabled_types_call_count_;
+  }
+
  private:
   // Needed by |ui_thread_|.
   MessageLoopForUI ui_loop_;
@@ -703,11 +773,21 @@ class SyncManagerTest : public testing::Test,
   ScopedTempDir temp_dir_;
   // Sync Id's for the roots of the enabled datatypes.
   std::map<ModelType, int64> type_roots_;
+  scoped_ptr<StrictMock<SyncNotifierMock> > sync_notifier_mock_;
 
  protected:
   SyncManager sync_manager_;
   StrictMock<SyncManagerObserverMock> observer_;
+  sync_notifier::SyncNotifierObserver* sync_notifier_observer_;
+  int update_enabled_types_call_count_;
 };
+
+TEST_F(SyncManagerTest, UpdateEnabledTypes) {
+  EXPECT_EQ(1, update_enabled_types_call_count_);
+  // Triggers SyncNotifierUpdateEnabledTypes.
+  sync_manager_.UpdateEnabledTypes();
+  EXPECT_EQ(2, update_enabled_types_call_count_);
+}
 
 TEST_F(SyncManagerTest, ParentJsEventRouter) {
   StrictMock<MockJsEventRouter> event_router;

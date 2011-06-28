@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/param.h>
 #include <sys/stat.h>
 #include <sys/sysctl.h>
 #include <sys/types.h>
@@ -30,8 +31,8 @@
 #include "base/basictypes.h"
 #include "base/eintr_wrapper.h"
 #include "base/logging.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/safe_strerror_posix.h"
-#include "base/scoped_ptr.h"
 #include "base/string_piece.h"
 #include "base/stringprintf.h"
 
@@ -105,7 +106,7 @@ void DemangleSymbols(std::string* text) {
 // names and attach these. Otherwise just use raw addresses. Returns true
 // if any symbol name is resolved.  Returns false on error and *may* fill
 // in |error_message| if an error message is available.
-bool GetBacktraceStrings(void **trace, int size,
+bool GetBacktraceStrings(void *const *trace, int size,
                          std::vector<std::string>* trace_strings,
                          std::string* error_message) {
 #ifdef ANDROID
@@ -168,11 +169,16 @@ StackTrace::StackTrace() {
   count_ = std::max(backtrace(trace_, arraysize(trace_)), 0);
 }
 
+<<<<<<< HEAD
 void StackTrace::PrintBacktrace() {
 #if (defined(OS_MACOSX) && MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_5) || defined(ANDROID)
 #if defined(ANDROID)
   return;
 #else
+=======
+void StackTrace::PrintBacktrace() const {
+#if defined(OS_MACOSX) && MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_5
+>>>>>>> chromium.org at r12.0.742.93
   if (backtrace_symbols_fd == NULL)
     return;
 #endif // ANDROID
@@ -185,11 +191,16 @@ void StackTrace::PrintBacktrace() {
   }
 }
 
+<<<<<<< HEAD
 void StackTrace::OutputToStream(std::ostream* os) {
 #if (defined(OS_MACOSX) && MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_5) || defined(ANDROID)
 #if defined(ANDROID)
   return;
 #else
+=======
+void StackTrace::OutputToStream(std::ostream* os) const {
+#if defined(OS_MACOSX) && MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_5
+>>>>>>> chromium.org at r12.0.742.93
   if (backtrace_symbols == NULL)
     return;
 #endif // ANDROID

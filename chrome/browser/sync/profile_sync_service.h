@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,40 +10,50 @@
 
 #include "base/basictypes.h"
 #include "base/gtest_prod_util.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/observer_list.h"
-#include "base/scoped_ptr.h"
 #include "base/string16.h"
+#include "base/task.h"
 #include "base/time.h"
 #include "base/timer.h"
+#include "base/tracked.h"
 #include "chrome/browser/prefs/pref_member.h"
-#include "chrome/browser/sync/engine/syncapi.h"
+#include "chrome/browser/sync/engine/model_safe_worker.h"
 #include "chrome/browser/sync/glue/data_type_controller.h"
-#include "chrome/browser/sync/glue/data_type_manager.h"
-#include "chrome/browser/sync/glue/session_model_associator.h"
 #include "chrome/browser/sync/glue/sync_backend_host.h"
 #include "chrome/browser/sync/js_event_handler_list.h"
 #include "chrome/browser/sync/profile_sync_service_observer.h"
-#include "chrome/browser/sync/signin_manager.h"
 #include "chrome/browser/sync/sync_setup_wizard.h"
+#include "chrome/browser/sync/syncable/autofill_migration.h"
 #include "chrome/browser/sync/syncable/model_type.h"
 #include "chrome/browser/sync/unrecoverable_error_handler.h"
 #include "chrome/common/net/gaia/google_service_auth_error.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
+#include "content/common/notification_type.h"
 #include "googleurl/src/gurl.h"
-#include "jingle/notifier/base/notifier_options.h"
+#include "ui/gfx/native_widget_types.h"
 
 class NotificationDetails;
 class NotificationSource;
-class NotificationType;
 class Profile;
 class ProfileSyncFactory;
-class TabContents;
-class TokenMigrator;
+class SigninManager;
 
 namespace browser_sync {
+class BackendMigrator;
+class ChangeProcessor;
+class DataTypeManager;
 class JsFrontend;
-}  // namespace browser_sync
+class SessionModelAssociator;
+namespace sessions { struct SyncSessionSnapshot; }
+}
+
+namespace sync_api {
+class BaseTransaction;
+struct SyncCredentials;
+struct UserShare;
+}
 
 // ProfileSyncService is the layer between browser subsystems like bookmarks,
 // and the sync backend.  Each subsystem is logically thought of as being
@@ -145,10 +155,6 @@ class ProfileSyncService : public browser_sync::SyncFrontend,
   // available for the backend to start up.
   bool AreCredentialsAvailable();
 
-  // Loads credentials migrated from the old user settings db.
-  void LoadMigratedCredentials(const std::string& username,
-                               const std::string& token);
-
   // Registers a data type controller with the sync service.  This
   // makes the data type controller available for use, it does not
   // enable or activate the synchronization of the data type (see
@@ -192,6 +198,8 @@ class ProfileSyncService : public browser_sync::SyncFrontend,
   virtual void OnPassphraseAccepted();
   virtual void OnEncryptionComplete(
       const syncable::ModelTypeSet& encrypted_types);
+  virtual void OnMigrationNeededForTypes(
+      const syncable::ModelTypeSet& types);
 
   // Called when a user enters credentials through UI.
   virtual void OnUserSubmittedAuth(const std::string& username,
@@ -232,12 +240,18 @@ class ProfileSyncService : public browser_sync::SyncFrontend,
     return wizard_.IsVisible();
   }
   virtual void ShowLoginDialog(gfx::NativeWindow parent_window);
+  SyncSetupWizard& get_wizard() { return wizard_; }
 
   // This method handles clicks on "sync error" UI, showing the appropriate
   // dialog for the error condition (relogin / enter passphrase).
   virtual void ShowErrorUI(gfx::NativeWindow parent_window);
 
-  void ShowConfigure(gfx::NativeWindow parent_window);
+  // Shows the configure screen of the Sync setup wizard. If |sync_everything|
+  // is true, shows the corresponding page in the customize screen; otherwise,
+  // displays the page that gives the user the ability to select which data
+  // types to sync.
+  void ShowConfigure(gfx::NativeWindow parent_window, bool sync_everything);
+
   void PromptForExistingPassphrase(gfx::NativeWindow parent_window);
   void SigninForPassphraseMigration(gfx::NativeWindow parent_window);
 
@@ -267,14 +281,6 @@ class ProfileSyncService : public browser_sync::SyncFrontend,
     return is_auth_in_progress_;
   }
 
-  bool tried_creating_explicit_passphrase() const {
-    return tried_creating_explicit_passphrase_;
-  }
-
-  bool tried_setting_explicit_passphrase() const {
-    return tried_setting_explicit_passphrase_;
-  }
-
   bool observed_passphrase_required() const {
     return observed_passphrase_required_;
   }
@@ -282,13 +288,6 @@ class ProfileSyncService : public browser_sync::SyncFrontend,
   bool passphrase_required_for_decryption() const {
     return passphrase_required_for_decryption_;
   }
-
-  // A timestamp marking the last time the service observed a transition from
-  // the SYNCING state to the READY state. Note that this does not reflect the
-  // last time we polled the server to see if there were any changes; the
-  // timestamp is only snapped when syncing takes place and we download or
-  // upload some bookmark entity.
-  const base::Time& last_synced_time() const { return last_synced_time_; }
 
   // Returns a user-friendly string form of last synced time (in minutes).
   virtual string16 GetLastSyncedTimeString() const;
@@ -348,7 +347,7 @@ class ProfileSyncService : public browser_sync::SyncFrontend,
   // ProfileSyncServiceHarness.  Figure out a different way to expose
   // this info to that class, and remove these functions.
 
-  const browser_sync::sessions::SyncSessionSnapshot*
+  virtual const browser_sync::sessions::SyncSessionSnapshot*
       GetLastSessionSnapshot() const;
 
   // Returns whether or not the underlying sync engine has made any
@@ -415,8 +414,10 @@ class ProfileSyncService : public browser_sync::SyncFrontend,
       syncable::ModelTypeSet* registered_types) const;
 
   // Checks whether the Cryptographer is ready to encrypt and decrypt updates
-  // for sensitive data types.
-  virtual bool IsCryptographerReady() const;
+  // for sensitive data types. Caller must be holding a
+  // syncapi::BaseTransaction to ensure thread safety.
+  virtual bool IsCryptographerReady(
+      const sync_api::BaseTransaction* trans) const;
 
   // Returns true if a secondary passphrase is being used.
   virtual bool IsUsingSecondaryPassphrase() const;
@@ -458,13 +459,6 @@ class ProfileSyncService : public browser_sync::SyncFrontend,
   const std::string& cros_user() const { return cros_user_; }
 
  protected:
-  // Used by ProfileSyncServiceMock only.
-  //
-  // TODO(akalin): Separate this class out into an abstract
-  // ProfileSyncService interface and a ProfileSyncServiceImpl class
-  // so we don't need this hack anymore.
-  ProfileSyncService();
-
   // Used by test classes that derive from ProfileSyncService.
   virtual browser_sync::SyncBackendHost* GetBackendForTest();
 
@@ -509,14 +503,6 @@ class ProfileSyncService : public browser_sync::SyncFrontend,
 
   // Cache of the last name the client attempted to authenticate.
   std::string last_attempted_user_email_;
-
-  // Whether the user has tried creating an explicit passphrase on this
-  // machine.
-  bool tried_creating_explicit_passphrase_;
-
-  // Whether the user has tried setting an explicit passphrase on this
-  // machine.
-  bool tried_setting_explicit_passphrase_;
 
   // Whether we have seen a SYNC_PASSPHRASE_REQUIRED since initializing the
   // backend, telling us that it is safe to send a passphrase down ASAP.
@@ -597,10 +583,6 @@ class ProfileSyncService : public browser_sync::SyncFrontend,
   std::string unrecoverable_error_message_;
   scoped_ptr<tracked_objects::Location> unrecoverable_error_location_;
 
-  // Contains options specific to how sync clients send and listen to
-  // notifications.
-  notifier::NotifierOptions notifier_options_;
-
   // Manages the start and stop of the various data types.
   scoped_ptr<browser_sync::DataTypeManager> data_type_manager_;
 
@@ -622,8 +604,6 @@ class ProfileSyncService : public browser_sync::SyncFrontend,
   // desist syncing immediately.
   bool expect_sync_configuration_aborted_;
 
-  scoped_ptr<TokenMigrator> token_migrator_;
-
   // Sometimes we need to temporarily hold on to a passphrase because we don't
   // yet have a backend to send it to.  This happens during initialization as
   // we don't StartUp until we have a valid token, which happens after valid
@@ -635,6 +615,9 @@ class ProfileSyncService : public browser_sync::SyncFrontend,
     CachedPassphrase() : is_explicit(false), is_creation(false) {}
   };
   CachedPassphrase cached_passphrase_;
+
+  // TODO(lipalani): Bug 82221 unify this with the CachedPassphrase struct.
+  std::string gaia_password_;
 
   // TODO(tim): Remove this once new 'explicit passphrase' code flushes through
   // dev channel. See bug 62103.
@@ -658,6 +641,8 @@ class ProfileSyncService : public browser_sync::SyncFrontend,
   // The set of encrypted types. This is updated whenever datatypes are
   // encrypted through the OnEncryptionComplete callback of SyncFrontend.
   syncable::ModelTypeSet encrypted_types_;
+
+  scoped_ptr<browser_sync::BackendMigrator> migrator_;
 
   DISALLOW_COPY_AND_ASSIGN(ProfileSyncService);
 };

@@ -9,11 +9,11 @@
 #include <string>
 
 #include "base/file_path.h"
-#include "base/ref_counted.h"
-#include "base/weak_ptr.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/weak_ptr.h"
 #include "chrome/browser/policy/cloud_policy_identity_strategy.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
 
 class Profile;
 
@@ -31,15 +31,15 @@ class UserPolicyIdentityStrategy : public CloudPolicyIdentityStrategy,
   virtual ~UserPolicyIdentityStrategy();
 
   // CloudPolicyIdentityStrategy implementation:
-  virtual std::string GetDeviceToken();
-  virtual std::string GetDeviceID();
-  virtual std::string GetMachineID();
-  virtual em::DeviceRegisterRequest_Type GetPolicyRegisterType();
-  virtual std::string GetPolicyType();
-
+  virtual std::string GetDeviceToken() OVERRIDE;
+  virtual std::string GetDeviceID() OVERRIDE;
+  virtual std::string GetMachineID() OVERRIDE;
+  virtual std::string GetMachineModel() OVERRIDE;
+  virtual em::DeviceRegisterRequest_Type GetPolicyRegisterType() OVERRIDE;
+  virtual std::string GetPolicyType() OVERRIDE;
   virtual bool GetCredentials(std::string* username,
-                              std::string* auth_token);
-  virtual void OnDeviceTokenAvailable(const std::string& token);
+                              std::string* auth_token) OVERRIDE;
+  virtual void OnDeviceTokenAvailable(const std::string& token) OVERRIDE;
 
  private:
   class TokenCache;

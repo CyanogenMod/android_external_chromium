@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,8 @@
 #include <vector>
 
 #include "base/basictypes.h"
-#include "base/crypto/rsa_private_key.h"
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
+#include "crypto/rsa_private_key.h"
 #include "chrome/browser/chromeos/login/owner_key_utils.h"
 #include "content/browser/browser_thread.h"
 
@@ -42,8 +42,19 @@ class OwnerManager : public base::RefCountedThreadSafe<OwnerManager> {
                                  const std::vector<uint8>& payload) = 0;
   };
 
+  class KeyUpdateDelegate {
+   public:
+    // Called upon completion of a key update operation.
+    virtual void OnKeyUpdated() = 0;
+  };
+
   OwnerManager();
   virtual ~OwnerManager();
+
+  // Sets a new owner key from a provided memory buffer.
+  void UpdateOwnerKey(const BrowserThread::ID thread_id,
+                      const std::vector<uint8>& key,
+                      KeyUpdateDelegate* d);
 
   // Pulls the owner's public key off disk and into memory.
   //
@@ -82,6 +93,11 @@ class OwnerManager : public base::RefCountedThreadSafe<OwnerManager> {
   void SendNotification(NotificationType type,
                         const NotificationDetails& details);
 
+  // Calls back a key update delegate on a given thread.
+  void CallKeyUpdateDelegate(KeyUpdateDelegate* d) {
+    d->OnKeyUpdated();
+  }
+
   // A helper method to call back a delegte on another thread.
   void CallDelegate(Delegate* d,
                     const KeyOpCode return_code,
@@ -89,7 +105,7 @@ class OwnerManager : public base::RefCountedThreadSafe<OwnerManager> {
     d->OnKeyOpComplete(return_code, payload);
   }
 
-  scoped_ptr<base::RSAPrivateKey> private_key_;
+  scoped_ptr<crypto::RSAPrivateKey> private_key_;
   std::vector<uint8> public_key_;
 
   scoped_refptr<OwnerKeyUtils> utils_;

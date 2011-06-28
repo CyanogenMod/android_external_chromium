@@ -9,16 +9,18 @@
 
 #include "base/command_line.h"
 #include "base/file_util.h"
-#include "base/ref_counted_memory.h"
+#include "base/memory/ref_counted_memory.h"
 #include "base/string16.h"
 #include "base/string_number_conversions.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/google/google_util.h"
+#include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/themes/browser_theme_provider.h"
+#include "chrome/browser/themes/theme_service.h"
+#include "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/browser/ui/webui/chrome_url_data_manager.h"
 #include "chrome/browser/ui/webui/shown_sections_handler.h"
 #include "chrome/browser/web_resource/promo_resource_service.h"
@@ -26,11 +28,11 @@
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/jstemplate_builder.h"
-#include "chrome/common/notification_service.h"
-#include "chrome/common/notification_type.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "content/browser/browser_thread.h"
+#include "content/common/notification_service.h"
+#include "content/common/notification_type.h"
 #include "grit/browser_resources.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
@@ -57,22 +59,22 @@ namespace {
 // The URL for the the Learn More page shown on incognito new tab.
 const char kLearnMoreIncognitoUrl[] =
 #if defined(OS_CHROMEOS)
-    "http://www.google.com/support/chromeos/bin/answer.py?answer=95464";
+    "https://www.google.com/support/chromeos/bin/answer.py?answer=95464";
 #else
-    "http://www.google.com/support/chrome/bin/answer.py?answer=95464";
+    "https://www.google.com/support/chrome/bin/answer.py?answer=95464";
 #endif
 
 // The URL for the Learn More page shown on guest session new tab.
 const char kLearnMoreGuestSessionUrl[] =
-    "http://www.google.com/support/chromeos/bin/answer.py?answer=1057090";
+    "https://www.google.com/support/chromeos/bin/answer.py?answer=1057090";
 
 // The URL for bookmark sync service help.
 const char kSyncServiceHelpUrl[] =
-    "http://www.google.com/support/chrome/bin/answer.py?answer=165139";
+    "https://www.google.com/support/chrome/bin/answer.py?answer=165139";
 
 // The URL to be loaded to display Help.
 const char kHelpContentUrl[] =
-    "http://www.google.com/support/chrome/";
+    "https://www.google.com/support/chrome/";
 
 string16 GetUrlWithLang(const GURL& url) {
   return ASCIIToUTF16(google_util::AppendGoogleLocaleParam(url).spec());
@@ -92,7 +94,7 @@ std::string GetNewTabBackgroundCSS(const ui::ThemeProvider* theme_provider,
                                    bool bar_attached) {
   int alignment;
   theme_provider->GetDisplayProperty(
-      BrowserThemeProvider::NTP_BACKGROUND_ALIGNMENT, &alignment);
+      ThemeService::NTP_BACKGROUND_ALIGNMENT, &alignment);
 
   // TODO(glen): This is a quick workaround to hide the notused.png image when
   // no image is provided - we don't have time right now to figure out why
@@ -103,7 +105,7 @@ std::string GetNewTabBackgroundCSS(const ui::ThemeProvider* theme_provider,
   }
 
   if (bar_attached)
-    return BrowserThemeProvider::AlignmentToString(alignment);
+    return ThemeService::AlignmentToString(alignment);
 
   // The bar is detached, so we must offset the background by the bar size
   // if it's a top-aligned bar.
@@ -117,24 +119,24 @@ std::string GetNewTabBackgroundCSS(const ui::ThemeProvider* theme_provider,
   int offset = 0;
 #endif
 
-  if (alignment & BrowserThemeProvider::ALIGN_TOP) {
-    if (alignment & BrowserThemeProvider::ALIGN_LEFT)
+  if (alignment & ThemeService::ALIGN_TOP) {
+    if (alignment & ThemeService::ALIGN_LEFT)
       return "0% " + base::IntToString(-offset) + "px";
-    else if (alignment & BrowserThemeProvider::ALIGN_RIGHT)
+    else if (alignment & ThemeService::ALIGN_RIGHT)
       return "100% " + base::IntToString(-offset) + "px";
     return "center " + base::IntToString(-offset) + "px";
   }
-  return BrowserThemeProvider::AlignmentToString(alignment);
+  return ThemeService::AlignmentToString(alignment);
 }
 
 // How the background image on the new tab page should be tiled (see tiling
-// masks in browser_theme_provider.h).
+// masks in theme_service.h).
 std::string GetNewTabBackgroundTilingCSS(
     const ui::ThemeProvider* theme_provider) {
   int repeat_mode;
   theme_provider->GetDisplayProperty(
-      BrowserThemeProvider::NTP_BACKGROUND_TILING, &repeat_mode);
-  return BrowserThemeProvider::TilingToString(repeat_mode);
+      ThemeService::NTP_BACKGROUND_TILING, &repeat_mode);
+  return ThemeService::TilingToString(repeat_mode);
 }
 
 // Is the current time within a given date range?
@@ -155,35 +157,36 @@ NTPResourceCache::NTPResourceCache(Profile* profile) : profile_(profile) {
   // Watch for pref changes that cause us to need to invalidate the HTML cache.
   pref_change_registrar_.Init(profile_->GetPrefs());
   pref_change_registrar_.Add(prefs::kShowBookmarkBar, this);
+  pref_change_registrar_.Add(prefs::kEnableBookmarkBar, this);
   pref_change_registrar_.Add(prefs::kNTPShownSections, this);
 }
 
 NTPResourceCache::~NTPResourceCache() {}
 
-RefCountedBytes* NTPResourceCache::GetNewTabHTML(bool is_off_the_record) {
+RefCountedBytes* NTPResourceCache::GetNewTabHTML(bool is_incognito) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-  if (is_off_the_record) {
+  if (is_incognito) {
     if (!new_tab_incognito_html_.get())
       CreateNewTabIncognitoHTML();
   } else {
     if (!new_tab_html_.get())
       CreateNewTabHTML();
   }
-  return is_off_the_record ? new_tab_incognito_html_.get()
-                           : new_tab_html_.get();
+  return is_incognito ? new_tab_incognito_html_.get()
+                      : new_tab_html_.get();
 }
 
-RefCountedBytes* NTPResourceCache::GetNewTabCSS(bool is_off_the_record) {
+RefCountedBytes* NTPResourceCache::GetNewTabCSS(bool is_incognito) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-  if (is_off_the_record) {
+  if (is_incognito) {
     if (!new_tab_incognito_css_.get())
       CreateNewTabIncognitoCSS();
   } else {
     if (!new_tab_css_.get())
       CreateNewTabCSS();
   }
-  return is_off_the_record ? new_tab_incognito_css_.get()
-                           : new_tab_css_.get();
+  return is_incognito ? new_tab_incognito_css_.get()
+                      : new_tab_css_.get();
 }
 
 void NTPResourceCache::Observe(NotificationType type,
@@ -198,6 +201,7 @@ void NTPResourceCache::Observe(NotificationType type,
   } else if (NotificationType::PREF_CHANGED == type) {
     std::string* pref_name = Details<std::string>(details).ptr();
     if (*pref_name == prefs::kShowBookmarkBar ||
+        *pref_name == prefs::kEnableBookmarkBar ||
         *pref_name == prefs::kHomePageIsNewTabPage ||
         *pref_name == prefs::kNTPShownSections) {
       new_tab_incognito_html_ = NULL;
@@ -263,7 +267,8 @@ void NTPResourceCache::CreateNewTabHTML() {
       profile_->GetPrefs()->GetBoolean(prefs::kShowBookmarkBar) ?
       "true" : "false");
   localized_strings.SetString("hasattribution",
-      profile_->GetThemeProvider()->HasCustomImage(IDR_THEME_NTP_ATTRIBUTION) ?
+      ThemeServiceFactory::GetForProfile(profile_)->HasCustomImage(
+          IDR_THEME_NTP_ATTRIBUTION) ?
       "true" : "false");
   localized_strings.SetString("apps", apps);
   localized_strings.SetString("title", title);
@@ -296,8 +301,6 @@ void NTPResourceCache::CreateNewTabHTML() {
       l10n_util::GetStringUTF16(IDS_NEW_TAB_SHOW_HIDE_LIST_TOOLTIP));
   localized_strings.SetString("pagedisplaytooltip",
       l10n_util::GetStringUTF16(IDS_NEW_TAB_PAGE_DISPLAY_TOOLTIP));
-  localized_strings.SetString("firstrunnotification",
-      l10n_util::GetStringUTF16(IDS_NEW_TAB_FIRST_RUN_NOTIFICATION));
   localized_strings.SetString("closefirstrunnotification",
       l10n_util::GetStringUTF16(IDS_NEW_TAB_CLOSE_FIRST_RUN_NOTIFICATION));
   localized_strings.SetString("close", l10n_util::GetStringUTF16(IDS_CLOSE));
@@ -329,14 +332,6 @@ void NTPResourceCache::CreateNewTabHTML() {
       l10n_util::GetStringUTF16(IDS_EXTENSION_WEB_STORE_TITLE));
   localized_strings.SetString("web_store_url",
       GetUrlWithLang(GURL(Extension::ChromeStoreLaunchURL())));
-  localized_strings.SetString("appspromohide",
-      l10n_util::GetStringUTF16(IDS_APPS_PROMO_HIDE));
-  localized_strings.SetString("appspromoheader",
-      l10n_util::GetStringUTF16(IDS_APPS_PROMO_HEADER));
-  localized_strings.SetString("appspromotext1",
-      l10n_util::GetStringUTF16(IDS_APPS_PROMO_TEXT_1));
-  localized_strings.SetString("appspromotext2",
-      l10n_util::GetStringUTF16(IDS_APPS_PROMO_TEXT_2));
   localized_strings.SetString("syncpromotext",
       l10n_util::GetStringUTF16(IDS_SYNC_START_SYNC_BUTTON_LABEL));
 #if defined(OS_CHROMEOS)
@@ -386,30 +381,43 @@ void NTPResourceCache::CreateNewTabHTML() {
                     profile_->GetPrefs()->GetDouble(prefs::kNTPPromoEnd)) ?
                     profile_->GetPrefs()->GetString(prefs::kNTPPromoLine) :
                                                     std::string());
+    UserMetrics::RecordAction(UserMetricsAction("NTPPromoShown"));
   }
 
-  base::StringPiece new_tab_html(ResourceBundle::GetSharedInstance().
-      GetRawDataResource(IDR_NEW_NEW_TAB_HTML));
-
-  // Inject the template data into the HTML so that it is available before any
-  // layout is needed.
-  std::string json_html;
-  jstemplate_builder::AppendJsonHtml(&localized_strings, &json_html);
-
-  static const base::StringPiece template_data_placeholder(
-      "<!-- template data placeholder -->");
-  size_t pos = new_tab_html.find(template_data_placeholder);
-
+  // Load the new tab page appropriate for this build
+  // Note that some builds (eg. TOUCHUI) don't make use of everything we
+  // do here (all of the template data, etc.), but we keep the back end
+  // consistent across builds, supporting the union of all NTP front-ends
+  // for simplicity.
   std::string full_html;
-  if (pos != base::StringPiece::npos) {
-    full_html.assign(new_tab_html.data(), pos);
-    full_html.append(json_html);
-    size_t after_offset = pos + template_data_placeholder.size();
-    full_html.append(new_tab_html.data() + after_offset,
-                     new_tab_html.size() - after_offset);
+  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kNewTabPage4)) {
+    base::StringPiece new_tab_html(ResourceBundle::GetSharedInstance().
+        GetRawDataResource(IDR_NEW_TAB_4_HTML));
+    full_html = jstemplate_builder::GetI18nTemplateHtml(new_tab_html,
+                                                        &localized_strings);
   } else {
-    NOTREACHED();
-    full_html.assign(new_tab_html.data(), new_tab_html.size());
+    base::StringPiece new_tab_html(ResourceBundle::GetSharedInstance().
+        GetRawDataResource(IDR_NEW_TAB_HTML));
+
+    // Inject the template data into the HTML so that it is available before any
+    // layout is needed.
+    std::string json_html;
+    jstemplate_builder::AppendJsonHtml(&localized_strings, &json_html);
+
+    static const base::StringPiece template_data_placeholder(
+        "<!-- template data placeholder -->");
+    size_t pos = new_tab_html.find(template_data_placeholder);
+
+    if (pos != base::StringPiece::npos) {
+      full_html.assign(new_tab_html.data(), pos);
+      full_html.append(json_html);
+      size_t after_offset = pos + template_data_placeholder.size();
+      full_html.append(new_tab_html.data() + after_offset,
+                       new_tab_html.size() - after_offset);
+    } else {
+      NOTREACHED();
+      full_html.assign(new_tab_html.data(), new_tab_html.size());
+    }
   }
 
   new_tab_html_ = new RefCountedBytes;
@@ -418,12 +426,12 @@ void NTPResourceCache::CreateNewTabHTML() {
 }
 
 void NTPResourceCache::CreateNewTabIncognitoCSS() {
-  ui::ThemeProvider* tp = profile_->GetThemeProvider();
+  ui::ThemeProvider* tp = ThemeServiceFactory::GetForProfile(profile_);
   DCHECK(tp);
 
   // Get our theme colors
   SkColor color_background =
-      tp->GetColor(BrowserThemeProvider::COLOR_NTP_BACKGROUND);
+      tp->GetColor(ThemeService::COLOR_NTP_BACKGROUND);
 
   // Generate the replacements.
   std::vector<std::string> subst;
@@ -454,38 +462,38 @@ void NTPResourceCache::CreateNewTabIncognitoCSS() {
 }
 
 void NTPResourceCache::CreateNewTabCSS() {
-  ui::ThemeProvider* tp = profile_->GetThemeProvider();
+  ui::ThemeProvider* tp = ThemeServiceFactory::GetForProfile(profile_);
   DCHECK(tp);
 
   // Get our theme colors
   SkColor color_background =
-      tp->GetColor(BrowserThemeProvider::COLOR_NTP_BACKGROUND);
-  SkColor color_text = tp->GetColor(BrowserThemeProvider::COLOR_NTP_TEXT);
-  SkColor color_link = tp->GetColor(BrowserThemeProvider::COLOR_NTP_LINK);
+      tp->GetColor(ThemeService::COLOR_NTP_BACKGROUND);
+  SkColor color_text = tp->GetColor(ThemeService::COLOR_NTP_TEXT);
+  SkColor color_link = tp->GetColor(ThemeService::COLOR_NTP_LINK);
   SkColor color_link_underline =
-      tp->GetColor(BrowserThemeProvider::COLOR_NTP_LINK_UNDERLINE);
+      tp->GetColor(ThemeService::COLOR_NTP_LINK_UNDERLINE);
 
   SkColor color_section =
-      tp->GetColor(BrowserThemeProvider::COLOR_NTP_SECTION);
+      tp->GetColor(ThemeService::COLOR_NTP_SECTION);
   SkColor color_section_text =
-      tp->GetColor(BrowserThemeProvider::COLOR_NTP_SECTION_TEXT);
+      tp->GetColor(ThemeService::COLOR_NTP_SECTION_TEXT);
   SkColor color_section_link =
-      tp->GetColor(BrowserThemeProvider::COLOR_NTP_SECTION_LINK);
+      tp->GetColor(ThemeService::COLOR_NTP_SECTION_LINK);
   SkColor color_section_link_underline =
-      tp->GetColor(BrowserThemeProvider::COLOR_NTP_SECTION_LINK_UNDERLINE);
+      tp->GetColor(ThemeService::COLOR_NTP_SECTION_LINK_UNDERLINE);
   SkColor color_section_header_text =
-      tp->GetColor(BrowserThemeProvider::COLOR_NTP_SECTION_HEADER_TEXT);
+      tp->GetColor(ThemeService::COLOR_NTP_SECTION_HEADER_TEXT);
   SkColor color_section_header_text_hover =
-      tp->GetColor(BrowserThemeProvider::COLOR_NTP_SECTION_HEADER_TEXT_HOVER);
+      tp->GetColor(ThemeService::COLOR_NTP_SECTION_HEADER_TEXT_HOVER);
   SkColor color_section_header_rule =
-      tp->GetColor(BrowserThemeProvider::COLOR_NTP_SECTION_HEADER_RULE);
+      tp->GetColor(ThemeService::COLOR_NTP_SECTION_HEADER_RULE);
   SkColor color_section_header_rule_light =
-      tp->GetColor(BrowserThemeProvider::COLOR_NTP_SECTION_HEADER_RULE_LIGHT);
+      tp->GetColor(ThemeService::COLOR_NTP_SECTION_HEADER_RULE_LIGHT);
   SkColor color_text_light =
-      tp->GetColor(BrowserThemeProvider::COLOR_NTP_TEXT_LIGHT);
+      tp->GetColor(ThemeService::COLOR_NTP_TEXT_LIGHT);
 
   SkColor color_header =
-      tp->GetColor(BrowserThemeProvider::COLOR_NTP_HEADER);
+      tp->GetColor(ThemeService::COLOR_NTP_HEADER);
   // Generate a lighter color for the header gradients.
   color_utils::HSL header_lighter;
   color_utils::SkColorToHSL(color_header, &header_lighter);
@@ -540,11 +548,13 @@ void NTPResourceCache::CreateNewTabCSS() {
       SkColorSetA(color_section_header_rule, 0)));  // $$$2
   subst3.push_back(SkColorToRGBAString(color_text_light));  // $$$3
 
-
   // Get our template.
+  int ntp_css_resource_id =
+      CommandLine::ForCurrentProcess()->HasSwitch(switches::kNewTabPage4) ?
+          IDR_NEW_TAB_4_THEME_CSS : IDR_NEW_TAB_THEME_CSS;
   static const base::StringPiece new_tab_theme_css(
       ResourceBundle::GetSharedInstance().GetRawDataResource(
-      IDR_NEW_TAB_THEME_CSS));
+          ntp_css_resource_id));
 
   // Create the string from our template and the replacements.
   std::string css_string;

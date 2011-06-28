@@ -6,13 +6,13 @@
 
 #include <string>
 
-#include "base/singleton.h"
+#include "base/memory/singleton.h"
 #include "base/values.h"
 #include "chrome/browser/about_flags.h"
-#include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/webui/chrome_url_data_manager.h"
 #include "chrome/common/jstemplate_builder.h"
 #include "chrome/common/pref_names.h"
@@ -25,6 +25,11 @@
 #include "grit/theme_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
+
+#if defined(OS_CHROMEOS)
+#include "chrome/browser/chromeos/user_cros_settings_provider.h"
+#include "chrome/browser/chromeos/login/user_manager.h"
+#endif
 
 namespace {
 
@@ -42,7 +47,7 @@ class FlagsUIHTMLSource : public ChromeURLDataManager::DataSource {
   // Called when the network layer has requested a resource underneath
   // the path we registered.
   virtual void StartDataRequest(const std::string& path,
-                                bool is_off_the_record,
+                                bool is_incognito,
                                 int request_id);
   virtual std::string GetMimeType(const std::string&) const {
     return "text/html";
@@ -55,7 +60,7 @@ class FlagsUIHTMLSource : public ChromeURLDataManager::DataSource {
 };
 
 void FlagsUIHTMLSource::StartDataRequest(const std::string& path,
-                                        bool is_off_the_record,
+                                        bool is_incognito,
                                         int request_id) {
   // Strings used in the JsTemplate file.
   DictionaryValue localized_strings;
@@ -71,7 +76,13 @@ void FlagsUIHTMLSource::StartDataRequest(const std::string& path,
       IDS_FLAGS_WARNING_TEXT));
   localized_strings.SetString("flagsRestartNotice", l10n_util::GetStringFUTF16(
       IDS_FLAGS_RELAUNCH_NOTICE,
-      l10n_util::GetStringUTF16(IDS_PRODUCT_NAME)));
+      l10n_util::GetStringUTF16(
+#if defined(OS_CHROMEOS)
+          IDS_PRODUCT_OS_NAME
+#else
+          IDS_PRODUCT_NAME
+#endif
+          )));
   localized_strings.SetString("flagsRestartButton",
       l10n_util::GetStringUTF16(IDS_FLAGS_RELAUNCH_BUTTON));
   localized_strings.SetString("disable",
@@ -79,10 +90,23 @@ void FlagsUIHTMLSource::StartDataRequest(const std::string& path,
   localized_strings.SetString("enable",
       l10n_util::GetStringUTF16(IDS_FLAGS_ENABLE));
 
+  base::StringPiece html =
+      ResourceBundle::GetSharedInstance().GetRawDataResource(IDR_FLAGS_HTML);
+#if defined (OS_CHROMEOS)
+  if (!chromeos::UserManager::Get()->current_user_is_owner()) {
+    html = ResourceBundle::GetSharedInstance().GetRawDataResource(
+        IDR_FLAGS_HTML_WARNING);
+
+    // Set the strings to show which user can actually change the flags
+    localized_strings.SetString("ownerOnly", l10n_util::GetStringUTF16(
+        IDS_OPTIONS_ACCOUNTS_OWNER_ONLY));
+    localized_strings.SetString("ownerUserId", UTF8ToUTF16(
+        chromeos::UserCrosSettingsProvider::cached_owner()));
+  }
+#endif
+  static const base::StringPiece flags_html(html);
   ChromeURLDataManager::DataSource::SetFontAndTextDirection(&localized_strings);
 
-  static const base::StringPiece flags_html(
-      ResourceBundle::GetSharedInstance().GetRawDataResource(IDR_FLAGS_HTML));
   std::string full_html(flags_html.data(), flags_html.size());
   jstemplate_builder::AppendJsonHtml(&localized_strings, &full_html);
   jstemplate_builder::AppendI18nTemplateSourceHtml(&full_html);
@@ -140,7 +164,7 @@ void FlagsDOMHandler::HandleRequestFlagsExperiments(const ListValue* args) {
                   g_browser_process->local_state()));
   results.SetBoolean("needsRestart",
                      about_flags::IsRestartNeededToCommitChanges());
-  web_ui_->CallJavascriptFunction(L"returnFlagsExperiments", results);
+  web_ui_->CallJavascriptFunction("returnFlagsExperiments", results);
 }
 
 void FlagsDOMHandler::HandleEnableFlagsExperimentMessage(

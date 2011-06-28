@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,18 +7,17 @@
 #pragma once
 
 #import <Cocoa/Cocoa.h>
-#import <QuartzCore/CALayer.h>
 
-#include "base/scoped_nsobject.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_nsobject.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/task.h"
 #include "base/time.h"
 #include "chrome/browser/accessibility/browser_accessibility_delegate_mac.h"
 #include "chrome/browser/accessibility/browser_accessibility_manager.h"
 #include "chrome/browser/ui/cocoa/base_view.h"
-#include "chrome/common/edit_command.h"
 #include "content/browser/renderer_host/accelerated_surface_container_manager_mac.h"
 #include "content/browser/renderer_host/render_widget_host_view.h"
+#include "content/common/edit_command.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebCompositionUnderline.h"
 #include "webkit/glue/webcursor.h"
 
@@ -125,6 +124,9 @@ class RWHVMEditCommandHelper;
 
   // Whether or not plugin IME is currently enabled active.
   BOOL pluginImeActive_;
+
+  // Whether the previous mouse event was ignored due to hitTest check.
+  BOOL mouseEventWasIgnored_;
 }
 
 @property(assign, nonatomic) NSRect caretRect;
@@ -187,6 +189,7 @@ class RenderWidgetHostViewMac : public RenderWidgetHostView {
   virtual void DidBecomeSelected();
   virtual void WasHidden();
   virtual void SetSize(const gfx::Size& size);
+  virtual void SetBounds(const gfx::Rect& rect);
   virtual gfx::NativeView GetNativeView();
   virtual void MovePluginWindows(
       const std::vector<webkit::npapi::WebPluginGeometry>& moves);
@@ -264,8 +267,7 @@ class RenderWidgetHostViewMac : public RenderWidgetHostView {
       uint64 swap_buffers_count);
   virtual void GpuRenderingStateDidChange();
 
-  virtual gfx::PluginWindowHandle AcquireCompositingSurface();
-  virtual void ReleaseCompositingSurface(gfx::PluginWindowHandle surface);
+  virtual gfx::PluginWindowHandle GetCompositingSurface();
 
   void DrawAcceleratedSurfaceInstance(
       CGLContextObj context,
@@ -343,6 +345,9 @@ class RenderWidgetHostViewMac : public RenderWidgetHostView {
   AcceleratedSurfaceContainerManagerMac plugin_container_manager_;
 
  private:
+  // Returns whether this render view is a popup (autocomplete window).
+  bool IsPopup() const;
+
   // Updates the display cursor to the current cursor if the cursor is over this
   // render view.
   void UpdateCursorIfOverSelf();
@@ -380,6 +385,8 @@ class RenderWidgetHostViewMac : public RenderWidgetHostView {
   // hidden until the software backing store has been updated. This variable is
   // set when the gpu widget needs to be hidden once a paint is completed.
   bool needs_gpu_visibility_update_after_repaint_;
+
+  gfx::PluginWindowHandle compositing_surface_;
 
   DISALLOW_COPY_AND_ASSIGN(RenderWidgetHostViewMac);
 };

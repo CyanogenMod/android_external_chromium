@@ -8,18 +8,24 @@
 #include <string>
 
 #include "base/command_line.h"
-#include "chrome/browser/policy/cloud_policy_cache.h"
+#include "chrome/browser/policy/cloud_policy_cache_base.h"
 #include "chrome/browser/policy/cloud_policy_controller.h"
 #include "chrome/browser/policy/cloud_policy_identity_strategy.h"
 #include "chrome/browser/policy/configuration_policy_provider.h"
 #include "chrome/browser/policy/device_management_service.h"
 #include "chrome/browser/policy/device_token_fetcher.h"
+#include "chrome/browser/policy/policy_notifier.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/notification_details.h"
-#include "chrome/common/notification_source.h"
-#include "chrome/common/notification_type.h"
+#include "chrome/common/pref_names.h"
+#include "content/common/notification_details.h"
+#include "content/common/notification_source.h"
+#include "content/common/notification_type.h"
 
 namespace {
+
+// Default refresh rate.
+const int kDefaultPolicyRefreshRateMs = 3 * 60 * 60 * 1000;  // 3 hours.
 
 // Refresh rate sanity interval bounds.
 const int64 kPolicyRefreshRateMinMs = 30 * 60 * 1000;  // 30 minutes
@@ -29,26 +35,44 @@ const int64 kPolicyRefreshRateMaxMs = 24 * 60 * 60 * 1000;  // 1 day
 
 namespace policy {
 
+CloudPolicySubsystem::ObserverRegistrar::ObserverRegistrar(
+    CloudPolicySubsystem* cloud_policy_subsystem,
+    CloudPolicySubsystem::Observer* observer)
+    : observer_(observer) {
+  policy_notifier_ = cloud_policy_subsystem->notifier();
+  policy_notifier_->AddObserver(observer);
+}
+
+CloudPolicySubsystem::ObserverRegistrar::~ObserverRegistrar() {
+  if (policy_notifier_)
+    policy_notifier_->RemoveObserver(observer_);
+}
+
 CloudPolicySubsystem::CloudPolicySubsystem(
-    const FilePath& policy_cache_file,
-    CloudPolicyIdentityStrategy* identity_strategy)
+    CloudPolicyIdentityStrategy* identity_strategy,
+    CloudPolicyCacheBase* policy_cache)
     : prefs_(NULL) {
+  net::NetworkChangeNotifier::AddIPAddressObserver(this);
+  notifier_.reset(new PolicyNotifier());
   CommandLine* command_line = CommandLine::ForCurrentProcess();
   if (command_line->HasSwitch(switches::kDeviceManagementUrl)) {
     device_management_service_.reset(new DeviceManagementService(
         command_line->GetSwitchValueASCII(switches::kDeviceManagementUrl)));
-    cloud_policy_cache_.reset(new CloudPolicyCache(policy_cache_file));
-    cloud_policy_cache_->LoadFromFile();
+    cloud_policy_cache_.reset(policy_cache);
+    cloud_policy_cache_->set_policy_notifier(notifier_.get());
+    cloud_policy_cache_->Load();
 
     device_token_fetcher_.reset(
         new DeviceTokenFetcher(device_management_service_.get(),
-                               cloud_policy_cache_.get()));
+                               cloud_policy_cache_.get(),
+                               notifier_.get()));
 
     cloud_policy_controller_.reset(
-        new CloudPolicyController(cloud_policy_cache_.get(),
-                                  device_management_service_->CreateBackend(),
+        new CloudPolicyController(device_management_service_.get(),
+                                  cloud_policy_cache_.get(),
                                   device_token_fetcher_.get(),
-                                  identity_strategy));
+                                  identity_strategy,
+                                  notifier_.get()));
   }
 }
 
@@ -58,19 +82,26 @@ CloudPolicySubsystem::~CloudPolicySubsystem() {
   device_token_fetcher_.reset();
   cloud_policy_cache_.reset();
   device_management_service_.reset();
+  net::NetworkChangeNotifier::RemoveIPAddressObserver(this);
+}
+
+void CloudPolicySubsystem::OnIPAddressChanged() {
+  if (state() == CloudPolicySubsystem::NETWORK_ERROR &&
+      cloud_policy_controller_.get()) {
+    cloud_policy_controller_->Retry();
+  }
 }
 
 void CloudPolicySubsystem::Initialize(
     PrefService* prefs,
-    const char* refresh_rate_pref_name,
-    URLRequestContextGetter* request_context) {
+    net::URLRequestContextGetter* request_context) {
   DCHECK(!prefs_);
   prefs_ = prefs;
 
   if (device_management_service_.get())
     device_management_service_->Initialize(request_context);
 
-  policy_refresh_rate_.Init(refresh_rate_pref_name, prefs_, this);
+  policy_refresh_rate_.Init(prefs::kPolicyRefreshRate, prefs_, this);
   UpdatePolicyRefreshRate();
 }
 
@@ -81,6 +112,19 @@ void CloudPolicySubsystem::Shutdown() {
   cloud_policy_cache_.reset();
   policy_refresh_rate_.Destroy();
   prefs_ = NULL;
+}
+
+CloudPolicySubsystem::PolicySubsystemState CloudPolicySubsystem::state() {
+  return notifier_->state();
+}
+
+CloudPolicySubsystem::ErrorDetails CloudPolicySubsystem::error_details() {
+  return notifier_->error_details();
+}
+
+void CloudPolicySubsystem::StopAutoRetry() {
+  cloud_policy_controller_->StopAutoRetry();
+  device_token_fetcher_->StopAutoRetry();
 }
 
 ConfigurationPolicyProvider* CloudPolicySubsystem::GetManagedPolicyProvider() {
@@ -96,6 +140,12 @@ ConfigurationPolicyProvider*
     return cloud_policy_cache_->GetRecommendedPolicyProvider();
 
   return NULL;
+}
+
+// static
+void CloudPolicySubsystem::RegisterPrefs(PrefService* pref_service) {
+  pref_service->RegisterIntegerPref(prefs::kPolicyRefreshRate,
+                                    kDefaultPolicyRefreshRateMs);
 }
 
 void CloudPolicySubsystem::UpdatePolicyRefreshRate() {

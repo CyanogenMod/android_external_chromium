@@ -6,11 +6,15 @@
 #define CHROME_BROWSER_CHROMEOS_STATUS_CLOCK_MENU_BUTTON_H_
 #pragma once
 
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/timer.h"
 #include "chrome/browser/chromeos/cros/power_library.h"
-#include "chrome/browser/chromeos/cros/system_library.h"
 #include "chrome/browser/chromeos/status/status_area_button.h"
+#include "chrome/browser/prefs/pref_change_registrar.h"
+#include "chrome/browser/prefs/pref_member.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_type.h"
+#include "chrome/browser/chromeos/system_access.h"
 #include "unicode/calendar.h"
 #include "views/controls/button/menu_button.h"
 #include "views/controls/menu/menu_2.h"
@@ -25,8 +29,9 @@ class StatusAreaHost;
 class ClockMenuButton : public StatusAreaButton,
                         public views::ViewMenuDelegate,
                         public ui::MenuModel,
+                        public NotificationObserver,
                         public PowerLibrary::Observer,
-                        public SystemLibrary::Observer {
+                        public SystemAccess::Observer {
  public:
   explicit ClockMenuButton(StatusAreaHost* host);
   virtual ~ClockMenuButton();
@@ -42,7 +47,7 @@ class ClockMenuButton : public StatusAreaButton,
       ui::Accelerator* accelerator) const { return false; }
   virtual bool IsItemCheckedAt(int index) const { return false; }
   virtual int GetGroupIdAt(int index) const { return 0; }
-  virtual bool GetIconAt(int index, SkBitmap* icon) const { return false; }
+  virtual bool GetIconAt(int index, SkBitmap* icon) { return false; }
   virtual ui::ButtonMenuItemModel* GetButtonMenuItemAt(int index) const {
     return NULL;
   }
@@ -51,17 +56,26 @@ class ClockMenuButton : public StatusAreaButton,
   virtual void HighlightChangedTo(int index) {}
   virtual void ActivatedAt(int index);
   virtual void MenuWillShow() {}
+  virtual void SetMenuModelDelegate(ui::MenuModelDelegate* delegate) {}
 
   // Overridden from ResumeLibrary::Observer:
   virtual void PowerChanged(PowerLibrary* obj) {}
   virtual void SystemResumed();
 
-  // Overridden from SystemLibrary::Observer:
+  // Overridden from SystemAccess::Observer:
   virtual void TimezoneChanged(const icu::TimeZone& timezone);
+
+  // views::View
+  virtual void OnLocaleChanged() OVERRIDE;
 
   // Updates the time on the menu button. Can be called by host if timezone
   // changes.
   void UpdateText();
+
+  // NotificationObserver implementation.
+  virtual void Observe(NotificationType type,
+                       const NotificationSource& source,
+                       const NotificationDetails& details);
 
  protected:
   virtual int horizontal_padding() { return 3; }
@@ -80,7 +94,7 @@ class ClockMenuButton : public StatusAreaButton,
   // constructor.
   scoped_ptr<views::Menu2> clock_menu_;
 
-  StatusAreaHost* host_;
+  PrefChangeRegistrar registrar_;
 
   DISALLOW_COPY_AND_ASSIGN(ClockMenuButton);
 };

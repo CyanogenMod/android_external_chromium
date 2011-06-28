@@ -10,7 +10,7 @@
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/themes/browser_theme_provider.h"
+#include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/ui/find_bar/find_bar_controller.h"
 #include "chrome/browser/ui/find_bar/find_bar_state.h"
 #include "chrome/browser/ui/find_bar/find_tab_helper.h"
@@ -28,7 +28,7 @@
 #include "views/background.h"
 #include "views/controls/button/image_button.h"
 #include "views/controls/label.h"
-#include "views/focus/focus_manager.h"
+#include "views/controls/textfield/textfield.h"
 #include "views/widget/widget.h"
 
 // The amount of whitespace to have before the find button.
@@ -87,9 +87,6 @@ static const int kDefaultCharWidth = 43;
 
 FindBarView::FindBarView(FindBarHost* host)
     : DropdownBarView(host),
-#if defined(OS_LINUX)
-      ignore_contents_changed_(false),
-#endif
       find_text_(NULL),
       match_count_text_(NULL),
       focus_forwarder_view_(NULL),
@@ -178,13 +175,7 @@ FindBarView::~FindBarView() {
 }
 
 void FindBarView::SetFindText(const string16& find_text) {
-#if defined(OS_LINUX)
-  ignore_contents_changed_ = true;
-#endif
   find_text_->SetText(find_text);
-#if defined(OS_LINUX)
-  ignore_contents_changed_ = false;
-#endif
 }
 
 string16 FindBarView::GetFindText() const {
@@ -243,23 +234,6 @@ void FindBarView::ClearMatchCount() {
 }
 
 void FindBarView::SetFocusAndSelection(bool select_all) {
-#if defined(OS_CHROMEOS)
-  // TODO(altimofeev): this workaround is needed only when the FindBar was
-  // opened from the wrench menu (it also works in the accelerator case, but it
-  // is not really needed).
-
-  // Restore focus to allow the find bar's external focus tracker to save the
-  // view that should be activated later (the tracker is created after the
-  // wrench menu has received the focus).
-  find_text_->GetFocusManager()->RestoreFocusedView();
-  find_text_->RequestFocus();
-  // Storing is needed here because the view that has focus before the wrench
-  // menu activation will get focus just after the wrench menu is closed.
-  // The FindBar has it's own focus tracker, so it will focus the correct view
-  // on close.
-  find_text_->GetFocusManager()->StoreFocusedView();
-  // Request focus again since the call to StoreFocusedView unfocuses the view.
-#endif
   find_text_->RequestFocus();
   if (select_all && !find_text_->text().empty())
     find_text_->SelectAll();
@@ -464,16 +438,10 @@ void FindBarView::ButtonPressed(
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// FindBarView, views::Textfield::Controller implementation:
+// FindBarView, views::TextfieldController implementation:
 
 void FindBarView::ContentsChanged(views::Textfield* sender,
                                   const string16& new_contents) {
-#if defined(OS_LINUX)
-  // On gtk setting the text in the find view causes a notification.
-  if (ignore_contents_changed_)
-    return;
-#endif
-
   FindBarController* controller = find_bar_host()->GetFindBarController();
   DCHECK(controller);
   // We must guard against a NULL tab_contents, which can happen if the text
@@ -571,7 +539,7 @@ void FindBarView::OnThemeChanged() {
   ResourceBundle& rb = ResourceBundle::GetSharedInstance();
   if (GetThemeProvider()) {
     close_button_->SetBackground(
-        GetThemeProvider()->GetColor(BrowserThemeProvider::COLOR_TAB_TEXT),
+        GetThemeProvider()->GetColor(ThemeService::COLOR_TAB_TEXT),
         rb.GetBitmapNamed(IDR_CLOSE_BAR),
         rb.GetBitmapNamed(IDR_CLOSE_BAR_MASK));
   }

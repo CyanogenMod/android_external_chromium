@@ -130,9 +130,6 @@ void AutocompletePopupModel::ResetToDefaultMatch() {
 
 bool AutocompletePopupModel::GetKeywordForMatch(const AutocompleteMatch& match,
                                                 string16* keyword) const {
-  // Assume we have no keyword until we find otherwise.
-  keyword->clear();
-
   // If the current match is a keyword, return that as the selected keyword.
   if (TemplateURL::SupportsReplacement(match.template_url)) {
     keyword->assign(match.template_url->keyword());
@@ -140,13 +137,22 @@ bool AutocompletePopupModel::GetKeywordForMatch(const AutocompleteMatch& match,
   }
 
   // See if the current match's fill_into_edit corresponds to a keyword.
+  return GetKeywordForText(match.fill_into_edit, keyword);
+}
+
+bool AutocompletePopupModel::GetKeywordForText(const string16& text,
+                                               string16* keyword) const {
+  // Creates keyword_hint first in case |keyword| is a pointer to |text|.
+  const string16 keyword_hint(TemplateURLModel::CleanUserInputKeyword(text));
+
+  // Assume we have no keyword until we find otherwise.
+  keyword->clear();
+
+  if (keyword_hint.empty())
+    return false;
   if (!profile_->GetTemplateURLModel())
     return false;
   profile_->GetTemplateURLModel()->Load();
-  const string16 keyword_hint(TemplateURLModel::CleanUserInputKeyword(
-      match.fill_into_edit));
-  if (keyword_hint.empty())
-    return false;
 
   // Don't provide a hint if this keyword doesn't support replacement.
   const TemplateURL* const template_url =
@@ -160,7 +166,8 @@ bool AutocompletePopupModel::GetKeywordForMatch(const AutocompleteMatch& match,
         GetExtensionById(template_url->GetExtensionId(), false);
     if (!extension ||
         (profile_->IsOffTheRecord() &&
-         !profile_->GetExtensionService()->IsIncognitoEnabled(extension)))
+         !profile_->GetExtensionService()->
+             IsIncognitoEnabled(extension->id())))
       return false;
   }
 
@@ -215,7 +222,7 @@ void AutocompletePopupModel::TryDeletingCurrentItem() {
   }
 }
 
-const SkBitmap* AutocompletePopupModel::GetSpecialIconForMatch(
+const SkBitmap* AutocompletePopupModel::GetIconIfExtensionMatch(
     const AutocompleteMatch& match) const {
   if (!match.template_url || !match.template_url->IsExtensionKeyword())
     return NULL;

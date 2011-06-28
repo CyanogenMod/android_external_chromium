@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,10 +19,13 @@ const char* kDefaultLocale = "default_locale";
 const char* kDescription = "description";
 const char* kDevToolsPage = "devtools_page";
 const char* kExcludeGlobs = "exclude_globs";
+const char* kFileFilters = "file_filters";
+const char* kFileBrowserHandlers = "file_browser_handlers";
 const char* kHomepageURL = "homepage_url";
 const char* kIcons = "icons";
 const char* kIncognito = "incognito";
 const char* kIncludeGlobs = "include_globs";
+const char* kIsolation = "app.isolation";
 const char* kJs = "js";
 const char* kLaunch = "app.launch";
 const char* kLaunchContainer = "app.launch.container";
@@ -33,6 +36,9 @@ const char* kLaunchWidth = "app.launch.width";
 const char* kMatches = "matches";
 const char* kMinimumChromeVersion = "minimum_chrome_version";
 const char* kName = "name";
+const char* kNaClModules = "nacl_modules";
+const char* kNaClModulesMIMEType = "mime_type";
+const char* kNaClModulesPath = "path";
 const char* kOmnibox = "omnibox";
 const char* kOmniboxKeyword = "omnibox.keyword";
 const char* kOptionsPage = "options_page";
@@ -80,6 +86,7 @@ const char* kWebURLs = "app.urls";
 namespace extension_manifest_values {
 const char* kIncognitoSplit = "split";
 const char* kIncognitoSpanning = "spanning";
+const char* kIsolatedStorage = "storage";
 const char* kRunAtDocumentStart = "document_start";
 const char* kRunAtDocumentEnd = "document_end";
 const char* kRunAtDocumentIdle = "document_idle";
@@ -97,6 +104,9 @@ const char* kLaunchContainerWindow = "window";
 namespace extension_manifest_errors {
 const char* kAppsNotEnabled =
     "Apps are not enabled.";
+const char* kBackgroundPermissionNeeded =
+    "Hosted apps that use 'background_page' must have the 'background' "
+    "permission.";
 const char* kCannotAccessPage =
     "Cannot access contents of url \"*\". "
     "Extension manifest must request permission to access this host.";
@@ -106,6 +116,8 @@ const char* kCannotClaimAllURLsInExtent =
     "Cannot claim all URLs in an extent.";
 const char* kCannotScriptGallery =
     "The extensions gallery cannot be scripted.";
+const char* kCannotUninstallManagedExtension =
+    "Attempted uninstallation of an extension that is not user-manageable.";
 const char* kChromeVersionTooLow =
     "This extension requires * version * or greater.";
 const char* kDisabledByPolicy =
@@ -117,12 +129,18 @@ const char* kExpectString = "Expect string value.";
 const char* kExperimentalFlagRequired =
     "Loading extensions with 'experimental' permission requires"
     " --enable-experimental-extension-apis command line flag.";
+const char *kExperimentalFeature =
+    "This feature requires 'experimental' permissions and"
+    " --enable-experimental-extension-apis command line flag.";
 const char* kHostedAppsCannotIncludeExtensionFeatures =
-    "Hosted apps cannot use extension features.";
+    "Hosted apps cannot use the extension feature '*'.";
 const char* kInvalidAllFrames =
     "Invalid value for 'content_scripts[*].all_frames'.";
 const char* kInvalidBackground =
     "Invalid value for 'background_page'.";
+const char* kInvalidBackgroundInHostedApp =
+    "Invalid value for 'background_page'. Hosted apps must specify an "
+    "absolute HTTPS URL for the background page.";
 const char* kInvalidBrowserAction =
     "Invalid value for 'browser_action'.";
 const char* kInvalidChromeURLOverrides =
@@ -141,6 +159,12 @@ const char* kInvalidDescription =
     "Invalid value for 'description'.";
 const char* kInvalidDevToolsPage =
     "Invalid value for 'devtools_page'.";
+const char* kInvalidFileBrowserHandler =
+    "Invalid value for 'file_browser_handers'.";
+const char* kInvalidFileFiltersList =
+    "Invalid value for 'file_filters'.";
+const char* kInvalidFileFilterValue =
+    "Invalid value for 'file_filters[*]'.";
 const char* kInvalidGlob =
     "Invalid value for 'content_scripts[*].*[*]'.";
 const char* kInvalidGlobList =
@@ -153,6 +177,10 @@ const char* kInvalidIcons =
     "Invalid value for 'icons'.";
 const char* kInvalidIncognitoBehavior =
     "Invalid value for 'incognito'.";
+const char* kInvalidIsolation =
+    "Invalid value for 'app.isolation'.";
+const char* kInvalidIsolationValue =
+    "Invalid value for 'app.isolation[*]'.";
 const char* kInvalidJs =
     "Invalid value for 'content_scripts[*].js[*]'.";
 const char* kInvalidJsList =
@@ -186,6 +214,12 @@ const char* kInvalidMinimumChromeVersion =
     "Invalid value for 'minimum_chrome_version'.";
 const char* kInvalidName =
     "Required value 'name' is missing or invalid.";
+const char* kInvalidNaClModules =
+    "Invalid value for 'nacl_modules'.";
+const char* kInvalidNaClModulesPath =
+    "Invalid value for 'nacl_modules[*].path'.";
+const char* kInvalidNaClModulesMIMEType =
+    "Invalid value for 'nacl_modules[*].mime_type'.";
 const char* kInvalidOmniboxKeyword =
     "Invalid value for 'omnibox.keyword'.";
 const char* kInvalidOptionsPage =
@@ -270,6 +304,8 @@ const char* kInvalidTtsVoicesVoiceName =
     "Invalid value for 'tts.voices[*].voiceName'.";
 const char* kInvalidUpdateURL =
     "Invalid value for update url: '[*]'.";
+const char* kInvalidURLPatternError =
+    "Invalid url pattern '*'";
 const char* kInvalidVersion =
     "Required value 'version' is missing or invalid. It must be between 1-4 "
     "dot-separated integers each between 0 and 65536.";

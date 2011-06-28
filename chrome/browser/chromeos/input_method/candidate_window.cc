@@ -9,8 +9,8 @@
 #include <vector>
 
 #include "base/logging.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/observer_list.h"
-#include "base/scoped_ptr.h"
 #include "base/string_util.h"
 #include "base/stringprintf.h"
 #include "base/utf_string_conversions.h"
@@ -421,10 +421,10 @@ class CandidateWindowView : public views::View {
 
  protected:
   // Override View::VisibilityChanged()
-  virtual void VisibilityChanged(View* starting_from, bool is_visible);
+  virtual void VisibilityChanged(View* starting_from, bool is_visible) OVERRIDE;
 
   // Override View::OnBoundsChanged()
-  virtual void OnBoundsChanged();
+  virtual void OnBoundsChanged(const gfx::Rect& previous_bounds) OVERRIDE;
 
  private:
   // Initializes the candidate views if needed.
@@ -528,15 +528,11 @@ class CandidateView : public views::View {
   gfx::Point GetCandidateLabelPosition() const;
 
  private:
-  // View::OnMousePressed() implementation.
-  virtual bool OnMousePressed(const views::MouseEvent& event);
-
-  // View::OnMouseDragged() implementation.
-  virtual bool OnMouseDragged(const views::MouseEvent& event);
-
-  // View::OnMouseReleased() implementation.
-  virtual void OnMouseReleased(const views::MouseEvent& event,
-                               bool canceled);
+  // Overridden from View:
+  virtual bool OnMousePressed(const views::MouseEvent& event) OVERRIDE;
+  virtual bool OnMouseDragged(const views::MouseEvent& event) OVERRIDE;
+  virtual void OnMouseReleased(const views::MouseEvent& event) OVERRIDE;
+  virtual void OnMouseCaptureLost() OVERRIDE;
 
   // Zero-origin index in the current page.
   int index_in_page_;
@@ -735,12 +731,13 @@ bool CandidateView::OnMouseDragged(const views::MouseEvent& event) {
   return true;
 }
 
-void CandidateView::OnMouseReleased(const views::MouseEvent& event,
-                                       bool canceled) {
-  // Commit the current candidate unless it's canceled.
-  if (!canceled) {
-    parent_candidate_window_->CommitCandidate();
-  }
+void CandidateView::OnMouseReleased(const views::MouseEvent& event) {
+  // Commit the current candidate.
+  parent_candidate_window_->CommitCandidate();
+  OnMouseCaptureLost();
+}
+
+void CandidateView::OnMouseCaptureLost() {
   parent_candidate_window_->OnMouseReleased();
 }
 
@@ -804,8 +801,8 @@ void CandidateWindowView::HideLookupTable() {
   // First, in the following scenario, it seems that the Views popup window does
   // not release mouse/keyboard grab even after it gets hidden.
   //
-  // 1. create a popup window by views::Widget::CreatePopupWidget() with the
-  //    views::Widget::AcceptEvents flag.
+  // 1. create a popup window by views::Widget::CreateWidget() with the
+  //    accept_events flag set to true on the CreateParams.
   // 2. press a mouse button on the window.
   // 3. before releasing the mouse button, Hide() the window.
   // 4. release the button.
@@ -1248,10 +1245,10 @@ void CandidateWindowView::VisibilityChanged(View* starting_from,
   }
 }
 
-void CandidateWindowView::OnBoundsChanged() {
+void CandidateWindowView::OnBoundsChanged(const gfx::Rect& previous_bounds) {
   // If the bounds(size) of candidate window is changed,
   // we should move the frame to the right position.
-  View::OnBoundsChanged();
+  View::OnBoundsChanged(previous_bounds);
   MoveParentFrame();
 }
 
@@ -1285,11 +1282,8 @@ bool CandidateWindowController::Impl::Init() {
 
 void CandidateWindowController::Impl::CreateView() {
   // Create a non-decorated frame.
-  frame_.reset(views::Widget::CreatePopupWidget(
-      views::Widget::NotTransparent,
-      views::Widget::AcceptEvents,
-      views::Widget::DeleteOnDestroy,
-      views::Widget::MirrorOriginInRTL));
+  frame_.reset(views::Widget::CreateWidget(
+      views::Widget::CreateParams(views::Widget::CreateParams::TYPE_POPUP)));
   // The size is initially zero.
   frame_->Init(NULL, gfx::Rect(0, 0));
 

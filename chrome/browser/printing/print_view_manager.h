@@ -6,16 +6,16 @@
 #define CHROME_BROWSER_PRINTING_PRINT_VIEW_MANAGER_H_
 #pragma once
 
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
 #include "base/string16.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
 #include "content/browser/tab_contents/tab_contents_observer.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
 #include "printing/printed_pages_source.h"
 
 class RenderViewHost;
 class TabContents;
-struct ViewHostMsg_DidPrintPage_Params;
+struct PrintHostMsg_DidPrintPage_Params;
 
 namespace printing {
 
@@ -32,12 +32,14 @@ class PrintViewManager : public NotificationObserver,
   explicit PrintViewManager(TabContents* tab_contents);
   virtual ~PrintViewManager();
 
-  // Cancels the print job.
-  void Stop();
+  // Override the title for this PrintViewManager's PrintJobs using the title
+  // in |tab_contents|.
+  void OverrideTitle(TabContents* tab_contents);
 
-  // Terminates or cancels the print job if one was pending, depending on the
-  // current state. Returns false if the renderer was not valuable.
-  bool OnRenderViewGone(RenderViewHost* render_view_host);
+  // Prints the current document immediately. Since the rendering is
+  // asynchronous, the actual printing will not be completed on the return of
+  // this function. Returns false if printing is impossible at the moment.
+  bool PrintNow();
 
   // PrintedPagesSource implementation.
   virtual string16 RenderSourceName();
@@ -51,9 +53,15 @@ class PrintViewManager : public NotificationObserver,
   // TabContentsObserver implementation.
   virtual bool OnMessageReceived(const IPC::Message& message);
 
+  // Terminates or cancels the print job if one was pending.
+  virtual void RenderViewGone();
+
+  // Cancels the print job.
+  virtual void StopNavigation();
+
  private:
   void OnDidGetPrintedPagesCount(int cookie, int number_pages);
-  void OnDidPrintPage(const ViewHostMsg_DidPrintPage_Params& params);
+  void OnDidPrintPage(const PrintHostMsg_DidPrintPage_Params& params);
 
   // Processes a NOTIFY_PRINT_JOB_EVENT notification.
   void OnNotifyPrintJobEvent(const JobEventDetails& event_details);
@@ -128,6 +136,10 @@ class PrintViewManager : public NotificationObserver,
   // Set to true when OnDidPrintPage() should be expecting the first page.
   bool expecting_first_page_;
 #endif
+
+  // Title override.
+  bool is_title_overridden_;
+  string16 overridden_title_;
 
   DISALLOW_COPY_AND_ASSIGN(PrintViewManager);
 };

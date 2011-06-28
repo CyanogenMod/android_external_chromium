@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,17 +6,17 @@
 #define CHROME_BROWSER_IMPORTER_IMPORTER_LIST_H_
 #pragma once
 
-#include <string>
 #include <vector>
 
 #include "base/basictypes.h"
-#include "base/ref_counted.h"
-#include "base/scoped_vector.h"
-#include "build/build_config.h"
-#include "chrome/browser/importer/importer_data_types.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_vector.h"
+#include "base/string16.h"
 #include "content/browser/browser_thread.h"
 
-class Importer;
+namespace importer {
+struct SourceProfile;
+}
 
 class ImporterList : public base::RefCountedThreadSafe<ImporterList> {
  public:
@@ -24,21 +24,18 @@ class ImporterList : public base::RefCountedThreadSafe<ImporterList> {
   // order to be called back when the source profiles are loaded.
   class Observer {
    public:
-    virtual void SourceProfilesLoaded() = 0;
+    virtual void OnSourceProfilesLoaded() = 0;
 
    protected:
     virtual ~Observer() {}
   };
 
-  static Importer* CreateImporterByType(importer::ProfileType type);
-
   ImporterList();
 
-  // Detects the installed browsers and their associated profiles, then
-  // stores their information in a list. It returns the list of description
-  // of all profiles. Calls into DetectSourceProfilesWorker() on the FILE thread
-  // to do the real work of detecting source profiles. |observer| must be
-  // non-NULL.
+  // Detects the installed browsers and their associated profiles, then stores
+  // their information in a list. It returns the list of description of all
+  // profiles. Calls into DetectSourceProfilesWorker() on the FILE thread to do
+  // the real work of detecting source profiles. |observer| must be non-NULL.
   void DetectSourceProfiles(Observer* observer);
 
   // Sets the observer of this object. When the current observer is destroyed,
@@ -50,23 +47,17 @@ class ImporterList : public base::RefCountedThreadSafe<ImporterList> {
   // may end up blocking the current thread, which is usually the UI thread.
   void DetectSourceProfilesHack();
 
-  // Returns the number of different browser profiles you can import from.
-  int GetAvailableProfileCount() const;
+  // Returns the number of different source profiles you can import from.
+  size_t count() const { return source_profiles_.size(); }
 
-  // Returns the name of the profile at the 'index' slot. The profiles are
-  // ordered such that the profile at index 0 is the likely default browser.
-  std::wstring GetSourceProfileNameAt(int index) const;
+  // Returns the SourceProfile at |index|. The profiles are ordered such that
+  // the profile at index 0 is the likely default browser. The SourceProfile
+  // should be passed to ImporterHost::StartImportSettings().
+  const importer::SourceProfile& GetSourceProfileAt(size_t index) const;
 
-  // Returns the ProfileInfo at the specified index.  The ProfileInfo should be
-  // passed to StartImportSettings().
-  const importer::ProfileInfo& GetSourceProfileInfoAt(int index) const;
-
-  // Returns the ProfileInfo with the given browser type.
-  const importer::ProfileInfo& GetSourceProfileInfoForBrowserType(
-      int browser_type) const;
-
-  // Returns true if the source profiles have been loaded.
-  bool source_profiles_loaded() const;
+  // Returns the SourceProfile for the given |importer_type|.
+  const importer::SourceProfile& GetSourceProfileForImporterType(
+      int importer_type) const;
 
  private:
   friend class base::RefCountedThreadSafe<ImporterList>;
@@ -81,10 +72,10 @@ class ImporterList : public base::RefCountedThreadSafe<ImporterList> {
   // notifies |observer_| that the source profiles are loaded. |profiles| is
   // the vector of loaded profiles.
   void SourceProfilesLoaded(
-      const std::vector<importer::ProfileInfo*>& profiles);
+      const std::vector<importer::SourceProfile*>& profiles);
 
   // The list of profiles with the default one first.
-  ScopedVector<importer::ProfileInfo> source_profiles_;
+  ScopedVector<importer::SourceProfile> source_profiles_;
 
   // The ID of the thread DetectSourceProfiles() is called on. Only valid after
   // DetectSourceProfiles() is called and until SourceProfilesLoaded() has

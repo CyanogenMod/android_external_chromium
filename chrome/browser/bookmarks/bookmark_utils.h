@@ -10,8 +10,8 @@
 #include <vector>
 
 #include "base/string16.h"
-#include "chrome/browser/bookmarks/bookmark_node_data.h"
 #include "chrome/browser/bookmarks/bookmark_editor.h"
+#include "chrome/browser/bookmarks/bookmark_node_data.h"
 #include "chrome/browser/history/snippet.h"
 #include "ui/gfx/native_widget_types.h"
 #include "webkit/glue/window_open_disposition.h"
@@ -38,7 +38,7 @@ namespace bookmark_utils {
 int PreferredDropOperation(int source_operations, int operations);
 
 // Returns the drag operations for the specified node.
-int BookmarkDragOperation(const BookmarkNode* node);
+int BookmarkDragOperation(Profile* profile, const BookmarkNode* node);
 
 // Returns the preferred drop operation on a bookmark menu/bar.
 // |parent| is the parent node the drop is to occur on and |index| the index the
@@ -73,23 +73,24 @@ void CloneBookmarkNode(BookmarkModel* model,
                        const BookmarkNode* parent,
                        int index_to_add_at);
 
-// Begins dragging a group of bookmarks.
+// Begins dragging a folder of bookmarks.
 void DragBookmarks(Profile* profile,
                    const std::vector<const BookmarkNode*>& nodes,
                    gfx::NativeView view);
 
-// Recursively opens all bookmarks. |initial_disposition| dictates how the
-// first URL is opened, all subsequent URLs are opened as background tabs.
-// |navigator| is used to open the URLs. If |navigator| is NULL the last
-// tabbed browser with the profile |profile| is used. If there is no browser
-// with the specified profile a new one is created.
+// Opens all the bookmarks in |nodes| that are of type url and all the child
+// bookmarks that are of type url for folders in |nodes|. |initial_disposition|
+// dictates how the first URL is opened, all subsequent URLs are opened as
+// background tabs.  |navigator| is used to open the URLs. If |navigator| is
+// NULL the last tabbed browser with the profile |profile| is used. If there is
+// no browser with the specified profile a new one is created.
 void OpenAll(gfx::NativeWindow parent,
              Profile* profile,
              PageNavigator* navigator,
              const std::vector<const BookmarkNode*>& nodes,
              WindowOpenDisposition initial_disposition);
 
-// Convenience for opening a single BookmarkNode.
+// Convenience for |OpenAll| with a single BookmarkNode.
 void OpenAll(gfx::NativeWindow parent,
              Profile* profile,
              PageNavigator* navigator,
@@ -118,11 +119,11 @@ bool CanPasteFromClipboard(const BookmarkNode* node);
 string16 GetNameForURL(const GURL& url);
 
 // Returns a vector containing up to |max_count| of the most recently modified
-// groups. This never returns an empty vector.
-std::vector<const BookmarkNode*> GetMostRecentlyModifiedGroups(
+// folders. This never returns an empty vector.
+std::vector<const BookmarkNode*> GetMostRecentlyModifiedFolders(
     BookmarkModel* model, size_t max_count);
 
-// Returns the most recently added bookmarks. This does not return groups,
+// Returns the most recently added bookmarks. This does not return folders,
 // only nodes of type url.
 void GetMostRecentlyAddedEntries(BookmarkModel* model,
                                  size_t count,
@@ -162,7 +163,7 @@ bool DoesBookmarkContainText(const BookmarkNode* node,
 // done regarding moving from one folder to another).  If a new node is
 // explicitly being added, returns a pointer to the new node that was created.
 // Otherwise the return value is identically |node|.
-const BookmarkNode* ApplyEditsWithNoGroupChange(
+const BookmarkNode* ApplyEditsWithNoFolderChange(
     BookmarkModel* model,
     const BookmarkNode* parent,
     const BookmarkEditor::EditDetails& details,
@@ -173,7 +174,7 @@ const BookmarkNode* ApplyEditsWithNoGroupChange(
 // changed and the node will need to be removed and reinserted.  If a new node
 // is explicitly being added, returns a pointer to the new node that was
 // created.  Otherwise the return value is identically |node|.
-const BookmarkNode* ApplyEditsWithPossibleGroupChange(
+const BookmarkNode* ApplyEditsWithPossibleFolderChange(
     BookmarkModel* model,
     const BookmarkNode* new_parent,
     const BookmarkEditor::EditDetails& details,

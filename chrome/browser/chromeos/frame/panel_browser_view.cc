@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -56,13 +56,22 @@ void PanelBrowserView::LimitBounds(gfx::Rect* bounds) const {
 // BrowserView overrides.
 
 void PanelBrowserView::Show() {
+  InitPanelController(true);  // focus when opened
+  ::BrowserView::Show();
+}
+
+void PanelBrowserView::ShowInactive() {
+  InitPanelController(false);
+  ::BrowserView::ShowInactive();
+}
+
+void PanelBrowserView::InitPanelController(bool is_active) {
   if (panel_controller_.get() == NULL) {
     panel_controller_.reset(new PanelController(this, GetNativeHandle()));
     panel_controller_->Init(
-        true /* focus when opened */, bounds(), creator_xid_,
+        is_active, bounds(), creator_xid_,
         WM_IPC_PANEL_USER_RESIZE_HORIZONTALLY_AND_VERTICALLY);
   }
-  ::BrowserView::Show();
 }
 
 void PanelBrowserView::SetBounds(const gfx::Rect& bounds) {
@@ -83,16 +92,6 @@ void PanelBrowserView::UpdateTitleBar() {
     panel_controller_->UpdateTitleBar();
 }
 
-void PanelBrowserView::ActivationChanged(bool activated) {
-  ::BrowserView::ActivationChanged(activated);
-  if (panel_controller_.get()) {
-    if (activated)
-      panel_controller_->OnFocusIn();
-    else
-      panel_controller_->OnFocusOut();
-  }
-}
-
 void PanelBrowserView::SetCreatorView(PanelBrowserView* creator) {
   DCHECK(creator);
   GtkWindow* window = creator->GetNativeHandle();
@@ -104,6 +103,26 @@ bool PanelBrowserView::GetSavedWindowBounds(gfx::Rect* bounds) const {
   if (res)
     LimitBounds(bounds);
   return res;
+}
+
+void PanelBrowserView::OnWindowActivationChanged(bool active) {
+  ::BrowserView::OnWindowActivationChanged(active);
+  if (panel_controller_.get()) {
+    if (active)
+      panel_controller_->OnFocusIn();
+    else
+      panel_controller_->OnFocusOut();
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// TabStripModelObserver overrides.
+
+void PanelBrowserView::TabChangedAt(TabContentsWrapper* contents,
+                                    int index,
+                                    TabChangeType change_type) {
+  if (change_type == TabStripModelObserver::TITLE_NOT_LOADING)
+    panel_controller_->SetUrgent(true);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -123,6 +142,10 @@ bool PanelBrowserView::CanClosePanel() {
 
 void PanelBrowserView::ClosePanel() {
   Close();
+}
+
+void PanelBrowserView::ActivatePanel() {
+  Activate();
 }
 
 }  // namespace chromeos

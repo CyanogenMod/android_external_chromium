@@ -7,12 +7,15 @@
 #include "base/logging.h"
 #import "base/mac/mac_util.h"
 #include "base/mac/scoped_cftyperef.h"
-#include "chrome/browser/themes/browser_theme_provider.h"
+#include "chrome/browser/themes/theme_service.h"
+#import "chrome/browser/ui/cocoa/nsview_additions.h"
 #import "chrome/browser/ui/cocoa/tabs/tab_controller.h"
 #import "chrome/browser/ui/cocoa/tabs/tab_window_controller.h"
 #import "chrome/browser/ui/cocoa/themed_window.h"
 #import "chrome/browser/ui/cocoa/view_id_util.h"
+#include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
+#include "ui/base/l10n/l10n_util.h"
 
 namespace {
 
@@ -302,12 +305,37 @@ const CGFloat kRapidCloseDist = 2.5;
   // Because we move views between windows, we need to handle the event loop
   // ourselves. Ideally we should use the standard event loop.
   while (1) {
+    const NSUInteger mask =
+        NSLeftMouseUpMask | NSLeftMouseDraggedMask | NSKeyUpMask;
     theEvent =
-        [NSApp nextEventMatchingMask:NSLeftMouseUpMask | NSLeftMouseDraggedMask
+        [NSApp nextEventMatchingMask:mask
                            untilDate:[NSDate distantFuture]
                               inMode:NSDefaultRunLoopMode dequeue:YES];
     NSEventType type = [theEvent type];
-    if (type == NSLeftMouseDragged) {
+    if (type == NSKeyUp) {
+      if ([theEvent keyCode] == kVK_Escape) {
+        // Cancel the drag and restore the previous state.
+        if (draggingWithinTabStrip_) {
+          // Simply pretend the tab wasn't dragged (far enough).
+          tabWasDragged_ = NO;
+        } else {
+          [targetController_ removePlaceholder];
+          if ([sourceController_ numberOfTabs] < 2) {
+            // Revert to a single-tab window.
+            targetController_ = nil;
+          } else {
+            // Change the target to the source controller.
+            targetController_ = sourceController_;
+            [targetController_ insertPlaceholderForTab:self
+                                                 frame:sourceTabFrame_
+                                         yStretchiness:0];
+          }
+        }
+        // Call the |mouseUp:| code to end the drag.
+        [self mouseUp:theEvent];
+        break;
+      }
+    } else if (type == NSLeftMouseDragged) {
       [self mouseDragged:theEvent];
     } else if (type == NSLeftMouseUp) {
       NSPoint upLocation = [theEvent locationInWindow];
@@ -620,11 +648,13 @@ const CGFloat kRapidCloseDist = 2.5;
 }
 
 - (void)drawRect:(NSRect)dirtyRect {
+  const CGFloat lineWidth = [self cr_lineWidth];
+
   NSGraphicsContext* context = [NSGraphicsContext currentContext];
   [context saveGraphicsState];
 
-  BrowserThemeProvider* themeProvider =
-      static_cast<BrowserThemeProvider*>([[self window] themeProvider]);
+  ThemeService* themeProvider =
+      static_cast<ThemeService*>([[self window] themeProvider]);
   [context setPatternPhase:[[self window] themePatternPhase]];
 
   NSRect rect = [self bounds];
@@ -715,21 +745,21 @@ const CGFloat kRapidCloseDist = 2.5;
   NSColor* borderColor = [NSColor colorWithDeviceWhite:0.0 alpha:borderAlpha];
   NSColor* highlightColor = themeProvider ? themeProvider->GetNSColor(
       themeProvider->UsingDefaultTheme() ?
-          BrowserThemeProvider::COLOR_TOOLBAR_BEZEL :
-          BrowserThemeProvider::COLOR_TOOLBAR, true) : nil;
+          ThemeService::COLOR_TOOLBAR_BEZEL :
+          ThemeService::COLOR_TOOLBAR, true) : nil;
 
   // Draw the top inner highlight within the currently selected tab if using
   // the default theme.
   if (selected && themeProvider && themeProvider->UsingDefaultTheme()) {
     NSAffineTransform* highlightTransform = [NSAffineTransform transform];
-    [highlightTransform translateXBy:1.0 yBy:-1.0];
+    [highlightTransform translateXBy:lineWidth yBy:-lineWidth];
     scoped_nsobject<NSBezierPath> highlightPath([path copy]);
     [highlightPath transformUsingAffineTransform:highlightTransform];
     [highlightColor setStroke];
-    [highlightPath setLineWidth:1.0];
+    [highlightPath setLineWidth:lineWidth];
     [highlightPath stroke];
     highlightTransform = [NSAffineTransform transform];
-    [highlightTransform translateXBy:-2.0 yBy:0.0];
+    [highlightTransform translateXBy:-2 * lineWidth yBy:0.0];
     [highlightPath transformUsingAffineTransform:highlightTransform];
     [highlightPath stroke];
   }
@@ -739,7 +769,7 @@ const CGFloat kRapidCloseDist = 2.5;
   // Draw the top stroke.
   [context saveGraphicsState];
   [borderColor set];
-  [path setLineWidth:1.0];
+  [path setLineWidth:lineWidth];
   [path stroke];
   [context restoreGraphicsState];
 
@@ -748,8 +778,8 @@ const CGFloat kRapidCloseDist = 2.5;
   if (!selected) {
     [path addClip];
     NSRect borderRect = rect;
-    borderRect.origin.y = 1;
-    borderRect.size.height = 1;
+    borderRect.origin.y = lineWidth;
+    borderRect.size.height = lineWidth;
     [borderColor set];
     NSRectFillUsingOperation(borderRect, NSCompositeSourceOver);
 
@@ -827,26 +857,13 @@ const CGFloat kRapidCloseDist = 2.5;
 
 - (id)accessibilityAttributeValue:(NSString*)attribute {
   if ([attribute isEqual:NSAccessibilityRoleAttribute])
-    return NSAccessibilityButtonRole;
+    return l10n_util::GetNSStringWithFixup(IDS_ACCNAME_TAB);
 
   if ([attribute isEqual:NSAccessibilityTitleAttribute])
     return [controller_ title];
 
   if ([attribute isEqual:NSAccessibilityEnabledAttribute])
     return [NSNumber numberWithBool:YES];
-
-  if ([attribute isEqual:NSAccessibilityChildrenAttribute]) {
-    // The subviews (icon and text) are clutter; filter out everything but
-    // useful controls.
-    NSArray* children = [super accessibilityAttributeValue:attribute];
-    NSMutableArray* okChildren = [NSMutableArray array];
-    for (id child in children) {
-      if ([child isKindOfClass:[NSButtonCell class]])
-        [okChildren addObject:child];
-    }
-
-    return okChildren;
-  }
 
   return [super accessibilityAttributeValue:attribute];
 }
@@ -1004,14 +1021,17 @@ const CGFloat kRapidCloseDist = 2.5;
 
 // Returns the bezier path used to draw the tab given the bounds to draw it in.
 - (NSBezierPath*)bezierPathForRect:(NSRect)rect {
-  // Outset by 0.5 in order to draw on pixels rather than on borders (which
-  // would cause blurry pixels). Subtract 1px of height to compensate, otherwise
-  // clipping will occur.
-  rect = NSInsetRect(rect, -0.5, -0.5);
-  rect.size.height -= 1.0;
+  const CGFloat lineWidth = [self cr_lineWidth];
+  const CGFloat halfLineWidth = lineWidth / 2.0;
 
-  NSPoint bottomLeft = NSMakePoint(NSMinX(rect), NSMinY(rect) + 2);
-  NSPoint bottomRight = NSMakePoint(NSMaxX(rect), NSMinY(rect) + 2);
+  // Outset by halfLineWidth in order to draw on pixels rather than on borders
+  // (which would cause blurry pixels). Subtract lineWidth of height to
+  // compensate, otherwise clipping will occur.
+  rect = NSInsetRect(rect, -halfLineWidth, -halfLineWidth);
+  rect.size.height -= lineWidth;
+
+  NSPoint bottomLeft = NSMakePoint(NSMinX(rect), NSMinY(rect) + 2 * lineWidth);
+  NSPoint bottomRight = NSMakePoint(NSMaxX(rect), NSMinY(rect) + 2 * lineWidth);
   NSPoint topRight =
       NSMakePoint(NSMaxX(rect) - kInsetMultiplier * NSHeight(rect),
                   NSMaxY(rect));
@@ -1022,11 +1042,12 @@ const CGFloat kRapidCloseDist = 2.5;
   CGFloat baseControlPointOutset = NSHeight(rect) * kControlPoint1Multiplier;
   CGFloat bottomControlPointInset = NSHeight(rect) * kControlPoint2Multiplier;
 
-  // Outset many of these values by 1 to cause the fill to bleed outside the
-  // clip area.
+  // Outset many of these values by lineWidth to cause the fill to bleed outside
+  // the clip area.
   NSBezierPath* path = [NSBezierPath bezierPath];
-  [path moveToPoint:NSMakePoint(bottomLeft.x - 1, bottomLeft.y - 2)];
-  [path lineToPoint:NSMakePoint(bottomLeft.x - 1, bottomLeft.y)];
+  [path moveToPoint:NSMakePoint(bottomLeft.x - lineWidth,
+                                bottomLeft.y - (2 * lineWidth))];
+  [path lineToPoint:NSMakePoint(bottomLeft.x - lineWidth, bottomLeft.y)];
   [path lineToPoint:bottomLeft];
   [path curveToPoint:topLeft
        controlPoint1:NSMakePoint(bottomLeft.x + baseControlPointOutset,
@@ -1039,8 +1060,9 @@ const CGFloat kRapidCloseDist = 2.5;
                                  topRight.y)
        controlPoint2:NSMakePoint(bottomRight.x - baseControlPointOutset,
                                  bottomRight.y)];
-  [path lineToPoint:NSMakePoint(bottomRight.x + 1, bottomRight.y)];
-  [path lineToPoint:NSMakePoint(bottomRight.x + 1, bottomRight.y - 2)];
+  [path lineToPoint:NSMakePoint(bottomRight.x + lineWidth, bottomRight.y)];
+  [path lineToPoint:NSMakePoint(bottomRight.x + lineWidth,
+                                bottomRight.y - (2 * lineWidth))];
   return path;
 }
 

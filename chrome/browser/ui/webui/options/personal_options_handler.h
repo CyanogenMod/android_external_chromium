@@ -10,6 +10,9 @@
 #include "chrome/browser/browser_signin.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/ui/webui/options/options_ui.h"
+#if defined(OS_CHROMEOS)
+#include "content/common/notification_registrar.h"
+#endif
 
 class OptionsManagedBannerHandler;
 
@@ -56,9 +59,13 @@ class PersonalOptionsHandler : public OptionsPageUIHandler,
 
 #if defined(OS_CHROMEOS)
   void LoadAccountPicture(const ListValue* args);
+  NotificationRegistrar registrar_;
 #endif
 
   scoped_ptr<OptionsManagedBannerHandler> banner_handler_;
+
+  // True if the multiprofiles switch is enabled.
+  bool multiprofile_;
 
   DISALLOW_COPY_AND_ASSIGN(PersonalOptionsHandler);
 };

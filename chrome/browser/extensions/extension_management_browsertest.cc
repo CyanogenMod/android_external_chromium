@@ -2,7 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
+#include "base/stl_util-inl.h"
 #include "chrome/browser/extensions/autoupdate_interceptor.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/extensions/extension_host.h"
@@ -176,25 +177,88 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementTest, DisableEnable) {
   EXPECT_EQ(0u, service->disabled_extensions()->size());
   const Extension* extension = service->extensions()->at(size_before);
   EXPECT_TRUE(manager->GetBackgroundHostForExtension(extension));
-  ASSERT_TRUE(service->HasInstalledExtensions());
 
   // After disabling, the background page should go away.
   service->DisableExtension("bjafgdebaacbbbecmhlhpofkepfkgcpa");
   EXPECT_EQ(size_before, service->extensions()->size());
   EXPECT_EQ(1u, service->disabled_extensions()->size());
   EXPECT_FALSE(manager->GetBackgroundHostForExtension(extension));
-  ASSERT_TRUE(service->HasInstalledExtensions());
 
   // And bring it back.
   service->EnableExtension("bjafgdebaacbbbecmhlhpofkepfkgcpa");
   EXPECT_EQ(size_before + 1, service->extensions()->size());
   EXPECT_EQ(0u, service->disabled_extensions()->size());
   EXPECT_TRUE(manager->GetBackgroundHostForExtension(extension));
-  ASSERT_TRUE(service->HasInstalledExtensions());
 }
+
+// Used for testing notifications sent during extension updates.
+class NotificationListener : public NotificationObserver {
+ public:
+  NotificationListener() : started_(false), finished_(false) {
+    NotificationType::Type types[] = {
+      NotificationType::EXTENSION_UPDATING_STARTED,
+      NotificationType::EXTENSION_UPDATING_FINISHED,
+      NotificationType::EXTENSION_UPDATE_FOUND
+    };
+    for (size_t i = 0; i < arraysize(types); i++) {
+      registrar_.Add(this, types[i], NotificationService::AllSources());
+    }
+  }
+  ~NotificationListener() {}
+
+  bool started() { return started_; }
+
+  bool finished() { return finished_; }
+
+  const std::set<std::string>& updates() { return updates_; }
+
+  void Reset() {
+    started_ = false;
+    finished_ = false;
+    updates_.clear();
+  }
+
+  // Implements NotificationObserver interface.
+  virtual void Observe(NotificationType type,
+                       const NotificationSource& source,
+                       const NotificationDetails& details) {
+    switch (type.value) {
+      case NotificationType::EXTENSION_UPDATING_STARTED: {
+        DCHECK(!started_);
+        started_ = true;
+        break;
+      }
+      case NotificationType::EXTENSION_UPDATING_FINISHED: {
+        DCHECK(!finished_);
+        finished_ = true;
+        break;
+      }
+      case NotificationType::EXTENSION_UPDATE_FOUND: {
+        const std::string* id = Details<const std::string>(details).ptr();
+        updates_.insert(*id);
+        break;
+      }
+      default:
+        NOTREACHED();
+    }
+  }
+
+ private:
+  NotificationRegistrar registrar_;
+
+  // Did we see EXTENSION_UPDATING_STARTED?
+  bool started_;
+
+  // Did we see EXTENSION_UPDATING_FINISHED?
+  bool finished_;
+
+  // The set of extension id's we've seen via EXTENSION_UPDATE_FOUND.
+  std::set<std::string> updates_;
+};
 
 // Tests extension autoupdate.
 IN_PROC_BROWSER_TEST_F(ExtensionManagementTest, AutoUpdate) {
+  NotificationListener notification_listener;
   FilePath basedir = test_data_dir_.AppendASCII("autoupdate");
   // Note: This interceptor gets requests on the IO thread.
   scoped_refptr<AutoUpdateInterceptor> interceptor(new AutoUpdateInterceptor());
@@ -214,7 +278,6 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementTest, AutoUpdate) {
   listener1.WaitUntilSatisfied();
   const ExtensionList* extensions = service->extensions();
   ASSERT_EQ(size_before + 1, extensions->size());
-  ASSERT_TRUE(service->HasInstalledExtensions());
   ASSERT_EQ("ogjcoiohnmldgjemafoockdghcjciccf",
             extensions->at(size_before)->id());
   ASSERT_EQ("1.0", extensions->at(size_before)->VersionString());
@@ -232,6 +295,11 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementTest, AutoUpdate) {
   ASSERT_EQ("ogjcoiohnmldgjemafoockdghcjciccf",
             extensions->at(size_before)->id());
   ASSERT_EQ("2.0", extensions->at(size_before)->VersionString());
+  ASSERT_TRUE(notification_listener.started());
+  ASSERT_TRUE(notification_listener.finished());
+  ASSERT_TRUE(ContainsKey(notification_listener.updates(),
+                          "ogjcoiohnmldgjemafoockdghcjciccf"));
+  notification_listener.Reset();
 
   // Now try doing an update to version 3, which has been incorrectly
   // signed. This should fail.
@@ -242,6 +310,10 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementTest, AutoUpdate) {
 
   service->updater()->CheckNow();
   ASSERT_TRUE(WaitForExtensionInstallError());
+  ASSERT_TRUE(notification_listener.started());
+  ASSERT_TRUE(notification_listener.finished());
+  ASSERT_TRUE(ContainsKey(notification_listener.updates(),
+                          "ogjcoiohnmldgjemafoockdghcjciccf"));
 
   // Make sure the extension state is the same as before.
   extensions = service->extensions();
@@ -271,11 +343,15 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementTest, ExternalUrlUpdate) {
   const size_t size_before = service->extensions()->size();
   ASSERT_TRUE(service->disabled_extensions()->empty());
 
+  PendingExtensionManager* pending_extension_manager =
+      service->pending_extension_manager();
+
   // The code that reads external_extensions.json uses this method to inform
   // the ExtensionService of an extension to download.  Using the real code
   // is race-prone, because instantating the ExtensionService starts a read
   // of external_extensions.json before this test function starts.
-  service->AddPendingExtensionFromExternalUpdateUrl(
+
+  pending_extension_manager->AddFromExternalUpdateUrl(
       kExtensionId, GURL("http://localhost/autoupdate/manifest"),
       Extension::EXTERNAL_PREF_DOWNLOAD);
 
@@ -293,32 +369,29 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementTest, ExternalUrlUpdate) {
   UninstallExtension(kExtensionId);
 
   ExtensionPrefs* extension_prefs = service->extension_prefs();
-  EXPECT_TRUE(extension_prefs->IsExtensionKilled(kExtensionId))
+  EXPECT_TRUE(extension_prefs->IsExternalExtensionUninstalled(kExtensionId))
       << "Uninstalling should set kill bit on externaly installed extension.";
 
   // Try to install the extension again from an external source. It should fail
   // because of the killbit.
-  service->AddPendingExtensionFromExternalUpdateUrl(
+  pending_extension_manager->AddFromExternalUpdateUrl(
       kExtensionId, GURL("http://localhost/autoupdate/manifest"),
       Extension::EXTERNAL_PREF_DOWNLOAD);
-  const PendingExtensionMap& pending_extensions =
-      service->pending_extensions();
-  EXPECT_TRUE(
-      pending_extensions.find(kExtensionId) == pending_extensions.end())
+  EXPECT_FALSE(pending_extension_manager->IsIdPending(kExtensionId))
       << "External reinstall of a killed extension shouldn't work.";
-  EXPECT_TRUE(extension_prefs->IsExtensionKilled(kExtensionId))
+  EXPECT_TRUE(extension_prefs->IsExternalExtensionUninstalled(kExtensionId))
       << "External reinstall of a killed extension should leave it killed.";
 
   // Installing from non-external source.
   ASSERT_TRUE(InstallExtension(basedir.AppendASCII("v2.crx"), 1));
 
-  EXPECT_FALSE(extension_prefs->IsExtensionKilled(kExtensionId))
+  EXPECT_FALSE(extension_prefs->IsExternalExtensionUninstalled(kExtensionId))
       << "Reinstalling should clear the kill bit.";
 
   // Uninstalling from a non-external source should not set the kill bit.
   UninstallExtension(kExtensionId);
 
-  EXPECT_FALSE(extension_prefs->IsExtensionKilled(kExtensionId))
+  EXPECT_FALSE(extension_prefs->IsExternalExtensionUninstalled(kExtensionId))
       << "Uninstalling non-external extension should not set kill bit.";
 }
 
@@ -346,9 +419,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementTest, ExternalPolicyRefresh) {
   PrefService* prefs = browser()->profile()->GetPrefs();
   {
     // Set the policy as a user preference and fire notification observers.
-    ScopedUserPrefUpdate pref_update(prefs, prefs::kExtensionInstallForceList);
-    ListValue* forcelist =
-        prefs->GetMutableList(prefs::kExtensionInstallForceList);
+    ListPrefUpdate pref_update(prefs, prefs::kExtensionInstallForceList);
+    ListValue* forcelist = pref_update.Get();
     ASSERT_TRUE(forcelist->empty());
     forcelist->Append(Value::CreateStringValue(
         std::string(kExtensionId) +
@@ -364,12 +436,27 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementTest, ExternalPolicyRefresh) {
   EXPECT_EQ(Extension::EXTERNAL_POLICY_DOWNLOAD,
             extensions->at(size_before)->location());
 
+  // Try to disable and unstall the extension which should fail.
+  service->DisableExtension(kExtensionId);
+  EXPECT_EQ(size_before + 1, service->extensions()->size());
+  EXPECT_EQ(0u, service->disabled_extensions()->size());
+  UninstallExtension(kExtensionId);
+  EXPECT_EQ(size_before + 1, service->extensions()->size());
+  EXPECT_EQ(0u, service->disabled_extensions()->size());
+
+  // Now try to disable it through the management api.
+  ExtensionTestMessageListener listener1("ready", false);
+  ASSERT_TRUE(LoadExtension(
+      test_data_dir_.AppendASCII("management/uninstall_extension")));
+  ASSERT_TRUE(listener1.WaitUntilSatisfied());
+  EXPECT_EQ(size_before + 2, service->extensions()->size());
+  EXPECT_EQ(0u, service->disabled_extensions()->size());
+
   // Check that emptying the list triggers uninstall.
   {
-    ScopedUserPrefUpdate pref_update(prefs, prefs::kExtensionInstallForceList);
     prefs->ClearPref(prefs::kExtensionInstallForceList);
   }
-  EXPECT_EQ(size_before, extensions->size());
+  EXPECT_EQ(size_before + 1, extensions->size());
   ExtensionList::const_iterator i;
   for (i = extensions->begin(); i != extensions->end(); ++i)
     EXPECT_NE(kExtensionId, (*i)->id());

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,8 +15,9 @@
 #include "base/command_line.h"
 #include "base/debug/stack_trace.h"
 #include "base/logging.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/metrics/histogram.h"
-#include "base/scoped_ptr.h"
+#include "base/sys_info.h"
 #include "base/win/scoped_handle.h"
 #include "base/win/windows_version.h"
 
@@ -464,8 +465,7 @@ TerminationStatus GetTerminationStatus(ProcessHandle handle, int* exit_code) {
 
 bool WaitForExitCode(ProcessHandle handle, int* exit_code) {
   bool success = WaitForExitCodeWithTimeout(handle, exit_code, INFINITE);
-  if (!success)
-    CloseProcessHandle(handle);
+  CloseProcessHandle(handle);
   return success;
 }
 
@@ -476,10 +476,6 @@ bool WaitForExitCodeWithTimeout(ProcessHandle handle, int* exit_code,
   DWORD temp_code;  // Don't clobber out-parameters in case of failure.
   if (!::GetExitCodeProcess(handle, &temp_code))
     return false;
-
-  // Only close the handle on success, to give the caller a chance to forcefully
-  // terminate the process if he wants to.
-  CloseProcessHandle(handle);
 
   *exit_code = temp_code;
   return true;
@@ -544,11 +540,6 @@ bool WaitForSingleProcess(ProcessHandle handle, int64 wait_milliseconds) {
   return retval;
 }
 
-bool CrashAwareSleep(ProcessHandle handle, int64 wait_milliseconds) {
-  bool retval = WaitForSingleObject(handle, wait_milliseconds) == WAIT_TIMEOUT;
-  return retval;
-}
-
 bool CleanupProcesses(const std::wstring& executable_name,
                       int64 wait_milliseconds,
                       int exit_code,
@@ -564,12 +555,11 @@ bool CleanupProcesses(const std::wstring& executable_name,
 ///////////////////////////////////////////////////////////////////////////////
 // ProcesMetrics
 
-ProcessMetrics::ProcessMetrics(ProcessHandle process) : process_(process),
-                                                        last_time_(0),
-                                                        last_system_time_(0) {
-  SYSTEM_INFO system_info;
-  GetSystemInfo(&system_info);
-  processor_count_ = system_info.dwNumberOfProcessors;
+ProcessMetrics::ProcessMetrics(ProcessHandle process)
+    : process_(process),
+      processor_count_(base::SysInfo::NumberOfProcessors()),
+      last_time_(0),
+      last_system_time_(0) {
 }
 
 // static

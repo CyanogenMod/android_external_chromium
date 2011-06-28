@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -41,7 +41,13 @@ void CertDatabase::ListCerts(CertificateList* certs) {
   NOTIMPLEMENTED();
 }
 
-CryptoModule* CertDatabase::GetDefaultModule() const {
+CryptoModule* CertDatabase::GetPublicModule() const {
+  // TODO(bulach): implement me.
+  NOTIMPLEMENTED();
+  return NULL;
+}
+
+CryptoModule* CertDatabase::GetPrivateModule() const {
   // TODO(bulach): implement me.
   NOTIMPLEMENTED();
   return NULL;
@@ -53,7 +59,7 @@ void CertDatabase::ListModules(CryptoModuleList* modules, bool need_rw) const {
   modules->clear();
 }
 
-int CertDatabase::ImportFromPKCS12(net::CryptoModule* module,
+int CertDatabase::ImportFromPKCS12(CryptoModule* module,
                                    const std::string& data,
                                    const string16& password) {
   // TODO(bulach): implement me.

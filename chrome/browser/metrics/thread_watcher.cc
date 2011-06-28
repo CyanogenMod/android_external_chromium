@@ -6,7 +6,7 @@
 #include "build/build_config.h"
 #include "chrome/browser/metrics/metrics_service.h"
 #include "chrome/browser/metrics/thread_watcher.h"
-#include "chrome/common/notification_service.h"
+#include "content/common/notification_service.h"
 
 #if defined(OS_WIN)
 #include <Objbase.h>
@@ -15,10 +15,8 @@
 // static
 const int ThreadWatcher::kPingCount = 3;
 
-//------------------------------------------------------------------------------
 // ThreadWatcher methods and members.
-
-ThreadWatcher::ThreadWatcher(const BrowserThread::ID thread_id,
+ThreadWatcher::ThreadWatcher(const BrowserThread::ID& thread_id,
                              const std::string& thread_name,
                              const base::TimeDelta& sleep_time,
                              const base::TimeDelta& unresponsive_time)
@@ -30,6 +28,7 @@ ThreadWatcher::ThreadWatcher(const BrowserThread::ID thread_id,
       ping_sequence_number_(0),
       active_(false),
       ping_count_(kPingCount),
+      histogram_(NULL),
       ALLOW_THIS_IN_INITIALIZER_LIST(method_factory_(this)) {
   Initialize();
 }
@@ -37,7 +36,7 @@ ThreadWatcher::ThreadWatcher(const BrowserThread::ID thread_id,
 ThreadWatcher::~ThreadWatcher() {}
 
 // static
-void ThreadWatcher::StartWatching(const BrowserThread::ID thread_id,
+void ThreadWatcher::StartWatching(const BrowserThread::ID& thread_id,
                                   const std::string& thread_name,
                                   const base::TimeDelta& sleep_time,
                                   const base::TimeDelta& unresponsive_time) {
@@ -164,31 +163,30 @@ bool ThreadWatcher::OnCheckResponsiveness(uint64 ping_sequence_number) {
   // If the latest ping_sequence_number_ is not same as the ping_sequence_number
   // that is passed in, then we can assume OnPongMessage was called.
   // OnPongMessage increments ping_sequence_number_.
-  if (ping_sequence_number_ != ping_sequence_number)
-    return true;
-  return false;
+  return ping_sequence_number_ != ping_sequence_number;
 }
 
 void ThreadWatcher::Initialize() {
   ThreadWatcherList::Register(this);
+  const std::string histogram_name =
+      "ThreadWatcher.ResponseTime." + thread_name_;
   histogram_ = base::Histogram::FactoryTimeGet(
-      "ThreadWatcher.ResponseTime." + thread_name_,
+      histogram_name,
       base::TimeDelta::FromMilliseconds(1),
       base::TimeDelta::FromSeconds(100), 50,
       base::Histogram::kUmaTargetedHistogramFlag);
 }
 
 // static
-void ThreadWatcher::OnPingMessage(const BrowserThread::ID thread_id,
+void ThreadWatcher::OnPingMessage(const BrowserThread::ID& thread_id,
                                   Task* callback_task) {
   // This method is called on watched thread.
   DCHECK(BrowserThread::CurrentlyOn(thread_id));
   WatchDogThread::PostTask(FROM_HERE, callback_task);
 }
 
-//------------------------------------------------------------------------------
 // ThreadWatcherList methods and members.
-
+//
 // static
 ThreadWatcherList* ThreadWatcherList::global_ = NULL;
 
@@ -200,7 +198,7 @@ ThreadWatcherList::ThreadWatcherList()
   CHECK(!global_);
   global_ = this;
   // Register Notifications observer.
-  MetricsService::SetupNotifications(&registrar_, this);
+  MetricsService::SetUpNotifications(&registrar_, this);
 }
 
 ThreadWatcherList::~ThreadWatcherList() {
@@ -328,7 +326,7 @@ void ThreadWatcherList::WakeUpAll() {
 }
 
 // static
-ThreadWatcher* ThreadWatcherList::Find(const BrowserThread::ID thread_id) {
+ThreadWatcher* ThreadWatcherList::Find(const BrowserThread::ID& thread_id) {
   if (!global_)
     return NULL;
   base::AutoLock auto_lock(global_->lock_);
@@ -336,16 +334,15 @@ ThreadWatcher* ThreadWatcherList::Find(const BrowserThread::ID thread_id) {
 }
 
 ThreadWatcher* ThreadWatcherList::PreLockedFind(
-    const BrowserThread::ID thread_id) {
+    const BrowserThread::ID& thread_id) {
   RegistrationList::iterator it = registered_.find(thread_id);
   if (registered_.end() == it)
     return NULL;
   return it->second;
 }
 
-//------------------------------------------------------------------------------
 // WatchDogThread methods and members.
-
+//
 // static
 base::Lock WatchDogThread::lock_;
 // static

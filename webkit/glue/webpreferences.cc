@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -68,10 +68,12 @@ WebPreferences::WebPreferences()
       show_fps_counter(false),
       asynchronous_spell_checking_enabled(true),
       accelerated_compositing_enabled(false),
+      force_compositing_mode(false),
       composite_to_texture_enabled(false),
       accelerated_layers_enabled(false),
       accelerated_video_enabled(false),
       accelerated_2d_canvas_enabled(false),
+      accelerated_drawing_enabled(false),
       accelerated_plugins_enabled(false),
       memory_info_enabled(false),
       interactive_form_validation_enabled(true),
@@ -154,9 +156,7 @@ void WebPreferences::Apply(WebView* web_view) const {
 
   // Enable experimental WebGL support if requested on command line
   // and support is compiled in.
-  bool enable_webgl =
-      WebRuntimeFeatures::isWebGLEnabled() && experimental_webgl_enabled;
-  settings->setExperimentalWebGLEnabled(enable_webgl);
+  settings->setExperimentalWebGLEnabled(experimental_webgl_enabled);
 
   // Disable GL multisampling if requested on command line.
   settings->setOpenGLMultisamplingEnabled(gl_multisampling_enabled);
@@ -175,11 +175,17 @@ void WebPreferences::Apply(WebView* web_view) const {
   // Enable gpu-accelerated compositing if requested on the command line.
   settings->setAcceleratedCompositingEnabled(accelerated_compositing_enabled);
 
+  // Always enter compositing if requested on the command line.
+  settings->setForceCompositingMode(force_compositing_mode);
+
   // Enable composite to offscreen texture if requested on the command line.
   settings->setCompositeToTextureEnabled(composite_to_texture_enabled);
 
   // Enable gpu-accelerated 2d canvas if requested on the command line.
   settings->setAccelerated2dCanvasEnabled(accelerated_2d_canvas_enabled);
+
+  // Enable gpu-accelerated drawing if requested on the command line.
+  settings->setAcceleratedDrawingEnabled(accelerated_drawing_enabled);
 
   // Enabling accelerated layers from the command line enabled accelerated
   // 3D CSS, Video, and Animations.
@@ -196,7 +202,7 @@ void WebPreferences::Apply(WebView* web_view) const {
 
   // WebGL and accelerated 2D canvas are always gpu composited.
   settings->setAcceleratedCompositingForCanvasEnabled(
-      enable_webgl || accelerated_2d_canvas_enabled);
+      experimental_webgl_enabled || accelerated_2d_canvas_enabled);
 
   // Enable memory info reporting to page if requested on the command line.
   settings->setMemoryInfoEnabled(memory_info_enabled);

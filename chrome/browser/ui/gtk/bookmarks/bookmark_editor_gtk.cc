@@ -17,7 +17,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/gtk/bookmarks/bookmark_tree_model.h"
 #include "chrome/browser/ui/gtk/bookmarks/bookmark_utils_gtk.h"
-#include "chrome/browser/ui/gtk/gtk_theme_provider.h"
+#include "chrome/browser/ui/gtk/gtk_theme_service.h"
 #include "chrome/browser/ui/gtk/gtk_util.h"
 #include "googleurl/src/gurl.h"
 #include "grit/chromium_strings.h"
@@ -67,7 +67,7 @@ class BookmarkEditorGtk::ContextMenuController
   void RunMenu(const gfx::Point& point, guint32 event_time) {
     const BookmarkNode* selected_node = GetSelectedNode();
     if (selected_node)
-      running_menu_for_root_ = selected_node->GetParent()->IsRoot();
+      running_menu_for_root_ = selected_node->parent()->IsRoot();
 #if defined(TOOLKIT_VIEWS)
     menu_->RunContextMenuAt(point);
 #else
@@ -317,7 +317,7 @@ void BookmarkEditorGtk::Init(GtkWindow* parent_window) {
     GtkTreeIter selected_iter;
     int64 selected_id = 0;
     if (details_.type == EditDetails::EXISTING_NODE)
-      selected_id = details_.existing_node->GetParent()->id();
+      selected_id = details_.existing_node->parent()->id();
     else if (parent_)
       selected_id = parent_->id();
     tree_store_ = bookmark_utils::MakeFolderTreeStore();
@@ -458,12 +458,12 @@ void BookmarkEditorGtk::ApplyEdits(GtkTreeIter* selected_parent) {
   string16 new_title(GetInputTitle());
 
   if (!show_tree_ || !selected_parent) {
-    bookmark_utils::ApplyEditsWithNoGroupChange(
+    bookmark_utils::ApplyEditsWithNoFolderChange(
         bb_model_, parent_, details_, new_title, new_url);
     return;
   }
 
-  // Create the new groups and update the titles.
+  // Create the new folders and update the titles.
   const BookmarkNode* new_parent =
       bookmark_utils::CommitTreeStoreDifferencesBetween(
       bb_model_, tree_store_, selected_parent);
@@ -474,15 +474,15 @@ void BookmarkEditorGtk::ApplyEdits(GtkTreeIter* selected_parent) {
     return;
   }
 
-  bookmark_utils::ApplyEditsWithPossibleGroupChange(
+  bookmark_utils::ApplyEditsWithPossibleFolderChange(
       bb_model_, new_parent, details_, new_title, new_url);
 }
 
-void BookmarkEditorGtk::AddNewGroup(GtkTreeIter* parent, GtkTreeIter* child) {
+void BookmarkEditorGtk::AddNewFolder(GtkTreeIter* parent, GtkTreeIter* child) {
   gtk_tree_store_append(tree_store_, child, parent);
   gtk_tree_store_set(
       tree_store_, child,
-      bookmark_utils::FOLDER_ICON, GtkThemeProvider::GetFolderIcon(true),
+      bookmark_utils::FOLDER_ICON, GtkThemeService::GetFolderIcon(true),
       bookmark_utils::FOLDER_NAME,
           l10n_util::GetStringUTF8(IDS_BOOMARK_EDITOR_NEW_FOLDER_NAME).c_str(),
       bookmark_utils::ITEM_ID, static_cast<int64>(0),
@@ -569,7 +569,7 @@ void BookmarkEditorGtk::NewFolder() {
   }
 
   GtkTreeIter new_item_iter;
-  AddNewGroup(&iter, &new_item_iter);
+  AddNewFolder(&iter, &new_item_iter);
 
   GtkTreePath* path = gtk_tree_model_get_path(
       GTK_TREE_MODEL(tree_store_), &new_item_iter);

@@ -1,22 +1,26 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "net/base/transport_security_state.h"
 
 #include "base/base64.h"
+#include "base/command_line.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/logging.h"
-#include "base/scoped_ptr.h"
-#include "base/sha2.h"
+#include "base/memory/scoped_ptr.h"
+#include "base/sha1.h"
 #include "base/string_number_conversions.h"
+#include "base/string_split.h"
 #include "base/string_tokenizer.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
+#include "crypto/sha2.h"
 #include "googleurl/src/gurl.h"
 #include "net/base/dns_util.h"
+#include "net/base/net_switches.h"
 
 namespace net {
 
@@ -26,30 +30,36 @@ TransportSecurityState::TransportSecurityState()
     : delegate_(NULL) {
 }
 
+static std::string HashHost(const std::string& canonicalized_host) {
+  char hashed[crypto::SHA256_LENGTH];
+  crypto::SHA256HashString(canonicalized_host, hashed, sizeof(hashed));
+  return std::string(hashed, sizeof(hashed));
+}
+
 void TransportSecurityState::EnableHost(const std::string& host,
                                         const DomainState& state) {
   const std::string canonicalized_host = CanonicalizeHost(host);
   if (canonicalized_host.empty())
     return;
 
-  bool temp;
-  if (IsPreloadedSTS(canonicalized_host, &temp))
+  // TODO(cevans) -- we likely want to permit a host to override a built-in,
+  // for at least the case where the override is stricter (i.e. includes
+  // subdomains, or includes certificate pinning).
+  DomainState temp;
+  if (IsPreloadedSTS(canonicalized_host, true, &temp))
     return;
-
-  char hashed[base::SHA256_LENGTH];
-  base::SHA256HashString(canonicalized_host, hashed, sizeof(hashed));
 
   // Use the original creation date if we already have this host.
   DomainState state_copy(state);
   DomainState existing_state;
-  if (IsEnabledForHost(&existing_state, host))
+  if (IsEnabledForHost(&existing_state, host, true))
     state_copy.created = existing_state.created;
 
   // We don't store these values.
   state_copy.preloaded = false;
   state_copy.domain.clear();
 
-  enabled_hosts_[std::string(hashed, sizeof(hashed))] = state_copy;
+  enabled_hosts_[HashHost(canonicalized_host)] = state_copy;
   DirtyNotify();
 }
 
@@ -58,11 +68,8 @@ bool TransportSecurityState::DeleteHost(const std::string& host) {
   if (canonicalized_host.empty())
     return false;
 
-  char hashed[base::SHA256_LENGTH];
-  base::SHA256HashString(canonicalized_host, hashed, sizeof(hashed));
-
   std::map<std::string, DomainState>::iterator i = enabled_hosts_.find(
-      std::string(hashed, sizeof(hashed)));
+      HashHost(canonicalized_host));
   if (i != enabled_hosts_.end()) {
     enabled_hosts_.erase(i);
     DirtyNotify();
@@ -78,32 +85,24 @@ static std::string IncludeNUL(const char* in) {
 }
 
 bool TransportSecurityState::IsEnabledForHost(DomainState* result,
-                                              const std::string& host) {
-  *result = DomainState();
-
+                                              const std::string& host,
+                                              bool sni_available) {
   const std::string canonicalized_host = CanonicalizeHost(host);
   if (canonicalized_host.empty())
     return false;
 
-  bool include_subdomains;
-  if (IsPreloadedSTS(canonicalized_host, &include_subdomains)) {
-    result->created = result->expiry = base::Time::FromTimeT(0);
-    result->mode = DomainState::MODE_STRICT;
-    result->include_subdomains = include_subdomains;
-    result->preloaded = true;
-    return true;
-  }
+  if (IsPreloadedSTS(canonicalized_host, sni_available, result))
+    return result->mode != DomainState::MODE_NONE;
 
-  result->preloaded = false;
+  *result = DomainState();
+
   base::Time current_time(base::Time::Now());
 
   for (size_t i = 0; canonicalized_host[i]; i += canonicalized_host[i] + 1) {
-    char hashed_domain[base::SHA256_LENGTH];
+    std::string hashed_domain(HashHost(IncludeNUL(&canonicalized_host[i])));
 
-    base::SHA256HashString(IncludeNUL(&canonicalized_host[i]), &hashed_domain,
-                           sizeof(hashed_domain));
     std::map<std::string, DomainState>::iterator j =
-        enabled_hosts_.find(std::string(hashed_domain, sizeof(hashed_domain)));
+        enabled_hosts_.find(hashed_domain);
     if (j == enabled_hosts_.end())
       continue;
 
@@ -280,7 +279,7 @@ static std::string HashedDomainToExternalString(const std::string& hashed) {
 static std::string ExternalStringToHashedDomain(const std::string& external) {
   std::string out;
   if (!base::Base64Decode(external, &out) ||
-      out.size() != base::SHA256_LENGTH) {
+      out.size() != crypto::SHA256_LENGTH) {
     return std::string();
   }
 
@@ -312,6 +311,18 @@ bool TransportSecurityState::Serialise(std::string* output) {
         continue;
     }
 
+    ListValue* pins = new ListValue;
+    for (std::vector<SHA1Fingerprint>::const_iterator
+         j = i->second.public_key_hashes.begin();
+         j != i->second.public_key_hashes.end(); ++j) {
+      std::string hash_str(reinterpret_cast<const char*>(j->data),
+                           sizeof(j->data));
+      std::string b64;
+      base::Base64Encode(hash_str, &b64);
+      pins->Append(new StringValue("sha1/" + b64));
+    }
+    state->Set("public_key_hashes", pins);
+
     toplevel.Set(HashedDomainToExternalString(i->first), state);
   }
 
@@ -319,10 +330,17 @@ bool TransportSecurityState::Serialise(std::string* output) {
   return true;
 }
 
-bool TransportSecurityState::Deserialise(const std::string& input,
+bool TransportSecurityState::LoadEntries(const std::string& input,
                                          bool* dirty) {
   enabled_hosts_.clear();
+  return Deserialise(input, dirty, &enabled_hosts_);
+}
 
+// static
+bool TransportSecurityState::Deserialise(
+    const std::string& input,
+    bool* dirty,
+    std::map<std::string, DomainState>* out) {
   scoped_ptr<Value> value(
       base::JSONReader::Read(input, false /* do not allow trailing commas */));
   if (!value.get() || !value->IsType(Value::TYPE_DICTIONARY))
@@ -349,6 +367,26 @@ bool TransportSecurityState::Deserialise(const std::string& input,
       continue;
     }
 
+    ListValue* pins_list = NULL;
+    std::vector<SHA1Fingerprint> public_key_hashes;
+    if (state->GetList("public_key_hashes", &pins_list)) {
+      size_t num_pins = pins_list->GetSize();
+      for (size_t i = 0; i < num_pins; ++i) {
+        std::string type_and_base64;
+        std::string hash_str;
+        SHA1Fingerprint hash;
+        if (pins_list->GetString(i, &type_and_base64) &&
+            type_and_base64.find("sha1/") == 0 &&
+            base::Base64Decode(
+                type_and_base64.substr(5, type_and_base64.size() - 5),
+                &hash_str) &&
+            hash_str.size() == base::SHA1_LENGTH) {
+          memcpy(hash.data, hash_str.data(), sizeof(hash.data));
+          public_key_hashes.push_back(hash);
+        }
+      }
+    }
+
     DomainState::Mode mode;
     if (mode_string == "strict") {
       mode = DomainState::MODE_STRICT;
@@ -356,6 +394,8 @@ bool TransportSecurityState::Deserialise(const std::string& input,
       mode = DomainState::MODE_OPPORTUNISTIC;
     } else if (mode_string == "spdy-only") {
       mode = DomainState::MODE_SPDY_ONLY;
+    } else if (mode_string == "none") {
+      mode = DomainState::MODE_NONE;
     } else {
       LOG(WARNING) << "Unknown TransportSecurityState mode string found: "
                    << mode_string;
@@ -380,15 +420,18 @@ bool TransportSecurityState::Deserialise(const std::string& input,
     }
 
     std::string hashed = ExternalStringToHashedDomain(*i);
-    if (hashed.empty())
+    if (hashed.empty()) {
+      dirtied = true;
       continue;
+    }
 
     DomainState new_state;
     new_state.mode = mode;
     new_state.created = created_time;
     new_state.expiry = expiry_time;
     new_state.include_subdomains = include_subdomains;
-    enabled_hosts_[hashed] = new_state;
+    new_state.public_key_hashes = public_key_hashes;
+    (*out)[hashed] = new_state;
   }
 
   *dirty = dirtied;
@@ -443,7 +486,24 @@ std::string TransportSecurityState::CanonicalizeHost(const std::string& host) {
 // considered to have STS enabled.
 // static
 bool TransportSecurityState::IsPreloadedSTS(
-    const std::string& canonicalized_host, bool *include_subdomains) {
+    const std::string& canonicalized_host,
+    bool sni_available,
+    DomainState* out) {
+  out->preloaded = true;
+  out->mode = DomainState::MODE_STRICT;
+  out->created = base::Time::FromTimeT(0);
+  out->expiry = out->created;
+  out->include_subdomains = false;
+
+  std::map<std::string, DomainState> hosts;
+  std::string cmd_line_hsts =
+      CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+          switches::kHstsHosts);
+  if (!cmd_line_hsts.empty()) {
+    bool dirty;
+    Deserialise(cmd_line_hsts, &dirty, &hosts);
+  }
+
   // In the medium term this list is likely to just be hardcoded here. This,
   // slightly odd, form removes the need for additional relocations records.
   static const struct {
@@ -467,21 +527,125 @@ bool TransportSecurityState::IsPreloadedSTS(
     {19, true, "\006health\006google\003com"},
     {21, true, "\010checkout\006google\003com"},
     {19, true, "\006chrome\006google\003com"},
+    {26, false, "\006latest\006chrome\006google\003com"},
     {28, false, "\016aladdinschools\007appspot\003com"},
+    {14, true, "\011ottospora\002nl"},
+    {17, true, "\004docs\006google\003com"},
+    {18, true, "\005sites\006google\003com"},
+    {25, true, "\014spreadsheets\006google\003com"},
+    {22, false, "\011appengine\006google\003com"},
+    {25, false, "\003www\017paycheckrecords\003com"},
+    {20, true, "\006market\007android\003com"},
+    {14, false, "\010lastpass\003com"},
+    {18, false, "\003www\010lastpass\003com"},
+    {14, true, "\010keyerror\003com"},
+    {22, true, "\011encrypted\006google\003com"},
+    {13, false, "\010entropia\002de"},
+    {17, false, "\003www\010entropia\002de"},
+    {21, true, "\010accounts\006google\003com"},
+#if defined(OS_CHROMEOS)
+    {17, true, "\004mail\006google\003com"},
+    {13, false, "\007twitter\003com"},
+    {17, false, "\003www\007twitter\003com"},
+    {17, false, "\003api\007twitter\003com"},
+    {17, false, "\003dev\007twitter\003com"},
+    {22, false, "\010business\007twitter\003com"},
+#endif
   };
   static const size_t kNumPreloadedSTS = ARRAYSIZE_UNSAFE(kPreloadedSTS);
 
+  static const struct {
+    uint8 length;
+    bool include_subdomains;
+    char dns_name[30];
+  } kPreloadedSNISTS[] = {
+    {11, false, "\005gmail\003com"},
+    {16, false, "\012googlemail\003com"},
+    {15, false, "\003www\005gmail\003com"},
+    {20, false, "\003www\012googlemail\003com"},
+  };
+  static const size_t kNumPreloadedSNISTS = ARRAYSIZE_UNSAFE(kPreloadedSNISTS);
+
   for (size_t i = 0; canonicalized_host[i]; i += canonicalized_host[i] + 1) {
+    std::string host_sub_chunk(&canonicalized_host[i],
+                               canonicalized_host.size() - i);
+    out->domain = DNSDomainToString(host_sub_chunk);
+    std::string hashed_host(HashHost(host_sub_chunk));
+    if (hosts.find(hashed_host) != hosts.end()) {
+      *out = hosts[hashed_host];
+      out->domain = DNSDomainToString(host_sub_chunk);
+      out->preloaded = true;
+      return true;
+    }
     for (size_t j = 0; j < kNumPreloadedSTS; j++) {
       if (kPreloadedSTS[j].length == canonicalized_host.size() - i &&
-          (kPreloadedSTS[j].include_subdomains || i == 0) &&
           memcmp(kPreloadedSTS[j].dns_name, &canonicalized_host[i],
                  kPreloadedSTS[j].length) == 0) {
-        *include_subdomains = kPreloadedSTS[j].include_subdomains;
+        if (!kPreloadedSTS[j].include_subdomains && i != 0)
+          return false;
+        out->include_subdomains = kPreloadedSTS[j].include_subdomains;
         return true;
       }
     }
+    if (sni_available) {
+      for (size_t j = 0; j < kNumPreloadedSNISTS; j++) {
+        if (kPreloadedSNISTS[j].length == canonicalized_host.size() - i &&
+            memcmp(kPreloadedSNISTS[j].dns_name, &canonicalized_host[i],
+                   kPreloadedSNISTS[j].length) == 0) {
+          if (!kPreloadedSNISTS[j].include_subdomains && i != 0)
+            return false;
+          out->include_subdomains = kPreloadedSNISTS[j].include_subdomains;
+          return true;
+        }
+      }
+    }
   }
+
+  return false;
+}
+
+static std::string HashesToBase64String(
+    const std::vector<net::SHA1Fingerprint>& hashes) {
+  std::vector<std::string> hashes_strs;
+  for (std::vector<net::SHA1Fingerprint>::const_iterator
+       i = hashes.begin(); i != hashes.end(); i++) {
+    std::string s;
+    const std::string hash_str(reinterpret_cast<const char*>(i->data),
+                               sizeof(i->data));
+    base::Base64Encode(hash_str, &s);
+    hashes_strs.push_back(s);
+  }
+
+  return JoinString(hashes_strs, ',');
+}
+
+TransportSecurityState::DomainState::DomainState()
+    : mode(MODE_STRICT),
+      created(base::Time::Now()),
+      include_subdomains(false),
+      preloaded(false) {
+}
+
+TransportSecurityState::DomainState::~DomainState() {
+}
+
+bool TransportSecurityState::DomainState::IsChainOfPublicKeysPermitted(
+    const std::vector<net::SHA1Fingerprint>& hashes) {
+  if (public_key_hashes.empty())
+    return true;
+
+  for (std::vector<net::SHA1Fingerprint>::const_iterator
+       i = hashes.begin(); i != hashes.end(); ++i) {
+    for (std::vector<net::SHA1Fingerprint>::const_iterator
+         j = public_key_hashes.begin(); j != public_key_hashes.end(); ++j) {
+      if (i->Equals(*j))
+        return true;
+    }
+  }
+
+  LOG(ERROR) << "Rejecting public key chain for domain " << domain
+             << ". Validated chain: " << HashesToBase64String(hashes)
+             << ", expected: " << HashesToBase64String(public_key_hashes);
 
   return false;
 }

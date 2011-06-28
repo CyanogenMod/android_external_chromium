@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,11 +11,11 @@
 #include "base/sys_string_conversions.h"
 #include "base/threading/platform_thread.h"
 #include "chrome/browser/extensions/extension_host.h"
-#include "chrome/common/child_process_info.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/notification_service.h"
 #include "content/browser/browser_thread.h"
 #include "content/browser/renderer_host/render_process_host.h"
+#include "content/common/child_process_info.h"
+#include "content/common/notification_service.h"
 
 namespace {
 // Prints a string representation of a Mach error code.

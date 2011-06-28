@@ -12,9 +12,8 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/sync_setup_flow.h"
-#include "chrome/common/notification_details.h"
 #include "chrome/common/pref_names.h"
-#include "content/browser/webui/web_ui_util.h"
+#include "content/common/notification_details.h"
 
 NTPLoginHandler::NTPLoginHandler() {
 }
@@ -51,5 +50,5 @@ void NTPLoginHandler::UpdateLogin() {
   std::string username = web_ui_->GetProfile()->GetPrefs()->GetString(
       prefs::kGoogleServicesUsername);
   StringValue string_value(username);
-  web_ui_->CallJavascriptFunction(L"updateLogin", string_value);
+  web_ui_->CallJavascriptFunction("updateLogin", string_value);
 }

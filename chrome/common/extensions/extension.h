@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,8 +13,9 @@
 
 #include "base/file_path.h"
 #include "base/gtest_prod_util.h"
-#include "base/scoped_ptr.h"
-#include "base/ref_counted.h"
+#include "base/memory/linked_ptr.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/extensions/extension_extent.h"
 #include "chrome/common/extensions/extension_icon_set.h"
@@ -27,6 +28,8 @@ class DictionaryValue;
 class ExtensionAction;
 class ExtensionResource;
 class ExtensionSidebarDefaults;
+class FileBrowserHandler;
+class ListValue;
 class SkBitmap;
 class Version;
 
@@ -35,6 +38,7 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
  public:
   typedef std::map<const std::string, GURL> URLOverrideMap;
   typedef std::vector<std::string> ScriptingWhitelist;
+  typedef std::vector<linked_ptr<FileBrowserHandler> > FileBrowserHandlerList;
 
   // What an extension was loaded from.
   // NOTE: These values are stored as integers in the preferences and used
@@ -61,8 +65,9 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   enum State {
     DISABLED = 0,
     ENABLED,
-    KILLBIT,  // Don't install/upgrade (applies to external extensions only).
-
+    // An external extension that the user uninstalled. We should not reinstall
+    // such extensions on startup.
+    EXTERNAL_EXTENSION_UNINSTALLED,
     NUM_STATES
   };
 
@@ -101,53 +106,154 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
     bool is_public;  // False if only this extension can load this plugin.
   };
 
+  // An NaCl module included in the extension.
+  struct NaClModuleInfo {
+    GURL url;
+    std::string mime_type;
+  };
+
   struct TtsVoice {
     std::string voice_name;
     std::string locale;
     std::string gender;
   };
 
+  // When prompting the user to install or approve permissions, we display
+  // messages describing the effects of the permissions and not the permissions
+  // themselves. Each PermissionMessage represents one of the messages that is
+  // shown to the user.
+  class PermissionMessage {
+   public:
+    // Do not reorder or add new enumerations in this list. If you need to add a
+    // new enum, add it just prior to ID_ENUM_BOUNDARY and enter its l10n
+    // message in kMessageIds.
+    enum MessageId {
+      ID_UNKNOWN,
+      ID_NONE,
+      ID_BOOKMARKS,
+      ID_GEOLOCATION,
+      ID_BROWSING_HISTORY,
+      ID_TABS,
+      ID_MANAGEMENT,
+      ID_DEBUGGER,
+      ID_HOSTS_1,
+      ID_HOSTS_2,
+      ID_HOSTS_3,
+      ID_HOSTS_4_OR_MORE,
+      ID_HOSTS_ALL,
+      ID_FULL_ACCESS,
+      ID_ENUM_BOUNDARY
+    };
+
+    // Creates a permission message with the given |message_id| and initializes
+    // its message to the appropriate value.
+    static PermissionMessage CreateFromMessageId(MessageId message_id);
+
+    // Creates the corresponding permission message for a list of hosts. This
+    // method exists because the hosts are presented as one message that depends
+    // on what and how many hosts there are.
+    static PermissionMessage CreateFromHostList(
+        const std::vector<std::string> hosts);
+
+    // Gets the id of the permission message, which can be used in UMA
+    // histograms.
+    MessageId message_id() const { return message_id_; }
+
+    // Gets a localized message describing this permission. Please note that
+    // the message will be empty for message types TYPE_NONE and TYPE_UNKNOWN.
+    const string16& message() const { return message_; }
+
+    // Comparator to work with std::set.
+    bool operator<(const PermissionMessage& that) const {
+      return message_id_ < that.message_id_;
+    }
+
+   private:
+    PermissionMessage(MessageId message_id, string16 message_);
+
+    // The index of the id in the array is its enum value. The first two values
+    // are non-existent message ids to act as placeholders for "unknown" and
+    // "none".
+    // Note: Do not change the order of the items in this list since they
+    // are used in a histogram. The order must match the MessageId order.
+    static const int kMessageIds[];
+
+    MessageId message_id_;
+    string16 message_;
+  };
+
+  typedef std::vector<PermissionMessage> PermissionMessages;
+
   // A permission is defined by its |name| (what is used in the manifest),
   // and the |message_id| that's used by install/update UI.
   struct Permission {
     const char* const name;
-    const int message_id;
+    const PermissionMessage::MessageId message_id;
   };
 
-  // |strict_error_checks| enables extra error checking, such as
-  // checks that URL patterns do not contain ports.  This error
-  // checking may find an error that a previous version of
-  // chrome did not flag.  To avoid errors in installed extensions
-  // when chrome is upgraded, strict error checking is only enabled
-  // when loading extensions as a developer would (such as loading
-  // an unpacked extension), or when loading an extension that is
-  // tied to a specific version of chrome (such as a component
-  // extension).  Most callers will set |strict_error_checks| to
-  // Extension::ShouldDoStrictErrorChecking(location).
+  enum InitFromValueFlags {
+    NO_FLAGS = 0,
+
+    // Usually, the id of an extension is generated by the "key" property of
+    // its manifest, but if |REQUIRE_KEY| is not set, a temporary ID will be
+    // generated based on the path.
+    REQUIRE_KEY = 1 << 0,
+
+    // |STRICT_ERROR_CHECKS| enables extra error checking, such as
+    // checks that URL patterns do not contain ports.  This error
+    // checking may find an error that a previous version of
+    // Chrome did not flag.  To avoid errors in installed extensions
+    // when Chrome is upgraded, strict error checking is only enabled
+    // when loading extensions as a developer would (such as loading
+    // an unpacked extension), or when loading an extension that is
+    // tied to a specific version of Chrome (such as a component
+    // extension).  Most callers will set the |STRICT_ERROR_CHECKS| bit when
+    // Extension::ShouldDoStrictErrorChecking(location) returns true.
+    STRICT_ERROR_CHECKS = 1 << 1,
+
+    // |ALLOW_FILE_ACCESS| indicates that the user is allowing this extension
+    // to have file access. If it's not present, then permissions and content
+    // scripts that match file:/// URLs will be filtered out.
+    ALLOW_FILE_ACCESS = 1 << 2,
+  };
+
   static scoped_refptr<Extension> Create(const FilePath& path,
                                          Location location,
                                          const DictionaryValue& value,
-                                         bool require_key,
-                                         bool strict_error_checks,
+                                         int flags,
                                          std::string* error);
 
   // Return the update url used by gallery/webstore extensions.
   static GURL GalleryUpdateUrl(bool secure);
 
-  // The install message id for |permission|.  Returns 0 if none exists.
-  static int GetPermissionMessageId(const std::string& permission);
+  // Given two install sources, return the one which should take priority
+  // over the other. If an extension is installed from two sources A and B,
+  // its install source should be set to GetHigherPriorityLocation(A, B).
+  static Location GetHigherPriorityLocation(Location loc1, Location loc2);
+
+  // Get's the install message id for |permission|.  Returns
+  // MessageId::TYPE_NONE if none exists.
+  static PermissionMessage::MessageId GetPermissionMessageId(
+      const std::string& permission);
 
   // Returns the full list of permission messages that this extension
   // should display at install time.
-  std::vector<string16> GetPermissionMessages() const;
+  PermissionMessages GetPermissionMessages() const;
+
+  // Returns the full list of permission messages that this extension
+  // should display at install time. The messages are returned as strings
+  // for convenience.
+  std::vector<string16> GetPermissionMessageStrings() const;
 
   // Returns the distinct hosts that should be displayed in the install UI
   // for the URL patterns |list|. This discards some of the detail that is
   // present in the manifest to make it as easy as possible to process by
   // users. In particular we disregard the scheme and path components of
   // URLPatterns and de-dupe the result, which includes filtering out common
-  // hosts with differing RCDs. (NOTE: when de-duping hosts with common RCDs,
-  // the first pattern is returned and the rest discarded)
+  // hosts with differing RCDs (aka Registry Controlled Domains, most of which
+  // are Top Level Domains but also include exceptions like co.uk).
+  // NOTE: when de-duping hosts the preferred RCD will be returned, given this
+  // order of preference: .com, .net, .org, first in list.
   static std::vector<std::string> GetDistinctHostsForDisplay(
       const URLPatternList& list);
 
@@ -174,7 +280,11 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   static const char kContentSettingsPermission[];
   static const char kContextMenusPermission[];
   static const char kCookiePermission[];
+  static const char kChromeosInfoPrivatePermissions[];
+  static const char kDebuggerPermission[];
   static const char kExperimentalPermission[];
+  static const char kFileBrowserHandlerPermission[];
+  static const char kFileBrowserPrivatePermission[];
   static const char kGeolocationPermission[];
   static const char kHistoryPermission[];
   static const char kIdlePermission[];
@@ -189,6 +299,8 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   static const size_t kNumPermissions;
   static const char* const kHostedAppPermissionNames[];
   static const size_t kNumHostedAppPermissions;
+  static const char* const kComponentPrivatePermissionNames[];
+  static const size_t kNumComponentPrivatePermissions;
 
   // The old name for the unlimited storage permission, which is deprecated but
   // still accepted as meaning the same thing as kUnlimitedStoragePermission.
@@ -227,6 +339,7 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   static bool IdIsValid(const std::string& id);
 
   // Generate an ID for an extension in the given path.
+  // Used while developing extensions, before they have a key.
   static std::string GenerateIdForPath(const FilePath& file_name);
 
   // Returns true if the specified file is an extension.
@@ -247,6 +360,14 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
            IsExternalLocation(location);
   }
 
+  // Whether extensions with |location| can be uninstalled or not. Policy
+  // controlled extensions are silently auto-installed and updated, and cannot
+  // be disabled by the user. The same applies for internal components.
+  static inline bool UserMayDisable(Location location) {
+    return location != Extension::EXTERNAL_POLICY_DOWNLOAD &&
+           location != Extension::COMPONENT;
+  }
+
   // Whether extensions with |location| should be loaded with strict
   // error checking.  Strict error checks may flag errors older versions
   // of chrome did not detect.  To avoid breaking installed extensions,
@@ -256,6 +377,12 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   static inline bool ShouldDoStrictErrorChecking(Location location) {
     return location == Extension::LOAD ||
            location == Extension::COMPONENT;
+  }
+
+  // Unpacked extensions start off with file access since they are a developer
+  // feature.
+  static inline bool ShouldAlwaysAllowFileAccess(Location location) {
+    return location == Extension::LOAD;
   }
 
   // See Type definition above.
@@ -294,8 +421,9 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
 
   // Expects base64 encoded |input| and formats into |output| including
   // the appropriate header & footer.
-  static bool FormatPEMForFileOutput(const std::string input,
-      std::string* output, bool is_public);
+  static bool FormatPEMForFileOutput(const std::string& input,
+                                     std::string* output,
+                                     bool is_public);
 
   // Determine whether |new_extension| has increased privileges compared to
   // its previously granted permissions, specified by |granted_apis|,
@@ -320,6 +448,10 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   static void DecodeIconFromPath(const FilePath& icon_path,
                                  Icons icon_size,
                                  scoped_ptr<SkBitmap>* result);
+
+  // Returns the default extension/app icon (for extensions or apps that don't
+  // have one).
+  static const SkBitmap& GetDefaultIcon(bool is_app);
 
   // Returns the base extension url for a given |extension_id|.
   static GURL GetBaseURLFromExtensionId(const std::string& extension_id);
@@ -414,7 +546,7 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   // This method is also aware of certain special pages that extensions are
   // usually not allowed to run script on.
   bool CanExecuteScriptOnPage(const GURL& page_url,
-                              UserScript* script,
+                              const UserScript* script,
                               std::string* error) const;
 
   // Returns true if this extension is a COMPONENT extension, or if it is
@@ -454,7 +586,13 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   ExtensionSidebarDefaults* sidebar_defaults() const {
     return sidebar_defaults_.get();
   }
+  const FileBrowserHandlerList* file_browser_handlers() const {
+    return file_browser_handlers_.get();
+  }
   const std::vector<PluginInfo>& plugins() const { return plugins_; }
+  const std::vector<NaClModuleInfo>& nacl_modules() const {
+    return nacl_modules_;
+  }
   const GURL& background_url() const { return background_url_; }
   const GURL& options_url() const { return options_url_; }
   const GURL& devtools_url() const { return devtools_url_; }
@@ -476,10 +614,13 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   bool incognito_split_mode() const { return incognito_split_mode_; }
   const std::vector<TtsVoice>& tts_voices() const { return tts_voices_; }
 
+  bool wants_file_access() const { return wants_file_access_; }
+
   // App-related.
   bool is_app() const { return is_app_; }
   bool is_hosted_app() const { return is_app() && !web_extent().is_empty(); }
   bool is_packaged_app() const { return is_app() && web_extent().is_empty(); }
+  bool is_storage_isolated() const { return is_app() && is_storage_isolated_; }
   const ExtensionExtent& web_extent() const { return extent_; }
   const std::string& launch_local_path() const { return launch_local_path_; }
   const std::string& launch_web_url() const { return launch_web_url_; }
@@ -531,11 +672,8 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   ~Extension();
 
   // Initialize the extension from a parsed manifest.
-  // Usually, the id of an extension is generated by the "key" property of
-  // its manifest, but if |require_key| is |false|, a temporary ID will be
-  // generated based on the path.
-  bool InitFromValue(const DictionaryValue& value, bool require_key,
-                     bool strict_error_checks, std::string* error);
+  bool InitFromValue(const DictionaryValue& value, int flags,
+                     std::string* error);
 
   // Helper function for implementing HasCachedImage/GetCachedImage. A return
   // value of NULL means there is no matching image cached (we allow caching an
@@ -547,7 +685,7 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   // dictionary in the content_script list of the manifest.
   bool LoadUserScriptHelper(const DictionaryValue* content_script,
                             int definition_index,
-                            URLPattern::ParseOption parse_strictness,
+                            int flags,
                             std::string* error,
                             UserScript* result);
 
@@ -571,12 +709,20 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
                   std::string* error);
   bool LoadLaunchContainer(const DictionaryValue* manifest, std::string* error);
   bool LoadLaunchURL(const DictionaryValue* manifest, std::string* error);
+  bool LoadAppIsolation(const DictionaryValue* manifest, std::string* error);
   bool EnsureNotHybridApp(const DictionaryValue* manifest, std::string* error);
 
   // Helper method to load an ExtensionAction from the page_action or
   // browser_action entries in the manifest.
   ExtensionAction* LoadExtensionActionHelper(
       const DictionaryValue* extension_action, std::string* error);
+
+  // Helper method to load an FileBrowserHandlerList from the manifest.
+  FileBrowserHandlerList* LoadFileBrowserHandlers(
+      const ListValue* extension_actions, std::string* error);
+  // Helper method to load an FileBrowserHandler from manifest.
+  FileBrowserHandler* LoadFileBrowserHandler(
+      const DictionaryValue* file_browser_handlers, std::string* error);
 
   // Helper method to load an ExtensionSidebarDefaults from the sidebar manifest
   // entry.
@@ -599,15 +745,15 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   // kPermissions).
   bool IsAPIPermission(const std::string& permission) const;
 
+  // Returns true if this is a component, or we are not attempting to access a
+  // component-private permission.
+  bool IsComponentOnlyPermission(const std::string& permission) const;
+
   // The set of unique API install messages that the extension has.
   // NOTE: This only includes messages related to permissions declared in the
   // "permissions" key in the manifest.  Permissions implied from other features
   // of the manifest, like plugins and content scripts are not included.
-  std::set<string16> GetSimplePermissionMessages() const;
-
-  // The permission message displayed related to the host permissions for
-  // this extension.
-  string16 GetHostPermissionMessage() const;
+  std::set<PermissionMessage> GetSimplePermissionMessages() const;
 
   // Cached images for this extension. This should only be touched on the UI
   // thread.
@@ -676,11 +822,17 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   // The extension's browser action, if any.
   scoped_ptr<ExtensionAction> browser_action_;
 
+  // The extension's file browser actions, if any.
+  scoped_ptr<FileBrowserHandlerList> file_browser_handlers_;
+
   // The extension's sidebar, if any.
   scoped_ptr<ExtensionSidebarDefaults> sidebar_defaults_;
 
   // Optional list of NPAPI plugins and associated properties.
   std::vector<PluginInfo> plugins_;
+
+  // Optional list of NaCl modules and associated properties.
+  std::vector<NaClModuleInfo> nacl_modules_;
 
   // Optional URL to a master page of which a single instance should be always
   // loaded in the background.
@@ -733,6 +885,9 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   // Whether this extension uses app features.
   bool is_app_;
 
+  // Whether this extension requests isolated storage.
+  bool is_storage_isolated_;
+
   // The local path inside the extension to use with the launcher.
   std::string launch_local_path_;
 
@@ -757,6 +912,11 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
 
   // List of text-to-speech voices that this extension provides, if any.
   std::vector<TtsVoice> tts_voices_;
+
+  // Whether the extension has host permissions or user script patterns that
+  // imply access to file:/// scheme URLs (the user may not have actually
+  // granted it that access).
+  bool wants_file_access_;
 
   FRIEND_TEST_ALL_PREFIXES(ExtensionServiceTest,
                            UpdateExtensionPreservesLocation);

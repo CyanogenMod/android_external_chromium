@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,9 +10,9 @@
 #include <map>
 #include <string>
 
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
 #include "chrome/browser/history/history.h"
-#include "chrome/common/notification_registrar.h"
+#include "content/common/notification_registrar.h"
 #include "net/base/file_stream.h"
 
 class BookmarkNode;
@@ -65,11 +65,8 @@ class BookmarkFaviconFetcher: public NotificationObserver {
 
   // Favicon fetch callback. After all favicons are fetched executes
   // html output on the file thread.
-  void OnFavIconDataAvailable(FaviconService::Handle handle,
-                              bool know_favicon,
-                              scoped_refptr<RefCountedMemory> data,
-                              bool expired,
-                              GURL icon_url);
+  void OnFaviconDataAvailable(FaviconService::Handle handle,
+                              history::FaviconData favicon);
 
   // The Profile object used for accessing FaviconService, bookmarks model.
   Profile* profile_;
@@ -79,7 +76,7 @@ class BookmarkFaviconFetcher: public NotificationObserver {
   std::list<std::string> bookmark_urls_;
 
   // Consumer for requesting favicons.
-  CancelableRequestConsumer fav_icon_consumer_;
+  CancelableRequestConsumer favicon_consumer_;
 
   // Map that stores favicon per URL.
   scoped_ptr<URLFaviconMap> favicons_map_;

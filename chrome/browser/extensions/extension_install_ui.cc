@@ -12,54 +12,51 @@
 #include "base/string_util.h"
 #include "base/stringprintf.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/browser_list.h"
-#include "chrome/browser/browser_window.h"
+#include "chrome/browser/extensions/extension_install_dialog.h"
 #include "chrome/browser/extensions/theme_installed_infobar_delegate.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
+#include "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_dialogs.h"
+#include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_icon_set.h"
 #include "chrome/common/extensions/extension_resource.h"
 #include "chrome/common/extensions/url_pattern.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/url_constants.h"
 #include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/notification_service.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "ui/base/l10n/l10n_util.h"
-#include "ui/base/resource/resource_bundle.h"
 
 #if defined(TOOLKIT_GTK)
 #include "chrome/browser/extensions/gtk_theme_installed_infobar_delegate.h"
-#include "chrome/browser/ui/gtk/gtk_theme_provider.h"
+#include "chrome/browser/ui/gtk/gtk_theme_service.h"
 #endif
 
 // static
 const int ExtensionInstallUI::kTitleIds[NUM_PROMPT_TYPES] = {
   IDS_EXTENSION_INSTALL_PROMPT_TITLE,
-  IDS_EXTENSION_UNINSTALL_PROMPT_TITLE,
   IDS_EXTENSION_RE_ENABLE_PROMPT_TITLE
 };
 // static
 const int ExtensionInstallUI::kHeadingIds[NUM_PROMPT_TYPES] = {
   IDS_EXTENSION_INSTALL_PROMPT_HEADING,
-  IDS_EXTENSION_UNINSTALL_PROMPT_HEADING,
   IDS_EXTENSION_RE_ENABLE_PROMPT_HEADING
 };
 // static
 const int ExtensionInstallUI::kButtonIds[NUM_PROMPT_TYPES] = {
   IDS_EXTENSION_PROMPT_INSTALL_BUTTON,
-  IDS_EXTENSION_PROMPT_UNINSTALL_BUTTON,
   IDS_EXTENSION_PROMPT_RE_ENABLE_BUTTON
 };
 // static
 const int ExtensionInstallUI::kWarningIds[NUM_PROMPT_TYPES] = {
   IDS_EXTENSION_PROMPT_WILL_HAVE_ACCESS_TO,
-  0,  // No warning label when uninstalling.
   IDS_EXTENSION_PROMPT_WILL_NOW_HAVE_ACCESS_TO
 };
 
@@ -79,7 +76,7 @@ void ShowAppInstalledAnimation(Browser* browser, const std::string& app_id) {
     TabContents* tab_contents = browser->GetTabContentsAt(i);
     GURL url = tab_contents->GetURL();
     if (StartsWithASCII(url.spec(), chrome::kChromeUINewTabURL, false)) {
-      browser->SelectTabContentsAt(i, false);
+      browser->ActivateTabAt(i, false);
       return;
     }
   }
@@ -102,14 +99,15 @@ ExtensionInstallUI::ExtensionInstallUI(Profile* profile)
       ALLOW_THIS_IN_INITIALIZER_LIST(tracker_(this)) {
   // Remember the current theme in case the user presses undo.
   if (profile_) {
-    const Extension* previous_theme = profile_->GetTheme();
+    const Extension* previous_theme =
+        ThemeServiceFactory::GetThemeForProfile(profile_);
     if (previous_theme)
       previous_theme_id_ = previous_theme->id();
 #if defined(TOOLKIT_GTK)
     // On Linux, we also need to take the user's system settings into account
     // to undo theme installation.
     previous_use_system_theme_ =
-        GtkThemeProvider::GetFrom(profile_)->UseGtkTheme();
+        GtkThemeService::GetFrom(profile_)->UseGtkTheme();
 #else
     DCHECK(!previous_use_system_theme_);
 #endif
@@ -134,15 +132,6 @@ void ExtensionInstallUI::ConfirmInstall(Delegate* delegate,
   }
 
   ShowConfirmation(INSTALL_PROMPT);
-}
-
-void ExtensionInstallUI::ConfirmUninstall(Delegate* delegate,
-                                          const Extension* extension) {
-  DCHECK(ui_loop_ == MessageLoop::current());
-  extension_ = extension;
-  delegate_ = delegate;
-
-  ShowConfirmation(UNINSTALL_PROMPT);
 }
 
 void ExtensionInstallUI::ConfirmReEnable(Delegate* delegate,
@@ -196,19 +185,12 @@ void ExtensionInstallUI::SetIcon(SkBitmap* image) {
     icon_ = *image;
   else
     icon_ = SkBitmap();
-  if (icon_.empty()) {
-    if (extension_->is_app()) {
-      icon_ = *ResourceBundle::GetSharedInstance().GetBitmapNamed(
-          IDR_APP_DEFAULT_ICON);
-    } else {
-      icon_ = *ResourceBundle::GetSharedInstance().GetBitmapNamed(
-          IDR_EXTENSION_DEFAULT_ICON);
-    }
-  }
+  if (icon_.empty())
+    icon_ = Extension::GetDefaultIcon(extension_->is_app());
 }
 
 void ExtensionInstallUI::OnImageLoaded(
-    SkBitmap* image, ExtensionResource resource, int index) {
+    SkBitmap* image, const ExtensionResource& resource, int index) {
   SetIcon(image);
 
   switch (prompt_type_) {
@@ -221,14 +203,10 @@ void ExtensionInstallUI::OnImageLoaded(
           Source<ExtensionInstallUI>(this),
           NotificationService::NoDetails());
 
-      std::vector<string16> warnings = extension_->GetPermissionMessages();
-      ShowExtensionInstallUIPrompt2Impl(profile_, delegate_, extension_, &icon_,
-                                        warnings, prompt_type_);
-      break;
-    }
-    case UNINSTALL_PROMPT: {
-      ShowExtensionInstallUIPromptImpl(profile_, delegate_, extension_, &icon_,
-                                       UNINSTALL_PROMPT);
+      std::vector<string16> warnings =
+          extension_->GetPermissionMessageStrings();
+      ShowExtensionInstallDialog(
+          profile_, delegate_, extension_, &icon_, warnings, prompt_type_);
       break;
     }
     default:

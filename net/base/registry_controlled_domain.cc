@@ -40,7 +40,7 @@
 #include "net/base/registry_controlled_domain.h"
 
 #include "base/logging.h"
-#include "base/singleton.h"
+#include "base/memory/singleton.h"
 #include "base/string_util.h"
 #include "googleurl/src/gurl.h"
 #include "googleurl/src/url_parse.h"
@@ -75,7 +75,7 @@ std::string RegistryControlledDomainService::GetDomainAndRegistry(
 std::string RegistryControlledDomainService::GetDomainAndRegistry(
     const std::string& host) {
   url_canon::CanonHostInfo host_info;
-  const std::string canon_host(net::CanonicalizeHost(host, &host_info));
+  const std::string canon_host(CanonicalizeHost(host, &host_info));
   if (canon_host.empty() || host_info.IsIPAddress())
     return std::string();
   return GetDomainAndRegistryImpl(canon_host);
@@ -85,7 +85,7 @@ std::string RegistryControlledDomainService::GetDomainAndRegistry(
 std::string RegistryControlledDomainService::GetDomainAndRegistry(
     const std::wstring& host) {
   url_canon::CanonHostInfo host_info;
-  const std::string canon_host(net::CanonicalizeHost(host, &host_info));
+  const std::string canon_host(CanonicalizeHost(host, &host_info));
   if (canon_host.empty() || host_info.IsIPAddress())
     return std::string();
   return GetDomainAndRegistryImpl(canon_host);
@@ -133,7 +133,7 @@ size_t RegistryControlledDomainService::GetRegistryLength(
     const std::string& host,
     bool allow_unknown_registries) {
   url_canon::CanonHostInfo host_info;
-  const std::string canon_host(net::CanonicalizeHost(host, &host_info));
+  const std::string canon_host(CanonicalizeHost(host, &host_info));
   if (canon_host.empty())
     return std::string::npos;
   if (host_info.IsIPAddress())
@@ -147,7 +147,7 @@ size_t RegistryControlledDomainService::GetRegistryLength(
     const std::wstring& host,
     bool allow_unknown_registries) {
   url_canon::CanonHostInfo host_info;
-  const std::string canon_host(net::CanonicalizeHost(host, &host_info));
+  const std::string canon_host(CanonicalizeHost(host, &host_info));
   if (canon_host.empty())
     return std::string::npos;
   if (host_info.IsIPAddress())

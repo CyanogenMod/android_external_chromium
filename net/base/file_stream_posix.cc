@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,9 +21,13 @@
 #include "base/message_loop.h"
 #include "base/metrics/histogram.h"
 #include "base/string_util.h"
+#include "base/task.h"
+#include "base/threading/thread_restrictions.h"
 #include "base/threading/worker_pool.h"
 #include "base/synchronization/waitable_event.h"
 #include "net/base/net_errors.h"
+
+namespace net {
 
 // We cast back and forth, so make sure it's the size we're expecting.
 #if defined(__BIONIC__) && defined(ANDROID)
@@ -33,11 +37,10 @@ COMPILE_ASSERT(sizeof(int64) == sizeof(off_t), off_t_64_bit);
 #endif
 
 // Make sure our Whence mappings match the system headers.
-COMPILE_ASSERT(net::FROM_BEGIN   == SEEK_SET &&
-               net::FROM_CURRENT == SEEK_CUR &&
-               net::FROM_END     == SEEK_END, whence_matches_system);
+COMPILE_ASSERT(FROM_BEGIN   == SEEK_SET &&
+               FROM_CURRENT == SEEK_CUR &&
+               FROM_END     == SEEK_END, whence_matches_system);
 
-namespace net {
 namespace {
 
 // Map from errno to net error codes.
@@ -56,6 +59,7 @@ int64 MapErrorCode(int err) {
 // ReadFile() is a simple wrapper around read() that handles EINTR signals and
 // calls MapErrorCode() to map errno to net error codes.
 int ReadFile(base::PlatformFile file, char* buf, int buf_len) {
+  base::ThreadRestrictions::AssertIOAllowed();
   // read(..., 0) returns 0 to indicate end-of-file.
 
   // Loop in the case of getting interrupted by a signal.
@@ -65,86 +69,40 @@ int ReadFile(base::PlatformFile file, char* buf, int buf_len) {
   return static_cast<int>(res);
 }
 
+void ReadFileTask(base::PlatformFile file,
+                  char* buf,
+                  int buf_len,
+                  CompletionCallback* callback) {
+  callback->Run(ReadFile(file, buf, buf_len));
+}
+
 // WriteFile() is a simple wrapper around write() that handles EINTR signals and
 // calls MapErrorCode() to map errno to net error codes.  It tries to write to
 // completion.
 int WriteFile(base::PlatformFile file, const char* buf, int buf_len) {
+  base::ThreadRestrictions::AssertIOAllowed();
   ssize_t res = HANDLE_EINTR(write(file, buf, buf_len));
   if (res == -1)
     return MapErrorCode(errno);
   return res;
 }
 
+void WriteFileTask(base::PlatformFile file,
+                   const char* buf,
+                   int buf_len,
+                   CompletionCallback* callback) {
+  callback->Run(WriteFile(file, buf, buf_len));
+}
+
 // FlushFile() is a simple wrapper around fsync() that handles EINTR signals and
 // calls MapErrorCode() to map errno to net error codes.  It tries to flush to
 // completion.
 int FlushFile(base::PlatformFile file) {
+  base::ThreadRestrictions::AssertIOAllowed();
   ssize_t res = HANDLE_EINTR(fsync(file));
   if (res == -1)
     return MapErrorCode(errno);
   return res;
-}
-
-// BackgroundReadTask is a simple task that reads a file and then runs
-// |callback|.  AsyncContext will post this task to the WorkerPool.
-class BackgroundReadTask : public Task {
- public:
-  BackgroundReadTask(base::PlatformFile file, char* buf, int buf_len,
-                     CompletionCallback* callback);
-  ~BackgroundReadTask();
-
-  virtual void Run();
-
- private:
-  const base::PlatformFile file_;
-  char* const buf_;
-  const int buf_len_;
-  CompletionCallback* const callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(BackgroundReadTask);
-};
-
-BackgroundReadTask::BackgroundReadTask(
-    base::PlatformFile file, char* buf, int buf_len,
-    CompletionCallback* callback)
-    : file_(file), buf_(buf), buf_len_(buf_len), callback_(callback) {}
-
-BackgroundReadTask::~BackgroundReadTask() {}
-
-void BackgroundReadTask::Run() {
-  int result = ReadFile(file_, buf_, buf_len_);
-  callback_->Run(result);
-}
-
-// BackgroundWriteTask is a simple task that writes to a file and then runs
-// |callback|.  AsyncContext will post this task to the WorkerPool.
-class BackgroundWriteTask : public Task {
- public:
-  BackgroundWriteTask(base::PlatformFile file, const char* buf, int buf_len,
-                      CompletionCallback* callback);
-  ~BackgroundWriteTask();
-
-  virtual void Run();
-
- private:
-  const base::PlatformFile file_;
-  const char* const buf_;
-  const int buf_len_;
-  CompletionCallback* const callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(BackgroundWriteTask);
-};
-
-BackgroundWriteTask::BackgroundWriteTask(
-    base::PlatformFile file, const char* buf, int buf_len,
-    CompletionCallback* callback)
-    : file_(file), buf_(buf), buf_len_(buf_len), callback_(callback) {}
-
-BackgroundWriteTask::~BackgroundWriteTask() {}
-
-void BackgroundWriteTask::Run() {
-  int result = WriteFile(file_, buf_, buf_len_);
-  callback_->Run(result);
 }
 
 }  // namespace
@@ -255,7 +213,8 @@ void FileStream::AsyncContext::InitiateAsyncRead(
   callback_ = callback;
 
   base::WorkerPool::PostTask(FROM_HERE,
-                             new BackgroundReadTask(
+                             NewRunnableFunction(
+                                 &ReadFileTask,
                                  file, buf, buf_len,
                                  &background_io_completed_callback_),
                              true /* task_is_slow */);
@@ -268,7 +227,8 @@ void FileStream::AsyncContext::InitiateAsyncWrite(
   callback_ = callback;
 
   base::WorkerPool::PostTask(FROM_HERE,
-                             new BackgroundWriteTask(
+                             NewRunnableFunction(
+                                 &WriteFileTask,
                                  file, buf, buf_len,
                                  &background_io_completed_callback_),
                              true /* task_is_slow */);
@@ -366,6 +326,8 @@ bool FileStream::IsOpen() const {
 }
 
 int64 FileStream::Seek(Whence whence, int64 offset) {
+  base::ThreadRestrictions::AssertIOAllowed();
+
   if (!IsOpen())
     return ERR_UNEXPECTED;
 
@@ -381,6 +343,8 @@ int64 FileStream::Seek(Whence whence, int64 offset) {
 }
 
 int64 FileStream::Available() {
+  base::ThreadRestrictions::AssertIOAllowed();
+
   if (!IsOpen())
     return ERR_UNEXPECTED;
 
@@ -442,7 +406,7 @@ int FileStream::ReadUntilComplete(char *buf, int buf_len) {
 int FileStream::Write(
     const char* buf, int buf_len, CompletionCallback* callback) {
   // write(..., 0) will return 0, which indicates end-of-file.
-  DCHECK(buf_len > 0);
+  DCHECK_GT(buf_len, 0);
 
   if (!IsOpen())
     return ERR_UNEXPECTED;
@@ -459,6 +423,8 @@ int FileStream::Write(
 }
 
 int64 FileStream::Truncate(int64 bytes) {
+  base::ThreadRestrictions::AssertIOAllowed();
+
   if (!IsOpen())
     return ERR_UNEXPECTED;
 

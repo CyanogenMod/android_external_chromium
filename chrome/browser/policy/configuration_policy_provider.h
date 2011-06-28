@@ -10,7 +10,7 @@
 #include <string>
 
 #include "base/basictypes.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/values.h"
 #include "chrome/browser/policy/configuration_policy_store_interface.h"
 #include "policy/configuration_policy_type.h"
@@ -77,6 +77,10 @@ class ConfigurationPolicyProvider {
 
  private:
   friend class ConfigurationPolicyObserverRegistrar;
+
+  // Temporarily needed for access to ApplyPolicyValueTree as long as we need
+  // to support old-style policy.
+  friend class UserPolicyCache;
 
   virtual void AddObserver(ConfigurationPolicyProvider::Observer* observer) = 0;
   virtual void RemoveObserver(

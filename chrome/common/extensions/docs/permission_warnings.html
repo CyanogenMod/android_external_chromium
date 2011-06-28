@@ -338,7 +338,7 @@
 
 <!--
 NOTE: When this doc is updated, the online help should also be updated:
-http://www.google.com/support/chrome/bin/answer.py?hl=en&answer=186213
+http://www.google.com/support/chrome_webstore/bin/answer.py?hl=en&answer=186213
 
 We should periodically look at 
 http://src.chromium.org/viewvc/chrome/trunk/src/chrome/app/generated_resources.grd?view=markup
@@ -535,17 +535,24 @@ that trigger them.
     <!-- HasEffectiveAccessToAllHosts() -->
     Any of the following:
     <ul>
-      <li> "proxy" permission (experimental) </li>
+      <li> "proxy" permission </li>
+      <li> "debugger" permission </li>
       <li> A match pattern in the "permissions" field
         that matches all hosts </li>
       <li> A&nbsp;"content_scripts" field with a "matches" entry
         that matches all hosts </li>
+      <li> "devtools_page" (experimental) </li>
     </ul>
   </td>
   <td>
     <p>
       The "proxy" permission is required by the
-      <a href="http://code.google.com/chrome/extensions/dev/experimental.proxy.html">experimental proxy</a> module.
+      <a href="experimental.proxy.html">experimental proxy</a> module.
+    </p>
+
+    <p>
+      The "debugger" permission is required by the
+      <a href="experimental.debugger.html">experimental debugger</a> module.
     </p>
 
     <p>

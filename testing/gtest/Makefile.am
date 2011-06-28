@@ -44,6 +44,7 @@ EXTRA_DIST += \
 
 # C++ test files that we don't compile directly.
 EXTRA_DIST += \
+  test/gtest-death-test_ex_test.cc \
   test/gtest-death-test_test.cc \
   test/gtest-filepath_test.cc \
   test/gtest-linked_ptr_test.cc \
@@ -112,7 +113,8 @@ EXTRA_DIST += \
 
 # CMake script
 EXTRA_DIST += \
-  CMakeLists.txt
+  CMakeLists.txt \
+  cmake/internal_utils.cmake
 
 # MSVC project files
 EXTRA_DIST += \

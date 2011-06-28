@@ -6,11 +6,10 @@
 #include "base/synchronization/waitable_event.h"
 #include "base/threading/thread.h"
 #include "build/build_config.h"
-#include "chrome/common/chrome_plugin_lib.h"
 #include "chrome/common/net/url_fetcher.h"
-#include "chrome/common/net/url_request_context_getter.h"
 #include "net/http/http_response_headers.h"
 #include "net/test/test_server.h"
+#include "net/url_request/url_request_context_getter.h"
 #include "net/url_request/url_request_test_util.h"
 #include "net/url_request/url_request_throttler_manager.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -28,7 +27,24 @@ namespace {
 
 const FilePath::CharType kDocRoot[] = FILE_PATH_LITERAL("chrome/test/data");
 
-class TestURLRequestContextGetter : public URLRequestContextGetter {
+class CurriedTask : public Task {
+ public:
+  CurriedTask(Task* task, MessageLoop* target_loop)
+      : task_(task),
+        target_loop_(target_loop) {}
+
+  virtual void Run() {
+    target_loop_->PostTask(FROM_HERE, task_);
+  }
+
+ private:
+  Task* const task_;
+  MessageLoop* const target_loop_;
+
+  DISALLOW_COPY_AND_ASSIGN(CurriedTask);
+};
+
+class TestURLRequestContextGetter : public net::URLRequestContextGetter {
  public:
   explicit TestURLRequestContextGetter(
       base::MessageLoopProxy* io_message_loop_proxy)
@@ -51,6 +67,8 @@ class TestURLRequestContextGetter : public URLRequestContextGetter {
 
   scoped_refptr<net::URLRequestContext> context_;
 };
+
+}  // namespace
 
 class URLFetcherTest : public testing::Test, public URLFetcher::Delegate {
  public:
@@ -77,8 +95,6 @@ class URLFetcherTest : public testing::Test, public URLFetcher::Delegate {
 
     io_message_loop_proxy_ = base::MessageLoopProxy::CreateForCurrentThread();
 
-    // Ensure that any plugin operations done by other tests are cleaned up.
-    ChromePluginLib::UnloadAllPlugins();
 #if defined(USE_NSS)
     net::EnsureOCSPInit();
 #endif
@@ -90,6 +106,10 @@ class URLFetcherTest : public testing::Test, public URLFetcher::Delegate {
 #endif
   }
 
+  int GetNumFetcherCores() const {
+    return URLFetcher::GetNumFetcherCores();
+  }
+
   // URLFetcher is designed to run on the main UI thread, but in our tests
   // we assume that the current thread is the IO thread where the URLFetcher
   // dispatches its requests to.  When we wish to simulate being used from
@@ -99,6 +119,34 @@ class URLFetcherTest : public testing::Test, public URLFetcher::Delegate {
 
   URLFetcher* fetcher_;
 };
+
+void URLFetcherTest::CreateFetcher(const GURL& url) {
+  fetcher_ = new URLFetcher(url, URLFetcher::GET, this);
+  fetcher_->set_request_context(new TestURLRequestContextGetter(
+      io_message_loop_proxy()));
+  fetcher_->Start();
+}
+
+void URLFetcherTest::OnURLFetchComplete(const URLFetcher* source,
+                                        const GURL& url,
+                                        const net::URLRequestStatus& status,
+                                        int response_code,
+                                        const ResponseCookies& cookies,
+                                        const std::string& data) {
+  EXPECT_TRUE(status.is_success());
+  EXPECT_EQ(200, response_code);  // HTTP OK
+  EXPECT_FALSE(data.empty());
+
+  delete fetcher_;  // Have to delete this here and not in the destructor,
+                    // because the destructor won't necessarily run on the
+                    // same thread that CreateFetcher() did.
+
+  io_message_loop_proxy()->PostTask(FROM_HERE, new MessageLoop::QuitTask());
+  // If the current message loop is not the IO loop, it will be shut down when
+  // the main loop returns and this thread subsequently goes out of scope.
+}
+
+namespace {
 
 // Version of URLFetcherTest that does a POST instead
 class URLFetcherPostTest : public URLFetcherTest {
@@ -199,7 +247,7 @@ class CancelTestURLRequestContext : public TestURLRequestContext {
   }
 };
 
-class CancelTestURLRequestContextGetter : public URLRequestContextGetter {
+class CancelTestURLRequestContextGetter : public net::URLRequestContextGetter {
  public:
   explicit CancelTestURLRequestContextGetter(
       base::MessageLoopProxy* io_message_loop_proxy)
@@ -259,32 +307,6 @@ class FetcherWrapperTask : public Task {
   URLFetcherTest* test_;
   GURL url_;
 };
-
-void URLFetcherTest::CreateFetcher(const GURL& url) {
-  fetcher_ = new URLFetcher(url, URLFetcher::GET, this);
-  fetcher_->set_request_context(new TestURLRequestContextGetter(
-      io_message_loop_proxy()));
-  fetcher_->Start();
-}
-
-void URLFetcherTest::OnURLFetchComplete(const URLFetcher* source,
-                                        const GURL& url,
-                                        const net::URLRequestStatus& status,
-                                        int response_code,
-                                        const ResponseCookies& cookies,
-                                        const std::string& data) {
-  EXPECT_TRUE(status.is_success());
-  EXPECT_EQ(200, response_code);  // HTTP OK
-  EXPECT_FALSE(data.empty());
-
-  delete fetcher_;  // Have to delete this here and not in the destructor,
-                    // because the destructor won't necessarily run on the
-                    // same thread that CreateFetcher() did.
-
-  io_message_loop_proxy()->PostTask(FROM_HERE, new MessageLoop::QuitTask());
-  // If the current message loop is not the IO loop, it will be shut down when
-  // the main loop returns and this thread subsequently goes out of scope.
-}
 
 void URLFetcherPostTest::CreateFetcher(const GURL& url) {
   fetcher_ = new URLFetcher(url, URLFetcher::POST, this);
@@ -554,10 +576,11 @@ TEST_F(URLFetcherProtectTest, Overload) {
 
   // Registers an entry for test url. It only allows 3 requests to be sent
   // in 200 milliseconds.
+  net::URLRequestThrottlerManager* manager =
+      net::URLRequestThrottlerManager::GetInstance();
   scoped_refptr<net::URLRequestThrottlerEntry> entry(
-      new net::URLRequestThrottlerEntry(200, 3, 1, 0, 2.0, 0.0, 256));
-  net::URLRequestThrottlerManager::GetInstance()->OverrideEntryForTests(
-      url, entry);
+      new net::URLRequestThrottlerEntry(manager, 200, 3, 1, 2.0, 0.0, 256));
+  manager->OverrideEntryForTests(url, entry);
 
   CreateFetcher(url);
 
@@ -576,10 +599,11 @@ TEST_F(URLFetcherProtectTest, ServerUnavailable) {
   //     new_backoff = 2.0 * old_backoff + 0
   // and maximum backoff time is 256 milliseconds.
   // Maximum retries allowed is set to 11.
+  net::URLRequestThrottlerManager* manager =
+      net::URLRequestThrottlerManager::GetInstance();
   scoped_refptr<net::URLRequestThrottlerEntry> entry(
-      new net::URLRequestThrottlerEntry(200, 3, 1, 0, 2.0, 0.0, 256));
-  net::URLRequestThrottlerManager::GetInstance()->OverrideEntryForTests(
-      url, entry);
+      new net::URLRequestThrottlerEntry(manager, 200, 3, 1, 2.0, 0.0, 256));
+  manager->OverrideEntryForTests(url, entry);
 
   CreateFetcher(url);
 
@@ -598,12 +622,14 @@ TEST_F(URLFetcherProtectTestPassedThrough, ServerUnavailablePropagateResponse) {
   //     new_backoff = 2.0 * old_backoff + 0
   // and maximum backoff time is 150000 milliseconds.
   // Maximum retries allowed is set to 11.
+  net::URLRequestThrottlerManager* manager =
+      net::URLRequestThrottlerManager::GetInstance();
   scoped_refptr<net::URLRequestThrottlerEntry> entry(
-      new net::URLRequestThrottlerEntry(200, 3, 100, 0, 2.0, 0.0, 150000));
+      new net::URLRequestThrottlerEntry(
+          manager, 200, 3, 100, 2.0, 0.0, 150000));
   // Total time if *not* for not doing automatic backoff would be 150s.
   // In reality it should be "as soon as server responds".
-  net::URLRequestThrottlerManager::GetInstance()->OverrideEntryForTests(
-      url, entry);
+  manager->OverrideEntryForTests(url, entry);
 
   CreateFetcher(url);
 
@@ -642,10 +668,12 @@ TEST_F(URLFetcherCancelTest, ReleasesContext) {
   //     new_backoff = 2.0 * old_backoff + 0
   // The initial backoff is 2 seconds and maximum backoff is 4 seconds.
   // Maximum retries allowed is set to 2.
+  net::URLRequestThrottlerManager* manager =
+      net::URLRequestThrottlerManager::GetInstance();
   scoped_refptr<net::URLRequestThrottlerEntry> entry(
-      new net::URLRequestThrottlerEntry(200, 3, 2000, 0, 2.0, 0.0, 4000));
-  net::URLRequestThrottlerManager::GetInstance()->OverrideEntryForTests(
-      url, entry);
+      new net::URLRequestThrottlerEntry(
+          manager, 200, 3, 2000, 2.0, 0.0, 4000));
+  manager->OverrideEntryForTests(url, entry);
 
   // Create a separate thread that will create the URLFetcher.  The current
   // (main) thread will do the IO, and when the fetch is complete it will
@@ -670,10 +698,12 @@ TEST_F(URLFetcherCancelTest, CancelWhileDelayedStartTaskPending) {
   // Register an entry for test url.
   // Using a sliding window of 4 seconds, and max of 1 request, under a fast
   // run we expect to have a 4 second delay when posting the Start task.
+  net::URLRequestThrottlerManager* manager =
+      net::URLRequestThrottlerManager::GetInstance();
   scoped_refptr<net::URLRequestThrottlerEntry> entry(
-      new net::URLRequestThrottlerEntry(4000, 1, 2000, 0, 2.0, 0.0, 4000));
-  net::URLRequestThrottlerManager::GetInstance()->OverrideEntryForTests(
-      url, entry);
+      new net::URLRequestThrottlerEntry(
+          manager, 4000, 1, 2000, 2.0, 0.0, 4000));
+  manager->OverrideEntryForTests(url, entry);
   // Fake that a request has just started.
   entry->ReserveSendingTimeForNextRequest(base::TimeTicks());
 
@@ -700,6 +730,23 @@ TEST_F(URLFetcherMultipleAttemptTest, SameData) {
   CreateFetcher(test_server.GetURL("defaultresponse"));
 
   MessageLoop::current()->Run();
+}
+
+// Tests to make sure CancelAll() will successfully cancel existing URLFetchers.
+TEST_F(URLFetcherTest, CancelAll) {
+  net::TestServer test_server(net::TestServer::TYPE_HTTP, FilePath(kDocRoot));
+  ASSERT_TRUE(test_server.Start());
+  EXPECT_EQ(0, GetNumFetcherCores());
+
+  CreateFetcher(test_server.GetURL("defaultresponse"));
+  io_message_loop_proxy()->PostTask(
+      FROM_HERE,
+      new CurriedTask(new MessageLoop::QuitTask(), MessageLoop::current()));
+  MessageLoop::current()->Run();
+  EXPECT_EQ(1, GetNumFetcherCores());
+  URLFetcher::CancelAll();
+  EXPECT_EQ(0, GetNumFetcherCores());
+  delete fetcher_;
 }
 
 }  // namespace.

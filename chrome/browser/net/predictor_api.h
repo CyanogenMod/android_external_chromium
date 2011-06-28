@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,7 +16,7 @@
 #include <string>
 #include <vector>
 
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
 #include "chrome/browser/autocomplete/autocomplete.h"
 #include "chrome/browser/net/predictor.h"
 
@@ -60,6 +60,9 @@ void PreconnectUrlAndSubresources(const GURL& url);
 
 // When displaying info in about:dns, the following API is called.
 void PredictorGetHtmlInfo(std::string* output);
+
+// Destroy the predictor's internal state: referrers and work queue.
+void ClearPredictorCache();
 
 //------------------------------------------------------------------------------
 // When we navigate to a frame that may contain embedded resources, we may know

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,31 +6,29 @@
 #define CHROME_BROWSER_UI_VIEWS_TAB_CONTENTS_TAB_CONTENTS_VIEW_VIEWS_H_
 #pragma once
 
-#include <vector>
-
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
+#include "base/timer.h"
+#include "chrome/browser/ui/views/tab_contents/native_tab_contents_view_delegate.h"
 #include "content/browser/tab_contents/tab_contents_view.h"
-#include "ui/gfx/size.h"
-#include "views/view.h"
 
-class ConstrainedWindowGtk;
-typedef struct _GtkFloatingContainer GtkFloatingContainer;
+class NativeTabContentsView;
 class RenderViewContextMenuViews;
 class SadTabView;
 class SkBitmap;
-class TabContentsDragSource;
-class WebDragDestGtk;
-
+struct WebDropData;
 namespace gfx {
 class Point;
-}  // namespace gfx
-
+class Size;
+}
 namespace views {
-class NativeViewHost;
-}  // namespace views
+class Widget;
+}
 
-// Views-specific implementation of the TabContentsView for the touch UI.
-class TabContentsViewViews : public TabContentsView, public views::View {
+// Views-specific implementation of the TabContentsView.
+// TODO(beng): Remove last remnants of Windows-specificity, and make this
+//             subclass Widget.
+class TabContentsViewViews : public TabContentsView,
+                             public internal::NativeTabContentsViewDelegate {
  public:
   // The corresponding TabContents is passed in the constructor, and manages our
   // lifetime. This doesn't need to be the case, but is this way currently
@@ -38,52 +36,63 @@ class TabContentsViewViews : public TabContentsView, public views::View {
   explicit TabContentsViewViews(TabContents* tab_contents);
   virtual ~TabContentsViewViews();
 
-  // Unlike Windows, ConstrainedWindows need to collaborate with the
-  // TabContentsViewViews to position the dialogs.
-  void AttachConstrainedWindow(ConstrainedWindowGtk* constrained_window);
-  void RemoveConstrainedWindow(ConstrainedWindowGtk* constrained_window);
+  // Reset the native parent of this view to NULL.  Unparented windows should
+  // not receive any messages.
+  virtual void Unparent();
 
-  // TabContentsView implementation
-  virtual void CreateView(const gfx::Size& initial_size);
+  // Overridden from TabContentsView:
+  virtual void CreateView(const gfx::Size& initial_size) OVERRIDE;
   virtual RenderWidgetHostView* CreateViewForWidget(
-      RenderWidgetHost* render_widget_host);
-  virtual gfx::NativeView GetNativeView() const;
-  virtual gfx::NativeView GetContentNativeView() const;
-  virtual gfx::NativeWindow GetTopLevelNativeWindow() const;
-  virtual void GetContainerBounds(gfx::Rect* out) const;
-  virtual void SetPageTitle(const std::wstring& title);
+      RenderWidgetHost* render_widget_host) OVERRIDE;
+  virtual gfx::NativeView GetNativeView() const OVERRIDE;
+  virtual gfx::NativeView GetContentNativeView() const OVERRIDE;
+  virtual gfx::NativeWindow GetTopLevelNativeWindow() const OVERRIDE;
+  virtual void GetContainerBounds(gfx::Rect* out) const OVERRIDE;
+  virtual void SetPageTitle(const std::wstring& title) OVERRIDE;
   virtual void OnTabCrashed(base::TerminationStatus status,
-                            int error_code);
-  virtual void SizeContents(const gfx::Size& size);
-  virtual void Focus();
-  virtual void SetInitialFocus();
-  virtual void StoreFocus();
-  virtual void RestoreFocus();
-  virtual void GetViewBounds(gfx::Rect* out) const;
-
-  // views::View implementation
-  virtual void OnBoundsChanged();
-  virtual void OnPaint(gfx::Canvas* canvas);
-
-  // Backend implementation of RenderViewHostDelegate::View.
-  virtual void ShowContextMenu(const ContextMenuParams& params);
+                            int error_code) OVERRIDE;
+  virtual void SizeContents(const gfx::Size& size) OVERRIDE;
+  virtual void Focus() OVERRIDE;
+  virtual void SetInitialFocus() OVERRIDE;
+  virtual void StoreFocus() OVERRIDE;
+  virtual void RestoreFocus() OVERRIDE;
+  virtual bool IsDoingDrag() const OVERRIDE;
+  virtual void CancelDragAndCloseTab() OVERRIDE;
+  virtual void GetViewBounds(gfx::Rect* out) const OVERRIDE;
+  virtual void ShowContextMenu(const ContextMenuParams& params) OVERRIDE;
   virtual void ShowPopupMenu(const gfx::Rect& bounds,
                              int item_height,
                              double item_font_size,
                              int selected_item,
                              const std::vector<WebMenuItem>& items,
-                             bool right_aligned);
+                             bool right_aligned) OVERRIDE;
   virtual void StartDragging(const WebDropData& drop_data,
-                             WebKit::WebDragOperationsMask ops_allowed,
+                             WebKit::WebDragOperationsMask operations,
                              const SkBitmap& image,
-                             const gfx::Point& image_offset);
-  virtual void UpdateDragCursor(WebKit::WebDragOperation operation);
-  virtual void GotFocus();
-  virtual void TakeFocus(bool reverse);
-  virtual void VisibilityChanged(views::View *, bool is_visible);
+                             const gfx::Point& image_offset) OVERRIDE;
+  virtual void UpdateDragCursor(WebKit::WebDragOperation operation) OVERRIDE;
+  virtual void GotFocus() OVERRIDE;
+  virtual void TakeFocus(bool reverse) OVERRIDE;
 
  private:
-  // Signal handlers -----------------------------------------------------------
+  // Overridden from internal::NativeTabContentsViewDelegate:
+  virtual TabContents* GetTabContents() OVERRIDE;
+  virtual bool IsShowingSadTab() const OVERRIDE;
+  virtual void OnNativeTabContentsViewShown() OVERRIDE;
+  virtual void OnNativeTabContentsViewHidden() OVERRIDE;
+  virtual void OnNativeTabContentsViewSized(const gfx::Size& size) OVERRIDE;
+  virtual void OnNativeTabContentsViewWheelZoom(int distance) OVERRIDE;
+  virtual void OnNativeTabContentsViewMouseDown() OVERRIDE;
+  virtual void OnNativeTabContentsViewMouseMove() OVERRIDE;
+  virtual void OnNativeTabContentsViewDraggingEnded() OVERRIDE;
+
+  views::Widget* GetWidget();
+  const views::Widget* GetWidget() const;
+
+  // A helper method for closing the tab.
+  void CloseTab();
+
+  // Windows events ------------------------------------------------------------
 
   // Handles notifying the TabContents and other operations when the window was
   // shown or hidden.
@@ -94,17 +103,16 @@ class TabContentsViewViews : public TabContentsView, public views::View {
   // of the change, reposition popups, and the find in page bar.
   void WasSized(const gfx::Size& size);
 
-  // For any floating views (ConstrainedDialogs) this function centers them
-  // within this view. It's called whem a ConstrainedDialog is attached and
-  // when this view is resized.
-  void SetFloatingPosition(const gfx::Size& size);
+  // TODO(brettw) comment these. They're confusing.
+  void WheelZoom(int distance);
+
+  // ---------------------------------------------------------------------------
+
+  scoped_ptr<NativeTabContentsView> native_tab_contents_view_;
 
   // Used to render the sad tab. This will be non-NULL only when the sad tab is
   // visible.
-  scoped_ptr<SadTabView> sad_tab_;
-
-  // Whether to ignore the next CHAR keyboard event.
-  bool ignore_next_char_event_;
+  SadTabView* sad_tab_;
 
   // The id used in the ViewStorage to store the last focused view.
   int last_focused_view_storage_id_;
@@ -112,18 +120,12 @@ class TabContentsViewViews : public TabContentsView, public views::View {
   // The context menu. Callbacks are asynchronous so we need to keep it around.
   scoped_ptr<RenderViewContextMenuViews> context_menu_;
 
-  // Handle drags from this TabContentsView.
-  // TODO(anicolao): figure out what's needed for drag'n'drop
+  // Set to true if we want to close the tab after the system drag operation
+  // has finished.
+  bool close_tab_after_drag_ends_;
 
-  // The event for the last mouse down we handled. We need this for drags.
-  GdkEventButton last_mouse_down_;
-
-  // Current size. See comment in WidgetGtk as to why this is cached.
-  gfx::Size size_;
-
-  // Each individual UI for constrained dialogs currently displayed. The
-  // objects in this vector are owned by the TabContents, not the view.
-  std::vector<ConstrainedWindowGtk*> constrained_windows_;
+  // Used to close the tab after the stack has unwound.
+  base::OneShotTimer<TabContentsViewViews> close_tab_timer_;
 
   DISALLOW_COPY_AND_ASSIGN(TabContentsViewViews);
 };

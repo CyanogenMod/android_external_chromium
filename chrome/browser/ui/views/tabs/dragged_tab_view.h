@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,33 +6,25 @@
 #define CHROME_BROWSER_UI_VIEWS_TABS_DRAGGED_TAB_VIEW_H_
 #pragma once
 
+#include <vector>
+
 #include "build/build_config.h"
 #include "ui/gfx/point.h"
+#include "ui/gfx/rect.h"
 #include "ui/gfx/size.h"
 #include "views/view.h"
 
-namespace views {
-#if defined(OS_WIN)
-class WidgetWin;
-#elif defined(OS_LINUX)
-class WidgetGtk;
-#endif
-}
-namespace gfx {
-class Point;
-}
 class NativeViewPhotobooth;
-class Tab;
-class TabRenderer;
 
 class DraggedTabView : public views::View {
  public:
-  // Creates a new DraggedTabView using |renderer| as the View. DraggedTabView
-  // takes ownership of |renderer|.
-  DraggedTabView(views::View* renderer,
+  // Creates a new DraggedTabView using |renderers| as the Views. DraggedTabView
+  // takes ownership of the views in |renderers| and |photobooth|.
+  DraggedTabView(const std::vector<views::View*>& renderers,
+                 const std::vector<gfx::Rect>& renderer_bounds,
                  const gfx::Point& mouse_tab_offset,
                  const gfx::Size& contents_size,
-                 const gfx::Size& min_size);
+                 NativeViewPhotobooth* photobooth);
   virtual ~DraggedTabView();
 
   // Moves the DraggedTabView to the appropriate location given the mouse
@@ -44,17 +36,14 @@ class DraggedTabView : public views::View {
     mouse_tab_offset_ = offset;
   }
 
-  // Sets the width of the dragged tab and updates the dragged image.
-  void SetTabWidthAndUpdate(int width, NativeViewPhotobooth* photobooth);
-
   // Notifies the DraggedTabView that it should update itself.
   void Update();
 
  private:
   // Overridden from views::View:
-  virtual void OnPaint(gfx::Canvas* canvas);
-  virtual void Layout();
-  virtual gfx::Size GetPreferredSize();
+  virtual void OnPaint(gfx::Canvas* canvas) OVERRIDE;
+  virtual void Layout() OVERRIDE;
+  virtual gfx::Size GetPreferredSize() OVERRIDE;
 
   // Paint the view, when it's not attached to any TabStrip.
   void PaintDetachedView(gfx::Canvas* canvas);
@@ -62,21 +51,20 @@ class DraggedTabView : public views::View {
   // Paint the view, when "Show window contents while dragging" is disabled.
   void PaintFocusRect(gfx::Canvas* canvas);
 
-  // Resizes the container to fit the content for the current attachment mode.
-  void ResizeContainer();
+  // Returns the preferred size of the container.
+  gfx::Size PreferredContainerSize();
 
   // Utility for scaling a size by the current scaling factor.
   int ScaleValue(int value);
 
   // The window that contains the DraggedTabView.
-#if defined(OS_WIN)
-  scoped_ptr<views::WidgetWin> container_;
-#elif defined(OS_LINUX)
-  scoped_ptr<views::WidgetGtk> container_;
-#endif
+  scoped_ptr<views::Widget> container_;
 
   // The renderer that paints the Tab shape.
-  scoped_ptr<views::View> renderer_;
+  std::vector<views::View*> renderers_;
+
+  // Bounds of the renderers.
+  std::vector<gfx::Rect> renderer_bounds_;
 
   // True if "Show window contents while dragging" is enabled.
   bool show_contents_on_drag_;
@@ -92,7 +80,7 @@ class DraggedTabView : public views::View {
 
   // A handle to the DIB containing the current screenshot of the TabContents
   // we are dragging.
-  NativeViewPhotobooth* photobooth_;
+  scoped_ptr<NativeViewPhotobooth> photobooth_;
 
   // Size of the TabContents being dragged.
   gfx::Size contents_size_;

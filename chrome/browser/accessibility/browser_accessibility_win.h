@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -64,8 +64,8 @@ class BrowserAccessibilityWin
   // BrowserAccessibility methods.
   //
   virtual void Initialize();
-  virtual void ReleaseTree();
-  virtual void ReleaseReference();
+  virtual void NativeAddReference();
+  virtual void NativeReleaseReference();
 
   //
   // IAccessible methods.
@@ -464,7 +464,7 @@ class BrowserAccessibilityWin
       WebAccessibility::Attribute attribute, BSTR* value_bstr);
 
   // Escape a string like it would be escaped for a URL or HTML form.
-  string16 Escape(string16 str);
+  string16 Escape(const string16& str);
 
   // Get the text of this node for the purposes of IAccessibleText - it may
   // be the name, it may be the value, etc. depending on the role.
@@ -477,13 +477,6 @@ class BrowserAccessibilityWin
                     IA2TextBoundaryType boundary,
                     LONG start_offset,
                     LONG direction);
-
-  // COM objects are reference-counted. When we're done with this object
-  // and it's removed from our accessibility tree, a client may still be
-  // holding onto a pointer to this object, so we mark it as inactive
-  // so that calls to any of this object's methods immediately return
-  // failure.
-  bool instance_active_;
 
   // IAccessible role and state.
   int32 ia_role_;

@@ -9,7 +9,7 @@
 #include <vector>
 
 #include "base/logging.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
@@ -200,9 +200,9 @@ class ParsingContext {
   // set.
   void DeriveImageFromURL() {
     if (derive_image_from_url_ &&
-        url_->GetFavIconURL().is_empty() && url_->url()) {
+        url_->GetFaviconURL().is_empty() && url_->url()) {
       GURL url(url_->url()->url());  // More url's please...
-      url_->SetFavIconURL(TemplateURL::GenerateFaviconURL(url));
+      url_->SetFaviconURL(TemplateURL::GenerateFaviconURL(url));
     }
   }
 
@@ -486,7 +486,7 @@ void EndElementImpl(void *ctx, const xmlChar *name) {
       if (image_url.SchemeIs(chrome::kDataScheme)) {
         // TODO (jcampan): bug 1169256: when dealing with data URL, we need to
         // decode the data URL in the renderer. For now, we'll just point to the
-        // fav icon from the URL.
+        // favicon from the URL.
         context->set_derive_image_from_url(true);
       } else {
         context->SetImageURL(image_url);

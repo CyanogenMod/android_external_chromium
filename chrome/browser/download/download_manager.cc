@@ -15,7 +15,6 @@
 #include "base/task.h"
 #include "base/utf_string_conversions.h"
 #include "build/build_config.h"
-#include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/download/download_extensions.h"
 #include "chrome/browser/download/download_file_manager.h"
@@ -32,13 +31,14 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tab_contents/tab_util.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/common/chrome_paths.h"
-#include "chrome/common/notification_type.h"
 #include "content/browser/browser_thread.h"
 #include "content/browser/renderer_host/render_process_host.h"
 #include "content/browser/renderer_host/render_view_host.h"
 #include "content/browser/renderer_host/resource_dispatcher_host.h"
 #include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/notification_type.h"
 #include "googleurl/src/gurl.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
@@ -91,8 +91,7 @@ void DownloadManager::Shutdown() {
     it++;
 
     if (download->safety_state() == DownloadItem::DANGEROUS &&
-        (download->state() == DownloadItem::IN_PROGRESS ||
-         download->state() == DownloadItem::COMPLETE)) {
+        download->IsPartialDownload()) {
       // The user hasn't accepted it, so we need to remove it
       // from the disk.  This may or may not result in it being
       // removed from the DownloadManager queues and deleted
@@ -101,8 +100,8 @@ void DownloadManager::Shutdown() {
       // so the only thing we know after calling this function is that
       // the download was deleted if-and-only-if it was removed
       // from all queues.
-      download->Remove(true);
-    } else if (download->state() == DownloadItem::IN_PROGRESS) {
+      download->Delete(DownloadItem::DELETE_DUE_TO_BROWSER_SHUTDOWN);
+    } else if (download->IsPartialDownload()) {
       download->Cancel(false);
       download_history_->UpdateEntry(download);
     }
@@ -165,11 +164,20 @@ void DownloadManager::GetCurrentDownloads(
 
   for (DownloadMap::iterator it = history_downloads_.begin();
        it != history_downloads_.end(); ++it) {
-    if (!it->second->is_temporary() &&
-        (it->second->state() == DownloadItem::IN_PROGRESS ||
-         it->second->safety_state() == DownloadItem::DANGEROUS) &&
-        (dir_path.empty() || it->second->full_path().DirName() == dir_path))
-      result->push_back(it->second);
+    DownloadItem* item =it->second;
+    // Skip temporary items.
+    if (item->is_temporary())
+      continue;
+    // Skip items that have all their data, and are OK to save.
+    if (!item->IsPartialDownload() &&
+        (item->safety_state() != DownloadItem::DANGEROUS))
+      continue;
+    // Skip items that don't match |dir_path|.
+    // If |dir_path| is empty, all remaining items match.
+    if (!dir_path.empty() && (it->second->full_path().DirName() != dir_path))
+      continue;
+
+    result->push_back(item);
   }
 
   // If we have a parent profile, let it add its downloads to the results.
@@ -250,9 +258,10 @@ void DownloadManager::StartDownload(DownloadCreateInfo* info) {
 
   // Create a client to verify download URL with safebrowsing.
   // It deletes itself after the callback.
-  scoped_refptr<DownloadSBClient> sb_client = new DownloadSBClient(info);
+  scoped_refptr<DownloadSBClient> sb_client = new DownloadSBClient(
+      info->download_id, info->url_chain, info->referrer_url);
   sb_client->CheckDownloadUrl(
-      NewCallback(this, &DownloadManager::CheckDownloadUrlDone));
+      info, NewCallback(this, &DownloadManager::CheckDownloadUrlDone));
 }
 
 void DownloadManager::CheckDownloadUrlDone(DownloadCreateInfo* info,
@@ -265,7 +274,7 @@ void DownloadManager::CheckDownloadUrlDone(DownloadCreateInfo* info,
   // Check whether this download is for an extension install or not.
   // Allow extensions to be explicitly saved.
   if (!info->prompt_user_for_save_location) {
-    if (UserScript::IsURLUserScript(info->url, info->mime_type) ||
+    if (UserScript::IsURLUserScript(info->url(), info->mime_type) ||
         info->mime_type == Extension::kMimeType) {
       info->is_extension_install = true;
     }
@@ -437,8 +446,9 @@ void DownloadManager::OnPathExistenceAvailable(DownloadCreateInfo* info) {
                                     string16(),
                                     info->suggested_path,
                                     &file_type_info, 0, FILE_PATH_LITERAL(""),
-                                    owning_window, info);
-    FOR_EACH_OBSERVER(Observer, observers_, SelectFileDialogDisplayed());
+                                    contents, owning_window, info);
+    FOR_EACH_OBSERVER(Observer, observers_,
+                      SelectFileDialogDisplayed(info->download_id));
   } else {
     // No prompting for download, just continue with the suggested name.
     info->path = info->suggested_path;
@@ -484,29 +494,28 @@ void DownloadManager::AttachDownloadItem(DownloadCreateInfo* info) {
   UpdateAppIcon();  // Reflect entry into in_progress_.
 
   // Rename to intermediate name.
+  FilePath download_path;
   if (info->IsDangerous()) {
     // The download is not safe.  We can now rename the file to its
-    // tentative name using OnFinalDownloadName (the actual final
-    // name after user confirmation will be set in
-    // ProceedWithFinishedDangerousDownload).
-    BrowserThread::PostTask(
-        BrowserThread::FILE, FROM_HERE,
-        NewRunnableMethod(
-            file_manager_, &DownloadFileManager::OnFinalDownloadName,
-            download->id(), info->path, make_scoped_refptr(this)));
+    // tentative name using RenameInProgressDownloadFile.
+    // NOTE: The |Rename| below will be a no-op for dangerous files, as we're
+    // renaming it to the same name.
+    download_path = info->path;
   } else {
     // The download is a safe download.  We need to
     // rename it to its intermediate '.crdownload' path.  The final
     // name after user confirmation will be set from
-    // DownloadItem::OnSafeDownloadFinished.
-    FilePath download_path = download_util::GetCrDownloadPath(info->path);
-    BrowserThread::PostTask(
-        BrowserThread::FILE, FROM_HERE,
-        NewRunnableMethod(
-            file_manager_, &DownloadFileManager::OnIntermediateDownloadName,
-            download->id(), download_path, make_scoped_refptr(this)));
-    download->Rename(download_path);
+    // DownloadItem::OnDownloadCompleting.
+    download_path = download_util::GetCrDownloadPath(info->path);
   }
+
+  BrowserThread::PostTask(
+      BrowserThread::FILE, FROM_HERE,
+      NewRunnableMethod(
+          file_manager_, &DownloadFileManager::RenameInProgressDownloadFile,
+          download->id(), download_path));
+
+  download->Rename(download_path);
 
   download_history_->AddEntry(*info, download,
       NewCallback(this, &DownloadManager::OnCreateDownloadEntryComplete));
@@ -517,7 +526,7 @@ void DownloadManager::UpdateDownload(int32 download_id, int64 size) {
   DownloadMap::iterator it = active_downloads_.find(download_id);
   if (it != active_downloads_.end()) {
     DownloadItem* download = it->second;
-    if (download->state() == DownloadItem::IN_PROGRESS) {
+    if (download->IsInProgress()) {
       download->Update(size);
       UpdateAppIcon();  // Reflect size updates.
       download_history_->UpdateEntry(download);
@@ -525,7 +534,21 @@ void DownloadManager::UpdateDownload(int32 download_id, int64 size) {
   }
 }
 
-void DownloadManager::OnAllDataSaved(int32 download_id, int64 size) {
+void DownloadManager::OnResponseCompleted(int32 download_id,
+                                          int64 size,
+                                          int os_error,
+                                          const std::string& hash) {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  if (os_error == 0) {
+    OnAllDataSaved(download_id, size, hash);
+  } else {
+    OnDownloadError(download_id, size, os_error);
+  }
+}
+
+void DownloadManager::OnAllDataSaved(int32 download_id,
+                                     int64 size,
+                                     const std::string& hash) {
   VLOG(20) << __FUNCTION__ << "()" << " download_id = " << download_id
            << " size = " << size;
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
@@ -538,7 +561,36 @@ void DownloadManager::OnAllDataSaved(int32 download_id, int64 size) {
   DownloadItem* download = active_downloads_[download_id];
   download->OnAllDataSaved(size);
 
+  // When hash is not available, it means either it is not calculated
+  // or there is error while it is calculated. We will skip the download hash
+  // check in that case.
+  if (!hash.empty()) {
+    scoped_refptr<DownloadSBClient> sb_client =
+        new DownloadSBClient(download_id,
+                             download->url_chain(),
+                             download->referrer_url());
+    sb_client->CheckDownloadHash(
+        hash, NewCallback(this, &DownloadManager::CheckDownloadHashDone));
+  }
   MaybeCompleteDownload(download);
+}
+
+// TODO(lzheng): This function currently works as a callback place holder.
+// Once we decide the hash check is reliable, we could move the
+// MaybeCompleteDownload in OnAllDataSaved to this function.
+void DownloadManager::CheckDownloadHashDone(int32 download_id,
+                                            bool is_dangerous_hash) {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DVLOG(1) << "CheckDownloadHashDone, download_id: " << download_id
+           << " is dangerous_hash: " << is_dangerous_hash;
+
+  // If it's not in active_downloads_, that means it was cancelled or
+  // the download already finished.
+  if (active_downloads_.count(download_id) == 0)
+    return;
+
+  DVLOG(1) << "CheckDownloadHashDone, url: "
+           << active_downloads_[download_id]->url().spec();
 }
 
 bool DownloadManager::IsDownloadReadyForCompletion(DownloadItem* download) {
@@ -590,107 +642,46 @@ void DownloadManager::MaybeCompleteDownload(DownloadItem* download) {
   in_progress_.erase(download->id());
   UpdateAppIcon();  // Reflect removal from in_progress_.
 
-  // Final update of download item and history.
-  download->MarkAsComplete();
   download_history_->UpdateEntry(download);
 
-  switch (download->safety_state()) {
-    case DownloadItem::DANGEROUS:
-      // If this a dangerous download not yet validated by the user, don't do
-      // anything. When the user notifies us, it will trigger a call to
-      // ProceedWithFinishedDangerousDownload.
-      NOTREACHED();
-      return;
-    case DownloadItem::DANGEROUS_BUT_VALIDATED:
-      // The dangerous download has been validated by the user.  We first
-      // need to rename the downloaded file from its temporary name to
-      // its final name.  We will continue the download processing in the
-      // callback.
-      BrowserThread::PostTask(
-          BrowserThread::FILE, FROM_HERE,
-          NewRunnableMethod(
-              this, &DownloadManager::ProceedWithFinishedDangerousDownload,
-              download->db_handle(),
-              download->full_path(), download->target_name()));
-      return;
-    case DownloadItem::SAFE:
-      // The download is safe; just finish it.
-      download->OnSafeDownloadFinished(file_manager_);
-      return;
-  }
+  // Finish the download.
+  download->OnDownloadCompleting(file_manager_);
 }
 
-void DownloadManager::RemoveFromActiveList(int32 download_id) {
+void DownloadManager::DownloadCompleted(int32 download_id) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DownloadItem* download = GetDownloadItem(download_id);
+  DCHECK(download);
+  download_history_->UpdateEntry(download);
   active_downloads_.erase(download_id);
 }
 
-void DownloadManager::DownloadRenamedToFinalName(int download_id,
-                                                 const FilePath& full_path) {
+void DownloadManager::OnDownloadRenamedToFinalName(int download_id,
+                                                   const FilePath& full_path,
+                                                   int uniquifier) {
   VLOG(20) << __FUNCTION__ << "()" << " download_id = " << download_id
-           << " full_path = \"" << full_path.value() << "\"";
+           << " full_path = \"" << full_path.value() << "\""
+           << " uniquifier = " << uniquifier;
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+
   DownloadItem* item = GetDownloadItem(download_id);
   if (!item)
     return;
-  item->OnDownloadRenamedToFinalName(full_path);
-}
 
-// Called on the file thread.  Renames the downloaded file to its original name.
-void DownloadManager::ProceedWithFinishedDangerousDownload(
-    int64 download_handle,
-    const FilePath& path,
-    const FilePath& original_name) {
-  bool success = false;
-  FilePath new_path;
-  int uniquifier = 0;
-  if (file_util::PathExists(path)) {
-    new_path = path.DirName().Append(original_name);
-    // Make our name unique at this point, as if a dangerous file is downloading
-    // and a 2nd download is started for a file with the same name, they would
-    // have the same path.  This is because we uniquify the name on download
-    // start, and at that time the first file does not exists yet, so the second
-    // file gets the same name.
-    uniquifier = download_util::GetUniquePathNumber(new_path);
-    if (uniquifier > 0)
-      download_util::AppendNumberToPath(&new_path, uniquifier);
-    success = file_util::Move(path, new_path);
-  } else {
-    NOTREACHED();
+  if (item->safety_state() == DownloadItem::SAFE) {
+    DCHECK_EQ(0, uniquifier) << "We should not uniquify SAFE downloads twice";
   }
 
   BrowserThread::PostTask(
-      BrowserThread::UI, FROM_HERE,
-      NewRunnableMethod(this, &DownloadManager::DangerousDownloadRenamed,
-                        download_handle, success, new_path, uniquifier));
-}
+      BrowserThread::FILE, FROM_HERE,
+      NewRunnableMethod(
+          file_manager_, &DownloadFileManager::CompleteDownload, download_id));
 
-// Call from the file thread when the finished dangerous download was renamed.
-void DownloadManager::DangerousDownloadRenamed(int64 download_handle,
-                                               bool success,
-                                               const FilePath& new_path,
-                                               int new_path_uniquifier) {
-  VLOG(20) << __FUNCTION__ << "()" << " download_handle = " << download_handle
-           << " success = " << success
-           << " new_path = \"" << new_path.value() << "\""
-           << " new_path_uniquifier = " << new_path_uniquifier;
-  DownloadMap::iterator it = history_downloads_.find(download_handle);
-  if (it == history_downloads_.end()) {
-    NOTREACHED();
-    return;
-  }
+  if (uniquifier)
+    item->set_path_uniquifier(uniquifier);
 
-  DownloadItem* download = it->second;
-  // If we failed to rename the file, we'll just keep the name as is.
-  if (success) {
-    // We need to update the path uniquifier so that the UI shows the right
-    // name when calling GetFileNameToReportUser().
-    download->set_path_uniquifier(new_path_uniquifier);
-    RenameDownload(download, new_path);
-  }
-
-  // Continue the download finished sequence.
-  download->Finished();
+  item->OnDownloadRenamedToFinalName(full_path);
+  download_history_->UpdateDownloadPath(item, full_path);
 }
 
 void DownloadManager::DownloadCancelled(int32 download_id) {
@@ -720,6 +711,7 @@ void DownloadManager::DownloadCancelled(int32 download_id) {
 void DownloadManager::DownloadCancelledInternal(int download_id,
                                                 int render_process_id,
                                                 int request_id) {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   // Cancel the network request.  RDH is guaranteed to outlive the IO thread.
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
@@ -727,6 +719,42 @@ void DownloadManager::DownloadCancelledInternal(int download_id,
                           g_browser_process->resource_dispatcher_host(),
                           render_process_id,
                           request_id));
+
+  BrowserThread::PostTask(
+      BrowserThread::FILE, FROM_HERE,
+      NewRunnableMethod(
+          file_manager_, &DownloadFileManager::CancelDownload, download_id));
+}
+
+void DownloadManager::OnDownloadError(int32 download_id,
+                                      int64 size,
+                                      int os_error) {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DownloadMap::iterator it = active_downloads_.find(download_id);
+  // A cancel at the right time could remove the download from the
+  // |active_downloads_| map before we get here.
+  if (it == active_downloads_.end())
+    return;
+
+  DownloadItem* download = it->second;
+
+  VLOG(20) << "Error " << os_error << " at offset "
+           << download->received_bytes() << " for download = "
+           << download->DebugString(true);
+
+  // TODO(ahendrickson) - Remove this when we add resuming of interrupted
+  // downloads, as we will keep the download item around in that case.
+  //
+  // Clean up will happen when the history system create callback runs if we
+  // don't have a valid db_handle yet.
+  if (download->db_handle() != DownloadHistory::kUninitializedHandle) {
+    in_progress_.erase(download_id);
+    active_downloads_.erase(download_id);
+    UpdateAppIcon();  // Reflect removal from in_progress_.
+    download_history_->UpdateEntry(download);
+  }
+
+  download->Interrupted(size, os_error);
 
   BrowserThread::PostTask(
       BrowserThread::FILE, FROM_HERE,
@@ -756,12 +784,6 @@ void DownloadManager::PauseDownload(int32 download_id, bool pause) {
 void DownloadManager::UpdateAppIcon() {
   if (status_updater_)
     status_updater_->Update();
-}
-
-void DownloadManager::RenameDownload(DownloadItem* download,
-                                     const FilePath& new_path) {
-  download->Rename(new_path);
-  download_history_->UpdateDownloadPath(download, new_path);
 }
 
 void DownloadManager::PauseDownloadRequest(ResourceDispatcherHost* rdh,
@@ -802,11 +824,11 @@ int DownloadManager::RemoveDownloadsBetween(const base::Time remove_begin,
   std::vector<DownloadItem*> pending_deletes;
   while (it != history_downloads_.end()) {
     DownloadItem* download = it->second;
-    DownloadItem::DownloadState state = download->state();
     if (download->start_time() >= remove_begin &&
         (remove_end.is_null() || download->start_time() < remove_end) &&
-        (state == DownloadItem::COMPLETE ||
-         state == DownloadItem::CANCELLED)) {
+        (download->IsComplete() ||
+         download->IsCancelled() ||
+         download->IsInterrupted())) {
       // Remove from the map and move to the next in the list.
       history_downloads_.erase(it++);
 
@@ -853,22 +875,6 @@ int DownloadManager::RemoveAllDownloads() {
   }
   // The null times make the date range unbounded.
   return RemoveDownloadsBetween(base::Time(), base::Time());
-}
-
-void DownloadManager::AddDownloadItemToHistory(DownloadItem* item,
-                                               int64 db_handle) {
-  // It's not immediately obvious, but HistoryBackend::CreateDownload() can
-  // call this function with an invalid |db_handle|.  For instance, this can
-  // happen when the history database is offline. We cannot have multiple
-  // DownloadItems with the same invalid db_handle, so we need to assign a
-  // unique |db_handle| here.
-  if (db_handle == DownloadHistory::kUninitializedHandle)
-    db_handle = download_history_->GetNextFakeDbHandle();
-
-  DCHECK(item->db_handle() == DownloadHistory::kUninitializedHandle);
-  item->set_db_handle(db_handle);
-  DCHECK(!ContainsKey(history_downloads_, db_handle));
-  history_downloads_[db_handle] = item;
 }
 
 void DownloadManager::SavePageAsDownloadStarted(DownloadItem* download_item) {
@@ -1022,7 +1028,19 @@ void DownloadManager::OnCreateDownloadEntryComplete(
            << " download_id = " << info.download_id
            << " download = " << download->DebugString(true);
 
-  AddDownloadItemToHistory(download, db_handle);
+  // It's not immediately obvious, but HistoryBackend::CreateDownload() can
+  // call this function with an invalid |db_handle|. For instance, this can
+  // happen when the history database is offline. We cannot have multiple
+  // DownloadItems with the same invalid db_handle, so we need to assign a
+  // unique |db_handle| here.
+  if (db_handle == DownloadHistory::kUninitializedHandle)
+    db_handle = download_history_->GetNextFakeDbHandle();
+
+  DCHECK(download->db_handle() == DownloadHistory::kUninitializedHandle);
+  download->set_db_handle(db_handle);
+
+  DCHECK(!ContainsKey(history_downloads_, download->db_handle()));
+  history_downloads_[download->db_handle()] = download;
 
   // Show in the appropriate browser UI.
   // This includes buttons to save or cancel, for a dangerous download.
@@ -1031,20 +1049,22 @@ void DownloadManager::OnCreateDownloadEntryComplete(
   // Inform interested objects about the new download.
   NotifyModelChanged();
 
-  // If this download has been cancelled before we've received the DB handle,
-  // post one final message to the history service so that it can be properly
-  // in sync with the DownloadItem's completion status, and also inform any
-  // observers so that they get more than just the start notification.
+  // If the download is still in progress, try to complete it.
   //
-  // Otherwise, try to complete the download
-  if (download->state() != DownloadItem::IN_PROGRESS) {
-    DCHECK_EQ(DownloadItem::CANCELLED, download->state());
+  // Otherwise, download has been cancelled or interrupted before we've
+  // received the DB handle.  We post one final message to the history
+  // service so that it can be properly in sync with the DownloadItem's
+  // completion status, and also inform any observers so that they get
+  // more than just the start notification.
+  if (download->IsInProgress()) {
+    MaybeCompleteDownload(download);
+  } else {
+    DCHECK(download->IsCancelled())
+        << " download = " << download->DebugString(true);
     in_progress_.erase(it);
     active_downloads_.erase(info.download_id);
     download_history_->UpdateEntry(download);
     download->UpdateObservers();
-  } else {
-    MaybeCompleteDownload(download);
   }
 }
 

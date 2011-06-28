@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 #define BASE_PROCESS_H_
 #pragma once
 
+#include "base/base_api.h"
 #include "base/basictypes.h"
 #include "build/build_config.h"
 
@@ -24,11 +25,13 @@ typedef HANDLE ProcessHandle;
 typedef DWORD ProcessId;
 typedef HANDLE UserTokenHandle;
 const ProcessHandle kNullProcessHandle = NULL;
+const ProcessId kNullProcessId = 0;
 #elif defined(OS_POSIX)
 // On POSIX, our ProcessHandle will just be the PID.
 typedef pid_t ProcessHandle;
 typedef pid_t ProcessId;
 const ProcessHandle kNullProcessHandle = 0;
+const ProcessId kNullProcessId = 0;
 #endif  // defined(OS_WIN)
 
 #if defined(OS_POSIX) && !defined(OS_MACOSX)
@@ -37,7 +40,7 @@ const ProcessHandle kNullProcessHandle = 0;
 const int kUnsetProcessPriority = 256;
 #endif
 
-class Process {
+class BASE_API Process {
  public:
   Process() : process_(kNullProcessHandle) {
 #if defined(OS_POSIX) && !defined(OS_MACOSX)

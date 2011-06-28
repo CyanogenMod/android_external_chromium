@@ -650,11 +650,11 @@ bool TemplateURL::ShowInDefaultList() const {
   return show_in_default_list() && url() && url()->SupportsReplacement();
 }
 
-void TemplateURL::SetFavIconURL(const GURL& url) {
+void TemplateURL::SetFaviconURL(const GURL& url) {
   for (std::vector<ImageRef>::iterator i = image_refs_.begin();
        i != image_refs_.end(); ++i) {
     if (i->type == "image/x-icon" &&
-        i->width == kFavIconSize && i->height == kFavIconSize) {
+        i->width == kFaviconSize && i->height == kFaviconSize) {
       if (!url.is_valid())
         image_refs_.erase(i);
       else
@@ -665,16 +665,16 @@ void TemplateURL::SetFavIconURL(const GURL& url) {
   // Don't have one yet, add it.
   if (url.is_valid()) {
     add_image_ref(
-        TemplateURL::ImageRef("image/x-icon", kFavIconSize,
-                              kFavIconSize, url));
+        TemplateURL::ImageRef("image/x-icon", kFaviconSize,
+                              kFaviconSize, url));
   }
 }
 
-GURL TemplateURL::GetFavIconURL() const {
+GURL TemplateURL::GetFaviconURL() const {
   for (std::vector<ImageRef>::const_iterator i = image_refs_.begin();
        i != image_refs_.end(); ++i) {
     if ((i->type == "image/x-icon" || i->type == "image/vnd.microsoft.icon")
-        && i->width == kFavIconSize && i->height == kFavIconSize) {
+        && i->width == kFaviconSize && i->height == kFaviconSize) {
       return i->url;
     }
   }

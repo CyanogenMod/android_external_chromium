@@ -62,20 +62,6 @@ ACTION(MockDeviceManagementBackendSucceedRegister) {
   arg3->HandleRegisterResponse(response);
 }
 
-ACTION_P2(MockDeviceManagementBackendSucceedBooleanPolicy, name, value) {
-  em::DevicePolicyResponse response;
-  em::DevicePolicySetting* setting = response.add_setting();
-  setting->set_policy_key(kChromeDevicePolicySettingKey);
-  setting->set_watermark("fresh");
-  em::GenericSetting* policy_value = setting->mutable_policy_value();
-  em::GenericNamedValue* named_value = policy_value->add_named_value();
-  named_value->set_name(name);
-  named_value->mutable_value()->set_value_type(
-      em::GenericValue::VALUE_TYPE_BOOL);
-  named_value->mutable_value()->set_bool_value(value);
-  arg3->HandlePolicyResponse(response);
-}
-
 ACTION(MockDeviceManagementBackendSucceedSpdyCloudPolicy) {
   em::PolicyData signed_response;
   em::CloudPolicySettings settings;
@@ -92,10 +78,10 @@ ACTION(MockDeviceManagementBackendSucceedSpdyCloudPolicy) {
   em::DevicePolicyResponse response;
   em::PolicyFetchResponse* fetch_response = response.add_response();
   fetch_response->set_policy_data(serialized_signed_response);
-  // TODO(jkummerow): Set proper certificate_chain and signature (when
+  // TODO(jkummerow): Set proper new_public_key and signature (when
   // implementing support for signature verification).
   fetch_response->set_policy_data_signature("TODO");
-  fetch_response->add_certificate_chain("TODO");
+  fetch_response->set_new_public_key("TODO");
   arg3->HandlePolicyResponse(response);
 }
 

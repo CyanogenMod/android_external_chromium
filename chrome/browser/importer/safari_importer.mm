@@ -9,18 +9,16 @@
 #include <map>
 #include <vector>
 
+#include "app/sql/statement.h"
 #include "base/file_util.h"
 #include "base/mac/mac_util.h"
-#include "base/message_loop.h"
-#include "base/scoped_nsobject.h"
+#include "base/memory/scoped_nsobject.h"
 #include "base/string16.h"
 #include "base/sys_string_conversions.h"
 #include "base/time.h"
-#include "base/values.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/history/history_types.h"
 #include "chrome/browser/importer/importer_bridge.h"
-#include "chrome/browser/importer/importer_data_types.h"
-#include "chrome/common/sqlite_utils.h"
 #include "chrome/common/url_constants.h"
 #include "googleurl/src/gurl.h"
 #include "grit/generated_resources.h"
@@ -51,7 +49,7 @@ SafariImporter::~SafariImporter() {
 
 // static
 bool SafariImporter::CanImport(const FilePath& library_dir,
-                               uint16 *services_supported) {
+                               uint16* services_supported) {
   DCHECK(services_supported);
   *services_supported = importer::NONE;
 
@@ -62,35 +60,35 @@ bool SafariImporter::CanImport(const FilePath& library_dir,
   FilePath bookmarks_path = safari_dir.Append("Bookmarks.plist");
   FilePath history_path = safari_dir.Append("History.plist");
 
-  using file_util::PathExists;
-  if (PathExists(bookmarks_path))
+  if (file_util::PathExists(bookmarks_path))
     *services_supported |= importer::FAVORITES;
-  if (PathExists(history_path))
+  if (file_util::PathExists(history_path))
     *services_supported |= importer::HISTORY;
 
   return *services_supported != importer::NONE;
 }
 
-void SafariImporter::StartImport(const importer::ProfileInfo& profile_info,
-                                 uint16 services_supported,
+void SafariImporter::StartImport(const importer::SourceProfile& source_profile,
+                                 uint16 items,
                                  ImporterBridge* bridge) {
   bridge_ = bridge;
   // The order here is important!
   bridge_->NotifyStarted();
+
   // In keeping with import on other platforms (and for other browsers), we
   // don't import the home page (since it may lead to a useless homepage); see
   // crbug.com/25603.
-  if ((services_supported & importer::HISTORY) && !cancelled()) {
+  if ((items & importer::HISTORY) && !cancelled()) {
     bridge_->NotifyItemStarted(importer::HISTORY);
     ImportHistory();
     bridge_->NotifyItemEnded(importer::HISTORY);
   }
-  if ((services_supported & importer::FAVORITES) && !cancelled()) {
+  if ((items & importer::FAVORITES) && !cancelled()) {
     bridge_->NotifyItemStarted(importer::FAVORITES);
     ImportBookmarks();
     bridge_->NotifyItemEnded(importer::FAVORITES);
   }
-  if ((services_supported & importer::PASSWORDS) && !cancelled()) {
+  if ((items & importer::PASSWORDS) && !cancelled()) {
     bridge_->NotifyItemStarted(importer::PASSWORDS);
     ImportPasswords();
     bridge_->NotifyItemEnded(importer::PASSWORDS);
@@ -104,7 +102,7 @@ void SafariImporter::ImportBookmarks() {
 
   // Write bookmarks into profile.
   if (!bookmarks.empty() && !cancelled()) {
-    const std::wstring& first_folder_name =
+    const string16& first_folder_name =
         bridge_->GetLocalizedString(IDS_BOOKMARK_GROUP_FROM_SAFARI);
     int options = 0;
     if (import_to_bookmark_bar())
@@ -113,70 +111,73 @@ void SafariImporter::ImportBookmarks() {
   }
 
   // Import favicons.
-  sqlite_utils::scoped_sqlite_db_ptr db(OpenFavIconDB());
+  sql::Connection db;
+  if (!OpenDatabase(&db))
+    return;
+
   FaviconMap favicon_map;
-  ImportFavIconURLs(db.get(), &favicon_map);
+  ImportFaviconURLs(&db, &favicon_map);
   // Write favicons into profile.
   if (!favicon_map.empty() && !cancelled()) {
-    std::vector<history::ImportedFavIconUsage> favicons;
-    LoadFaviconData(db.get(), favicon_map, &favicons);
-    bridge_->SetFavIcons(favicons);
+    std::vector<history::ImportedFaviconUsage> favicons;
+    LoadFaviconData(&db, favicon_map, &favicons);
+    bridge_->SetFavicons(favicons);
   }
 }
 
-sqlite3* SafariImporter::OpenFavIconDB() {
-  // Construct ~/Library/Safari/WebIcons.db path
+bool SafariImporter::OpenDatabase(sql::Connection* db) {
+  // Construct ~/Library/Safari/WebIcons.db path.
   NSString* library_dir = [NSString
       stringWithUTF8String:library_dir_.value().c_str()];
   NSString* safari_dir = [library_dir
       stringByAppendingPathComponent:@"Safari"];
   NSString* favicons_db_path = [safari_dir
-    stringByAppendingPathComponent:@"WebpageIcons.db"];
+      stringByAppendingPathComponent:@"WebpageIcons.db"];
 
-  sqlite3* favicons_db;
-  const char* safariicons_dbname = [favicons_db_path fileSystemRepresentation];
-  if (sqlite3_open(safariicons_dbname, &favicons_db) != SQLITE_OK)
-    return NULL;
-
-  return favicons_db;
+  const char* db_path = [favicons_db_path fileSystemRepresentation];
+  return db->Open(FilePath(db_path));
 }
 
-void SafariImporter::ImportFavIconURLs(sqlite3* db, FaviconMap* favicon_map) {
-  SQLStatement s;
-  const char* stmt = "SELECT iconID, url FROM PageURL;";
-  if (s.prepare(db, stmt) != SQLITE_OK)
+void SafariImporter::ImportFaviconURLs(sql::Connection* db,
+                                       FaviconMap* favicon_map) {
+  const char* query = "SELECT iconID, url FROM PageURL;";
+  sql::Statement s(db->GetUniqueStatement(query));
+  if (!s)
     return;
 
-  while (s.step() == SQLITE_ROW && !cancelled()) {
-    int64 icon_id = s.column_int(0);
-    GURL url = GURL(s.column_string(1));
+  while (s.Step() && !cancelled()) {
+    int64 icon_id = s.ColumnInt64(0);
+    GURL url = GURL(s.ColumnString(1));
     (*favicon_map)[icon_id].insert(url);
   }
 }
 
-void SafariImporter::LoadFaviconData(sqlite3* db,
-                                     const FaviconMap& favicon_map,
-                        std::vector<history::ImportedFavIconUsage>* favicons) {
-  SQLStatement s;
-  const char* stmt = "SELECT i.url, d.data "
-                     "FROM IconInfo i JOIN IconData d "
-                     "ON i.iconID = d.iconID "
-                     "WHERE i.iconID = ?;";
-  if (s.prepare(db, stmt) != SQLITE_OK)
+void SafariImporter::LoadFaviconData(
+    sql::Connection* db,
+    const FaviconMap& favicon_map,
+    std::vector<history::ImportedFaviconUsage>* favicons) {
+  const char* query = "SELECT i.url, d.data "
+                      "FROM IconInfo i JOIN IconData d "
+                      "ON i.iconID = d.iconID "
+                      "WHERE i.iconID = ?;";
+  sql::Statement s(db->GetUniqueStatement(query));
+  if (!s)
     return;
 
   for (FaviconMap::const_iterator i = favicon_map.begin();
        i != favicon_map.end(); ++i) {
-    s.bind_int64(0, i->first);
-    if (s.step() == SQLITE_ROW) {
-      history::ImportedFavIconUsage usage;
+    s.Reset();
+    s.BindInt64(0, i->first);
+    if (s.Step()) {
+      history::ImportedFaviconUsage usage;
 
-      usage.favicon_url = GURL(s.column_string(0));
+      usage.favicon_url = GURL(s.ColumnString(0));
       if (!usage.favicon_url.is_valid())
         continue;  // Don't bother importing favicons with invalid URLs.
 
       std::vector<unsigned char> data;
-      if (!s.column_blob_as_vector(1, &data) || data.empty())
+      s.ColumnBlobAsVector(1, &data);
+      if (data.empty())
         continue;  // Data definitely invalid.
 
       if (!ReencodeFavicon(&data[0], data.size(), &usage.png_data))
@@ -185,13 +186,12 @@ void SafariImporter::LoadFaviconData(sqlite3* db,
       usage.urls = i->second;
       favicons->push_back(usage);
     }
-    s.reset();
   }
 }
 
 void SafariImporter::RecursiveReadBookmarksFolder(
     NSDictionary* bookmark_folder,
-    const std::vector<std::wstring>& parent_path_elements,
+    const std::vector<string16>& parent_path_elements,
     bool is_in_toolbar,
     std::vector<ProfileWriter::BookmarkEntry>* out_bookmarks) {
   DCHECK(bookmark_folder);
@@ -216,7 +216,7 @@ void SafariImporter::RecursiveReadBookmarksFolder(
     }
   }
 
-  std::vector<std::wstring> path_elements(parent_path_elements);
+  std::vector<string16> path_elements(parent_path_elements);
   // Is this the toolbar folder?
   if ([title isEqualToString:@"BookmarksBar"]) {
     // Be defensive, the toolbar items shouldn't have a prepended path.
@@ -227,7 +227,7 @@ void SafariImporter::RecursiveReadBookmarksFolder(
     path_elements.clear();
   } else if (!is_top_level_bookmarks_container) {
     if (title)
-      path_elements.push_back(base::SysNSStringToWide(title));
+      path_elements.push_back(base::SysNSStringToUTF16(title));
   }
 
   NSArray* elements = [bookmark_folder objectForKey:@"Children"];
@@ -265,7 +265,7 @@ void SafariImporter::RecursiveReadBookmarksFolder(
     ProfileWriter::BookmarkEntry entry;
     // Safari doesn't specify a creation time for the bookmark.
     entry.creation_time = base::Time::Now();
-    entry.title = base::SysNSStringToWide(title);
+    entry.title = base::SysNSStringToUTF16(title);
     entry.url = GURL(base::SysNSStringToUTF8(url));
     entry.path = path_elements;
     entry.in_toolbar = is_in_toolbar;
@@ -293,7 +293,7 @@ void SafariImporter::ParseBookmarks(
     return;
 
   // Recursively read in bookmarks.
-  std::vector<std::wstring> parent_path_elements;
+  std::vector<string16> parent_path_elements;
   RecursiveReadBookmarksFolder(bookmarks_dict, parent_path_elements, false,
                                bookmarks);
 }
@@ -347,13 +347,11 @@ void SafariImporter::ParseHistoryItems(
       objectForKey:@"WebHistoryDates"];
 
   for (NSDictionary* history_item in safari_history_items) {
-    using base::SysNSStringToUTF8;
-    using base::SysNSStringToUTF16;
     NSString* url_ns = [history_item objectForKey:@""];
     if (!url_ns)
       continue;
 
-    GURL url(SysNSStringToUTF8(url_ns));
+    GURL url(base::SysNSStringToUTF8(url_ns));
 
     if (!CanImportSafariURL(url))
       continue;
@@ -366,7 +364,7 @@ void SafariImporter::ParseHistoryItems(
     if (!title_ns)
       title_ns = url_ns;
 
-    row.set_title(SysNSStringToUTF16(title_ns));
+    row.set_title(base::SysNSStringToUTF16(title_ns));
     int visit_count = [[history_item objectForKey:@"visitCount"]
                           intValue];
     row.set_visit_count(visit_count);

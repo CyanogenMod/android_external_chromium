@@ -2,12 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/sync/glue/data_type_manager_impl2.h"
+#include "chrome/browser/sync/glue/data_type_manager_impl.h"
 
 #include <set>
 
+#include "base/memory/scoped_ptr.h"
 #include "base/message_loop.h"
-#include "base/scoped_ptr.h"
 #include "base/stl_util-inl.h"
 #include "base/task.h"
 #include "chrome/browser/sync/glue/data_type_controller.h"
@@ -25,22 +25,40 @@
 #include "testing/gtest/include/gtest/gtest.h"
 
 using browser_sync::DataTypeManager;
-using browser_sync::DataTypeManagerImpl2;
+using browser_sync::DataTypeManagerImpl;
 using browser_sync::DataTypeController;
 using browser_sync::DataTypeControllerMock;
 using browser_sync::SyncBackendHostMock;
 using testing::_;
+using testing::AtLeast;
 using testing::DoAll;
 using testing::DoDefault;
 using testing::InSequence;
+using testing::Invoke;
+using testing::InvokeWithoutArgs;
+using testing::InvokeWithoutArgs;
+using testing::Mock;
 using testing::Property;
 using testing::Pointee;
 using testing::Return;
 using testing::SaveArg;
 
 ACTION_P(InvokeCallback, callback_result) {
-  arg0->Run(callback_result);
+  arg0->Run(callback_result, FROM_HERE);
   delete arg0;
+}
+
+ACTION_P2(InvokeCallbackPointer, callback, argument) {
+  callback->Run(argument, FROM_HERE);
+  delete callback;
+}
+
+DataTypeManager::ConfigureResult GetResult(
+    const NotificationDetails& details) {
+  DataTypeManager::ConfigureResultWithErrorLocation* result_with_location =
+      Details<DataTypeManager::ConfigureResultWithErrorLocation>(
+      details).ptr();
+  return result_with_location->result;
 }
 
 class DataTypeManagerImpl2Test : public testing::Test {
@@ -79,10 +97,14 @@ class DataTypeManagerImpl2Test : public testing::Test {
 
   DataTypeControllerMock* MakePasswordDTC() {
     DataTypeControllerMock* dtc = new DataTypeControllerMock();
+    SetPasswordDTCExpectations(dtc);
+    return dtc;
+  }
+
+  void SetPasswordDTCExpectations(DataTypeControllerMock* dtc) {
     EXPECT_CALL(*dtc, enabled()).WillRepeatedly(Return(true));
     EXPECT_CALL(*dtc, type()).WillRepeatedly(Return(syncable::PASSWORDS));
     EXPECT_CALL(*dtc, name()).WillRepeatedly(Return("passwords"));
-    return dtc;
   }
 
   void SetStartStopExpectations(DataTypeControllerMock* mock_dtc) {
@@ -126,12 +148,12 @@ class DataTypeManagerImpl2Test : public testing::Test {
                 _, _));
   }
 
+
   void SetConfigureDoneExpectation(DataTypeManager::ConfigureResult result) {
     EXPECT_CALL(
         observer_,
         Observe(NotificationType(NotificationType::SYNC_CONFIGURE_DONE), _,
-                Property(&Details<DataTypeManager::ConfigureResult>::ptr,
-                         Pointee(result))));
+        ::testing::ResultOf(&GetResult, result)));
   }
 
   MessageLoopForUI message_loop_;
@@ -144,7 +166,7 @@ class DataTypeManagerImpl2Test : public testing::Test {
 };
 
 TEST_F(DataTypeManagerImpl2Test, NoControllers) {
-  DataTypeManagerImpl2 dtm(&backend_, controllers_);
+  DataTypeManagerImpl dtm(&backend_, controllers_);
   SetConfigureStartExpectation();
   SetConfigureDoneExpectation(DataTypeManager::OK);
   dtm.Configure(types_);
@@ -158,7 +180,7 @@ TEST_F(DataTypeManagerImpl2Test, ConfigureOne) {
   SetStartStopExpectations(bookmark_dtc);
   controllers_[syncable::BOOKMARKS] = bookmark_dtc;
   EXPECT_CALL(backend_, ConfigureDataTypes(_, _, _)).Times(1);
-  DataTypeManagerImpl2 dtm(&backend_, controllers_);
+  DataTypeManagerImpl dtm(&backend_, controllers_);
   types_.insert(syncable::BOOKMARKS);
   SetConfigureStartExpectation();
   SetConfigureDoneExpectation(DataTypeManager::OK);
@@ -174,7 +196,7 @@ TEST_F(DataTypeManagerImpl2Test, ConfigureOneStopWhileStarting) {
                                DataTypeController::MODEL_STARTING);
   controllers_[syncable::BOOKMARKS] = bookmark_dtc;
   EXPECT_CALL(backend_, ConfigureDataTypes(_, _, _)).Times(1);
-  DataTypeManagerImpl2 dtm(&backend_, controllers_);
+  DataTypeManagerImpl dtm(&backend_, controllers_);
   types_.insert(syncable::BOOKMARKS);
   SetConfigureStartExpectation();
   SetConfigureDoneExpectation(DataTypeManager::OK);
@@ -189,7 +211,7 @@ TEST_F(DataTypeManagerImpl2Test, ConfigureOneStopWhileAssociating) {
   SetBusyStartStopExpectations(bookmark_dtc, DataTypeController::ASSOCIATING);
   controllers_[syncable::BOOKMARKS] = bookmark_dtc;
   EXPECT_CALL(backend_, ConfigureDataTypes(_, _, _)).Times(1);
-  DataTypeManagerImpl2 dtm(&backend_, controllers_);
+  DataTypeManagerImpl dtm(&backend_, controllers_);
   types_.insert(syncable::BOOKMARKS);
   SetConfigureStartExpectation();
   SetConfigureDoneExpectation(DataTypeManager::OK);
@@ -201,22 +223,37 @@ TEST_F(DataTypeManagerImpl2Test, ConfigureOneStopWhileAssociating) {
 
 TEST_F(DataTypeManagerImpl2Test, OneWaitingForCrypto) {
   DataTypeControllerMock* password_dtc = MakePasswordDTC();
-  EXPECT_CALL(*password_dtc, state()).
+  EXPECT_CALL(*password_dtc, state()).Times(AtLeast(2)).
       WillRepeatedly(Return(DataTypeController::NOT_RUNNING));
   EXPECT_CALL(*password_dtc, Start(_)).
       WillOnce(InvokeCallback((DataTypeController::NEEDS_CRYPTO)));
-  EXPECT_CALL(*password_dtc, state()).
-      WillRepeatedly(Return(DataTypeController::NOT_RUNNING));
 
   controllers_[syncable::PASSWORDS] = password_dtc;
   EXPECT_CALL(backend_, ConfigureDataTypes(_, _, _)).Times(1);
 
-  DataTypeManagerImpl2 dtm(&backend_, controllers_);
+  DataTypeManagerImpl dtm(&backend_, controllers_);
   types_.insert(syncable::PASSWORDS);
   SetConfigureStartExpectation();
-  SetConfigureDoneExpectation(DataTypeManager::OK);
+
   dtm.Configure(types_);
+  EXPECT_EQ(DataTypeManager::BLOCKED, dtm.state());
+
+  Mock::VerifyAndClearExpectations(&backend_);
+  Mock::VerifyAndClearExpectations(&observer_);
+  Mock::VerifyAndClearExpectations(password_dtc);
+
+  SetConfigureDoneExpectation(DataTypeManager::OK);
+  SetPasswordDTCExpectations(password_dtc);
+  EXPECT_CALL(*password_dtc, state()).
+      WillOnce(Return(DataTypeController::NOT_RUNNING)).
+      WillRepeatedly(Return(DataTypeController::RUNNING));
+  EXPECT_CALL(*password_dtc, Start(_)).
+      WillOnce(InvokeCallback((DataTypeController::OK)));
+  EXPECT_CALL(backend_, ConfigureDataTypes(_, _, _)).Times(1);
+  dtm.Configure(types_);
+
   EXPECT_EQ(DataTypeManager::CONFIGURED, dtm.state());
+  EXPECT_CALL(*password_dtc, Stop()).Times(1);
   dtm.Stop();
   EXPECT_EQ(DataTypeManager::STOPPED, dtm.state());
 }
@@ -230,7 +267,7 @@ TEST_F(DataTypeManagerImpl2Test, ConfigureOneThenAnother) {
   controllers_[syncable::PREFERENCES] = preference_dtc;
 
   EXPECT_CALL(backend_, ConfigureDataTypes(_, _, _)).Times(2);
-  DataTypeManagerImpl2 dtm(&backend_, controllers_);
+  DataTypeManagerImpl dtm(&backend_, controllers_);
   types_.insert(syncable::BOOKMARKS);
 
   SetConfigureStartExpectation();
@@ -257,7 +294,7 @@ TEST_F(DataTypeManagerImpl2Test, ConfigureOneThenSwitch) {
   controllers_[syncable::PREFERENCES] = preference_dtc;
 
   EXPECT_CALL(backend_, ConfigureDataTypes(_, _, _)).Times(2);
-  DataTypeManagerImpl2 dtm(&backend_, controllers_);
+  DataTypeManagerImpl dtm(&backend_, controllers_);
   types_.insert(syncable::BOOKMARKS);
 
   SetConfigureStartExpectation();
@@ -274,6 +311,18 @@ TEST_F(DataTypeManagerImpl2Test, ConfigureOneThenSwitch) {
 
   dtm.Stop();
   EXPECT_EQ(DataTypeManager::STOPPED, dtm.state());
+}
+
+void DoConfigureDataTypes(
+    const DataTypeController::TypeMap& data_type_controllers,
+    const syncable::ModelTypeSet& types,
+    CancelableTask* ready_task) {
+  ready_task->Run();
+  delete ready_task;
+}
+
+void QuitMessageLoop() {
+  MessageLoop::current()->Quit();
 }
 
 TEST_F(DataTypeManagerImpl2Test, ConfigureWhileOneInFlight) {
@@ -298,8 +347,12 @@ TEST_F(DataTypeManagerImpl2Test, ConfigureWhileOneInFlight) {
   SetStartStopExpectations(preference_dtc);
   controllers_[syncable::PREFERENCES] = preference_dtc;
 
-  EXPECT_CALL(backend_, ConfigureDataTypes(_, _, _)).Times(2);
-  DataTypeManagerImpl2 dtm(&backend_, controllers_);
+  DataTypeManagerImpl dtm(&backend_, controllers_);
+  EXPECT_CALL(backend_, ConfigureDataTypes(_, _, _))
+    .WillOnce(Invoke(DoConfigureDataTypes))
+    .WillOnce(DoAll(Invoke(DoConfigureDataTypes),
+     InvokeWithoutArgs(QuitMessageLoop)));
+
   types_.insert(syncable::BOOKMARKS);
 
   SetConfigureStartExpectation();
@@ -310,8 +363,10 @@ TEST_F(DataTypeManagerImpl2Test, ConfigureWhileOneInFlight) {
   // preferences and continue starting bookmarks.
   types_.insert(syncable::PREFERENCES);
   dtm.Configure(types_);
-  callback->Run(DataTypeController::OK);
+  callback->Run(DataTypeController::OK, FROM_HERE);
   delete callback;
+
+  MessageLoop::current()->Run();
 
   EXPECT_EQ(DataTypeManager::CONFIGURED, dtm.state());
 
@@ -328,7 +383,7 @@ TEST_F(DataTypeManagerImpl2Test, OneFailingController) {
       WillRepeatedly(Return(DataTypeController::NOT_RUNNING));
   controllers_[syncable::BOOKMARKS] = bookmark_dtc;
 
-  DataTypeManagerImpl2 dtm(&backend_, controllers_);
+  DataTypeManagerImpl dtm(&backend_, controllers_);
   SetConfigureStartExpectation();
   SetConfigureDoneExpectation(DataTypeManager::ASSOCIATION_FAILED);
   EXPECT_CALL(backend_, ConfigureDataTypes(_, _, _)).Times(1);
@@ -348,12 +403,11 @@ TEST_F(DataTypeManagerImpl2Test, StopWhileInFlight) {
   DataTypeController::StartCallback* callback;
   EXPECT_CALL(*preference_dtc, Start(_)).
       WillOnce(SaveArg<0>(&callback));
-  EXPECT_CALL(*preference_dtc, Stop()).Times(1);
   EXPECT_CALL(*preference_dtc, state()).
       WillRepeatedly(Return(DataTypeController::NOT_RUNNING));
   controllers_[syncable::PREFERENCES] = preference_dtc;
 
-  DataTypeManagerImpl2 dtm(&backend_, controllers_);
+  DataTypeManagerImpl dtm(&backend_, controllers_);
   SetConfigureStartExpectation();
   SetConfigureDoneExpectation(DataTypeManager::ABORTED);
   EXPECT_CALL(backend_, ConfigureDataTypes(_, _, _)).Times(1);
@@ -366,9 +420,9 @@ TEST_F(DataTypeManagerImpl2Test, StopWhileInFlight) {
   EXPECT_EQ(DataTypeManager::CONFIGURING, dtm.state());
 
   // Call stop before the preference callback is invoked.
+  EXPECT_CALL(*preference_dtc, Stop()).
+      WillOnce(InvokeCallbackPointer(callback, DataTypeController::ABORTED));
   dtm.Stop();
-  callback->Run(DataTypeController::ABORTED);
-  delete callback;
   EXPECT_EQ(DataTypeManager::STOPPED, dtm.state());
 }
 
@@ -385,7 +439,7 @@ TEST_F(DataTypeManagerImpl2Test, SecondControllerFails) {
       WillRepeatedly(Return(DataTypeController::NOT_RUNNING));
   controllers_[syncable::PREFERENCES] = preference_dtc;
 
-  DataTypeManagerImpl2 dtm(&backend_, controllers_);
+  DataTypeManagerImpl dtm(&backend_, controllers_);
   SetConfigureStartExpectation();
   SetConfigureDoneExpectation(DataTypeManager::ASSOCIATION_FAILED);
   EXPECT_CALL(backend_, ConfigureDataTypes(_, _, _)).Times(1);
@@ -405,7 +459,7 @@ TEST_F(DataTypeManagerImpl2Test, ConfigureWhileDownloadPending) {
   SetStartStopExpectations(preference_dtc);
   controllers_[syncable::PREFERENCES] = preference_dtc;
 
-  DataTypeManagerImpl2 dtm(&backend_, controllers_);
+  DataTypeManagerImpl dtm(&backend_, controllers_);
   SetConfigureStartExpectation();
   SetConfigureDoneExpectation(DataTypeManager::OK);
   CancelableTask* task;
@@ -424,14 +478,10 @@ TEST_F(DataTypeManagerImpl2Test, ConfigureWhileDownloadPending) {
   types_.insert(syncable::PREFERENCES);
   dtm.Configure(types_);
 
-  // Should now be RESTARTING.
-  EXPECT_EQ(DataTypeManager::RESTARTING, dtm.state());
-
   // Running the task will queue a restart task to the message loop, and
   // eventually get us configured.
   task->Run();
   delete task;
-  EXPECT_EQ(DataTypeManager::RESTARTING, dtm.state());
   MessageLoop::current()->RunAllPending();
   EXPECT_EQ(DataTypeManager::CONFIGURED, dtm.state());
 
@@ -444,7 +494,7 @@ TEST_F(DataTypeManagerImpl2Test, StopWhileDownloadPending) {
   SetNotUsedExpectations(bookmark_dtc);
   controllers_[syncable::BOOKMARKS] = bookmark_dtc;
 
-  DataTypeManagerImpl2 dtm(&backend_, controllers_);
+  DataTypeManagerImpl dtm(&backend_, controllers_);
   SetConfigureStartExpectation();
   SetConfigureDoneExpectation(DataTypeManager::ABORTED);
   CancelableTask* task;

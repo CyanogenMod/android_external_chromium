@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,23 +6,23 @@
 
 #include <algorithm>
 
+#include "base/json/json_writer.h"
 #include "base/logging.h"
 #include "base/stl_util-inl.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
-#include "base/json/json_writer.h"
 #include "chrome/browser/extensions/extension_event_router.h"
 #include "chrome/browser/extensions/extension_tabs_module.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/extensions/extension.h"
-#include "chrome/common/notification_service.h"
+#include "content/common/notification_service.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/favicon_size.h"
 #include "webkit/glue/context_menu.h"
 
 ExtensionMenuItem::ExtensionMenuItem(const Id& id,
-                                     std::string title,
+                                     const std::string& title,
                                      bool checked,
                                      Type type,
                                      const ContextList& contexts)
@@ -232,7 +232,9 @@ bool ExtensionMenuManager::RemoveContextMenuItem(
   if (!ContainsKey(items_by_id_, id))
     return false;
 
-  std::string extension_id = GetItemById(id)->extension_id();
+  ExtensionMenuItem* menu_item = GetItemById(id);
+  DCHECK(menu_item);
+  std::string extension_id = menu_item->extension_id();
   MenuItemMap::iterator i = context_items_.find(extension_id);
   if (i == context_items_.end()) {
     NOTREACHED();
@@ -283,7 +285,8 @@ bool ExtensionMenuManager::RemoveContextMenuItem(
   return result;
 }
 
-void ExtensionMenuManager::RemoveAllContextItems(std::string extension_id) {
+void ExtensionMenuManager::RemoveAllContextItems(
+    const std::string& extension_id) {
   ExtensionMenuItem::List::iterator i;
   for (i = context_items_[extension_id].begin();
        i != context_items_[extension_id].end(); ++i) {
@@ -475,7 +478,9 @@ ExtensionMenuItem::Id::Id()
     : profile(NULL), uid(0) {
 }
 
-ExtensionMenuItem::Id::Id(Profile* profile, std::string extension_id, int uid)
+ExtensionMenuItem::Id::Id(Profile* profile,
+                          const std::string& extension_id,
+                          int uid)
     : profile(profile), extension_id(extension_id), uid(uid) {
 }
 

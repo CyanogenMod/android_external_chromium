@@ -8,19 +8,17 @@
 #include "base/threading/thread.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
-#include "chrome/browser/importer/importer.h"
 #include "chrome/browser/password_manager/password_store.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
+#include "content/common/notification_service.h"
 
-using webkit_glue::PasswordForm;
-
-ProfileWriter::BookmarkEntry::BookmarkEntry() : in_toolbar(false),
-    is_folder(false) {}
+ProfileWriter::BookmarkEntry::BookmarkEntry()
+    : in_toolbar(false),
+      is_folder(false) {}
 
 ProfileWriter::BookmarkEntry::~BookmarkEntry() {}
 
@@ -34,7 +32,7 @@ bool ProfileWriter::TemplateURLModelIsLoaded() const {
   return profile_->GetTemplateURLModel()->loaded();
 }
 
-void ProfileWriter::AddPasswordForm(const PasswordForm& form) {
+void ProfileWriter::AddPasswordForm(const webkit_glue::PasswordForm& form) {
   profile_->GetPasswordStore(Profile::EXPLICIT_ACCESS)->AddLogin(form);
 }
 
@@ -64,17 +62,17 @@ void ProfileWriter::AddHomepage(const GURL& home_page) {
 
 void ProfileWriter::AddBookmarkEntry(
     const std::vector<BookmarkEntry>& bookmark,
-    const std::wstring& first_folder_name,
+    const string16& first_folder_name,
     int options) {
   BookmarkModel* model = profile_->GetBookmarkModel();
   DCHECK(model->IsLoaded());
 
   bool import_to_bookmark_bar = ((options & IMPORT_TO_BOOKMARK_BAR) != 0);
-  std::wstring real_first_folder = import_to_bookmark_bar ? first_folder_name :
+  string16 real_first_folder = import_to_bookmark_bar ? first_folder_name :
       GenerateUniqueFolderName(model, first_folder_name);
 
   bool show_bookmark_toolbar = false;
-  std::set<const BookmarkNode*> groups_added_to;
+  std::set<const BookmarkNode*> folders_added_to;
   bool import_mode = false;
   if (bookmark.size() > 1) {
     model->BeginImportMode();
@@ -93,39 +91,37 @@ void ProfileWriter::AddBookmarkEntry(
         real_first_folder, import_to_bookmark_bar))
       continue;
 
-    // Set up groups in BookmarkModel in such a way that path[i] is
-    // the subgroup of path[i-1]. Finally they construct a path in the
+    // Set up folders in BookmarkModel in such a way that path[i] is
+    // the subfolder of path[i-1]. Finally they construct a path in the
     // model:
     //   path[0] \ path[1] \ ... \ path[size() - 1]
     const BookmarkNode* parent =
         (it->in_toolbar ? model->GetBookmarkBarNode() : model->other_node());
-    for (std::vector<std::wstring>::const_iterator i = it->path.begin();
+    for (std::vector<string16>::const_iterator i = it->path.begin();
          i != it->path.end(); ++i) {
       const BookmarkNode* child = NULL;
-      const std::wstring& folder_name = (!import_to_bookmark_bar &&
+      const string16& folder_name = (!import_to_bookmark_bar &&
           !it->in_toolbar && (i == it->path.begin())) ? real_first_folder : *i;
 
-      for (int index = 0; index < parent->GetChildCount(); ++index) {
+      for (int index = 0; index < parent->child_count(); ++index) {
         const BookmarkNode* node = parent->GetChild(index);
         if ((node->type() == BookmarkNode::BOOKMARK_BAR ||
              node->type() == BookmarkNode::FOLDER) &&
-            node->GetTitle() == WideToUTF16Hack(folder_name)) {
+            node->GetTitle() == folder_name) {
           child = node;
           break;
         }
       }
       if (child == NULL)
-        child = model->AddGroup(parent, parent->GetChildCount(),
-                                WideToUTF16Hack(folder_name));
+        child = model->AddFolder(parent, parent->child_count(), folder_name);
       parent = child;
     }
-    groups_added_to.insert(parent);
+    folders_added_to.insert(parent);
     if (it->is_folder) {
-      model->AddGroup(parent, parent->GetChildCount(),
-                      WideToUTF16Hack(it->title));
+      model->AddFolder(parent, parent->child_count(), it->title);
     } else {
-      model->AddURLWithCreationTime(parent, parent->GetChildCount(),
-          WideToUTF16Hack(it->title), it->url, it->creation_time);
+      model->AddURLWithCreationTime(parent, parent->child_count(),
+          it->title, it->url, it->creation_time);
     }
 
     // If some items are put into toolbar, it looks like the user was using
@@ -134,13 +130,13 @@ void ProfileWriter::AddBookmarkEntry(
       show_bookmark_toolbar = true;
   }
 
-  // Reset the date modified time of the groups we added to. We do this to
+  // Reset the date modified time of the folders we added to. We do this to
   // make sure the 'recently added to' combobox in the bubble doesn't get random
-  // groups.
+  // folders.
   for (std::set<const BookmarkNode*>::const_iterator i =
-          groups_added_to.begin();
-       i != groups_added_to.end(); ++i) {
-    model->ResetDateGroupModified(*i);
+          folders_added_to.begin();
+       i != folders_added_to.end(); ++i) {
+    model->ResetDateFolderModified(*i);
   }
 
   if (import_mode) {
@@ -152,7 +148,7 @@ void ProfileWriter::AddBookmarkEntry(
 }
 
 void ProfileWriter::AddFavicons(
-    const std::vector<history::ImportedFavIconUsage>& favicons) {
+    const std::vector<history::ImportedFaviconUsage>& favicons) {
   profile_->GetFaviconService(Profile::EXPLICIT_ACCESS)->
       SetImportedFavicons(favicons);
 }
@@ -291,17 +287,17 @@ void ProfileWriter::ShowBookmarkBar() {
 
 ProfileWriter::~ProfileWriter() {}
 
-std::wstring ProfileWriter::GenerateUniqueFolderName(
+string16 ProfileWriter::GenerateUniqueFolderName(
     BookmarkModel* model,
-    const std::wstring& folder_name) {
+    const string16& folder_name) {
   // Build a set containing the folder names of the other folder.
-  std::set<std::wstring> other_folder_names;
+  std::set<string16> other_folder_names;
   const BookmarkNode* other = model->other_node();
 
-  for (int i = 0, child_count = other->GetChildCount(); i < child_count; ++i) {
+  for (int i = 0, child_count = other->child_count(); i < child_count; ++i) {
     const BookmarkNode* node = other->GetChild(i);
     if (node->is_folder())
-      other_folder_names.insert(UTF16ToWideHack(node->GetTitle()));
+      other_folder_names.insert(node->GetTitle());
   }
 
   if (other_folder_names.find(folder_name) == other_folder_names.end())
@@ -309,7 +305,7 @@ std::wstring ProfileWriter::GenerateUniqueFolderName(
 
   // Otherwise iterate until we find a unique name.
   for (int i = 1; i < 100; ++i) {
-    std::wstring name = folder_name + StringPrintf(L" (%d)", i);
+    string16 name = folder_name + UTF8ToUTF16(base::StringPrintf(" (%d)", i));
     if (other_folder_names.find(name) == other_folder_names.end())
       return name;
   }
@@ -320,7 +316,7 @@ std::wstring ProfileWriter::GenerateUniqueFolderName(
 bool ProfileWriter::DoesBookmarkExist(
     BookmarkModel* model,
     const BookmarkEntry& entry,
-    const std::wstring& first_folder_name,
+    const string16& first_folder_name,
     bool import_to_bookmark_bar) {
   std::vector<const BookmarkNode*> nodes_with_same_url;
   model->GetNodesByURL(entry.url, &nodes_with_same_url);
@@ -329,22 +325,22 @@ bool ProfileWriter::DoesBookmarkExist(
 
   for (size_t i = 0; i < nodes_with_same_url.size(); ++i) {
     const BookmarkNode* node = nodes_with_same_url[i];
-    if (WideToUTF16Hack(entry.title) != node->GetTitle())
+    if (entry.title != node->GetTitle())
       continue;
 
     // Does the path match?
     bool found_match = true;
-    const BookmarkNode* parent = node->GetParent();
-    for (std::vector<std::wstring>::const_reverse_iterator path_it =
+    const BookmarkNode* parent = node->parent();
+    for (std::vector<string16>::const_reverse_iterator path_it =
              entry.path.rbegin();
          (path_it != entry.path.rend()) && found_match; ++path_it) {
-      const std::wstring& folder_name =
+      const string16& folder_name =
           (!import_to_bookmark_bar && path_it + 1 == entry.path.rend()) ?
-          first_folder_name : *path_it;
+           first_folder_name : *path_it;
       if (NULL == parent || *path_it != folder_name)
         found_match = false;
       else
-        parent = parent->GetParent();
+        parent = parent->parent();
     }
 
     // We need a post test to differentiate checks such as

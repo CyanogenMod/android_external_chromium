@@ -19,6 +19,7 @@
 #include "views/controls/button/text_button.h"
 #include "views/controls/image_view.h"
 #include "views/controls/label.h"
+#include "views/controls/textfield/textfield.h"
 #include "views/layout/grid_layout.h"
 #include "views/layout/layout_constants.h"
 #include "views/widget/widget_gtk.h"
@@ -102,7 +103,6 @@ void CaptchaView::SetCaptchaURL(const GURL& captcha_url) {
 }
 
 gfx::Size CaptchaView::GetPreferredSize() {
-  // TODO(nkostylev): Once UI is finalized, create locale settings.
   gfx::Size size = gfx::Size(views::Window::GetLocalizedContentsSize(
       IDS_CAPTCHA_INPUT_DIALOG_WIDTH_CHARS,
       IDS_CAPTCHA_INPUT_DIALOG_HEIGHT_LINES));
@@ -133,7 +133,8 @@ bool CaptchaView::HandleKeyEvent(views::Textfield* sender,
   return false;
 }
 
-void CaptchaView::OnImageDecoded(const SkBitmap& decoded_image) {
+void CaptchaView::OnImageDecoded(const ImageDecoder*,
+                                 const SkBitmap& decoded_image) {
   captcha_image_->SetImage(decoded_image);
   captcha_textfield_->RequestFocus();
   Layout();

@@ -52,12 +52,12 @@ static const char* const kSbReportPhishingUrl =
 
 // URL for the "Learn more" link on the multi threat malware blocking page.
 static const char* const kLearnMoreMalwareUrl =
-    "http://www.google.com/support/bin/answer.py?answer=45449&topic=360"
+    "https://www.google.com/support/bin/answer.py?answer=45449&topic=360"
     "&sa=X&oi=malwarewarninglink&resnum=1&ct=help";
 
 // URL for the "Learn more" link on the phishing blocking page.
 static const char* const kLearnMorePhishingUrl =
-    "http://www.google.com/support/bin/answer.py?answer=106318";
+    "https://www.google.com/support/bin/answer.py?answer=106318";
 
 // URL for the "Safe Browsing Privacy Policies" link on the blocking page.
 // Note: this page is not yet localized.
@@ -147,7 +147,7 @@ SafeBrowsingBlockingPage::SafeBrowsingBlockingPage(
       malware_details_ == NULL &&
       CanShowMalwareDetailsOption()) {
     malware_details_ = MalwareDetails::NewMalwareDetails(
-        tab(), unsafe_resources[0]);
+        sb_service_, tab(), unsafe_resources[0]);
   }
 }
 
@@ -605,12 +605,11 @@ void SafeBrowsingBlockingPage::FinishMalwareDetails() {
 
   bool value;
   if (pref && pref->GetValue()->GetAsBoolean(&value) && value) {
-    // Give the details object to the service class, so it can send it.
+    // Finish the malware details collection, send it over.
     BrowserThread::PostTask(
         BrowserThread::IO, FROM_HERE,
         NewRunnableMethod(
-            sb_service_, &SafeBrowsingService::ReportMalwareDetails,
-            malware_details_));
+            malware_details_.get(), &MalwareDetails::FinishCollection));
   }
 }
 

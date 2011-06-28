@@ -8,9 +8,10 @@
 
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/views/window.h"
-#include "chrome/common/native_web_keyboard_event.h"
 #include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/native_web_keyboard_event.h"
 #include "ui/base/keycodes/keyboard_codes.h"
+#include "views/events/event.h"
 #include "views/widget/root_view.h"
 #include "views/widget/widget.h"
 #include "views/window/window.h"
@@ -60,6 +61,7 @@ gfx::Size HtmlDialogView::GetPreferredSize() {
 bool HtmlDialogView::AcceleratorPressed(const views::Accelerator& accelerator) {
   // Pressing ESC closes the dialog.
   DCHECK_EQ(ui::VKEY_ESCAPE, accelerator.GetKeyCode());
+  OnWindowClosed();
   OnDialogClosed(std::string());
   return true;
 }
@@ -87,8 +89,10 @@ void HtmlDialogView::WindowClosing() {
   // If we still have a delegate that means we haven't notified it of the
   // dialog closing. This happens if the user clicks the Close button on the
   // dialog.
-  if (delegate_)
+  if (delegate_) {
+    OnWindowClosed();
     OnDialogClosed("");
+  }
 }
 
 views::View* HtmlDialogView::GetContentsView() {
@@ -144,7 +148,12 @@ void HtmlDialogView::OnDialogClosed(const std::string& json_retval) {
     delegate_ = NULL;  // We will not communicate further with the delegate.
     dialog_delegate->OnDialogClosed(json_retval);
   }
-  window()->Close();
+  window()->CloseWindow();
+}
+
+void HtmlDialogView::OnWindowClosed() {
+  if (delegate_)
+      delegate_->OnWindowClosed();
 }
 
 void HtmlDialogView::OnCloseContents(TabContents* source,
@@ -174,11 +183,6 @@ void HtmlDialogView::MoveContents(TabContents* source, const gfx::Rect& pos) {
   GetWidget()->SetBounds(pos);
 }
 
-void HtmlDialogView::ToolbarSizeChanged(TabContents* source,
-                                        bool is_animating) {
-  Layout();
-}
-
 // A simplified version of BrowserView::HandleKeyboardEvent().
 // We don't handle global keyboard shortcuts here, but that's fine since
 // they're all browser-specific. (This may change in the future.)
@@ -190,8 +194,10 @@ void HtmlDialogView::HandleKeyboardEvent(const NativeWebKeyboardEvent& event) {
                   event.os_event.wParam, event.os_event.lParam);
 #elif defined(OS_LINUX)
   views::WindowGtk* window_gtk = static_cast<views::WindowGtk*>(window());
-  if (event.os_event && !event.skip_in_browser)
-    window_gtk->HandleKeyboardEvent(event.os_event);
+  if (event.os_event && !event.skip_in_browser) {
+    views::KeyEvent views_event(reinterpret_cast<GdkEvent*>(event.os_event));
+    window_gtk->HandleKeyboardEvent(views_event);
+  }
 #endif
 }
 

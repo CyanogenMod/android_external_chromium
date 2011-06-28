@@ -16,8 +16,9 @@
 #include "chrome/browser/download/save_package.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/tab_contents/tab_util.h"
+#include "chrome/browser/ui/download/download_tab_helper.h"
+#include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/common/chrome_paths.h"
-#include "chrome/common/net/url_request_context_getter.h"
 #include "content/browser/browser_thread.h"
 #include "content/browser/renderer_host/resource_dispatcher_host.h"
 #include "content/browser/tab_contents/tab_contents.h"
@@ -25,7 +26,7 @@
 #include "net/base/net_util.h"
 #include "net/base/io_buffer.h"
 #include "net/url_request/url_request_context.h"
-
+#include "net/url_request/url_request_context_getter.h"
 
 SaveFileManager::SaveFileManager(ResourceDispatcherHost* rdh)
     : next_id_(0),
@@ -115,14 +116,15 @@ SavePackage* SaveFileManager::LookupPackage(int save_id) {
 }
 
 // Call from SavePackage for starting a saving job
-void SaveFileManager::SaveURL(const GURL& url,
-                              const GURL& referrer,
-                              int render_process_host_id,
-                              int render_view_id,
-                              SaveFileCreateInfo::SaveFileSource save_source,
-                              const FilePath& file_full_path,
-                              URLRequestContextGetter* request_context_getter,
-                              SavePackage* save_package) {
+void SaveFileManager::SaveURL(
+    const GURL& url,
+    const GURL& referrer,
+    int render_process_host_id,
+    int render_view_id,
+    SaveFileCreateInfo::SaveFileSource save_source,
+    const FilePath& file_full_path,
+    net::URLRequestContextGetter* request_context_getter,
+    SavePackage* save_package) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
   // Register a saving job.
@@ -167,7 +169,7 @@ void SaveFileManager::RemoveSaveFile(int save_id, const GURL& save_url,
                                      SavePackage* package) {
   DCHECK(package);
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-  // A save page job(SavePackage) can only have one manager,
+  // A save page job (SavePackage) can only have one manager,
   // so remove it if it exists.
   if (save_id == -1) {
     SavePackage* old_package = UnregisterStartingRequest(save_url,
@@ -187,8 +189,11 @@ SavePackage* SaveFileManager::GetSavePackageFromRenderIds(
     int render_process_id, int render_view_id) {
   TabContents* contents = tab_util::GetTabContentsByID(render_process_id,
                                                        render_view_id);
-  if (contents)
-    return contents->save_package();
+  if (contents) {
+    TabContentsWrapper* wrapper =
+        TabContentsWrapper::GetCurrentWrapperForContents(contents);
+    return wrapper->download_tab_helper()->save_package();
+  }
 
   return NULL;
 }
@@ -262,10 +267,16 @@ void SaveFileManager::SaveFinished(int save_id,
                                    const GURL& save_url,
                                    int render_process_id,
                                    bool is_success) {
+  VLOG(20) << " " << __FUNCTION__ << "()"
+           << " save_id = " << save_id
+           << " save_url = \"" << save_url.spec() << "\""
+           << " is_success = " << is_success;
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
   SaveFileMap::iterator it = save_file_map_.find(save_id);
   if (it != save_file_map_.end()) {
     SaveFile* save_file = it->second;
+  VLOG(20) << " " << __FUNCTION__ << "()"
+           << " save_file = " << save_file->DebugString();
     BrowserThread::PostTask(
       BrowserThread::UI, FROM_HERE,
         NewRunnableMethod(
@@ -273,6 +284,7 @@ void SaveFileManager::SaveFinished(int save_id,
             save_file->bytes_so_far(), is_success));
 
     save_file->Finish();
+    save_file->Detach();
   } else if (save_id == -1) {
     // Before saving started, we got error. We still call finish process.
     DCHECK(!save_url.is_empty());
@@ -352,7 +364,7 @@ void SaveFileManager::OnSaveURL(
     const GURL& referrer,
     int render_process_host_id,
     int render_view_id,
-    URLRequestContextGetter* request_context_getter) {
+    net::URLRequestContextGetter* request_context_getter) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
   net::URLRequestContext* context =
       request_context_getter->GetURLRequestContext();
@@ -438,6 +450,7 @@ void SaveFileManager::SaveLocalFile(const GURL& original_file_url,
 
   // Close the save file before the copy operation.
   save_file->Finish();
+  save_file->Detach();
 
   DCHECK(original_file_url.SchemeIsFile());
   FilePath file_path;

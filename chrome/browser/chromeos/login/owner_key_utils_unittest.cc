@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,13 +7,13 @@
 #include <string>
 #include <vector>
 
-#include "base/crypto/rsa_private_key.h"
 #include "base/file_path.h"
 #include "base/file_util.h"
-#include "base/nss_util.h"
-#include "base/nss_util_internal.h"
-#include "base/ref_counted.h"
-#include "base/scoped_temp_dir.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_temp_dir.h"
+#include "crypto/nss_util.h"
+#include "crypto/nss_util_internal.h"
+#include "crypto/rsa_private_key.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -25,7 +25,7 @@ class OwnerKeyUtilsTest : public ::testing::Test {
   virtual ~OwnerKeyUtilsTest() {}
 
   virtual void SetUp() {
-    base::OpenPersistentNSSDB();
+    crypto::OpenPersistentNSSDB();
   }
 
   // Key generation parameters.
@@ -39,9 +39,9 @@ class OwnerKeyUtilsTest : public ::testing::Test {
 const uint16 OwnerKeyUtilsTest::kKeySizeInBits = 2048;
 
 TEST_F(OwnerKeyUtilsTest, ExportImportPublicKey) {
-  scoped_ptr<base::RSAPrivateKey> pair(
-      base::RSAPrivateKey::CreateSensitive(kKeySizeInBits));
-  ASSERT_NE(pair.get(), reinterpret_cast<base::RSAPrivateKey*>(NULL));
+  scoped_ptr<crypto::RSAPrivateKey> pair(
+      crypto::RSAPrivateKey::CreateSensitive(kKeySizeInBits));
+  ASSERT_NE(pair.get(), reinterpret_cast<crypto::RSAPrivateKey*>(NULL));
 
   // Export public key to file.
   ScopedTempDir tmpdir;

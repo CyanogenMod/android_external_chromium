@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 
 #import <Cocoa/Cocoa.h>
 
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/string16.h"
 #include "chrome/browser/autocomplete/autocomplete_edit_view.h"
 #include "chrome/browser/ui/cocoa/location_bar/autocomplete_text_field.h"
@@ -83,7 +83,8 @@ class AutocompleteEditViewMac : public AutocompleteEditView,
   virtual bool OnAfterPossibleChange();
   virtual gfx::NativeView GetNativeView() const;
   virtual CommandUpdater* GetCommandUpdater();
-  virtual void SetInstantSuggestion(const string16& input);
+  virtual void SetInstantSuggestion(const string16& input,
+                                    bool animate_to_complete);
   virtual string16 GetInstantSuggestion() const;
   virtual int TextWidth() const;
   virtual bool IsImeComposing() const;

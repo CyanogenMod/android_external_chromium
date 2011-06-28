@@ -16,7 +16,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/autofill_messages.h"
 #include "chrome/common/pref_names.h"
-#include "chrome/common/render_messages_params.h"
+#include "content/common/view_messages.h"
 #include "grit/generated_resources.h"
 
 using webkit_glue::PasswordForm;
@@ -163,9 +163,9 @@ void PasswordManager::DidNavigateAnyFramePostCommit(
 bool PasswordManager::OnMessageReceived(const IPC::Message& message) {
   bool handled = true;
   IPC_BEGIN_MESSAGE_MAP(PasswordManager, message)
-    IPC_MESSAGE_HANDLER(AutoFillHostMsg_PasswordFormsFound,
+    IPC_MESSAGE_HANDLER(AutofillHostMsg_PasswordFormsFound,
                         OnPasswordFormsFound)
-    IPC_MESSAGE_HANDLER(AutoFillHostMsg_PasswordFormsVisible,
+    IPC_MESSAGE_HANDLER(AutofillHostMsg_PasswordFormsVisible,
                         OnPasswordFormsVisible)
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()

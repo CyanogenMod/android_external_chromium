@@ -7,6 +7,7 @@
 #include "base/task.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
+#include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/gtk/tabstrip_origin_provider.h"
 #include "chrome/test/testing_profile.h"
 #include "content/browser/browser_thread.h"
@@ -71,7 +72,7 @@ TEST_F(BookmarkBarGtkUnittest, HidesHelpMessageWithBookmark) {
   BookmarkModel* model = profile_->GetBookmarkModel();
 
   const BookmarkNode* parent = model->GetBookmarkBarNode();
-  model->AddURL(parent, parent->GetChildCount(),
+  model->AddURL(parent, parent->child_count(),
                 ASCIIToUTF16("title"), GURL("http://one.com"));
 
   bookmark_bar_->Loaded(model);
@@ -82,9 +83,9 @@ TEST_F(BookmarkBarGtkUnittest, BuildsButtons) {
   BookmarkModel* model = profile_->GetBookmarkModel();
 
   const BookmarkNode* parent = model->GetBookmarkBarNode();
-  model->AddURL(parent, parent->GetChildCount(),
+  model->AddURL(parent, parent->child_count(),
                 ASCIIToUTF16("title"), GURL("http://one.com"));
-  model->AddURL(parent, parent->GetChildCount(),
+  model->AddURL(parent, parent->child_count(),
                 ASCIIToUTF16("other"), GURL("http://two.com"));
 
   bookmark_bar_->Loaded(model);

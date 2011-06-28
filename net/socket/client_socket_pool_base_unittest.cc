@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,9 @@
 
 #include "base/callback.h"
 #include "base/compiler_specific.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_vector.h"
 #include "base/message_loop.h"
-#include "base/ref_counted.h"
-#include "base/scoped_vector.h"
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
 #include "base/threading/platform_thread.h"
@@ -35,6 +35,8 @@ const int kDefaultMaxSocketsPerGroup = 2;
 const net::RequestPriority kDefaultPriority = MEDIUM;
 
 class TestSocketParams : public base::RefCounted<TestSocketParams> {
+ public:
+  bool ignore_limits() { return false; }
  private:
   friend class base::RefCounted<TestSocketParams>;
   ~TestSocketParams() {}
@@ -74,6 +76,10 @@ class MockClientSocket : public ClientSocket {
     return ERR_UNEXPECTED;
   }
 
+  virtual int GetLocalAddress(IPEndPoint* /* address */) const {
+    return ERR_UNEXPECTED;
+  }
+
   virtual const BoundNetLog& NetLog() const {
     return net_log_;
   }
@@ -97,7 +103,7 @@ class MockClientSocketFactory : public ClientSocketFactory {
  public:
   MockClientSocketFactory() : allocation_count_(0) {}
 
-  virtual ClientSocket* CreateTCPClientSocket(
+  virtual ClientSocket* CreateTransportClientSocket(
       const AddressList& addresses,
       NetLog* /* net_log */,
       const NetLog::Source& /*source*/) {
@@ -186,7 +192,7 @@ class TestConnectJob : public ConnectJob {
 
   virtual int ConnectInternal() {
     AddressList ignored;
-    client_socket_factory_->CreateTCPClientSocket(
+    client_socket_factory_->CreateTransportClientSocket(
         ignored, NULL, net::NetLog::Source());
     set_socket(new MockClientSocket());
     switch (job_type_) {
@@ -524,9 +530,16 @@ class ClientSocketPoolBaseTest : public testing::Test {
  protected:
   ClientSocketPoolBaseTest()
       : params_(new TestSocketParams()),
-        histograms_("ClientSocketPoolTest") {}
+        histograms_("ClientSocketPoolTest") {
+    connect_backup_jobs_enabled_ =
+        internal::ClientSocketPoolBaseHelper::connect_backup_jobs_enabled();
+    internal::ClientSocketPoolBaseHelper::set_connect_backup_jobs_enabled(true);
+  }
 
-  virtual ~ClientSocketPoolBaseTest() {}
+  virtual ~ClientSocketPoolBaseTest() {
+    internal::ClientSocketPoolBaseHelper::set_connect_backup_jobs_enabled(
+        connect_backup_jobs_enabled_);
+  }
 
   void CreatePool(int max_sockets, int max_sockets_per_group) {
     CreatePoolWithIdleTimeouts(
@@ -575,6 +588,7 @@ class ClientSocketPoolBaseTest : public testing::Test {
   ScopedVector<TestSocketRequest>* requests() { return test_base_.requests(); }
   size_t completion_count() const { return test_base_.completion_count(); }
 
+  bool connect_backup_jobs_enabled_;
   MockClientSocketFactory client_socket_factory_;
   TestConnectJobFactory* connect_job_factory_;
   scoped_refptr<TestSocketParams> params_;
@@ -591,7 +605,7 @@ TEST_F(ClientSocketPoolBaseTest, ConnectJob_NoTimeoutOnSynchronousCompletion) {
   TestClientSocketPoolBase::Request request(
       &ignored, NULL, kDefaultPriority,
       internal::ClientSocketPoolBaseHelper::NORMAL,
-      params_, BoundNetLog());
+      false, params_, BoundNetLog());
   scoped_ptr<TestConnectJob> job(
       new TestConnectJob(TestConnectJob::kMockJob,
                          "a",
@@ -611,7 +625,7 @@ TEST_F(ClientSocketPoolBaseTest, ConnectJob_TimedOut) {
   TestClientSocketPoolBase::Request request(
       &ignored, NULL, kDefaultPriority,
       internal::ClientSocketPoolBaseHelper::NORMAL,
-      params_, BoundNetLog());
+      false, params_, BoundNetLog());
   // Deleted by TestConnectJobDelegate.
   TestConnectJob* job =
       new TestConnectJob(TestConnectJob::kMockPendingJob,

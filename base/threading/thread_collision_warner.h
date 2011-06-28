@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 
 #include <memory>
 
+#include "base/base_api.h"
 #include "base/atomicops.h"
 
 // A helper class alongside macros to be used to verify assumptions about thread
@@ -130,17 +131,17 @@ namespace base {
 // AsserterBase is the interfaces and DCheckAsserter is the default asserter
 // used. During the unit tests is used another class that doesn't "DCHECK"
 // in case of collision (check thread_collision_warner_unittests.cc)
-struct AsserterBase {
+struct BASE_API AsserterBase {
   virtual ~AsserterBase() {}
   virtual void warn() = 0;
 };
 
-struct DCheckAsserter : public AsserterBase {
+struct BASE_API DCheckAsserter : public AsserterBase {
   virtual ~DCheckAsserter() {}
   virtual void warn();
 };
 
-class ThreadCollisionWarner {
+class BASE_API ThreadCollisionWarner {
  public:
   // The parameter asserter is there only for test purpose
   ThreadCollisionWarner(AsserterBase* asserter = new DCheckAsserter())
@@ -157,7 +158,7 @@ class ThreadCollisionWarner {
   // it doesn't leave the critical section, as opposed to ScopedCheck,
   // because the critical section being pinned is allowed to be used only
   // from one thread
-  class Check {
+  class BASE_API Check {
    public:
     explicit Check(ThreadCollisionWarner* warner)
         : warner_(warner) {
@@ -174,7 +175,7 @@ class ThreadCollisionWarner {
 
   // This class is meant to be used through the macro
   // DFAKE_SCOPED_LOCK
-  class ScopedCheck {
+  class BASE_API ScopedCheck {
    public:
     explicit ScopedCheck(ThreadCollisionWarner* warner)
         : warner_(warner) {
@@ -193,7 +194,7 @@ class ThreadCollisionWarner {
 
   // This class is meant to be used through the macro
   // DFAKE_SCOPED_RECURSIVE_LOCK
-  class ScopedRecursiveCheck {
+  class BASE_API ScopedRecursiveCheck {
    public:
     explicit ScopedRecursiveCheck(ThreadCollisionWarner* warner)
         : warner_(warner) {

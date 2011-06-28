@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,12 +24,12 @@
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/prefs/scoped_user_pref_update.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/common/notification_service.h"
-#include "chrome/common/notification_source.h"
-#include "chrome/common/notification_type.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "content/browser/browser_thread.h"
+#include "content/common/notification_service.h"
+#include "content/common/notification_source.h"
+#include "content/common/notification_type.h"
 #include "net/base/dns_util.h"
 #include "net/base/static_cookie_policy.h"
 
@@ -159,11 +159,9 @@ void GeolocationContentSettingsMap::SetContentSetting(
   if (!profile_)
     return;
   PrefService* prefs = profile_->GetPrefs();
-  DictionaryValue* all_settings_dictionary = prefs->GetMutableDictionary(
-      prefs::kGeolocationContentSettings);
-  DCHECK(all_settings_dictionary);
 
-  ScopedUserPrefUpdate update(prefs, prefs::kGeolocationContentSettings);
+  DictionaryPrefUpdate update(prefs, prefs::kGeolocationContentSettings);
+  DictionaryValue* all_settings_dictionary = update.Get();
   DictionaryValue* requesting_origin_settings_dictionary = NULL;
   all_settings_dictionary->GetDictionaryWithoutPathExpansion(
       requesting_origin.spec(), &requesting_origin_settings_dictionary);

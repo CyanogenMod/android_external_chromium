@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,7 +17,7 @@
 #include "chrome/browser/history/text_database.h"
 #include "chrome/browser/history/text_database_manager.h"
 #include "chrome/browser/history/thumbnail_database.h"
-#include "chrome/common/notification_type.h"
+#include "content/common/notification_type.h"
 
 using base::Time;
 using base::TimeDelta;
@@ -153,7 +153,7 @@ struct ExpireHistoryBackend::DeleteDependencies {
   // The list of all favicon IDs that the affected URLs had. Favicons will be
   // shared between all URLs with the same favicon, so this is the set of IDs
   // that we will need to check when the delete operations are complete.
-  std::set<FavIconID> affected_favicons;
+  std::set<FaviconID> affected_favicons;
 
   // Tracks the set of databases that have changed so we can optimize when
   // when we're done.
@@ -316,14 +316,14 @@ void ExpireHistoryBackend::StartArchivingOldStuff(
 }
 
 void ExpireHistoryBackend::DeleteFaviconsIfPossible(
-    const std::set<FavIconID>& favicon_set) {
-  if (!main_db_ || !thumb_db_)
+    const std::set<FaviconID>& favicon_set) {
+  if (!thumb_db_)
     return;
 
-  for (std::set<FavIconID>::const_iterator i = favicon_set.begin();
+  for (std::set<FaviconID>::const_iterator i = favicon_set.begin();
        i != favicon_set.end(); ++i) {
-    if (!main_db_->IsFavIconUsed(*i))
-      thumb_db_->DeleteFavIcon(*i);
+    if (!thumb_db_->HasMappingFor(*i))
+      thumb_db_->DeleteFavicon(*i);
   }
 }
 
@@ -408,13 +408,20 @@ void ExpireHistoryBackend::DeleteOneURL(
     dependencies->deleted_urls.push_back(url_row);
 
     // Delete stuff that references this URL.
-    if (thumb_db_)
+    if (thumb_db_) {
       thumb_db_->DeleteThumbnail(url_row.id());
 
-    // Collect shared information.
-    if (url_row.favicon_id())
-      dependencies->affected_favicons.insert(url_row.favicon_id());
-
+      // Collect shared information.
+      std::vector<IconMapping> icon_mappings;
+      if (thumb_db_->GetIconMappingsForPageURL(url_row.url(), &icon_mappings)) {
+        for (std::vector<IconMapping>::iterator m = icon_mappings.begin();
+             m != icon_mappings.end(); ++m) {
+          dependencies->affected_favicons.insert(m->icon_id);
+        }
+        // Delete the mapping entries for the url.
+        thumb_db_->DeleteIconMappings(url_row.url());
+      }
+    }
     // Last, delete the URL entry.
     main_db_->DeleteURLRow(url_row.id());
   }
@@ -637,9 +644,9 @@ bool ExpireHistoryBackend::ArchiveSomeOldHistory(
 
   // Create a union of all affected favicons (we don't store favicons for
   // archived URLs) and delete them.
-  std::set<FavIconID> affected_favicons(
+  std::set<FaviconID> affected_favicons(
       archived_dependencies.affected_favicons);
-  for (std::set<FavIconID>::const_iterator i =
+  for (std::set<FaviconID>::const_iterator i =
            deleted_dependencies.affected_favicons.begin();
        i != deleted_dependencies.affected_favicons.end(); ++i) {
     affected_favicons.insert(*i);

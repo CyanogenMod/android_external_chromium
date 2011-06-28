@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,9 @@
 #include "base/base64.h"
 #include "base/callback.h"
 #include "base/file_path.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/message_loop.h"
 #include "base/platform_file.h"
-#include "base/scoped_ptr.h"
 #include "base/string_number_conversions.h"
 #include "base/time.h"
 #include "base/values.h"
@@ -17,8 +17,8 @@
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/history/history_types.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/common/notification_source.h"
 #include "content/browser/browser_thread.h"
+#include "content/common/notification_source.h"
 #include "grit/generated_resources.h"
 #include "net/base/escape.h"
 #include "net/base/file_stream.h"
@@ -406,7 +406,7 @@ void BookmarkFaviconFetcher::ExtractUrls(const BookmarkNode* node) {
       bookmark_urls_.push_back(url);
     }
   } else {
-    for (int i = 0; i < node->GetChildCount(); ++i) {
+    for (int i = 0; i < node->child_count(); ++i) {
       ExtractUrls(node->GetChild(i));
     }
   }
@@ -439,8 +439,9 @@ bool BookmarkFaviconFetcher::FetchNextFavicon() {
     if (favicons_map_->end() == iter) {
       FaviconService* favicon_service =
           profile_->GetFaviconService(Profile::EXPLICIT_ACCESS);
-      favicon_service->GetFaviconForURL(GURL(url), &fav_icon_consumer_,
-          NewCallback(this, &BookmarkFaviconFetcher::OnFavIconDataAvailable));
+      favicon_service->GetFaviconForURL(GURL(url), history::FAVICON,
+          &favicon_consumer_,
+          NewCallback(this, &BookmarkFaviconFetcher::OnFaviconDataAvailable));
       return true;
     } else {
       bookmark_urls_.pop_front();
@@ -449,19 +450,16 @@ bool BookmarkFaviconFetcher::FetchNextFavicon() {
   return false;
 }
 
-void BookmarkFaviconFetcher::OnFavIconDataAvailable(
+void BookmarkFaviconFetcher::OnFaviconDataAvailable(
     FaviconService::Handle handle,
-    bool know_favicon,
-    scoped_refptr<RefCountedMemory> data,
-    bool expired,
-    GURL icon_url) {
+    history::FaviconData favicon) {
   GURL url;
   if (!bookmark_urls_.empty()) {
     url = GURL(bookmark_urls_.front());
     bookmark_urls_.pop_front();
   }
-  if (know_favicon && data.get() && data->size() && !url.is_empty()) {
-    favicons_map_->insert(make_pair(url.spec(), data));
+  if (favicon.is_valid() && !url.is_empty()) {
+    favicons_map_->insert(make_pair(url.spec(), favicon.image_data));
   }
 
   if (FetchNextFavicon()) {

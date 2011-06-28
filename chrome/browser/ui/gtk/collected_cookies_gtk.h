@@ -10,7 +10,7 @@
 
 #include <gtk/gtk.h>
 
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/ui/gtk/constrained_window_gtk.h"
 #include "chrome/browser/ui/gtk/gtk_tree.h"
 #include "chrome/common/content_settings.h"
@@ -58,6 +58,16 @@ class CollectedCookiesGtk : public ConstrainedDialogDelegate,
                        const NotificationSource& source,
                        const NotificationDetails& details);
 
+  // Create the information panes for the allowed and blocked cookies.
+  GtkWidget* CreateAllowedPane();
+  GtkWidget* CreateBlockedPane();
+
+  // Show information about selected cookie in the cookie info view.
+  void ShowCookieInfo(gint current_page);
+  void ShowSelectionInfo(GtkTreeSelection* selection,
+                         gtk_tree::TreeAdapter* adapter);
+
+
   // Callbacks.
   CHROMEGTK_CALLBACK_2(CollectedCookiesGtk, void, OnTreeViewRowExpanded,
                        GtkTreeIter*, GtkTreePath*);
@@ -67,6 +77,8 @@ class CollectedCookiesGtk : public ConstrainedDialogDelegate,
   CHROMEGTK_CALLBACK_0(CollectedCookiesGtk, void, OnAllowBlockedButtonClicked);
   CHROMEGTK_CALLBACK_0(CollectedCookiesGtk, void,
                        OnForSessionBlockedButtonClicked);
+  CHROMEGTK_CALLBACK_2(CollectedCookiesGtk, void, OnSwitchPage,
+                       gpointer, guint);
 
   NotificationRegistrar registrar_;
 
@@ -85,6 +97,7 @@ class CollectedCookiesGtk : public ConstrainedDialogDelegate,
   GtkWidget* close_button_;
 
   // The table listing the cookies.
+  GtkWidget* notebook_;
   GtkWidget* allowed_tree_;
   GtkWidget* blocked_tree_;
 
@@ -95,8 +108,13 @@ class CollectedCookiesGtk : public ConstrainedDialogDelegate,
   GtkWidget* infobar_;
   GtkWidget* infobar_label_;
 
+  // Displays information about selected cookie.
+  GtkWidget* cookie_info_view_;
+
   // The tab contents.
   TabContents* tab_contents_;
+
+  bool status_changed_;
 
   // The Cookies Table model.
   scoped_ptr<CookiesTreeModel> allowed_cookies_tree_model_;

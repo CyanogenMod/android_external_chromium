@@ -6,7 +6,9 @@
 
 #include "base/message_loop.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/importer/importer.h"
+#include "chrome/browser/importer/importer_host.h"
+#include "chrome/browser/importer/importer_lock_dialog.h"
+#include "chrome/browser/metrics/user_metrics.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
@@ -19,14 +21,15 @@
 static const int kDefaultWindowWidth = 320;
 static const int kDefaultWindowHeight = 100;
 
-namespace browser {
+namespace importer {
 
 void ShowImportLockDialog(gfx::NativeWindow parent,
                           ImporterHost* importer_host) {
   ImportLockDialogView::Show(parent, importer_host);
+  UserMetrics::RecordAction(UserMetricsAction("ImportLockDialogView_Shown"));
 }
 
-}  // namespace browser
+}  // namespace importer
 
 // static
 void ImportLockDialogView::Show(gfx::NativeWindow parent,
@@ -83,13 +86,13 @@ std::wstring ImportLockDialogView::GetWindowTitle() const {
 
 bool ImportLockDialogView::Accept() {
   MessageLoop::current()->PostTask(FROM_HERE, NewRunnableMethod(
-      importer_host_.get(), &ImporterHost::OnLockViewEnd, true));
+      importer_host_.get(), &ImporterHost::OnImportLockDialogEnd, true));
   return true;
 }
 
 bool ImportLockDialogView::Cancel() {
   MessageLoop::current()->PostTask(FROM_HERE, NewRunnableMethod(
-      importer_host_.get(), &ImporterHost::OnLockViewEnd, false));
+      importer_host_.get(), &ImporterHost::OnImportLockDialogEnd, false));
   return true;
 }
 

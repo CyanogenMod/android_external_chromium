@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,18 +8,20 @@
 #include <utility>
 
 #include "base/logging.h"
-#include "chrome/browser/browser_list.h"
-#include "chrome/browser/browser_window.h"
+#include "chrome/browser/extensions/extension_tab_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/syncable/syncable.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/common/extensions/extension.h"
-#include "chrome/common/notification_details.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/url_constants.h"
 #include "content/browser/tab_contents/navigation_controller.h"
 #include "content/browser/tab_contents/navigation_entry.h"
+#include "content/common/notification_details.h"
+#include "content/common/notification_service.h"
 
 namespace browser_sync {
 
@@ -35,7 +37,8 @@ static const int max_sync_navigation_count = 6;
 SessionModelAssociator::SessionModelAssociator(ProfileSyncService* sync_service)
     : tab_pool_(sync_service),
       local_session_syncid_(sync_api::kInvalidId),
-      sync_service_(sync_service) {
+      sync_service_(sync_service),
+      setup_for_test_(false) {
   DCHECK(CalledOnValidThread());
   DCHECK(sync_service_);
 }
@@ -125,7 +128,7 @@ void SessionModelAssociator::ReassociateWindows(bool reload_tabs) {
       VLOG(1) << "Reassociating window " << window_id << " with " <<
           (*i)->tab_count() << " tabs.";
       window_s.set_window_id(window_id);
-      window_s.set_selected_tab_index((*i)->selected_index());
+      window_s.set_selected_tab_index((*i)->active_index());
       if ((*i)->type() ==
           Browser::TYPE_NORMAL) {
         window_s.set_browser_type(
@@ -267,8 +270,13 @@ bool SessionModelAssociator::WriteTabContentsToSyncModel(
   int index_in_window = browser.tabstrip_model()->GetWrapperIndex(&tab);
   DCHECK(index_in_window != TabStripModel::kNoTab);
   tab_s->set_pinned(browser.tabstrip_model()->IsTabPinned(index_in_window));
-  if (tab.extension_app())
-    tab_s->set_extension_app_id(tab.extension_app()->id());
+  TabContentsWrapper* wrapper =
+      TabContentsWrapper::GetCurrentWrapperForContents(
+          const_cast<TabContents*>(&tab));
+  if (wrapper->extension_tab_helper()->extension_app()) {
+    tab_s->set_extension_app_id(
+        wrapper->extension_tab_helper()->extension_app()->id());
+  }
   for (int i = min_index; i < max_index; ++i) {
     const NavigationEntry* entry = (i == pending_index) ?
        tab.controller().pending_entry() : tab.controller().GetEntryAtIndex(i);
@@ -562,7 +570,7 @@ void SessionModelAssociator::DisassociateForeignSession(
 
 // Static
 void SessionModelAssociator::PopulateSessionWindowFromSpecifics(
-    std::string foreign_session_tag,
+    const std::string& foreign_session_tag,
     const sync_pb::SessionWindow& specifics,
     int64 mtime,
     SessionWindow* session_window,
@@ -982,6 +990,15 @@ void SessionModelAssociator::PopulateSessionSpecificsTab(
         session_tab->add_navigation();
     PopulateSessionSpecificsNavigation(&navigation, tab_navigation);
   }
+}
+
+bool SessionModelAssociator::CryptoReadyIfNecessary() {
+  // We only access the cryptographer while holding a transaction.
+  sync_api::ReadTransaction trans(sync_service_->GetUserShare());
+  syncable::ModelTypeSet encrypted_types;
+  sync_service_->GetEncryptedDataTypes(&encrypted_types);
+  return encrypted_types.count(syncable::SESSIONS) == 0 ||
+         sync_service_->IsCryptographerReady(&trans);
 }
 
 }  // namespace browser_sync

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,12 +13,12 @@
 
 #include "base/basictypes.h"
 #include "base/gtest_prod_util.h"
-#include "base/scoped_ptr.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/string16.h"
 #include "chrome/browser/extensions/extension_icon_manager.h"
 #include "chrome/common/extensions/extension_extent.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
 
 struct ContextMenuParams;
 
@@ -36,7 +36,7 @@ class ExtensionMenuItem {
   // An Id uniquely identifies a context menu item registered by an extension.
   struct Id {
     Id();
-    Id(Profile* profile, std::string extension_id, int uid);
+    Id(Profile* profile, const std::string& extension_id, int uid);
     ~Id();
 
     bool operator==(const Id& other) const;
@@ -58,6 +58,7 @@ class ExtensionMenuItem {
     IMAGE = 32,
     VIDEO = 64,
     AUDIO = 128,
+    FRAME = 256,
   };
 
   // An item can be only one of these types.
@@ -99,7 +100,10 @@ class ExtensionMenuItem {
     uint32 value_;  // A bitmask of Context values.
   };
 
-  ExtensionMenuItem(const Id& id, std::string title, bool checked, Type type,
+  ExtensionMenuItem(const Id& id,
+                    const std::string& title,
+                    bool checked,
+                    Type type,
                     const ContextList& contexts);
   virtual ~ExtensionMenuItem();
 
@@ -121,7 +125,7 @@ class ExtensionMenuItem {
   }
 
   // Simple mutator methods.
-  void set_title(std::string new_title) { title_ = new_title; }
+  void set_title(const std::string& new_title) { title_ = new_title; }
   void set_contexts(ContextList contexts) { contexts_ = contexts; }
   void set_type(Type type) { type_ = type; }
   void set_document_url_patterns(const ExtensionExtent& patterns) {
@@ -230,7 +234,7 @@ class ExtensionMenuManager : public NotificationObserver {
   bool RemoveContextMenuItem(const ExtensionMenuItem::Id& id);
 
   // Removes all items for the given extension id.
-  void RemoveAllContextItems(std::string extension_id);
+  void RemoveAllContextItems(const std::string& extension_id);
 
   // Returns the item with the given |id| or NULL.
   ExtensionMenuItem* GetItemById(const ExtensionMenuItem::Id& id) const;
@@ -240,7 +244,7 @@ class ExtensionMenuManager : public NotificationObserver {
                       const ContextMenuParams& params,
                       const ExtensionMenuItem::Id& menuItemId);
 
-  // This returns a bitmap of width/height kFavIconSize, loaded either from an
+  // This returns a bitmap of width/height kFaviconSize, loaded either from an
   // entry specified in the extension's 'icon' section of the manifest, or a
   // default extension icon.
   const SkBitmap& GetIconForExtension(const std::string& extension_id);

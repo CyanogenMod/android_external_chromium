@@ -13,7 +13,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/gtk/bookmarks/bookmark_utils_gtk.h"
 #include "chrome/browser/ui/gtk/gtk_chrome_button.h"
-#include "chrome/browser/ui/gtk/gtk_theme_provider.h"
+#include "chrome/browser/ui/gtk/gtk_theme_service.h"
 #include "chrome/browser/ui/gtk/gtk_util.h"
 #include "chrome/browser/ui/gtk/menu_gtk.h"
 #include "content/browser/tab_contents/page_navigator.h"
@@ -113,7 +113,7 @@ void BookmarkMenuController::BookmarkModelChanged() {
   gtk_menu_popdown(GTK_MENU(menu_));
 }
 
-void BookmarkMenuController::BookmarkNodeFavIconLoaded(
+void BookmarkMenuController::BookmarkNodeFaviconLoaded(
     BookmarkModel* model, const BookmarkNode* node) {
   std::map<const BookmarkNode*, GtkWidget*>::iterator it =
       node_to_menu_widget_map_.find(node);
@@ -142,15 +142,15 @@ void BookmarkMenuController::NavigateToMenuItem(
 void BookmarkMenuController::BuildMenu(const BookmarkNode* parent,
                                        int start_child_index,
                                        GtkWidget* menu) {
-  DCHECK(!parent->GetChildCount() ||
-         start_child_index < parent->GetChildCount());
+  DCHECK(!parent->child_count() ||
+         start_child_index < parent->child_count());
 
   signals_.Connect(menu, "button-press-event",
                    G_CALLBACK(OnMenuButtonPressedOrReleasedThunk), this);
   signals_.Connect(menu, "button-release-event",
                    G_CALLBACK(OnMenuButtonPressedOrReleasedThunk), this);
 
-  for (int i = start_child_index; i < parent->GetChildCount(); ++i) {
+  for (int i = start_child_index; i < parent->child_count(); ++i) {
     const BookmarkNode* node = parent->GetChild(i);
 
     // This breaks on word boundaries. Ideally we would break on character
@@ -201,7 +201,7 @@ void BookmarkMenuController::BuildMenu(const BookmarkNode* parent,
     node_to_menu_widget_map_[node] = menu_item;
   }
 
-  if (parent->GetChildCount() == 0) {
+  if (parent->child_count() == 0) {
     GtkWidget* empty_menu = gtk_menu_item_new_with_label(
         l10n_util::GetStringUTF8(IDS_MENU_EMPTY_SUBMENU).c_str());
     gtk_widget_set_sensitive(empty_menu, FALSE);
@@ -255,7 +255,7 @@ gboolean BookmarkMenuController::OnMenuButtonPressedOrReleased(
   } else if (event->button == 3) {
     DCHECK_NE(is_empty_menu, !!node);
     if (!is_empty_menu)
-      parent = node->GetParent();
+      parent = node->parent();
 
     // Show the right click menu and stop processing this button event.
     std::vector<const BookmarkNode*> nodes;
@@ -348,7 +348,7 @@ void BookmarkMenuController::OnMenuItemDragBegin(GtkWidget* menu_item,
 
   const BookmarkNode* node = bookmark_utils::BookmarkNodeForWidget(menu_item);
   drag_icon_ = bookmark_utils::GetDragRepresentationForNode(
-      node, model_, GtkThemeProvider::GetFrom(profile_));
+      node, model_, GtkThemeService::GetFrom(profile_));
   gint x, y;
   gtk_widget_get_pointer(menu_item, &x, &y);
   gtk_drag_set_icon_widget(drag_context, drag_icon_, x, y);
