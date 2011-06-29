@@ -298,11 +298,7 @@ void URLRequestHttpJob::AddExtraHeaders() {
     // didn't have them specified.
     request_info_.extra_headers.SetHeaderIfMissing(
         HttpRequestHeaders::kAcceptLanguage,
-#ifdef ANDROID
-        context->GetAcceptLanguage());
-#else
         context->accept_language());
-#endif
     request_info_.extra_headers.SetHeaderIfMissing(
         HttpRequestHeaders::kAcceptCharset,
         context->accept_charset());

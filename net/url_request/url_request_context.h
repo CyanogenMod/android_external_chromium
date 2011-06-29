@@ -139,13 +139,11 @@ class URLRequestContext
   // Gets the value of 'Accept-Charset' header field.
   const std::string& accept_charset() const { return accept_charset_; }
 
+  // Gets the value of 'Accept-Language' header field.
 #ifdef ANDROID
-  // Gets the value of 'Accept-Language' header field.
-  virtual const std::string& GetAcceptLanguage() const { return accept_language_; }
-#else
-  // Gets the value of 'Accept-Language' header field.
-  const std::string& accept_language() const { return accept_language_; }
+  virtual
 #endif
+  const std::string& accept_language() const { return accept_language_; }
 
   // Gets the UA string to use for the given URL.  Pass an invalid URL (such as
   // GURL()) to get the default UA string.  Subclasses should override this
