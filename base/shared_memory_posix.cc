@@ -296,12 +296,9 @@ bool SharedMemory::FilePathForMemoryName(const std::string& mem_name,
 }
 
 void SharedMemory::LockOrUnlockCommon(int function) {
-<<<<<<< HEAD
-  DCHECK(mapped_file_ >= 0);
-#if !defined(ANDROID)
-=======
+
   DCHECK_GE(mapped_file_, 0);
->>>>>>> chromium.org at r12.0.742.93
+#if !defined(ANDROID)
   while (lockf(mapped_file_, function, 0) < 0) {
     if (errno == EINTR) {
       continue;

@@ -169,16 +169,11 @@ StackTrace::StackTrace() {
   count_ = std::max(backtrace(trace_, arraysize(trace_)), 0);
 }
 
-<<<<<<< HEAD
-void StackTrace::PrintBacktrace() {
+void StackTrace::PrintBacktrace() const {
 #if (defined(OS_MACOSX) && MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_5) || defined(ANDROID)
 #if defined(ANDROID)
   return;
 #else
-=======
-void StackTrace::PrintBacktrace() const {
-#if defined(OS_MACOSX) && MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_5
->>>>>>> chromium.org at r12.0.742.93
   if (backtrace_symbols_fd == NULL)
     return;
 #endif // ANDROID
@@ -191,16 +186,11 @@ void StackTrace::PrintBacktrace() const {
   }
 }
 
-<<<<<<< HEAD
-void StackTrace::OutputToStream(std::ostream* os) {
+void StackTrace::OutputToStream(std::ostream* os) const {
 #if (defined(OS_MACOSX) && MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_5) || defined(ANDROID)
 #if defined(ANDROID)
   return;
 #else
-=======
-void StackTrace::OutputToStream(std::ostream* os) const {
-#if defined(OS_MACOSX) && MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_5
->>>>>>> chromium.org at r12.0.742.93
   if (backtrace_symbols == NULL)
     return;
 #endif // ANDROID
