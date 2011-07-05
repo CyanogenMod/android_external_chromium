@@ -565,7 +565,7 @@ void URLFetcher::set_request_context(
 }
 
 #ifdef ANDROID
-URLRequestContextGetter* URLFetcher::request_context() {
+net::URLRequestContextGetter* URLFetcher::request_context() {
     return core_->request_context_getter_;
 }
 #endif

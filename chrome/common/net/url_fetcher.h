@@ -171,7 +171,7 @@ class URLFetcher {
       net::URLRequestContextGetter* request_context_getter);
 
 #ifdef ANDROID
-  URLRequestContextGetter* request_context();
+  net::URLRequestContextGetter* request_context();
 #endif
 
   // If |retry| is false, 5xx responses will be propagated to the observer,

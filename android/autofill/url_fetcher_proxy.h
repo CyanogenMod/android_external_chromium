@@ -98,7 +98,7 @@ public:
 
   virtual void Start()
   {
-    scoped_refptr<URLRequestContextGetter> con = request_context();
+    scoped_refptr<net::URLRequestContextGetter> con = request_context();
     CHECK(con.get()) << "No URLRequestContextGetter!";
     scoped_refptr<base::MessageLoopProxy> mlp = con->GetIOMessageLoopProxy();
     // TODO: See the template specialisation at the top of the file. Can we use

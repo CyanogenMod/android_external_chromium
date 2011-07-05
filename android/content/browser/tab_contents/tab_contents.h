@@ -28,7 +28,7 @@ public:
   }
 
   Profile* profile() { return profile_.get(); }
-  void SetProfileRequestContext(URLRequestContextGetter* context) { static_cast<ProfileImplAndroid*>(profile_.get())->SetRequestContext(context); }
+  void SetProfileRequestContext(net::URLRequestContextGetter* context) { static_cast<ProfileImplAndroid*>(profile_.get())->SetRequestContext(context); }
   AutoFillHost* autofill_host() { return autofill_host_; }
   void SetAutoFillHost(AutoFillHost* autofill_host) { autofill_host_ = autofill_host; }
 
