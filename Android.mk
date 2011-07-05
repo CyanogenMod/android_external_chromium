@@ -61,7 +61,6 @@ LOCAL_SRC_FILES := \
     base/message_pump_libevent.cc \
     base/md5.cc \
     base/native_library_linux.cc \
-    base/openssl_util.cc \
     base/pickle.cc \
     base/platform_file.cc \
     base/platform_file_posix.cc \
@@ -70,10 +69,8 @@ LOCAL_SRC_FILES := \
     base/process_util_posix.cc \
     base/rand_util.cc \
     base/rand_util_posix.cc \
-    base/ref_counted.cc \
     base/safe_strerror_posix.cc \
     base/sha1_portable.cc \
-    base/sha2_openssl.cc \
     base/shared_memory_posix.cc \
     base/string_number_conversions.cc \
     base/string_piece.cc \
@@ -95,7 +92,6 @@ LOCAL_SRC_FILES := \
     base/utf_string_conversion_utils.cc \
     base/values.cc \
     base/vlog.cc \
-    base/weak_ptr.cc \
     \
     base/debug/debugger_posix.cc \
     base/debug/stack_trace.cc \
@@ -108,6 +104,9 @@ LOCAL_SRC_FILES := \
     base/json/json_reader.cc \
     base/json/json_writer.cc \
     base/json/string_escape.cc \
+    \
+    base/memory/ref_counted.cc \
+    base/memory/weak_ptr.cc \
     \
     base/metrics/field_trial.cc \
     base/metrics/histogram.cc \
@@ -133,14 +132,23 @@ LOCAL_SRC_FILES := \
     \
     chrome/browser/net/sqlite_persistent_cookie_store.cc \
     \
+    crypto/openssl_util.cc \
+    crypto/secure_hash_default.cc \
+    crypto/sha2.cc \
+    \
+    crypto/third_party/nss/sha512.cc \
+    \
     net/base/address_list.cc \
     net/base/address_list_net_log_param.cc \
     net/base/android_network_library.cc \
     net/base/auth.cc \
+    net/base/backoff_entry.cc \
     net/base/bandwidth_metrics.cc \
     net/base/capturing_net_log.cc \
+    net/base/cert_database.cc \
     net/base/cert_status_flags.cc \
     net/base/cert_verifier.cc \
+    net/base/cert_verify_result.cc \
     net/base/connection_type_histograms.cc \
     net/base/cookie_monster.cc \
     net/base/cookie_store.cc \
@@ -160,8 +168,10 @@ LOCAL_SRC_FILES := \
     net/base/host_resolver_impl.cc \
     net/base/host_resolver_proc.cc \
     net/base/io_buffer.cc \
+    net/base/ip_endpoint.cc \
     net/base/mime_util.cc \
     net/base/net_errors.cc \
+    net/base/net_errors_posix.cc \
     net/base/net_log.cc \
     net/base/net_module.cc \
     net/base/net_util.cc \
@@ -208,6 +218,7 @@ LOCAL_SRC_FILES := \
     net/disk_cache/mem_backend_impl.cc \
     net/disk_cache/mem_entry_impl.cc \
     net/disk_cache/mem_rankings.cc \
+    net/disk_cache/net_log_parameters.cc \
     net/disk_cache/rankings.cc \
     net/disk_cache/stats.cc \
     net/disk_cache/stats_histogram.cc \
@@ -290,7 +301,7 @@ LOCAL_SRC_FILES := \
     net/socket/ssl_host_info.cc \
     net/socket/tcp_client_socket.cc \
     net/socket/tcp_client_socket_libevent.cc \
-    net/socket/tcp_client_socket_pool.cc \
+    net/socket/transport_client_socket_pool.cc \
     \
     net/spdy/spdy_framer.cc \
     net/spdy/spdy_frame_builder.cc \
@@ -306,13 +317,13 @@ LOCAL_SRC_FILES := \
     net/url_request/https_prober.cc \
     net/url_request/url_request.cc \
     net/url_request/url_request_context.cc \
+    net/url_request/url_request_context_getter.cc \
     net/url_request/url_request_file_job.cc \
     net/url_request/url_request_file_dir_job.cc \
     net/url_request/url_request_http_job.cc \
     net/url_request/url_request_error_job.cc \
     net/url_request/url_request_job.cc \
     net/url_request/url_request_job_manager.cc \
-    net/url_request/url_request_job_metrics.cc \
     net/url_request/url_request_job_tracker.cc \
     net/url_request/url_request_netlog_params.cc \
     net/url_request/url_request_redirect_job.cc \
@@ -369,12 +380,10 @@ LOCAL_SRC_FILES += \
     \
     chrome/common/guid.cc \
     chrome/common/guid_posix.cc \
-    chrome/common/json_value_serializer.cc \
     chrome/common/url_constants.cc \
     \
     chrome/common/net/url_fetcher.cc \
     chrome/common/net/url_fetcher_protect.cc \
-    chrome/common/net/url_request_context_getter.cc \
     \
     third_party/libjingle/overrides/talk/xmllite/qname.cc \
     third_party/libjingle/source/talk/xmllite/xmlbuilder.cc \
