@@ -1359,17 +1359,12 @@ void SpdySession::SendWindowUpdate(spdy::SpdyStreamId stream_id,
 // field trial policy.
 uint32 ApplyCwndFieldTrialPolicy(int cwnd) {
   base::FieldTrial* trial = base::FieldTrialList::Find("SpdyCwnd");
-<<<<<<< HEAD
   if (!trial) {
       LOG(WARNING) << "Could not find \"SpdyCwnd\" in FieldTrialList";
       return cwnd;
   }
-  if (trial->group_name() == "cwnd32")
-    return 32;
-=======
   if (trial->group_name() == "cwnd10")
     return 10;
->>>>>>> chromium.org at r12.0.742.93
   else if (trial->group_name() == "cwnd16")
     return 16;
   else if (trial->group_name() == "cwndMin16")
