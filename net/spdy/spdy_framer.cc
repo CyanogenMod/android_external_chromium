@@ -10,11 +10,7 @@
 
 #include "base/memory/scoped_ptr.h"
 #include "base/metrics/stats_counters.h"
-<<<<<<< HEAD
-#include "base/scoped_ptr.h"
 #ifndef ANDROID
-=======
->>>>>>> chromium.org at r12.0.742.93
 #include "base/third_party/valgrind/memcheck.h"
 #endif
 #include "net/spdy/spdy_frame_builder.h"
