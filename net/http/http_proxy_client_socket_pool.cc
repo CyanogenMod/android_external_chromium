@@ -46,23 +46,12 @@ HttpProxySocketParams::HttpProxySocketParams(
       http_auth_cache_(tunnel ? http_auth_cache : NULL),
       http_auth_handler_factory_(tunnel ? http_auth_handler_factory : NULL),
       tunnel_(tunnel) {
-<<<<<<< HEAD
-  DCHECK((tcp_params == NULL && ssl_params != NULL) ||
-         (tcp_params != NULL && ssl_params == NULL));
-#ifdef ANDROID
-  if (tcp_params_)
-    ignore_limits_ = tcp_params->ignore_limits();
-  else
-    ignore_limits_ = ssl_params->ignore_limits();
-#endif
-=======
   DCHECK((transport_params == NULL && ssl_params != NULL) ||
          (transport_params != NULL && ssl_params == NULL));
   if (transport_params_)
     ignore_limits_ = transport_params->ignore_limits();
   else
     ignore_limits_ = ssl_params->ignore_limits();
->>>>>>> chromium.org at r12.0.742.93
 }
 
 const HostResolver::RequestInfo& HttpProxySocketParams::destination() const {

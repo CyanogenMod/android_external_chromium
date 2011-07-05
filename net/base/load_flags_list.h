@@ -106,13 +106,6 @@ LOAD_FLAG(PREFETCH, 1 << 23)
 // prerendering.
 LOAD_FLAG(PRERENDER, 1 << 24)
 
-<<<<<<< HEAD
-#ifdef ANDROID
-// Indicates that this is a load that ignores limits and should complete
-// immediately
-LOAD_FLAG(IGNORE_LIMITS, 1 << 25)
-#endif
-=======
 // Indicates that this is a load that ignores limits and should complete
 // immediately.
 LOAD_FLAG(IGNORE_LIMITS, 1 << 25)
@@ -120,4 +113,3 @@ LOAD_FLAG(IGNORE_LIMITS, 1 << 25)
 // Suppress login prompts for this request. Cached credentials or
 // default credentials may still be used for authentication.
 LOAD_FLAG(DO_NOT_PROMPT_FOR_LOGIN, 1 << 26)
->>>>>>> chromium.org at r12.0.742.93

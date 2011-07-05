@@ -219,7 +219,11 @@ int TransportConnectJob::DoTransportConnect() {
   transport_socket_.reset(client_socket_factory_->CreateTransportClientSocket(
         addresses_, net_log().net_log(), net_log().source()));
   connect_start_time_ = base::TimeTicks::Now();
-  int rv = transport_socket_->Connect(&callback_);
+  int rv = transport_socket_->Connect(&callback_
+#ifdef ANDROID
+                                      , params_->ignore_limits()
+#endif
+                                      );
   if (rv == ERR_IO_PENDING &&
       AddressListStartsWithIPv6AndHasAnIPv4Addr(addresses_)) {
     fallback_timer_.Start(
@@ -299,7 +303,11 @@ void TransportConnectJob::DoIPv6FallbackTransportConnect() {
       client_socket_factory_->CreateTransportClientSocket(
           *fallback_addresses_, net_log().net_log(), net_log().source()));
   fallback_connect_start_time_ = base::TimeTicks::Now();
-  int rv = fallback_transport_socket_->Connect(&fallback_callback_);
+  int rv = fallback_transport_socket_->Connect(&fallback_callback_
+#ifdef ANDROID
+                                               , params_->ignore_limits()
+#endif
+                                              );
   if (rv != ERR_IO_PENDING)
     DoIPv6FallbackTransportConnectComplete(rv);
 }

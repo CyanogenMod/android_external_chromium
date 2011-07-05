@@ -45,39 +45,21 @@ SSLSocketParams::SSLSocketParams(
       DCHECK(transport_params_.get() != NULL);
       DCHECK(http_proxy_params_.get() == NULL);
       DCHECK(socks_params_.get() == NULL);
-<<<<<<< HEAD
-#ifdef ANDROID
-      ignore_limits_ = tcp_params_->ignore_limits();
-#endif
-=======
       ignore_limits_ = transport_params_->ignore_limits();
->>>>>>> chromium.org at r12.0.742.93
       break;
     case ProxyServer::SCHEME_HTTP:
     case ProxyServer::SCHEME_HTTPS:
       DCHECK(transport_params_.get() == NULL);
       DCHECK(http_proxy_params_.get() != NULL);
       DCHECK(socks_params_.get() == NULL);
-<<<<<<< HEAD
-#ifdef ANDROID
       ignore_limits_ = http_proxy_params_->ignore_limits();
-#endif
-=======
-      ignore_limits_ = http_proxy_params_->ignore_limits();
->>>>>>> chromium.org at r12.0.742.93
       break;
     case ProxyServer::SCHEME_SOCKS4:
     case ProxyServer::SCHEME_SOCKS5:
       DCHECK(transport_params_.get() == NULL);
       DCHECK(http_proxy_params_.get() == NULL);
       DCHECK(socks_params_.get() != NULL);
-<<<<<<< HEAD
-#ifdef ANDROID
       ignore_limits_ = socks_params_->ignore_limits();
-#endif
-=======
-      ignore_limits_ = socks_params_->ignore_limits();
->>>>>>> chromium.org at r12.0.742.93
       break;
     default:
       LOG(DFATAL) << "unknown proxy type";

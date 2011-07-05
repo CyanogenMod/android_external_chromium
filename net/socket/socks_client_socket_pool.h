@@ -36,13 +36,7 @@ class SOCKSSocketParams : public base::RefCounted<SOCKSSocketParams> {
   }
   const HostResolver::RequestInfo& destination() const { return destination_; }
   bool is_socks_v5() const { return socks_v5_; }
-<<<<<<< HEAD
-#ifdef ANDROID
   bool ignore_limits() const { return ignore_limits_; }
-#endif
-=======
-  bool ignore_limits() const { return ignore_limits_; }
->>>>>>> chromium.org at r12.0.742.93
 
  private:
   friend class base::RefCounted<SOCKSSocketParams>;
@@ -53,13 +47,7 @@ class SOCKSSocketParams : public base::RefCounted<SOCKSSocketParams> {
   // This is the HTTP destination.
   HostResolver::RequestInfo destination_;
   const bool socks_v5_;
-<<<<<<< HEAD
-#ifdef ANDROID
   bool ignore_limits_;
-#endif
-=======
-  bool ignore_limits_;
->>>>>>> chromium.org at r12.0.742.93
 
   DISALLOW_COPY_AND_ASSIGN(SOCKSSocketParams);
 };

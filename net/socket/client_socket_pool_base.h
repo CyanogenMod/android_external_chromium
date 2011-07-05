@@ -171,13 +171,7 @@ class ClientSocketPoolBaseHelper
     Request(ClientSocketHandle* handle,
             CompletionCallback* callback,
             RequestPriority priority,
-<<<<<<< HEAD
-#ifdef ANDROID
             bool ignore_limits,
-#endif
-=======
-            bool ignore_limits,
->>>>>>> chromium.org at r12.0.742.93
             Flags flags,
             const BoundNetLog& net_log);
 
@@ -186,13 +180,7 @@ class ClientSocketPoolBaseHelper
     ClientSocketHandle* handle() const { return handle_; }
     CompletionCallback* callback() const { return callback_; }
     RequestPriority priority() const { return priority_; }
-<<<<<<< HEAD
-#ifdef ANDROID
     bool ignore_limits() const { return ignore_limits_; }
-#endif
-=======
-    bool ignore_limits() const { return ignore_limits_; }
->>>>>>> chromium.org at r12.0.742.93
     Flags flags() const { return flags_; }
     const BoundNetLog& net_log() const { return net_log_; }
 
@@ -200,13 +188,7 @@ class ClientSocketPoolBaseHelper
     ClientSocketHandle* const handle_;
     CompletionCallback* const callback_;
     const RequestPriority priority_;
-<<<<<<< HEAD
-#ifdef ANDROID
     bool ignore_limits_;
-#endif
-=======
-    bool ignore_limits_;
->>>>>>> chromium.org at r12.0.742.93
     const Flags flags_;
     BoundNetLog net_log_;
 
@@ -583,9 +565,6 @@ class ClientSocketPoolBase {
     Request(ClientSocketHandle* handle,
             CompletionCallback* callback,
             RequestPriority priority,
-#ifdef ANDROID
-            bool ignore_limits,
-#endif
             internal::ClientSocketPoolBaseHelper::Flags flags,
             bool ignore_limits,
             const scoped_refptr<SocketParams>& params,
@@ -646,14 +625,8 @@ class ClientSocketPoolBase {
                     ClientSocketHandle* handle,
                     CompletionCallback* callback,
                     const BoundNetLog& net_log) {
-#ifdef ANDROID
-    bool ignore_limits = params->ignore_limits();
-#endif
     Request* request =
         new Request(handle, callback, priority,
-#ifdef ANDROID
-                    ignore_limits,
-#endif
                     internal::ClientSocketPoolBaseHelper::NORMAL,
                     params->ignore_limits(),
                     params, net_log);
@@ -667,15 +640,9 @@ class ClientSocketPoolBase {
                       const scoped_refptr<SocketParams>& params,
                       int num_sockets,
                       const BoundNetLog& net_log) {
-#ifdef ANDROID
-    bool ignore_limits = params->ignore_limits();
-#endif
     const Request request(NULL /* no handle */,
                           NULL /* no callback */,
                           LOWEST,
-#ifdef ANDROID
-                          ignore_limits,
-#endif
                           internal::ClientSocketPoolBaseHelper::NO_IDLE_SOCKETS,
                           params->ignore_limits(),
                           params,

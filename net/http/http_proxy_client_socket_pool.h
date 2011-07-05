@@ -67,13 +67,7 @@ class HttpProxySocketParams : public base::RefCounted<HttpProxySocketParams> {
   }
   const HostResolver::RequestInfo& destination() const;
   bool tunnel() const { return tunnel_; }
-<<<<<<< HEAD
-#ifdef ANDROID
   bool ignore_limits() const { return ignore_limits_; }
-#endif
-=======
-  bool ignore_limits() const { return ignore_limits_; }
->>>>>>> chromium.org at r12.0.742.93
 
  private:
   friend class base::RefCounted<HttpProxySocketParams>;
@@ -88,13 +82,7 @@ class HttpProxySocketParams : public base::RefCounted<HttpProxySocketParams> {
   HttpAuthCache* const http_auth_cache_;
   HttpAuthHandlerFactory* const http_auth_handler_factory_;
   const bool tunnel_;
-<<<<<<< HEAD
-#ifdef ANDROID
   bool ignore_limits_;
-#endif
-=======
-  bool ignore_limits_;
->>>>>>> chromium.org at r12.0.742.93
 
   DISALLOW_COPY_AND_ASSIGN(HttpProxySocketParams);
 };
