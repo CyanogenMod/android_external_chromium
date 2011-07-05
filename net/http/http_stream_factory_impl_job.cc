@@ -529,130 +529,6 @@ int HttpStreamFactoryImpl::Job::DoInitConnection() {
   using_ssl_ = request_info_.url.SchemeIs("https") || ShouldForceSpdySSL();
   using_spdy_ = false;
 
-<<<<<<< HEAD
-  // If spdy has been turned off on-the-fly, then there may be SpdySessions
-  // still active.  But don't use them unless spdy is currently on.
-  if (HttpStreamFactory::spdy_enabled() && !HasSpdyExclusion(endpoint_)) {
-    // Check first if we have a spdy session for this group.  If so, then go
-    // straight to using that.
-    HostPortProxyPair spdy_session_key;
-    if (IsHttpsProxyAndHttpUrl()) {
-      spdy_session_key =
-          HostPortProxyPair(proxy_info_.proxy_server().host_port_pair(),
-                            ProxyServer::Direct());
-    } else {
-      spdy_session_key =
-          HostPortProxyPair(endpoint_, proxy_info_.proxy_server());
-    }
-    if (session_->spdy_session_pool()->HasSession(spdy_session_key)) {
-      // If we're preconnecting, but we already have a SpdySession, we don't
-      // actually need to preconnect any sockets, so we're done.
-      if (IsPreconnecting())
-        return OK;
-      using_spdy_ = true;
-      next_state_ = STATE_CREATE_STREAM;
-      return OK;
-    } else if (request_) {
-      // Update the spdy session key for the request that launched this job.
-      request_->SetSpdySessionKey(spdy_session_key);
-    }
-  }
-
-  // Build the string used to uniquely identify connections of this type.
-  // Determine the host and port to connect to.
-  std::string connection_group = endpoint_.ToString();
-  DCHECK(!connection_group.empty());
-
-  if (using_ssl_)
-    connection_group = base::StringPrintf("ssl/%s", connection_group.c_str());
-
-  // If the user is refreshing the page, bypass the host cache.
-  bool disable_resolver_cache =
-      request_info_.load_flags & LOAD_BYPASS_CACHE ||
-      request_info_.load_flags & LOAD_VALIDATE_CACHE ||
-      request_info_.load_flags & LOAD_DISABLE_CACHE;
-
-  // Build up the connection parameters.
-  scoped_refptr<TCPSocketParams> tcp_params;
-  scoped_refptr<HttpProxySocketParams> http_proxy_params;
-  scoped_refptr<SOCKSSocketParams> socks_params;
-  scoped_ptr<HostPortPair> proxy_host_port;
-
-  if (proxy_info_.is_direct()) {
-    tcp_params = new TCPSocketParams(endpoint_, request_info_.priority,
-                                     request_info_.referrer,
-                                     disable_resolver_cache
-#ifdef ANDROID
-                                     , request_info_.load_flags &
-                                       LOAD_IGNORE_LIMITS
-#endif
-                                     );
-  } else {
-    ProxyServer proxy_server = proxy_info_.proxy_server();
-    proxy_host_port.reset(new HostPortPair(proxy_server.host_port_pair()));
-    scoped_refptr<TCPSocketParams> proxy_tcp_params(
-        new TCPSocketParams(*proxy_host_port, request_info_.priority,
-                            request_info_.referrer, disable_resolver_cache
-#ifdef ANDROID
-                            , request_info_.load_flags & LOAD_IGNORE_LIMITS
-#endif
-                            ));
-
-    if (proxy_info_.is_http() || proxy_info_.is_https()) {
-      GURL authentication_url = request_info_.url;
-      if (using_ssl_ && !authentication_url.SchemeIs("https")) {
-        // If a proxy tunnel connection needs to be established due to
-        // an Alternate-Protocol, the URL needs to be changed to indicate
-        // https or digest authentication attempts will fail.
-        // For example, suppose the initial request was for
-        // "http://www.example.com/index.html". If this is an SSL
-        // upgrade due to alternate protocol, the digest authorization
-        // should have a uri="www.example.com:443" field rather than a
-        // "/index.html" entry, even though the original request URL has not
-        // changed.
-        authentication_url = UpgradeUrlToHttps(authentication_url);
-      }
-      establishing_tunnel_ = using_ssl_;
-      std::string user_agent;
-      request_info_.extra_headers.GetHeader(HttpRequestHeaders::kUserAgent,
-                                             &user_agent);
-      scoped_refptr<SSLSocketParams> ssl_params;
-      if (proxy_info_.is_https()) {
-        // Set ssl_params, and unset proxy_tcp_params
-        ssl_params = GenerateSSLParams(proxy_tcp_params, NULL, NULL,
-                                       ProxyServer::SCHEME_DIRECT,
-                                       *proxy_host_port.get(),
-                                       want_spdy_over_npn);
-        proxy_tcp_params = NULL;
-      }
-
-      http_proxy_params =
-          new HttpProxySocketParams(proxy_tcp_params,
-                                    ssl_params,
-                                    authentication_url,
-                                    user_agent,
-                                    endpoint_,
-                                    session_->http_auth_cache(),
-                                    session_->http_auth_handler_factory(),
-                                    session_->spdy_session_pool(),
-                                    using_ssl_);
-    } else {
-      DCHECK(proxy_info_.is_socks());
-      char socks_version;
-      if (proxy_server.scheme() == ProxyServer::SCHEME_SOCKS5)
-        socks_version = '5';
-      else
-        socks_version = '4';
-      connection_group = base::StringPrintf(
-          "socks%c/%s", socks_version, connection_group.c_str());
-
-      socks_params = new SOCKSSocketParams(proxy_tcp_params,
-                                           socks_version == '5',
-                                           endpoint_,
-                                           request_info_.priority,
-                                           request_info_.referrer);
-    }
-=======
   // Check first if we have a spdy session for this group.  If so, then go
   // straight to using that.
   HostPortProxyPair spdy_session_key;
@@ -662,7 +538,6 @@ int HttpStreamFactoryImpl::Job::DoInitConnection() {
                           ProxyServer::Direct());
   } else {
     spdy_session_key = HostPortProxyPair(origin_, proxy_info_.proxy_server());
->>>>>>> chromium.org at r12.0.742.93
   }
   if (session_->spdy_session_pool()->HasSession(spdy_session_key)) {
     // If we're preconnecting, but we already have a SpdySession, we don't
