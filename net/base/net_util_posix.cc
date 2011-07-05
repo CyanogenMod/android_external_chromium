@@ -4,7 +4,9 @@
 
 #include "net/base/net_util.h"
 
+#ifndef ANDROID
 #include <ifaddrs.h>
+#endif
 #include <sys/types.h>
 
 #include "base/eintr_wrapper.h"
@@ -53,6 +55,7 @@ bool FileURLToFilePath(const GURL& url, FilePath* path) {
   return !file_path_str.empty();
 }
 
+#ifndef ANDROID
 bool GetNetworkList(NetworkInterfaceList* networks) {
   // getifaddrs() may require IO operations.
   base::ThreadRestrictions::AssertIOAllowed();
@@ -80,5 +83,6 @@ bool GetNetworkList(NetworkInterfaceList* networks) {
 
   return true;
 }
+#endif
 
 }  // namespace net
