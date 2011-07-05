@@ -283,23 +283,6 @@ const string16 CreditCard::Label() const {
   if (number().empty())
     return name_on_card_;  // No CC number, return name only.
 
-<<<<<<< HEAD
-  return result;
-}
-
-string16 CreditCard::PreviewSummary() const {
-#ifdef ANDROID
-  // TODO: Hook up credit card support on Android.
-  // What is the Android UX for autofill previews?
-  // This has to be #if #else #endif as we can't
-  // compile the Chromium code that uses l10n functions.
-  return string16(ASCIIToUTF16("1234 5678 9123 4567"));
-#else
-  string16 preview;
-  if (number().empty())
-    return preview;  // No CC number, means empty preview.
-=======
->>>>>>> chromium.org at r12.0.742.93
   string16 obfuscated_cc_number = ObfuscatedNumber();
   if (!expiration_month_ || !expiration_year_)
     return obfuscated_cc_number;  // No expiration date set.
@@ -309,17 +292,11 @@ string16 CreditCard::PreviewSummary() const {
   formatted_date.append(ASCIIToUTF16("/"));
   formatted_date.append(Expiration4DigitYearAsString());
 
-<<<<<<< HEAD
-  preview = l10n_util::GetStringFUTF16(
-      IDS_CREDIT_CARD_NUMBER_PREVIEW_FORMAT,
-      obfuscated_cc_number,
-      formatted_date);
-  return preview;
-#endif
-=======
+#ifndef ANDROID
   label = l10n_util::GetStringFUTF16(IDS_CREDIT_CARD_NUMBER_PREVIEW_FORMAT,
                                      obfuscated_cc_number,
                                      formatted_date);
+#endif
   return label;
 }
 
@@ -351,7 +328,6 @@ string16 CreditCard::ObfuscatedNumber() const {
   result.append(LastFourDigits());
 
   return result;
->>>>>>> chromium.org at r12.0.742.93
 }
 
 string16 CreditCard::LastFourDigits() const {

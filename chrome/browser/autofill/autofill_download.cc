@@ -173,12 +173,8 @@ void AutofillDownloadManager::SetPositiveUploadRate(double rate) {
   DCHECK(profile_);
 #ifndef ANDROID
   PrefService* preferences = profile_->GetPrefs();
-<<<<<<< HEAD
-  preferences->SetDouble(prefs::kAutoFillPositiveUploadRate, rate);
-#endif
-=======
   preferences->SetDouble(prefs::kAutofillPositiveUploadRate, rate);
->>>>>>> chromium.org at r12.0.742.93
+#endif
 }
 
 void AutofillDownloadManager::SetNegativeUploadRate(double rate) {
@@ -190,27 +186,19 @@ void AutofillDownloadManager::SetNegativeUploadRate(double rate) {
   DCHECK(profile_);
 #ifndef ANDROID
   PrefService* preferences = profile_->GetPrefs();
-<<<<<<< HEAD
-  preferences->SetDouble(prefs::kAutoFillNegativeUploadRate, rate);
-#endif
-=======
   preferences->SetDouble(prefs::kAutofillNegativeUploadRate, rate);
->>>>>>> chromium.org at r12.0.742.93
+#endif
 }
 
 bool AutofillDownloadManager::StartRequest(
     const std::string& form_xml,
     const FormRequestData& request_data) {
-<<<<<<< HEAD
-  URLRequestContextGetter* request_context =
+  net::URLRequestContextGetter* request_context =
 #ifdef ANDROID
       // On Android, use the webview request context getter which was passed
       // through in the WebAutoFill::init() method in WebKit.
       profile_->GetRequestContext();
 #else
-=======
-  net::URLRequestContextGetter* request_context =
->>>>>>> chromium.org at r12.0.742.93
       Profile::GetDefaultRequestContext();
 #endif
   // Check if default request context is NULL: this very rarely happens,

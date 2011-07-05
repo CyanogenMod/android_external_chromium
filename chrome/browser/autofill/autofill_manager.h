@@ -20,18 +20,13 @@
 #include "chrome/browser/autofill/autofill_download.h"
 #include "chrome/browser/autofill/field_types.h"
 #include "chrome/browser/autofill/form_structure.h"
+#ifndef ANDROID
 #include "content/browser/tab_contents/navigation_controller.h"
+#endif
 #include "content/browser/tab_contents/tab_contents_observer.h"
 
-<<<<<<< HEAD
-#ifndef ANDROID
-class AutoFillCCInfoBarDelegate;
-#endif
-class AutoFillProfile;
-=======
 class AutofillField;
 class AutofillProfile;
->>>>>>> chromium.org at r12.0.742.93
 class AutofillMetrics;
 class CreditCard;
 class PersonalDataManager;
@@ -39,17 +34,15 @@ class PrefService;
 class RenderViewHost;
 class TabContents;
 
-<<<<<<< HEAD
 #ifdef ANDROID
 class AutoFillHost;
 #endif
-=======
+
 struct ViewHostMsg_FrameNavigate_Params;
 
 namespace IPC {
 class Message;
 }
->>>>>>> chromium.org at r12.0.742.93
 
 namespace webkit_glue {
 struct FormData;
@@ -109,14 +102,14 @@ class AutofillManager : public TabContentsObserver,
 
   bool OnQueryFormFieldAutoFillWrapper(const webkit_glue::FormData& form,
                                        const webkit_glue::FormField& field) {
-    return OnQueryFormFieldAutoFill(0, form, field);
+    return OnQueryFormFieldAutofill(0, form, field);
   }
 
   void OnFillAutoFillFormDataWrapper(int query_id,
                                      const webkit_glue::FormData& form,
                                      const webkit_glue::FormField& field,
                                      int unique_id) {
-    OnFillAutoFillFormData(query_id, form, field, unique_id);
+    OnFillAutofillFormData(query_id, form, field, unique_id);
   }
 #endif
 
@@ -153,23 +146,15 @@ class AutofillManager : public TabContentsObserver,
  private:
   void OnFormSubmitted(const webkit_glue::FormData& form);
   void OnFormsSeen(const std::vector<webkit_glue::FormData>& forms);
-<<<<<<< HEAD
 #ifdef ANDROID
-  bool OnQueryFormFieldAutoFill(int query_id,
-                                const webkit_glue::FormData& form,
-                                const webkit_glue::FormField& field);
+  bool
 #else
-  void OnQueryFormFieldAutoFill(int query_id,
-                                const webkit_glue::FormData& form,
-                                const webkit_glue::FormField& field);
+  void
 #endif
-  void OnFillAutoFillFormData(int query_id,
-=======
-  void OnQueryFormFieldAutofill(int query_id,
+  OnQueryFormFieldAutofill(int query_id,
                                 const webkit_glue::FormData& form,
                                 const webkit_glue::FormField& field);
   void OnFillAutofillFormData(int query_id,
->>>>>>> chromium.org at r12.0.742.93
                               const webkit_glue::FormData& form,
                               const webkit_glue::FormField& field,
                               int unique_id);
@@ -181,15 +166,11 @@ class AutofillManager : public TabContentsObserver,
   // Returns false if Autofill is disabled or if the host is unavailable.
   bool GetHost(const std::vector<AutofillProfile*>& profiles,
                const std::vector<CreditCard*>& credit_cards,
-<<<<<<< HEAD
 #ifdef ANDROID
                AutoFillHost** host) WARN_UNUSED_RESULT;
 #else
-               RenderViewHost** host) WARN_UNUSED_RESULT;
-#endif
-=======
                RenderViewHost** host) const WARN_UNUSED_RESULT;
->>>>>>> chromium.org at r12.0.742.93
+#endif
 
   // Fills |form_structure| cached element corresponding to |form|.
   // Returns false if the cached element was not found.
@@ -276,19 +257,8 @@ class AutofillManager : public TabContentsObserver,
   // Have we logged whether Autofill is enabled for this page load?
   bool has_logged_autofill_enabled_;
 
-<<<<<<< HEAD
-#ifdef ANDROID
-  // To minimize merge conflicts, we keep this pointer around, but never use it.
-  void* cc_infobar_;
-#else
-  // The InfoBar that asks for permission to store credit card information.
-  // Deletes itself when closed.
-  AutoFillCCInfoBarDelegate* cc_infobar_;
-#endif
-=======
   // Have we logged an address suggestions count metric for this page?
   bool has_logged_address_suggestions_count_;
->>>>>>> chromium.org at r12.0.742.93
 
   // Our copy of the form data.
   ScopedVector<FormStructure> form_structures_;

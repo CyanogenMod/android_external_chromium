@@ -33,7 +33,7 @@
 #include "android/autofill/android_url_request_context_getter.h"
 #include "base/basictypes.h"
 #include "base/file_path.h"
-#include "base/ref_counted.h"
+#include "base/memory/ref_counted.h"
 #include "base/scoped_ptr.h"
 #include "base/timer.h"
 #include "chrome/browser/prefs/pref_service.h"
@@ -126,14 +126,14 @@ class ProfileImplAndroid : public Profile {
  public:
   virtual ~ProfileImplAndroid();
 
-  void SetRequestContext(URLRequestContextGetter* context) { url_request_context_getter_ = context; }
+  void SetRequestContext(net::URLRequestContextGetter* context) { url_request_context_getter_ = context; }
 
   // Profile implementation.
   virtual Profile* GetOriginalProfile();
   virtual PersonalDataManager* GetPersonalDataManager();
   virtual PrefService* GetPrefs();
   virtual FilePath GetPath() { return path_; }
-  virtual URLRequestContextGetter* GetRequestContext();
+  virtual net::URLRequestContextGetter* GetRequestContext();
 
   // Functions from Profile that we don't need on Android for AutoFill.
   virtual ProfileId GetRuntimeId() { NOTREACHED(); return 0; }
@@ -179,8 +179,8 @@ class ProfileImplAndroid : public Profile {
   virtual const Extension* GetTheme() { NOTREACHED(); return NULL; }
   virtual BrowserThemeProvider* GetThemeProvider()  { NOTREACHED(); return NULL; }
   virtual bool HasCreatedDownloadManager() const { NOTREACHED(); return false; }
-  virtual URLRequestContextGetter* GetRequestContextForMedia()  { NOTREACHED(); return NULL; }
-  virtual URLRequestContextGetter* GetRequestContextForExtensions()  { NOTREACHED(); return NULL; }
+  virtual net::URLRequestContextGetter* GetRequestContextForMedia()  { NOTREACHED(); return NULL; }
+  virtual net::URLRequestContextGetter* GetRequestContextForExtensions()  { NOTREACHED(); return NULL; }
   virtual void RegisterExtensionWithRequestContexts(const Extension* extension) { NOTREACHED(); }
   virtual void UnregisterExtensionWithRequestContexts(const Extension* extension) { NOTREACHED(); }
   virtual net::SSLConfigService* GetSSLConfigService()  { NOTREACHED(); return NULL; }
@@ -206,7 +206,7 @@ class ProfileImplAndroid : public Profile {
   virtual BackgroundContentsService* GetBackgroundContentsService() const { NOTREACHED(); return NULL; }
   virtual StatusTray* GetStatusTray() { NOTREACHED(); return NULL; }
   virtual void MarkAsCleanShutdown() { NOTREACHED(); }
-  virtual void InitExtensions() { NOTREACHED(); }
+  virtual void InitExtensions(bool extensions_enabled) { NOTREACHED(); }
   virtual void InitWebResources() { NOTREACHED(); }
   virtual NTPResourceCache* GetNTPResourceCache()  { NOTREACHED(); return NULL; }
   virtual FilePath last_selected_directory() { NOTREACHED(); return FilePath(""); }
@@ -229,6 +229,10 @@ class ProfileImplAndroid : public Profile {
   virtual ChromeURLDataManager* GetChromeURLDataManager() { NOTREACHED(); return NULL; }
   virtual PrefProxyConfigTracker* GetProxyConfigTracker() { NOTREACHED(); return NULL; }
   virtual prerender::PrerenderManager* GetPrerenderManager() { NOTREACHED(); return NULL; }
+  virtual net::URLRequestContextGetter* GetRequestContextForPossibleApp(
+      const Extension* installed_app) { NOTREACHED(); return NULL; }
+  virtual net::URLRequestContextGetter* GetRequestContextForIsolatedApp(
+      const std::string& app_id) { NOTREACHED(); return NULL; }
 
  private:
   friend class Profile;
@@ -253,7 +257,7 @@ class ProfileImplAndroid : public Profile {
   FilePath path_;
   scoped_ptr<PrefService> preferences_;
   scoped_refptr<PersonalDataManager> personal_data_;
-  scoped_refptr<URLRequestContextGetter> url_request_context_getter_;
+  scoped_refptr<net::URLRequestContextGetter> url_request_context_getter_;
 
   DISALLOW_COPY_AND_ASSIGN(ProfileImplAndroid);
 };

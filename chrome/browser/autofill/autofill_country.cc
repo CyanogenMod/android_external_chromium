@@ -19,12 +19,6 @@
 #include "chrome/browser/browser_process.h"
 #endif
 #include "grit/generated_resources.h"
-<<<<<<< HEAD
-#ifndef ANDROID
-#include "ui/base/l10n/l10n_util_collator.h"
-#endif
-=======
->>>>>>> chromium.org at r12.0.742.93
 #include "ui/base/l10n/l10n_util.h"
 #include "unicode/coll.h"
 #include "unicode/locid.h"
@@ -621,34 +615,8 @@ const std::string AutofillCountry::CountryCodeForLocale(
   if (CountryDataMap::Find(country_code) == CountryDataMap::End())
     return "US";
 
-<<<<<<< HEAD
-  for (AutofillCountries::MapType::const_iterator it = country_data.begin();
-       it != country_data.end();
-       ++it) {
-    std::string country_code = it->first;
-    std::string iso3_country_code =
-        icu::Locale(NULL, country_code.c_str()).getISO3Country();
-
-    string16 name = GetDisplayName(country_code, icu_locale);
-    if (country == UTF8ToUTF16(iso3_country_code)
-#ifndef ANDROID
-        // TODO(kristianm): Fix this in Android: http://b/issue?id=4959752
-        || l10n_util::CompareString16WithCollator(collator.get(),
-                                                  country,
-                                                  name) == UCOL_EQUAL
-#endif
-      ) {
-      return country_code;
-    }
-  }
-
-  // As a fallback, try assuming the country named is localized to US English.
-  if (locale != "en_US")
-    return GetCountryCode(country, "en_US");
-=======
   return country_code;
 }
->>>>>>> chromium.org at r12.0.742.93
 
 // static
 const std::string AutofillCountry::GetCountryCode(const string16& country,

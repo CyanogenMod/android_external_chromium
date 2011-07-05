@@ -18,12 +18,8 @@
 #ifndef ANDROID
 #include "chrome/browser/autocomplete_history_manager.h"
 #include "chrome/browser/autofill/autofill_cc_infobar_delegate.h"
-<<<<<<< HEAD
 #endif
-#include "chrome/browser/autofill/autofill_dialog.h"
-=======
 #include "chrome/browser/autofill/autofill_field.h"
->>>>>>> chromium.org at r12.0.742.93
 #include "chrome/browser/autofill/autofill_metrics.h"
 #include "chrome/browser/autofill/autofill_profile.h"
 #include "chrome/browser/autofill/autofill_type.h"
@@ -34,42 +30,27 @@
 #include "chrome/browser/autofill/select_control_handler.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
-<<<<<<< HEAD
 #ifndef ANDROID
-#include "chrome/browser/ui/browser_list.h"
-#endif
-#ifndef ANDROID
-#include "chrome/common/autofill_messages.h"
-#include "chrome/common/chrome_switches.h"
-#endif
-#include "chrome/common/guid.h"
-#ifndef ANDROID
-#include "chrome/common/notification_details.h"
-#include "chrome/common/notification_service.h"
-#include "chrome/common/notification_type.h"
-#endif
-=======
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/common/autofill_messages.h"
+#endif
 #include "chrome/common/guid.h"
->>>>>>> chromium.org at r12.0.742.93
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #ifndef ANDROID
 #include "content/browser/renderer_host/render_view_host.h"
 #include "content/browser/tab_contents/tab_contents.h"
-<<<<<<< HEAD
-#endif
-=======
 #include "content/common/notification_service.h"
 #include "content/common/notification_source.h"
 #include "content/common/notification_type.h"
+#endif
 #include "googleurl/src/gurl.h"
->>>>>>> chromium.org at r12.0.742.93
 #include "grit/generated_resources.h"
+#ifndef ANDROID
 #include "ipc/ipc_message_macros.h"
+#endif
 #include "ui/base/l10n/l10n_util.h"
 #include "webkit/glue/form_data.h"
 #ifdef ANDROID
@@ -328,15 +309,11 @@ bool AutofillManager::OnMessageReceived(const IPC::Message& message) {
 
 void AutofillManager::OnFormSubmitted(const FormData& form) {
   // Let AutoComplete know as well.
-<<<<<<< HEAD
 #ifndef ANDROID
-  tab_contents()->autocomplete_history_manager()->OnFormSubmitted(form);
-#endif
-=======
   TabContentsWrapper* wrapper =
       TabContentsWrapper::GetCurrentWrapperForContents(tab_contents());
   wrapper->autocomplete_history_manager()->OnFormSubmitted(form);
->>>>>>> chromium.org at r12.0.742.93
+#endif
 
   if (!IsAutofillEnabled())
     return;
@@ -386,15 +363,11 @@ void AutofillManager::OnFormsSeen(const std::vector<FormData>& forms) {
   ParseForms(forms);
 }
 
-<<<<<<< HEAD
 #ifdef ANDROID
-bool AutofillManager::OnQueryFormFieldAutoFill(
+bool AutofillManager::OnQueryFormFieldAutofill(
 #else
-void AutofillManager::OnQueryFormFieldAutoFill(
-#endif
-=======
 void AutofillManager::OnQueryFormFieldAutofill(
->>>>>>> chromium.org at r12.0.742.93
+#endif
     int query_id,
     const webkit_glue::FormData& form,
     const webkit_glue::FormField& field) {
@@ -431,12 +404,8 @@ void AutofillManager::OnQueryFormFieldAutofill(
     DCHECK_EQ(values.size(), unique_ids.size());
 
     if (!values.empty()) {
-<<<<<<< HEAD
 #ifndef ANDROID
-      // Don't provide AutoFill suggestions when AutoFill is disabled, and don't
-=======
       // Don't provide Autofill suggestions when Autofill is disabled, and don't
->>>>>>> chromium.org at r12.0.742.93
       // provide credit card suggestions for non-HTTPS pages. However, provide a
       // warning to the user in these cases.
       int warning = 0;
@@ -502,16 +471,11 @@ void AutofillManager::OnQueryFormFieldAutofill(
   // Add the results from AutoComplete.  They come back asynchronously, so we
   // hand off what we generated and they will send the results back to the
   // renderer.
-<<<<<<< HEAD
-  tab_contents()->autocomplete_history_manager()->OnGetAutocompleteSuggestions(
-      query_id, field.name(), field.value(), values, labels, icons, unique_ids);
-#endif
-=======
   TabContentsWrapper* wrapper =
       TabContentsWrapper::GetCurrentWrapperForContents(tab_contents());
   wrapper->autocomplete_history_manager()->OnGetAutocompleteSuggestions(
       query_id, field.name, field.value, values, labels, icons, unique_ids);
->>>>>>> chromium.org at r12.0.742.93
+#endif
 }
 
 void AutofillManager::OnFillAutofillFormData(int query_id,
@@ -598,14 +562,10 @@ void AutofillManager::OnFillAutofillFormData(int query_id,
       }
     }
 
-<<<<<<< HEAD
 #ifdef ANDROID
     host->AutoFillFormDataFilled(query_id, result);
 #else
-    host->Send(new AutoFillMsg_FormDataFilled(host->routing_id(), query_id,
-=======
     host->Send(new AutofillMsg_FormDataFilled(host->routing_id(), query_id,
->>>>>>> chromium.org at r12.0.742.93
                                               result));
 #endif
     return;
@@ -658,46 +618,24 @@ void AutofillManager::OnFillAutofillFormData(int query_id,
   }
   autofilled_forms_signatures_.push_front(form_structure->FormSignature());
 
-<<<<<<< HEAD
 #ifdef ANDROID
   host->AutoFillFormDataFilled(query_id, result);
 #else
-  host->Send(new AutoFillMsg_FormDataFilled(
-=======
   host->Send(new AutofillMsg_FormDataFilled(
->>>>>>> chromium.org at r12.0.742.93
       host->routing_id(), query_id, result));
 #endif
 }
 
-<<<<<<< HEAD
-void AutofillManager::OnShowAutoFillDialog() {
-#ifndef ANDROID
-  if (!CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kDisableTabbedOptions)) {
-    Browser* browser = BrowserList::GetLastActive();
-    if (browser)
-      browser->ShowOptionsTab(chrome::kAutoFillSubPage);
-    return;
-  }
-
-  ShowAutoFillDialog(tab_contents()->GetContentNativeView(),
-                     personal_data_,
-                     tab_contents()->profile()->GetOriginalProfile());
-#endif
-}
-
-void AutofillManager::OnDidFillAutoFillFormData() {
-#ifndef ANDROID
-=======
 void AutofillManager::OnShowAutofillDialog() {
+#ifndef ANDROID
   Browser* browser = BrowserList::GetLastActive();
   if (browser)
     browser->ShowOptionsTab(chrome::kAutofillSubPage);
+#endif
 }
 
 void AutofillManager::OnDidFillAutofillFormData() {
->>>>>>> chromium.org at r12.0.742.93
+#ifndef ANDROID
   NotificationService::current()->Notify(
       NotificationType::AUTOFILL_DID_FILL_FORM_DATA,
       Source<RenderViewHost>(tab_contents()->render_view_host()),
@@ -705,13 +643,8 @@ void AutofillManager::OnDidFillAutofillFormData() {
 #endif
 }
 
-<<<<<<< HEAD
-
-void AutofillManager::OnDidShowAutoFillSuggestions() {
-#ifndef ANDROID
-=======
 void AutofillManager::OnDidShowAutofillSuggestions() {
->>>>>>> chromium.org at r12.0.742.93
+#ifndef ANDROID
   NotificationService::current()->Notify(
       NotificationType::AUTOFILL_DID_SHOW_SUGGESTIONS,
       Source<RenderViewHost>(tab_contents()->render_view_host()),
@@ -739,29 +672,14 @@ void AutofillManager::OnHeuristicsRequestError(
     int http_error) {
 }
 
-<<<<<<< HEAD
-bool AutofillManager::IsAutoFillEnabled() const {
+bool AutofillManager::IsAutofillEnabled() const {
 #ifdef ANDROID
   // TODO: This should be a setting in the android UI.
   return true;
-#endif
-  PrefService* prefs =
-      const_cast<AutofillManager*>(this)->tab_contents()->profile()->GetPrefs();
-
-  // Migrate obsolete AutoFill pref.
-  if (prefs->FindPreference(prefs::kFormAutofillEnabled)) {
-    bool enabled = prefs->GetBoolean(prefs::kFormAutofillEnabled);
-    prefs->ClearPref(prefs::kFormAutofillEnabled);
-    prefs->SetBoolean(prefs::kAutoFillEnabled, enabled);
-    return enabled;
-  }
-
-  return prefs->GetBoolean(prefs::kAutoFillEnabled);
-=======
-bool AutofillManager::IsAutofillEnabled() const {
+#else
   return const_cast<AutofillManager*>(this)->tab_contents()->profile()->
       GetPrefs()->GetBoolean(prefs::kAutofillEnabled);
->>>>>>> chromium.org at r12.0.742.93
+#endif
 }
 
 void AutofillManager::DeterminePossibleFieldTypesForUpload(
@@ -845,17 +763,12 @@ void AutofillManager::set_metric_logger(
 
 bool AutofillManager::GetHost(const std::vector<AutofillProfile*>& profiles,
                               const std::vector<CreditCard*>& credit_cards,
-<<<<<<< HEAD
 #ifdef ANDROID
                               AutoFillHost** host) {
 #else
-                              RenderViewHost** host) {
-#endif
-  if (!IsAutoFillEnabled())
-=======
                               RenderViewHost** host) const {
+#endif
   if (!IsAutofillEnabled())
->>>>>>> chromium.org at r12.0.742.93
     return false;
 
   // No autofill data to return if the profiles are empty.

@@ -19,17 +19,14 @@
 #include "chrome/browser/autofill/select_control_handler.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
+#ifndef ANDROID
 #include "chrome/browser/sync/profile_sync_service.h"
+#endif
 #include "chrome/browser/webdata/web_data_service.h"
 #include "chrome/common/pref_names.h"
 #ifndef ANDROID
 #include "content/browser/browser_thread.h"
-<<<<<<< HEAD
 #endif
-#include "third_party/WebKit/Source/WebKit/chromium/public/WebRegularExpression.h"
-#include "third_party/WebKit/Source/WebKit/chromium/public/WebString.h"
-=======
->>>>>>> chromium.org at r12.0.742.93
 
 namespace {
 
@@ -169,6 +166,9 @@ void PersonalDataManager::RemoveObserver(
 // changes.  This method, |OnStateChange| acts as a deferred call to
 // |EmptyMigrationTrash| once the sync service becomes available.
 void PersonalDataManager::OnStateChanged() {
+#ifdef ANDROID
+  return;
+#else
   if (!profile_ || profile_->IsOffTheRecord())
     return;
 
@@ -187,21 +187,18 @@ void PersonalDataManager::OnStateChanged() {
     web_data_service->EmptyMigrationTrash(true);
     sync_service->RemoveObserver(this);
   }
+#endif
 }
 
 bool PersonalDataManager::ImportFormData(
     const std::vector<const FormStructure*>& form_structures,
     const CreditCard** imported_credit_card) {
-<<<<<<< HEAD
 #ifdef ANDROID
   // TODO: Is this the funcionality that tries to create a profile for the user
   // based on what they've entered into forms?
   return false;
 #else
-  scoped_ptr<AutoFillProfile> imported_profile(new AutoFillProfile);
-=======
-  scoped_ptr<AutofillProfile> imported_profile(new AutofillProfile);
->>>>>>> chromium.org at r12.0.742.93
+  scoped_ptr<AutofillProfile> imported_profile(new AutoFillProfile);
   scoped_ptr<CreditCard> local_imported_credit_card(new CreditCard);
 
   // Parse the form and construct a profile based on the information that is
@@ -482,12 +479,8 @@ void PersonalDataManager::AddProfile(const AutofillProfile& profile) {
   SetProfiles(&profiles);
 }
 
-<<<<<<< HEAD
-void PersonalDataManager::UpdateProfile(const AutoFillProfile& profile) {
-#ifndef ANDROID
-=======
 void PersonalDataManager::UpdateProfile(const AutofillProfile& profile) {
->>>>>>> chromium.org at r12.0.742.93
+#ifndef ANDROID
   WebDataService* wds = profile_->GetWebDataService(Profile::EXPLICIT_ACCESS);
   if (!wds)
     return;
@@ -642,12 +635,8 @@ const std::vector<AutofillProfile*>& PersonalDataManager::profiles() {
   bool auxiliary_profiles_enabled = false;
 #else
   bool auxiliary_profiles_enabled = profile_ ? profile_->GetPrefs()->GetBoolean(
-<<<<<<< HEAD
-      prefs::kAutoFillAuxiliaryProfilesEnabled) : false;
-#endif
-=======
       prefs::kAutofillAuxiliaryProfilesEnabled) : false;
->>>>>>> chromium.org at r12.0.742.93
+#endif
   if (!auxiliary_profiles_enabled)
     return web_profiles();
 
@@ -697,7 +686,11 @@ void PersonalDataManager::Init(Profile* profile) {
 }
 
 bool PersonalDataManager::IsAutofillEnabled() const {
+#ifdef ANDROID
+  return true;
+#else
   return profile_->GetPrefs()->GetBoolean(prefs::kAutofillEnabled);
+#endif
 }
 
 // static
@@ -798,12 +791,8 @@ void PersonalDataManager::LoadProfiles() {
 
   CancelPendingQuery(&pending_profiles_query_);
 
-<<<<<<< HEAD
-  pending_profiles_query_ = web_data_service->GetAutoFillProfiles(this);
-#endif
-=======
   pending_profiles_query_ = web_data_service->GetAutofillProfiles(this);
->>>>>>> chromium.org at r12.0.742.93
+#endif
 }
 
 // Win and Linux implementations do nothing.  Mac implementation fills in the
@@ -883,15 +872,11 @@ void PersonalDataManager::CancelPendingQuery(WebDataService::Handle* handle) {
 }
 
 void PersonalDataManager::SaveImportedProfile(
-<<<<<<< HEAD
-    const AutoFillProfile& imported_profile) {
+    const AutofillProfile& imported_profile) {
 #ifdef ANDROID
   // TODO: This should update the profile in Java land.
   return;
 #else
-=======
-    const AutofillProfile& imported_profile) {
->>>>>>> chromium.org at r12.0.742.93
   if (profile_->IsOffTheRecord())
     return;
 
@@ -939,6 +924,9 @@ void PersonalDataManager::SaveImportedCreditCard(
 }
 
 void PersonalDataManager::EmptyMigrationTrash() {
+#ifdef ANDROID
+  return;
+#else
   if (!profile_ || profile_->IsOffTheRecord())
     return;
 
@@ -963,6 +951,7 @@ void PersonalDataManager::EmptyMigrationTrash() {
     if (!sync_service->HasObserver(this))
       sync_service->AddObserver(this);
   }
+#endif
 }
 
 void PersonalDataManager::LogProfileCount() const {

@@ -67,7 +67,7 @@ PrefService* ProfileImplAndroid::GetPrefs() {
   return NULL;
 }
 
-URLRequestContextGetter* ProfileImplAndroid::GetRequestContext() {
+net::URLRequestContextGetter* ProfileImplAndroid::GetRequestContext() {
   return url_request_context_getter_.get();
 }
 
