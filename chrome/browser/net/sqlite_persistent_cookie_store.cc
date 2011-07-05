@@ -265,19 +265,13 @@ bool SQLitePersistentCookieStore::Backend::Load(
             Time::FromInternalValue(smt.ColumnInt64(0)),    // creation_utc
             Time::FromInternalValue(smt.ColumnInt64(5)),    // expires_utc
             Time::FromInternalValue(smt.ColumnInt64(8)),    // last_access_utc
-<<<<<<< HEAD
-#if defined(ANDROID)
-            !expires.is_null(),                             // has_expires
-            expires));                                      // expires_utc
-#else
-            true,                                           // has_expires
-            Time::FromInternalValue(smt.ColumnInt64(5))));  // expires_utc
-#endif
-=======
             smt.ColumnInt(6) != 0,                          // secure
             smt.ColumnInt(7) != 0,                          // httponly
+#if defined(ANDROID)
+            !expires.is_null()));                           // has_expires
+#else
             true));                                         // has_expires
->>>>>>> chromium.org at r12.0.742.93
+#endif
     DLOG_IF(WARNING,
             cc->CreationDate() > Time::Now()) << L"CreationDate too recent";
     cookies->push_back(cc.release());
