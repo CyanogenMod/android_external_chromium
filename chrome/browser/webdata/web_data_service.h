@@ -22,16 +22,10 @@
 #include "chrome/browser/search_engines/template_url_id.h"
 #ifndef ANDROID
 #include "content/browser/browser_thread.h"
-<<<<<<< HEAD
 #endif
 #ifdef ANDROID
 #include "third_party/skia/include/core/SkBitmap.h"
-#include <WebCoreSupport/autofill/FormFieldAndroid.h>
-#else
-#include "webkit/glue/form_field.h"
 #endif
-=======
->>>>>>> chromium.org at r12.0.742.93
 
 class AutofillChange;
 class AutofillProfile;
