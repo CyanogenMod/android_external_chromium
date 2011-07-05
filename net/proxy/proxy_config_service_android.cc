@@ -16,16 +16,16 @@ void ProxyConfigServiceAndroid::RemoveObserver(Observer* observer) {
   observers_.RemoveObserver(observer);
 }
 
-bool ProxyConfigServiceAndroid::GetLatestProxyConfig(ProxyConfig* config) {
+ProxyConfigService::ConfigAvailability ProxyConfigServiceAndroid::GetLatestProxyConfig(ProxyConfig* config) {
   if (!config)
-    return false;
+    return ProxyConfigService::CONFIG_UNSET;
 
   if (m_proxy.empty()) {
     *config = ProxyConfig::CreateDirect();
   } else {
     config->proxy_rules().ParseFromString(m_proxy);
   }
-  return true;
+  return ProxyConfigService::CONFIG_VALID;
 }
 
 void ProxyConfigServiceAndroid::UpdateProxySettings(std::string& proxy,
@@ -44,7 +44,9 @@ void ProxyConfigServiceAndroid::UpdateProxySettings(std::string& proxy,
   }
   config.proxy_rules().bypass_rules.AddRuleFromString(exList);
 
-  FOR_EACH_OBSERVER(Observer, observers_, OnProxyConfigChanged(config));
+  FOR_EACH_OBSERVER(Observer, observers_, 
+                    OnProxyConfigChanged(config,
+                                         ProxyConfigService::CONFIG_VALID));
 }
 
 } // namespace net
