@@ -393,16 +393,6 @@ class X509Certificate : public base::RefCountedThreadSafe<X509Certificate> {
   static bool VerifyHostname(const std::string& hostname,
                              const std::vector<std::string>& cert_names);
 
-<<<<<<< HEAD
-#ifdef ANDROID
-#if defined(USE_OPENSSL)
-  // Returns the certificate in DER-encoded form, using the application DER
-  // cache as appropriate. The returned string piece will be valid as long
-  // as the handle is.
-  static std::string GetDEREncodedBytes(OSCertHandle handle);
-#endif
-#endif
-=======
   // The serial number, DER encoded.
   // NOTE: keep this method private, used by IsBlacklisted only.  To simplify
   // IsBlacklisted, we strip the leading 0 byte of a serial number, used to
@@ -430,7 +420,15 @@ class X509Certificate : public base::RefCountedThreadSafe<X509Certificate> {
 
   // Writes a single certificate to |pickle|. Returns false on failure.
   static bool WriteCertHandleToPickle(OSCertHandle handle, Pickle* pickle);
->>>>>>> chromium.org at r12.0.742.93
+
+#ifdef ANDROID
+#if defined(USE_OPENSSL)
+  // Returns the certificate in DER-encoded form, using the application DER
+  // cache as appropriate. The returned string piece will be valid as long
+  // as the handle is.
+  static std::string GetDEREncodedBytes(OSCertHandle handle);
+#endif
+#endif
 
   // The subject of the certificate.
   CertPrincipal subject_;

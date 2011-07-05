@@ -516,38 +516,6 @@ bool X509Certificate::IsSameOSCert(X509Certificate::OSCertHandle a,
 }
 
 // static
-<<<<<<< HEAD
-std::string X509Certificate::GetDEREncodedBytes(OSCertHandle handle) {
-  DERCache der_cache = {0};
-  GetDERAndCacheIfNeeded(handle, &der_cache);
-  return std::string(reinterpret_cast<const char*>(der_cache.data),
-                     der_cache.data_length);
-}
-
-#if defined(ANDROID)
-
-void X509Certificate::GetChainDEREncodedBytes(
-    std::vector<std::string>* chain_bytes) const {
-  OSCertHandles cert_handles(intermediate_ca_certs_);
-  // Make sure the peer's own cert is the first in the chain, if it's not
-  // already there.
-  if (cert_handles.empty() || cert_handles[0] != cert_handle_)
-    cert_handles.insert(cert_handles.begin(), cert_handle_);
-
-  chain_bytes->reserve(cert_handles.size());
-  for (OSCertHandles::const_iterator it = cert_handles.begin();
-       it != cert_handles.end(); ++it) {
-    DERCache der_cache = {0};
-    GetDERAndCacheIfNeeded(*it, &der_cache);
-    std::string cert_bytes = std::string(
-        reinterpret_cast<const char*>(der_cache.data), der_cache.data_length);
-    chain_bytes->push_back(cert_bytes);
-  }
-}
-
-#endif
-
-=======
 X509Certificate::OSCertHandle
 X509Certificate::ReadCertHandleFromPickle(const Pickle& pickle,
                                           void** pickle_iter) {
@@ -571,5 +539,35 @@ bool X509Certificate::WriteCertHandleToPickle(OSCertHandle cert_handle,
       der_cache.data_length);
 }
 
->>>>>>> chromium.org at r12.0.742.93
+#if defined(ANDROID)
+// static
+std::string X509Certificate::GetDEREncodedBytes(OSCertHandle handle) {
+  DERCache der_cache = {0};
+  GetDERAndCacheIfNeeded(handle, &der_cache);
+  return std::string(reinterpret_cast<const char*>(der_cache.data),
+                     der_cache.data_length);
+}
+#endif
+
+#if defined(ANDROID)
+void X509Certificate::GetChainDEREncodedBytes(
+    std::vector<std::string>* chain_bytes) const {
+  OSCertHandles cert_handles(intermediate_ca_certs_);
+  // Make sure the peer's own cert is the first in the chain, if it's not
+  // already there.
+  if (cert_handles.empty() || cert_handles[0] != cert_handle_)
+    cert_handles.insert(cert_handles.begin(), cert_handle_);
+
+  chain_bytes->reserve(cert_handles.size());
+  for (OSCertHandles::const_iterator it = cert_handles.begin();
+       it != cert_handles.end(); ++it) {
+    DERCache der_cache = {0};
+    GetDERAndCacheIfNeeded(*it, &der_cache);
+    std::string cert_bytes = std::string(
+        reinterpret_cast<const char*>(der_cache.data), der_cache.data_length);
+    chain_bytes->push_back(cert_bytes);
+  }
+}
+#endif
+
 } // namespace net
