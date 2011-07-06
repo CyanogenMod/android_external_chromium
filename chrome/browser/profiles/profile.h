@@ -10,7 +10,9 @@
 
 #include "base/basictypes.h"
 #include "base/logging.h"
+#ifndef ANDROID
 #include "chrome/common/extensions/extension.h"
+#endif
 
 namespace base {
 class Time;
@@ -45,6 +47,16 @@ class PrerenderManager;
 namespace webkit_database {
 class DatabaseTracker;
 }
+
+#ifdef ANDROID
+struct UnloadedExtensionInfo {
+  enum Reason {
+    DISABLE,    // The extension is being disabled.
+    UPDATE,     // The extension is being updated to a newer version.
+    UNINSTALL,  // The extension is being uninstalled.
+  };
+};
+#endif
 
 class AutocompleteClassifier;
 class BookmarkModel;
@@ -358,7 +370,9 @@ class Profile {
   virtual net::URLRequestContextGetter* GetRequestContextForIsolatedApp(
       const std::string& app_id) = 0;
 
+#ifndef ANDROID
   virtual const content::ResourceContext& GetResourceContext() = 0;
+#endif
 
   // Called by the ExtensionService that lives in this profile. Gives the
   // profile a chance to react to the load event before the EXTENSION_LOADED
