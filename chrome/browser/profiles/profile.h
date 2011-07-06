@@ -137,6 +137,9 @@ class Profile {
    public:
     // Called when creation of the profile is finished.
     virtual void OnProfileCreated(Profile* profile, bool success) = 0;
+#ifdef ANDROID
+    virtual ~Delegate() {}
+#endif
   };
 
   // Key used to bind profile to the widget with which it is associated.

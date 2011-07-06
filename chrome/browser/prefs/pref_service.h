@@ -116,6 +116,9 @@ class PrefService : public base::NonThreadSafe,
   class Delegate {
    public:
     virtual void OnPrefsLoaded(PrefService* prefs, bool success) = 0;
+#ifdef ANDROID
+    virtual ~Delegate() {};
+#endif
   };
 
   // JsonPrefStore::Delegate implementaion.

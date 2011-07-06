@@ -30,6 +30,9 @@ class JsonPrefStore : public PersistentPrefStore,
   class Delegate {
    public:
     virtual void OnPrefsRead(PrefReadError error, bool no_dir) = 0;
+#ifdef ANDROID
+    virtual ~Delegate() {};
+#endif
   };
 
   // |file_message_loop_proxy| is the MessageLoopProxy for a thread on which
