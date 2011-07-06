@@ -496,9 +496,13 @@ bool TransportSecurityState::IsPreloadedSTS(
   out->include_subdomains = false;
 
   std::map<std::string, DomainState> hosts;
-  std::string cmd_line_hsts =
-      CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+  std::string cmd_line_hsts
+#ifdef ANDROID
+      ;
+#else
+      = CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
           switches::kHstsHosts);
+#endif
   if (!cmd_line_hsts.empty()) {
     bool dirty;
     Deserialise(cmd_line_hsts, &dirty, &hosts);
