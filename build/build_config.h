@@ -53,6 +53,7 @@
 #if defined(ANDROID)
 #define USE_OPENSSL 1
 #define USE_SYSTEM_ZLIB 1
+#define USE_SYSTEM_SQLITE 1
 #endif
 
 #if !defined(USE_OPENSSL)
