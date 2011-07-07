@@ -13,11 +13,6 @@
 #include <nss.h>
 #include <pk11pub.h>
 #include "base/nss_util.h"
-#elif defined(USE_OPENSSL)
-#ifndef ANDROID
-#include "base/openssl_util.h"
-#endif
-#include <openssl/des.h>
 #elif defined(OS_MACOSX)
 #include <CommonCrypto/CommonCryptor.h>
 #elif defined(OS_WIN)
