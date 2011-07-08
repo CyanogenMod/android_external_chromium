@@ -628,7 +628,8 @@ const std::string AutofillCountry::GetCountryCode(const string16& country,
 const std::string AutofillCountry::ApplicationLocale() {
 #ifdef ANDROID
   // TODO(kristianm): Fix this in Android: http://b/issue?id=4959752
-  return "";
+  // For now, default to en-US on Android.
+  return "en-US";
 #else
   return g_browser_process->GetApplicationLocale();
 #endif
