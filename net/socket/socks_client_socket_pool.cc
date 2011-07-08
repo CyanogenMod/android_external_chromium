@@ -37,6 +37,20 @@ SOCKSSocketParams::SOCKSSocketParams(
   destination_.set_priority(priority);
 }
 
+#ifdef ANDROID
+bool SOCKSSocketParams::getUID(uid_t *uid) const {
+  if (transport_params_)
+    return transport_params_->getUID(uid);
+  else
+    return false;
+}
+
+void SOCKSSocketParams::setUID(uid_t uid) {
+  if (transport_params_)
+    return transport_params_->setUID(uid);
+}
+#endif
+
 SOCKSSocketParams::~SOCKSSocketParams() {}
 
 // SOCKSConnectJobs will time out after this many seconds.  Note this is on
@@ -153,9 +167,17 @@ int SOCKSConnectJob::DoSOCKSConnect() {
                                         socks_params_->destination(),
                                         resolver_));
   }
+
+#ifdef ANDROID
+  uid_t calling_uid = 0;
+  bool valid_uid = socks_params_->transport_params()->getUID(&calling_uid);
+#endif
+
   return socket_->Connect(&callback_
 #ifdef ANDROID
                           , socks_params_->ignore_limits()
+                          , valid_uid
+                          , calling_uid
 #endif
                          );
 }

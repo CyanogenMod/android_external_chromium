@@ -97,6 +97,8 @@ SOCKSClientSocket::~SOCKSClientSocket() {
 int SOCKSClientSocket::Connect(CompletionCallback* callback
 #ifdef ANDROID
                                , bool wait_for_connect
+                               , bool valid_uid
+                               , uid_t calling_uid
 #endif
                               ) {
   DCHECK(transport_.get());

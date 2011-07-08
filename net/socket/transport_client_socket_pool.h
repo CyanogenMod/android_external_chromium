@@ -33,6 +33,11 @@ class TransportSocketParams : public base::RefCounted<TransportSocketParams> {
 
   const HostResolver::RequestInfo& destination() const { return destination_; }
   bool ignore_limits() const { return ignore_limits_; }
+#ifdef ANDROID
+  // Gets the UID of the calling process
+  bool getUID(uid_t *uid) const;
+  void setUID(uid_t uid);
+#endif
 
  private:
   friend class base::RefCounted<TransportSocketParams>;
@@ -43,7 +48,11 @@ class TransportSocketParams : public base::RefCounted<TransportSocketParams> {
 
   HostResolver::RequestInfo destination_;
   bool ignore_limits_;
-
+#ifdef ANDROID
+  // Gets the UID of the calling process
+  bool valid_uid_;
+  int calling_uid_;
+#endif
   DISALLOW_COPY_AND_ASSIGN(TransportSocketParams);
 };
 

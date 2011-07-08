@@ -187,6 +187,12 @@ class URLRequestContext
   // Is SNI available in this request context?
   bool IsSNIAvailable() const;
 
+#ifdef ANDROID
+  // Gets the UID of the calling process
+  bool getUID(uid_t *uid) const;
+  void setUID(uid_t uid);
+#endif
+
  protected:
   friend class base::RefCountedThreadSafe<URLRequestContext>;
 
@@ -230,6 +236,11 @@ class URLRequestContext
   // Important: When adding any new members below, consider whether they need to
   // be added to CopyFrom.
   // ---------------------------------------------------------------------------
+
+#ifdef ANDROID
+  bool valid_uid_;
+  uid_t calling_uid_;
+#endif
 
   DISALLOW_COPY_AND_ASSIGN(URLRequestContext);
 };

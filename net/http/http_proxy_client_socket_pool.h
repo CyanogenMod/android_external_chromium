@@ -68,6 +68,11 @@ class HttpProxySocketParams : public base::RefCounted<HttpProxySocketParams> {
   const HostResolver::RequestInfo& destination() const;
   bool tunnel() const { return tunnel_; }
   bool ignore_limits() const { return ignore_limits_; }
+#ifdef ANDROID
+  // Gets the UID of the calling process
+  bool getUID(uid_t *uid) const;
+  void setUID(uid_t uid);
+#endif
 
  private:
   friend class base::RefCounted<HttpProxySocketParams>;

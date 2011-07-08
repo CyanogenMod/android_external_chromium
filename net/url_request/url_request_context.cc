@@ -24,8 +24,12 @@ URLRequestContext::URLRequestContext()
       cookie_policy_(NULL),
       transport_security_state_(NULL),
       http_transaction_factory_(NULL),
-      ftp_transaction_factory_(NULL) {
-}
+      ftp_transaction_factory_(NULL)
+#ifdef ANDROID
+      valid_uid_(false),
+      calling_uid_(0),
+#endif
+      {}
 
 void URLRequestContext::CopyFrom(URLRequestContext* other) {
   // Copy URLRequestContext parameters.
@@ -48,6 +52,10 @@ void URLRequestContext::CopyFrom(URLRequestContext* other) {
   set_referrer_charset(other->referrer_charset());
   set_http_transaction_factory(other->http_transaction_factory());
   set_ftp_transaction_factory(other->ftp_transaction_factory());
+#ifdef ANDROID
+  calling_uid_ = 0;
+  valid_uid_ = other->getUID(&calling_uid_);
+#endif
 }
 
 void URLRequestContext::set_cookie_store(CookieStore* cookie_store) {
@@ -66,6 +74,21 @@ bool URLRequestContext::IsSNIAvailable() const {
   ssl_config_service_->GetSSLConfig(&ssl_config);
   return ssl_config.tls1_enabled;
 }
+
+#ifdef ANDROID
+void URLRequestContext::setUID(uid_t uid) {
+    valid_uid_ = true;
+    calling_uid_ = uid;
+}
+
+bool URLRequestContext::getUID(uid_t *uid) const {
+    if (!valid_uid_) {
+        return false;
+    }
+    *uid = calling_uid_;
+    return true;
+}
+#endif
 
 URLRequestContext::~URLRequestContext() {
 }

@@ -40,6 +40,9 @@ class TCPSocketParams : public base::RefCounted<TCPSocketParams> {
 
 #ifdef ANDROID
   bool ignore_limits() const { return ignore_limits_; }
+  // Gets the UID of the calling process
+  bool getUID(uid_t *uid) const;
+  void setUID(uid_t uid);
 #endif
 
  private:
@@ -52,6 +55,8 @@ class TCPSocketParams : public base::RefCounted<TCPSocketParams> {
   HostResolver::RequestInfo destination_;
 #ifdef ANDROID
   bool ignore_limits_;
+  bool valid_uid_;
+  int calling_uid_;
 #endif
 
   DISALLOW_COPY_AND_ASSIGN(TCPSocketParams);

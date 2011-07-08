@@ -68,6 +68,11 @@ class SSLSocketParams : public base::RefCounted<SSLSocketParams> {
   bool force_spdy_over_ssl() const { return force_spdy_over_ssl_; }
   bool want_spdy_over_npn() const { return want_spdy_over_npn_; }
   bool ignore_limits() const { return ignore_limits_; }
+#ifdef ANDROID
+  // Gets the UID of the calling process
+  bool getUID(uid_t *uid) const;
+  void setUID(uid_t uid);
+#endif
 
  private:
   friend class base::RefCounted<SSLSocketParams>;

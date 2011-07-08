@@ -135,13 +135,21 @@ ClientSocketPoolBaseHelper::Request::Request(
     RequestPriority priority,
     bool ignore_limits,
     Flags flags,
-    const BoundNetLog& net_log)
+    const BoundNetLog& net_log
+#ifdef ANDROID
+    , bool valid_uid, uid_t calling_uid
+#endif
+    )
     : handle_(handle),
       callback_(callback),
       priority_(priority),
       ignore_limits_(ignore_limits),
       flags_(flags),
-      net_log_(net_log) {}
+      net_log_(net_log) 
+#ifdef ANDROID
+      , valid_uid_(valid_uid), calling_uid_(calling_uid)
+#endif
+      {}
 
 ClientSocketPoolBaseHelper::Request::~Request() {}
 

@@ -63,6 +63,22 @@ const HostResolver::RequestInfo& HttpProxySocketParams::destination() const {
 
 HttpProxySocketParams::~HttpProxySocketParams() {}
 
+#ifdef ANDROID
+bool HttpProxySocketParams::getUID(uid_t *uid) const {
+  if (transport_params_ == NULL)
+    return ssl_params_->transport_params()->getUID(uid);
+  else
+    return transport_params_->getUID(uid);
+}
+
+void HttpProxySocketParams::setUID(uid_t uid) {
+  if (transport_params_ == NULL)
+    ssl_params_->transport_params()->setUID(uid);
+  else
+    transport_params_->setUID(uid);
+}
+#endif
+
 // HttpProxyConnectJobs will time out after this many seconds.  Note this is on
 // top of the timeout for the transport socket.
 static const int kHttpProxyConnectJobTimeoutInSeconds = 30;
@@ -272,9 +288,17 @@ int HttpProxyConnectJob::DoHttpProxyConnect() {
                                 params_->tunnel(),
                                 using_spdy_,
                                 params_->ssl_params() != NULL));
+
+#ifdef ANDROID
+  uid_t calling_uid = 0;
+  bool valid_uid = params_->transport_params()->getUID(&calling_uid);
+#endif
+
   return transport_socket_->Connect(&callback_
 #ifdef ANDROID
                                     , false
+                                    , valid_uid
+                                    , calling_uid
 #endif
                                    );
 }
@@ -327,6 +351,11 @@ int HttpProxyConnectJob::DoSpdyProxyCreateStreamComplete(int result) {
   if (result < 0)
     return result;
 
+#ifdef ANDROID
+  uid_t calling_uid = 0;
+  bool valid_uid = params_->transport_params()->getUID(&calling_uid);
+#endif
+
   next_state_ = STATE_HTTP_PROXY_CONNECT_COMPLETE;
   transport_socket_.reset(
       new SpdyProxyClientSocket(spdy_stream_,
@@ -339,6 +368,8 @@ int HttpProxyConnectJob::DoSpdyProxyCreateStreamComplete(int result) {
   return transport_socket_->Connect(&callback_
 #ifdef ANDROID
                                     , false
+                                    , valid_uid
+                                    , calling_uid
 #endif
                                    );
 }

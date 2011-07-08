@@ -778,6 +778,21 @@ void URLRequestHttpJob::Start() {
   }
 
   AddExtraHeaders();
+
+#ifdef ANDROID
+  // Attribute network traffic to the UID of the caller
+  request_info_.valid_uid = false;
+  request_info_.calling_uid = 0;
+
+  if (request_->context()) {
+    uid_t uid;
+    if(request_->context()->getUID(&uid)) {
+      request_info_.valid_uid = true;
+      request_info_.calling_uid = uid;
+    }
+  }
+#endif
+
   AddCookieHeaderAndStart();
 }
 

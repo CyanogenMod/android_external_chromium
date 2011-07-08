@@ -635,6 +635,8 @@ void SSLClientSocketOpenSSL::DoWriteCallback(int rv) {
 int SSLClientSocketOpenSSL::Connect(CompletionCallback* callback
 #ifdef ANDROID
                                     , bool wait_for_connect
+                                    , bool valid_uid
+                                    , uid_t calling_uid
 #endif
                                    ) {
   net_log_.BeginEvent(NetLog::TYPE_SSL_CONNECT, NULL);

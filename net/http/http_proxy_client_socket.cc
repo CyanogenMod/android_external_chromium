@@ -92,6 +92,8 @@ HttpStream* HttpProxyClientSocket::CreateConnectResponseStream() {
 int HttpProxyClientSocket::Connect(CompletionCallback* callback
 #ifdef ANDROID
                                    , bool wait_for_connect
+                                   , bool valid_uid
+                                   , uid_t calling_uid
 #endif
                                   ) {
   DCHECK(transport_.get());
@@ -480,12 +482,15 @@ int HttpProxyClientSocket::DoDrainBodyComplete(int result) {
 
 #ifdef ANDROID
 // TODO(kristianm): Check if we can find out if Connect should block
+// TODO(ashishsharma): Perhaps make ignore_limits, calling_uid, valid_uid part of ClientSocket
 #endif
 int HttpProxyClientSocket::DoTCPRestart() {
   next_state_ = STATE_TCP_RESTART_COMPLETE;
   return transport_->socket()->Connect(&io_callback_
 #ifdef ANDROID
                                        , false
+                                       , false
+                                       , 0
 #endif
                                       );
 }

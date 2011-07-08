@@ -26,7 +26,9 @@ TCPSocketParams::TCPSocketParams(const HostPortPair& host_port_pair,
                                  bool disable_resolver_cache, bool ignore_limits)
     : destination_(host_port_pair)
 #ifdef ANDROID
-      , ignore_limits_(ignore_limits)
+      , ignore_limits_(ignore_limits),
+      valid_uid_(false),
+      calling_uid_(0)
 #endif
     {
   Initialize(priority, referrer, disable_resolver_cache);
@@ -38,7 +40,9 @@ TCPSocketParams::TCPSocketParams(const std::string& host, int port,
                                  bool disable_resolver_cache)
     : destination_(HostPortPair(host, port))
 #ifdef ANDROID
-      , ignore_limits_(false)
+      , ignore_limits_(false),
+      valid_uid_(false),
+      calling_uid_(0)
 #endif
     {
   Initialize(priority, referrer, disable_resolver_cache);
@@ -57,6 +61,21 @@ void TCPSocketParams::Initialize(RequestPriority priority,
   if (disable_resolver_cache)
     destination_.set_allow_cached_response(false);
 }
+
+#ifdef ANDROID
+bool TCPSocketParams::getUID(uid_t *uid) const {
+  if (!valid_uid_) {
+    return false;
+  }
+  *uid = calling_uid_;
+  return true;
+}
+
+void TCPSocketParams::setUID(uid_t uid) {
+  valid_uid_ = true;
+  calling_uid_ = uid;
+}
+#endif
 
 // TCPConnectJobs will time out after this many seconds.  Note this is the total
 // time, including both host resolution and TCP connect() times.
@@ -160,9 +179,17 @@ int TCPConnectJob::DoTCPConnect() {
   set_socket(client_socket_factory_->CreateTCPClientSocket(
         addresses_, net_log().net_log(), net_log().source()));
   connect_start_time_ = base::TimeTicks::Now();
+
+#ifdef ANDROID
+  uid_t calling_uid = 0;
+  bool valid_uid = params_->getUID(&calling_uid);
+#endif
+
   return socket()->Connect(&callback_,
 #ifdef ANDROID
-                           params_->ignore_limits()
+                           params_->ignore_limits(),
+                           valid_uid,
+                           calling_uid
 #endif
                           );
 }

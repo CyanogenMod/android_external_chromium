@@ -31,6 +31,9 @@
 #else
 #include "third_party/libevent/event.h"
 #endif
+#ifdef ANDROID
+#include <cutils/qtaguid.h>
+#endif
 
 namespace net {
 
@@ -118,6 +121,8 @@ TCPClientSocketLibevent::TCPClientSocketLibevent(
       tcp_fastopen_connected_(false)
 #ifdef ANDROID
       , wait_for_connect_(false)
+      , valid_uid_(false)
+      , calling_uid_(0)
 #endif
 {
   scoped_refptr<NetLog::EventParameters> params;
@@ -149,10 +154,14 @@ void TCPClientSocketLibevent::AdoptSocket(int socket) {
 int TCPClientSocketLibevent::Connect(CompletionCallback* callback
 #ifdef ANDROID
                                      , bool wait_for_connect
+                                     , bool valid_uid
+                                     , uid_t calling_uid
 #endif
                                     ) {
 #ifdef ANDROID
   wait_for_connect_ = wait_for_connect;
+  valid_uid_ = valid_uid;
+  calling_uid_ = calling_uid;
 #endif
   DCHECK(CalledOnValidThread());
 
@@ -321,6 +330,12 @@ void TCPClientSocketLibevent::DoDisconnect() {
   DCHECK(ok);
   ok = write_socket_watcher_.StopWatchingFileDescriptor();
   DCHECK(ok);
+
+#ifdef ANDROID
+  if (valid_uid_)
+    qtaguid_untagSocket(socket_);
+#endif
+
   if (HANDLE_EINTR(close(socket_)) < 0)
     PLOG(ERROR) << "close";
   socket_ = kInvalidSocket;
@@ -499,6 +514,12 @@ int TCPClientSocketLibevent::CreateSocket(const addrinfo* ai) {
 int TCPClientSocketLibevent::SetupSocket() {
   if (SetNonBlocking(socket_)) {
     const int err = errno;
+
+#ifdef ANDROID
+    if (valid_uid_)
+      qtaguid_untagSocket(socket_);
+#endif
+
     close(socket_);
     socket_ = kInvalidSocket;
     return err;
@@ -508,6 +529,11 @@ int TCPClientSocketLibevent::SetupSocket() {
   // tcp_client_socket_win.cc after searching for "NODELAY".
   DisableNagle(socket_);  // If DisableNagle fails, we don't care.
   SetTCPKeepAlive(socket_);
+
+#ifdef ANDROID
+  if (valid_uid_)
+    qtaguid_tagSocket(socket_, geteuid(), calling_uid_);
+#endif
 
   return 0;
 }

@@ -173,7 +173,11 @@ class ClientSocketPoolBaseHelper
             RequestPriority priority,
             bool ignore_limits,
             Flags flags,
-            const BoundNetLog& net_log);
+            const BoundNetLog& net_log
+#ifdef ANDROID
+            , bool valid_uid, uid_t calling_uid
+#endif
+            );
 
     virtual ~Request();
 
@@ -191,6 +195,10 @@ class ClientSocketPoolBaseHelper
     bool ignore_limits_;
     const Flags flags_;
     BoundNetLog net_log_;
+#ifdef ANDROID
+    bool valid_uid_;
+    uid_t calling_uid_;
+#endif
 
     DISALLOW_COPY_AND_ASSIGN(Request);
   };
@@ -568,9 +576,18 @@ class ClientSocketPoolBase {
             internal::ClientSocketPoolBaseHelper::Flags flags,
             bool ignore_limits,
             const scoped_refptr<SocketParams>& params,
-            const BoundNetLog& net_log)
+            const BoundNetLog& net_log
+#ifdef ANDROID
+            , bool valid_uid, int calling_uid
+#endif
+           )
         : internal::ClientSocketPoolBaseHelper::Request(
-              handle, callback, priority, ignore_limits, flags, net_log),
+              handle, callback, priority, ignore_limits,
+              flags, net_log
+#ifdef ANDROID
+              , valid_uid, calling_uid
+#endif
+              ),
           params_(params) {}
 
     const scoped_refptr<SocketParams>& params() const { return params_; }
@@ -625,11 +642,19 @@ class ClientSocketPoolBase {
                     ClientSocketHandle* handle,
                     CompletionCallback* callback,
                     const BoundNetLog& net_log) {
+#ifdef ANDROID
+    uid_t calling_uid = 0;
+    bool valid_uid = params->getUID(&calling_uid);
+#endif
     Request* request =
         new Request(handle, callback, priority,
                     internal::ClientSocketPoolBaseHelper::NORMAL,
                     params->ignore_limits(),
-                    params, net_log);
+                    params, net_log
+#ifdef ANDROID
+                    , valid_uid, calling_uid
+#endif
+                    );
     return helper_.RequestSocket(group_name, request);
   }
 
@@ -640,13 +665,21 @@ class ClientSocketPoolBase {
                       const scoped_refptr<SocketParams>& params,
                       int num_sockets,
                       const BoundNetLog& net_log) {
+#ifdef ANDROID
+    uid_t calling_uid = 0;
+    bool valid_uid = params->getUID(&calling_uid);
+#endif
     const Request request(NULL /* no handle */,
                           NULL /* no callback */,
                           LOWEST,
                           internal::ClientSocketPoolBaseHelper::NO_IDLE_SOCKETS,
                           params->ignore_limits(),
                           params,
-                          net_log);
+                          net_log
+#ifdef ANDROID
+                          , valid_uid, calling_uid
+#endif
+                          );
     helper_.RequestSockets(group_name, request, num_sockets);
   }
 

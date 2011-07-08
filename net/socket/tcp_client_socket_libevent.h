@@ -44,6 +44,8 @@ class TCPClientSocketLibevent : public ClientSocket, base::NonThreadSafe {
   virtual int Connect(CompletionCallback* callback
 #ifdef ANDROID
                       , bool wait_for_connect
+                      , bool valid_uid
+                      , uid_t calling_uid
 #endif
                      );
   virtual void Disconnect();
@@ -200,7 +202,8 @@ class TCPClientSocketLibevent : public ClientSocket, base::NonThreadSafe {
 #ifdef ANDROID
   // True if connect should block and not return before the socket is connected
   bool wait_for_connect_;
-
+  bool valid_uid_;
+  uid_t calling_uid_;
 #endif
   DISALLOW_COPY_AND_ASSIGN(TCPClientSocketLibevent);
 };

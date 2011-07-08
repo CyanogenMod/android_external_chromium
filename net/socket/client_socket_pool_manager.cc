@@ -104,6 +104,10 @@ int InitSocketPoolHelper(const HttpRequestInfo& request_info,
                                      request_info.referrer,
                                      disable_resolver_cache,
                                      ignore_limits);
+#ifdef ANDROID
+    if (request_info.valid_uid)
+      tcp_params->setUID(request_info.calling_uid);
+#endif
   } else {
     ProxyServer proxy_server = proxy_info.proxy_server();
     proxy_host_port.reset(new HostPortPair(proxy_server.host_port_pair()));
@@ -113,6 +117,11 @@ int InitSocketPoolHelper(const HttpRequestInfo& request_info,
                             request_info.referrer,
                             disable_resolver_cache,
                             ignore_limits));
+
+#ifdef ANDROID
+    if (request_info.valid_uid)
+      proxy_tcp_params->setUID(request_info.calling_uid);
+#endif
 
     if (proxy_info.is_http() || proxy_info.is_https()) {
       std::string user_agent;

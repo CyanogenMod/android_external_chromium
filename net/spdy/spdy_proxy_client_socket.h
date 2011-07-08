@@ -69,7 +69,8 @@ class SpdyProxyClientSocket : public ProxyClientSocket,
 
   // ClientSocket methods:
 #ifdef ANDROID
-  virtual int Connect(CompletionCallback* callback, bool wait_for_connect);
+  virtual int Connect(CompletionCallback* callback, bool wait_for_connect,
+                        bool valid_uid, uid_t calling_uid);
 #else
   virtual int Connect(CompletionCallback* callback);
 #endif

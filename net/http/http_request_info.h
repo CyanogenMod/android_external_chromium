@@ -56,6 +56,12 @@ struct HttpRequestInfo {
   // An optional globally unique identifier for this request for use by the
   // consumer. 0 is invalid.
   uint64 request_id;
+
+#ifdef ANDROID
+  bool valid_uid;
+  uid_t calling_uid;
+#endif
+
 };
 
 }  // namespace net

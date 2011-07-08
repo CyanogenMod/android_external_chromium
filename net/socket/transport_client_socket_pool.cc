@@ -81,6 +81,21 @@ void TransportSocketParams::Initialize(RequestPriority priority,
     destination_.set_allow_cached_response(false);
 }
 
+#ifdef ANDROID
+bool TransportSocketParams::getUID(uid_t *uid) const {
+  if (!valid_uid_) {
+    return false;
+  }
+  *uid = calling_uid_;
+  return true;
+}
+
+void TransportSocketParams::setUID(uid_t uid) {
+  valid_uid_ = true;
+  calling_uid_ = uid;
+}
+#endif
+
 // TransportConnectJobs will time out after this many seconds.  Note this is
 // the total time, including both host resolution and TCP connect() times.
 //
@@ -219,9 +234,17 @@ int TransportConnectJob::DoTransportConnect() {
   transport_socket_.reset(client_socket_factory_->CreateTransportClientSocket(
         addresses_, net_log().net_log(), net_log().source()));
   connect_start_time_ = base::TimeTicks::Now();
+
+#ifdef ANDROID
+  uid_t calling_uid = 0;
+  bool valid_uid = params_->getUID(&calling_uid);
+#endif
+
   int rv = transport_socket_->Connect(&callback_
 #ifdef ANDROID
                                       , params_->ignore_limits()
+                                      , valid_uid
+                                      , calling_uid
 #endif
                                       );
   if (rv == ERR_IO_PENDING &&
@@ -303,9 +326,17 @@ void TransportConnectJob::DoIPv6FallbackTransportConnect() {
       client_socket_factory_->CreateTransportClientSocket(
           *fallback_addresses_, net_log().net_log(), net_log().source()));
   fallback_connect_start_time_ = base::TimeTicks::Now();
+
+#ifdef ANDROID
+  uid_t calling_uid = 0;
+  bool valid_uid = params_->getUID(&calling_uid);
+#endif
+
   int rv = fallback_transport_socket_->Connect(&fallback_callback_
 #ifdef ANDROID
                                                , params_->ignore_limits()
+                                               , valid_uid
+                                               , calling_uid
 #endif
                                               );
   if (rv != ERR_IO_PENDING)

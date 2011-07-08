@@ -61,6 +61,8 @@ class SSLClientSocketOpenSSL : public SSLClientSocket {
   virtual int Connect(CompletionCallback* callback
 #ifdef ANDROID
                       , bool wait_for_connect
+                      , bool valid_uid
+                      , uid_t calling_uid
 #endif
                      );
   virtual void Disconnect();

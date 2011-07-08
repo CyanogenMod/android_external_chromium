@@ -69,6 +69,44 @@ SSLSocketParams::SSLSocketParams(
 
 SSLSocketParams::~SSLSocketParams() {}
 
+#ifdef ANDROID
+bool SSLSocketParams::getUID(uid_t *uid) const {
+  bool answer = false;
+  switch (proxy_) {
+    case ProxyServer::SCHEME_DIRECT:
+      break;
+    case ProxyServer::SCHEME_HTTP:
+    case ProxyServer::SCHEME_HTTPS:
+      answer = http_proxy_params_->getUID(uid);
+      break;
+    case ProxyServer::SCHEME_SOCKS4:
+    case ProxyServer::SCHEME_SOCKS5:
+      answer = socks_params_->getUID(uid);
+      break;
+    default:
+      break;
+  }
+  return answer;
+}
+
+void SSLSocketParams::setUID(uid_t uid) {
+  switch (proxy_) {
+    case ProxyServer::SCHEME_DIRECT:
+      break;
+    case ProxyServer::SCHEME_HTTP:
+    case ProxyServer::SCHEME_HTTPS:
+      http_proxy_params_->setUID(uid);
+      break;
+    case ProxyServer::SCHEME_SOCKS4:
+    case ProxyServer::SCHEME_SOCKS5:
+      socks_params_->setUID(uid);
+      break;
+    default:
+      break;
+  }
+}
+#endif
+
 // Timeout for the SSL handshake portion of the connect.
 static const int kSSLHandshakeTimeoutInSeconds = 30;
 
@@ -285,9 +323,17 @@ int SSLConnectJob::DoSSLConnect() {
       transport_socket_handle_.release(), params_->host_and_port(),
       params_->ssl_config(), ssl_host_info_.release(), cert_verifier_,
       dns_cert_checker_));
+
+#ifdef ANDROID
+  uid_t calling_uid = 0;
+  bool valid_uid = params_->transport_params()->getUID(&calling_uid);
+#endif
+
   return ssl_socket_->Connect(&callback_
 #ifdef ANDROID
                               , params_->ignore_limits()
+                              , valid_uid
+                              , calling_uid
 #endif
                              );
 }
