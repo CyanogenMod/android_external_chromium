@@ -20,8 +20,5 @@ LOCAL_C_INCLUDES := \
     $(LOCAL_PATH)/third_party/libevent/android
 
 LOCAL_CFLAGS := -DHAVE_CONFIG_H -DANDROID -fvisibility=hidden
-ifeq ($(TARGET_SIMULATOR),true)
-LOCAL_CFLAGS += -D_EVENT_HAVE_FD_MASK=1
-endif
 
 include $(BUILD_STATIC_LIBRARY)

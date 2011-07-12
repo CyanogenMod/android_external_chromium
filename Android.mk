@@ -460,7 +460,6 @@ LOCAL_GENERATED_SOURCES += $(GEN)
 LOCAL_CFLAGS := -DHAVE_CONFIG_H -DANDROID -fvisibility=hidden -DEXPAT_RELATIVE_PATH -DALLOW_QUOTED_COOKIE_VALUES
 LOCAL_CPPFLAGS := -Wno-sign-promo -Wno-missing-field-initializers
 
-ifneq ($(TARGET_SIMULATOR),true)
 # Just a few definitions not provided by bionic.
 LOCAL_CFLAGS += -include "android/prefix.h"
 
@@ -475,6 +474,5 @@ LOCAL_WHOLE_STATIC_LIBRARIES += libevent libprotobuf-cpp-2.3.0-lite modp_b64 dmg
 
 # Including this will modify the include path
 include external/stlport/libstlport.mk
-endif
 
 include $(BUILD_STATIC_LIBRARY)
