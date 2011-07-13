@@ -94,4 +94,20 @@ string16 GetStringFUTF16(int message_id, const string16& a, const string16& b, c
     return ReplaceStringPlaceholders(str, replacements, NULL);
 }
 
+std::string GetApplicationLocale()
+{
+    JNIEnv* env = android::GetJNIEnv();
+    jclass locale_class = env->FindClass("java/util/Locale");
+    jmethodID get_default_locale = env->GetStaticMethodID(locale_class, "getDefault", "()Ljava/util/Locale;");
+    jmethodID to_string = env->GetMethodID(locale_class, "toString", "()Ljava/lang/String;");
+    jobject locale_jobj = env->CallStaticObjectMethod(locale_class, get_default_locale);
+    jstring locale_jstr = static_cast<jstring>(env->CallObjectMethod(locale_jobj, to_string));
+    std::string locale = android::JstringToStdString(env, locale_jstr);
+    env->DeleteLocalRef(locale_jstr);
+    env->DeleteLocalRef(locale_jobj);
+    env->DeleteLocalRef(locale_class);
+
+    return locale;
+}
+
 }

@@ -94,5 +94,6 @@
 namespace l10n_util {
 string16 GetStringUTF16(int message_id);
 string16 GetStringFUTF16(int message_id, const string16& a, const string16& b, const string16& c);
+std::string GetApplicationLocale();
 }
 #endif
