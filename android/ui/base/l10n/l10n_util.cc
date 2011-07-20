@@ -54,7 +54,7 @@ JNIHelper::JNIHelper()
 
 JNIHelper::~JNIHelper()
 {
-    JNIEnv* currentEnv = android::GetJNIEnv();
+    JNIEnv* currentEnv = android::jni::GetJNIEnv();
     if (currentEnv)
         currentEnv->DeleteGlobalRef(mClassRef);
 }
@@ -62,7 +62,7 @@ JNIHelper::~JNIHelper()
 string16 JNIHelper::getLocalisedString(int message_id)
 {
     android::Mutex::Autolock lock(mGetStringLock);
-    JNIEnv* env = android::GetJNIEnv();
+    JNIEnv* env = android::jni::GetJNIEnv();
     if (!mInited) {
         jclass localClass = env->FindClass("android/webkit/L10nUtils");
         mClassRef = static_cast<jclass>(env->NewGlobalRef(localClass));
@@ -72,7 +72,7 @@ string16 JNIHelper::getLocalisedString(int message_id)
 
     static jmethodID getLocalisedString = env->GetStaticMethodID(mClassRef, "getLocalisedString", "(I)Ljava/lang/String;");
     jstring result = static_cast<jstring>(env->CallStaticObjectMethod(mClassRef, getLocalisedString, message_id));
-    string16 str = android::JstringToString16(env, result);
+    string16 str = android::jni::JstringToString16(env, result);
     env->DeleteLocalRef(result);
     return str;
 }
@@ -96,13 +96,13 @@ string16 GetStringFUTF16(int message_id, const string16& a, const string16& b, c
 
 std::string GetApplicationLocale()
 {
-    JNIEnv* env = android::GetJNIEnv();
+    JNIEnv* env = android::jni::GetJNIEnv();
     jclass locale_class = env->FindClass("java/util/Locale");
     jmethodID get_default_locale = env->GetStaticMethodID(locale_class, "getDefault", "()Ljava/util/Locale;");
     jmethodID to_string = env->GetMethodID(locale_class, "toString", "()Ljava/lang/String;");
     jobject locale_jobj = env->CallStaticObjectMethod(locale_class, get_default_locale);
     jstring locale_jstr = static_cast<jstring>(env->CallObjectMethod(locale_jobj, to_string));
-    std::string locale = android::JstringToStdString(env, locale_jstr);
+    std::string locale = android::jni::JstringToStdString(env, locale_jstr);
     env->DeleteLocalRef(locale_jstr);
     env->DeleteLocalRef(locale_jobj);
     env->DeleteLocalRef(locale_class);

@@ -32,13 +32,13 @@ namespace android {
 
 bool MimeUtils::GuessMimeTypeFromExtension(const std::string& extension,
     std::string* result) {
-  JNIEnv* env = GetJNIEnv();
+  JNIEnv* env = jni::GetJNIEnv();
   jstring jExtension = env->NewStringUTF(extension.c_str());
   jobject jResult = env->CallStaticObjectMethod(
       get_class(env), guess_mime_type_from_extension(env), jExtension);
   env->DeleteLocalRef(jExtension);
   if (jResult) {
-    *result = JstringToStdString(env, static_cast<jstring>(jResult));
+    *result = jni::JstringToStdString(env, static_cast<jstring>(jResult));
     env->DeleteLocalRef(jResult);
   }
   return jResult;
@@ -46,13 +46,13 @@ bool MimeUtils::GuessMimeTypeFromExtension(const std::string& extension,
 
 bool MimeUtils::GuessExtensionFromMimeType(const std::string& mimeType,
     std::string* result) {
-  JNIEnv* env = GetJNIEnv();
+  JNIEnv* env = jni::GetJNIEnv();
   jstring jMimeType = env->NewStringUTF(mimeType.c_str());
   jobject jResult = env->CallStaticObjectMethod(
       get_class(env), guess_extension_from_mime_type(env), jMimeType);
   env->DeleteLocalRef(jMimeType);
   if (jResult) {
-    *result = JstringToStdString(env, static_cast<jstring>(jResult));
+    *result = jni::JstringToStdString(env, static_cast<jstring>(jResult));
     env->DeleteLocalRef(jResult);
   }
   return jResult;

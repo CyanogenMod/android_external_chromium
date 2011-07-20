@@ -6,16 +6,20 @@
 
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
+#ifndef ANDROID
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebInputElement.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebOptionElement.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebSelectElement.h"
+#endif
 
+#ifndef ANDROID
 using WebKit::WebFormControlElement;
 using WebKit::WebElement;
 using WebKit::WebInputElement;
 using WebKit::WebOptionElement;
 using WebKit::WebSelectElement;
 using WebKit::WebVector;
+#endif
 
 namespace webkit_glue {
 
@@ -24,6 +28,7 @@ FormField::FormField()
       is_autofilled(false) {
 }
 
+#ifndef ANDROID
 // TODO(jhawkins): This constructor should probably be deprecated and the
 // functionality moved to FormManager.
 FormField::FormField(WebFormControlElement element)
@@ -56,6 +61,7 @@ FormField::FormField(WebFormControlElement element)
 
   TrimWhitespace(value, TRIM_LEADING, &value);
 }
+#endif
 
 FormField::FormField(const string16& label,
                      const string16& name,

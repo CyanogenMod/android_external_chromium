@@ -11,7 +11,7 @@ include $(CLEAR_VARS)
 LOCAL_CPP_EXTENSION := .cc
 
 LOCAL_MODULE := libchromium_net
-LOCAL_MODULE_CLASS := STATIC_LIBRARIES
+LOCAL_MODULE_CLASS := SHARED_LIBRARIES
 INTERMEDIATES := $(call local-intermediates-dir)
 
 LOCAL_SRC_FILES := \
@@ -32,6 +32,7 @@ LOCAL_SRC_FILES := \
     googleurl/src/url_parse_file.cc \
     googleurl/src/url_util.cc \
     \
+    android/content/common/url_constants.cc \
     android/execinfo.cc \
     android/jni/autofill_request_url.cc \
     android/jni/mime_utils.cc \
@@ -47,6 +48,7 @@ LOCAL_SRC_FILES := \
     \
     base/at_exit.cc \
     base/base64.cc \
+    base/environment.cc \
     base/file_descriptor_shuffle.cc \
     base/file_path.cc \
     base/file_util.cc \
@@ -65,6 +67,7 @@ LOCAL_SRC_FILES := \
     base/pickle.cc \
     base/platform_file.cc \
     base/platform_file_posix.cc \
+    base/process_posix.cc \
     base/process_util.cc \
     base/process_util_linux.cc \
     base/process_util_posix.cc \
@@ -393,7 +396,8 @@ LOCAL_SRC_FILES += \
     third_party/libjingle/source/talk/xmllite/xmlparser.cc \
     third_party/libjingle/source/talk/xmllite/xmlprinter.cc \
     \
-    webkit/glue/form_data.cc
+    webkit/glue/form_data.cc \
+    webkit/glue/form_field.cc
 
 LOCAL_C_INCLUDES := \
     $(LOCAL_PATH) \
@@ -455,7 +459,7 @@ $(GEN):
 	perl $(SCRIPT) $@ "public/WebString.h"
 LOCAL_GENERATED_SOURCES += $(GEN)
 
-LOCAL_CFLAGS := -DHAVE_CONFIG_H -DANDROID -fvisibility=hidden -DEXPAT_RELATIVE_PATH -DALLOW_QUOTED_COOKIE_VALUES
+LOCAL_CFLAGS := -DHAVE_CONFIG_H -DANDROID -DEXPAT_RELATIVE_PATH -DALLOW_QUOTED_COOKIE_VALUES
 LOCAL_CPPFLAGS := -Wno-sign-promo -Wno-missing-field-initializers
 
 # Just a few definitions not provided by bionic.
@@ -467,9 +471,10 @@ LOCAL_C_INCLUDES := \
 	$(LOCAL_PATH)/android \
 	$(LOCAL_C_INCLUDES)
 
-LOCAL_WHOLE_STATIC_LIBRARIES += libevent libprotobuf-cpp-2.3.0-lite modp_b64 dmg_fp
+LOCAL_WHOLE_STATIC_LIBRARIES += libevent modp_b64 dmg_fp libcutils
+LOCAL_SHARED_LIBRARIES = libstlport libexpat libcrypto libssl libz libicuuc libicui18n libsqlite libcutils libdl
 
 # Including this will modify the include path
 include external/stlport/libstlport.mk
 
-include $(BUILD_STATIC_LIBRARY)
+include $(BUILD_SHARED_LIBRARY)

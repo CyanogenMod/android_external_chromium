@@ -3,32 +3,68 @@
 // found in the LICENSE file.
 
 #include "android/jni/jni_utils.h"
+#include "base/logging.h"
+#include "base/utf_string_conversions.h"
+#include "jni.h"
 
-// We currently delegate our implementation to WebKit, as WebKit controls the
-// JNI startup process. However, we can't #include relevant headers because they
-// require many extra include paths and #defines that clash with our existing
-// ones. So we forward-declare the methods instead.
-// TODO: Disentangle Android JNI from WebKit.
+namespace {
+JavaVM* sVM;
 
-// JNIUtility.h
-namespace JSC {
-namespace Bindings {
-JNIEnv* getJNIEnv();
-JavaVM* getJavaVM();
+JavaVM* getJavaVM() {
+  return sVM;
 }
-}
-
-// WebCoreJni.h
-namespace android {
-std::string jstringToStdString(JNIEnv* env, jstring jstr);
-string16 jstringToString16(JNIEnv* env, jstring jstr);
-bool checkException(JNIEnv*);
 }
 
 namespace android {
+namespace jni {
+
+void SetJavaVM(JavaVM* vm) {
+  sVM = vm;
+}
+
+bool checkException(JNIEnv* env)
+{
+  if (env->ExceptionCheck() != 0)
+  {
+    LOG(ERROR) << "*** Uncaught exception returned from Java call!\n";
+    env->ExceptionDescribe();
+    return true;
+  }
+  return false;
+}
+
+string16 jstringToString16(JNIEnv* env, jstring jstr)
+{
+  if (!jstr || !env)
+    return string16();
+
+  const char* s = env->GetStringUTFChars(jstr, 0);
+  if (!s)
+    return string16();
+  string16 str = UTF8ToUTF16(s);
+  env->ReleaseStringUTFChars(jstr, s);
+  checkException(env);
+  return str;
+}
+
+std::string jstringToStdString(JNIEnv* env, jstring jstr)
+{
+  if (!jstr || !env)
+    return std::string();
+
+  const char* s = env->GetStringUTFChars(jstr, 0);
+  if (!s)
+    return std::string();
+  std::string str(s);
+  env->ReleaseStringUTFChars(jstr, s);
+  checkException(env);
+  return str;
+}
 
 JNIEnv* GetJNIEnv() {
-  return JSC::Bindings::getJNIEnv();
+  JNIEnv* env;
+  getJavaVM()->AttachCurrentThread(&env, NULL);
+  return env;
 }
 
 std::string JstringToStdString(JNIEnv* env, jstring jstr) {
@@ -52,9 +88,10 @@ jstring ConvertUTF8ToJavaString(JNIEnv* env, std::string str)
 
 void DetachFromVM()
 {
-    JavaVM* vm = JSC::Bindings::getJavaVM();
+    JavaVM* vm = getJavaVM();
     vm->DetachCurrentThread();
 }
 
+} // namespace jni
 } // namespace android
 

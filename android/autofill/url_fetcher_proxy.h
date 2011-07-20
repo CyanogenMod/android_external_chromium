@@ -118,7 +118,7 @@ public:
     cookies_ = cookies;
     data_ = data;
     pending_callbacks_[this] = true;
-    MainThreadProxy::CallOnMainThread(DoComplete, this);
+    DoComplete(this);
   }
 
   net::HttpResponseHeaders* response_headers() const {return real_fetcher_->response_headers();};

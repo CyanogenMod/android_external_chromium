@@ -56,13 +56,13 @@ AndroidNetworkLibraryImpl::VerifyResult
   if (!cert_verifier_class_)
     return VERIFY_INVOCATION_ERROR;
 
-  JNIEnv* env = GetJNIEnv();
+  JNIEnv* env = jni::GetJNIEnv();
   DCHECK(env);
 
   static jmethodID verify_fn = env->GetStaticMethodID(
       cert_verifier_class_, "verifyServerCertificates",
       "([[BLjava/lang/String;Ljava/lang/String;)Landroid/net/http/SslError;");
-  if (CheckException(env)) {
+  if (jni::CheckException(env)) {
     LOG(ERROR) << "verifyServerCertificates method not found; skipping";
     return VERIFY_INVOCATION_ERROR;
   }
@@ -72,9 +72,9 @@ AndroidNetworkLibraryImpl::VerifyResult
   if (!chain_byte_array)
     return VERIFY_INVOCATION_ERROR;
 
-  jstring host_string = ConvertUTF8ToJavaString(env, hostname);
+  jstring host_string = jni::ConvertUTF8ToJavaString(env, hostname);
   DCHECK(host_string);
-  jstring auth_string = ConvertUTF8ToJavaString(env, auth_type);
+  jstring auth_string = jni::ConvertUTF8ToJavaString(env, auth_type);
   DCHECK(auth_string);
 
   jobject error = env->CallStaticObjectMethod(cert_verifier_class_, verify_fn,
@@ -85,7 +85,7 @@ AndroidNetworkLibraryImpl::VerifyResult
   env->DeleteLocalRef(auth_string);
 
   VerifyResult result = VERIFY_INVOCATION_ERROR;
-  if (!CheckException(env)) {
+  if (!jni::CheckException(env)) {
     if (!error) {
       result = VERIFY_OK;
     } else {
@@ -95,7 +95,7 @@ AndroidNetworkLibraryImpl::VerifyResult
                                                    "getPrimaryError", "()I");
       if (error_fn) {
         int code = env->CallIntMethod(error, error_fn);
-        if (!CheckException(env)) {
+        if (!jni::CheckException(env)) {
           if (code == 2) {  // SSL_IDMISMATCH == 2
             result = VERIFY_BAD_HOSTNAME;
           } else if (code == 3) {  // SSL_UNTRUSTED == 3
@@ -111,7 +111,7 @@ AndroidNetworkLibraryImpl::VerifyResult
   // may shutdown at anytime. However this assumption should not be baked in
   // here: another user of the function may not want to have their thread
   // detached at this point.
-  DetachFromVM();
+  jni::DetachFromVM();
   return result;
 }
 
@@ -128,7 +128,7 @@ void AndroidNetworkLibraryImpl::InitWithApplicationContext(JNIEnv* env,
 AndroidNetworkLibraryImpl::AndroidNetworkLibraryImpl(JNIEnv* env)
     : cert_verifier_class_(NULL) {
   jclass cls = env->FindClass(kClassPathName);
-  if (CheckException(env) || !cls) {
+  if (jni::CheckException(env) || !cls) {
       NOTREACHED() << "Unable to load class " << kClassPathName;
   } else {
     cert_verifier_class_ = static_cast<jclass>(env->NewGlobalRef(cls));
@@ -138,6 +138,6 @@ AndroidNetworkLibraryImpl::AndroidNetworkLibraryImpl(JNIEnv* env)
 
 AndroidNetworkLibraryImpl::~AndroidNetworkLibraryImpl() {
   if (cert_verifier_class_)
-    GetJNIEnv()->DeleteGlobalRef(cert_verifier_class_);
+    jni::GetJNIEnv()->DeleteGlobalRef(cert_verifier_class_);
 }
 

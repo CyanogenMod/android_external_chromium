@@ -10,7 +10,7 @@
 namespace android {
 
 JavaISWrapper::JavaISWrapper(const FilePath& path) {
-  JNIEnv* env = GetJNIEnv();
+  JNIEnv* env = jni::GetJNIEnv();
   jclass inputStreamClass = env->FindClass("java/io/InputStream");
   m_read = env->GetMethodID(inputStreamClass, "read", "([B)I");
   m_close = env->GetMethodID(inputStreamClass, "close", "()V");
@@ -23,24 +23,24 @@ JavaISWrapper::JavaISWrapper(const FilePath& path) {
   m_inputStream = env->NewGlobalRef(env->CallStaticObjectMethod(
       bridgeClass,
       method,
-      ConvertUTF8ToJavaString(env, path.value())));
+      jni::ConvertUTF8ToJavaString(env, path.value())));
   env->DeleteLocalRef(bridgeClass);
   env->DeleteLocalRef(inputStreamClass);
 }
 
 JavaISWrapper::~JavaISWrapper() {
-  JNIEnv* env = GetJNIEnv();
+  JNIEnv* env = jni::GetJNIEnv();
   env->CallVoidMethod(m_inputStream, m_close);
-  CheckException(env);
+  jni::CheckException(env);
   env->DeleteGlobalRef(m_inputStream);
 }
 
 int JavaISWrapper::Read(char* out, int length) {
-  JNIEnv* env = GetJNIEnv();
+  JNIEnv* env = jni::GetJNIEnv();
   jbyteArray buffer = env->NewByteArray(length);
 
   int size = (int) env->CallIntMethod(m_inputStream, m_read, buffer);
-  if (CheckException(env) || size < 0) {
+  if (jni::CheckException(env) || size < 0) {
     env->DeleteLocalRef(buffer);
     return 0;
   }
@@ -51,10 +51,16 @@ int JavaISWrapper::Read(char* out, int length) {
 }
 
 uint64 contentUrlSize(const FilePath& name) {
-  JNIEnv* env = GetJNIEnv();
+  JNIEnv* env = jni::GetJNIEnv();
   jclass bridgeClass = env->FindClass("android/webkit/JniUtil");
-  jmethodID method = env->GetStaticMethodID(bridgeClass, "contentUrlSize", "(Ljava/lang/String;)J");
-  jlong length = env->CallStaticLongMethod(bridgeClass, method, ConvertUTF8ToJavaString(env, name.value()));
+  jmethodID method = env->GetStaticMethodID(
+      bridgeClass,
+      "contentUrlSize",
+      "(Ljava/lang/String;)J");
+  jlong length = env->CallStaticLongMethod(
+      bridgeClass,
+      method,
+      jni::ConvertUTF8ToJavaString(env, name.value()));
   env->DeleteLocalRef(bridgeClass);
 
   return static_cast<uint64>(length);
