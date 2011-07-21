@@ -279,7 +279,6 @@ LOCAL_SRC_FILES := \
     net/proxy/proxy_list.cc \
     net/proxy/proxy_resolver_js_bindings.cc \
     net/proxy/proxy_resolver_script_data.cc \
-    net/proxy/proxy_resolver_v8.cc \
     net/proxy/proxy_server.cc \
     net/proxy/proxy_service.cc \
     net/proxy/sync_host_resolver_bridge.cc \
@@ -469,7 +468,6 @@ LOCAL_C_INCLUDES := \
 	$(LOCAL_PATH)/android \
 	$(LOCAL_C_INCLUDES)
 
-#LOCAL_STATIC_LIBRARIES += libevent
 LOCAL_WHOLE_STATIC_LIBRARIES += libevent libprotobuf-cpp-2.3.0-lite modp_b64 dmg_fp
 
 # Including this will modify the include path

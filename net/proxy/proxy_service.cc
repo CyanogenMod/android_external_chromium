@@ -20,7 +20,9 @@
 #include "net/proxy/proxy_config_service_fixed.h"
 #include "net/proxy/proxy_resolver.h"
 #include "net/proxy/proxy_resolver_js_bindings.h"
+#ifndef ANDROID
 #include "net/proxy/proxy_resolver_v8.h"
+#endif
 #include "net/proxy/proxy_script_fetcher.h"
 #include "net/proxy/sync_host_resolver_bridge.h"
 #include "net/url_request/url_request_context.h"
@@ -160,6 +162,7 @@ class ProxyResolverFromPacString : public ProxyResolver {
   const std::string pac_string_;
 };
 
+#ifndef ANDROID
 // This factory creates V8ProxyResolvers with appropriate javascript bindings.
 class ProxyResolverFactoryForV8 : public ProxyResolverFactory {
  public:
@@ -193,6 +196,7 @@ class ProxyResolverFactoryForV8 : public ProxyResolverFactory {
   MessageLoop* io_loop_;
   NetLog* net_log_;
 };
+#endif
 
 // Creates ProxyResolvers using a platform-specific implementation.
 class ProxyResolverFactoryForSystem : public ProxyResolverFactory {
@@ -389,6 +393,7 @@ ProxyService::ProxyService(ProxyConfigService* config_service,
   ResetConfigService(config_service);
 }
 
+#ifndef ANDROID
 // static
 ProxyService* ProxyService::CreateUsingV8ProxyResolver(
     ProxyConfigService* proxy_config_service,
@@ -420,6 +425,7 @@ ProxyService* ProxyService::CreateUsingV8ProxyResolver(
 
   return proxy_service;
 }
+#endif
 
 // static
 ProxyService* ProxyService::CreateUsingSystemProxyResolver(
