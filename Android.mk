@@ -33,6 +33,7 @@ LOCAL_SRC_FILES := \
     googleurl/src/url_util.cc \
     \
     android/execinfo.cc \
+    android/jni/autofill_request_url.cc \
     android/jni/mime_utils.cc \
     android/jni/jni_utils.cc \
     android/jni/platform_file_jni.cc \

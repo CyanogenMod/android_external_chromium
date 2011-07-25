@@ -8,6 +8,9 @@
 #include <ostream>
 #include <vector>
 
+#ifdef ANDROID
+#include "android/jni/autofill_request_url.h"
+#endif
 #include "base/logging.h"
 #include "base/rand_util.h"
 #include "base/stl_util-inl.h"
@@ -213,6 +216,17 @@ bool AutofillDownloadManager::StartRequest(
     request_url = AUTO_FILL_QUERY_SERVER_REQUEST_URL;
   else
     request_url = AUTO_FILL_UPLOAD_SERVER_REQUEST_URL;
+
+#ifdef ANDROID
+  if (request_data.request_type == AutofillDownloadManager::REQUEST_QUERY) {
+    // Ask the platform what URL to use for Autofill. If the
+    // platform doesn't know, bail and rely on the heuristics
+    // we've gathered.
+    request_url = android::AutofillRequestUrl::GetQueryUrl();
+    if (request_url.empty())
+      return false;
+  }
+#endif
 
   // Id is ignored for regular chrome, in unit test id's for fake fetcher
   // factory will be 0, 1, 2, ...
