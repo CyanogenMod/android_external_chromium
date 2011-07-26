@@ -49,6 +49,7 @@
 
 #if defined(OS_LINUX) || defined(OS_FREEBSD) || defined(OS_OPENBSD) || \
     defined(OS_SOLARIS)
+<<<<<<< HEAD
 
 #if defined(ANDROID)
 #define USE_OPENSSL 1
@@ -64,6 +65,12 @@
 #else
 #undef USE_X11
 #endif
+=======
+#if !defined(USE_OPENSSL)
+#define USE_NSS 1  // Default to use NSS for crypto, unless OpenSSL is chosen.
+#endif
+#define USE_X11 1  // Use X for graphics.
+>>>>>>> chromium.org at 12.0.742.130
 #endif
 
 #if defined(USE_OPENSSL) && defined(USE_NSS)
@@ -73,8 +80,12 @@
 // For access to standard POSIXish features, use OS_POSIX instead of a
 // more specific macro.
 #if defined(OS_MACOSX) || defined(OS_LINUX) || defined(OS_FREEBSD) || \
+<<<<<<< HEAD
     defined(OS_OPENBSD) || defined(OS_SOLARIS) || defined(OS_NACL) || \
     defined(ANDROID)
+=======
+    defined(OS_OPENBSD) || defined(OS_SOLARIS) || defined(OS_NACL)
+>>>>>>> chromium.org at 12.0.742.130
 #define OS_POSIX 1
 // Use base::DataPack for name/value pairs.
 #define USE_BASE_DATA_PACK 1
