@@ -9,11 +9,7 @@
 
 #include "base/string_util.h"
 #include "googleurl/src/gurl.h"
-#ifdef ANDROID
-#include "WebCoreSupport/autofill/FormFieldAndroid.h"
-#else
 #include "webkit/glue/form_field.h"
-#endif
 
 namespace webkit_glue {
 

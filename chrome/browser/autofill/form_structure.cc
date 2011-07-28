@@ -14,11 +14,7 @@
 #include "chrome/browser/autofill/field_types.h"
 #include "chrome/browser/autofill/form_field.h"
 #include "third_party/libjingle/source/talk/xmllite/xmlelement.h"
-#ifdef ANDROID
-#include <WebCoreSupport/autofill/FormFieldAndroid.h>
-#else
 #include "webkit/glue/form_field.h"
-#endif
 
 using webkit_glue::FormData;
 

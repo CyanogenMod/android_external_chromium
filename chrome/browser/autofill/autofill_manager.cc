@@ -53,11 +53,7 @@
 #endif
 #include "ui/base/l10n/l10n_util.h"
 #include "webkit/glue/form_data.h"
-#ifdef ANDROID
-#include <WebCoreSupport/autofill/FormFieldAndroid.h>
-#else
 #include "webkit/glue/form_field.h"
-#endif
 
 using webkit_glue::FormData;
 using webkit_glue::FormField;

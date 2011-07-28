@@ -408,8 +408,6 @@ LOCAL_C_INCLUDES := \
     external/skia \
     external/sqlite/dist \
     external/webkit/Source/WebKit/chromium \
-    external/webkit/Source/WebKit/android \
-    external/webkit/Source/WebKit/android/WebCoreSupport \
     external/zlib \
     external \
     $(LOCAL_PATH)/base/third_party/dmg_fp \

@@ -31,7 +31,6 @@
 #include "base/threading/thread.h"
 #include "common/net/url_fetcher.h"
 #include "net/url_request/url_request_status.h"
-#include <WebCoreSupport/autofill/MainThreadProxy.h>
 
 class URLFetcherProxy;
 

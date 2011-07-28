@@ -8,14 +8,18 @@
 #include <vector>
 
 #include "base/string16.h"
+#ifndef ANDROID
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebFormControlElement.h"
+#endif
 
 namespace webkit_glue {
 
 // Stores information about a field in a form.
 struct FormField {
   FormField();
+#ifndef ANDROID
   explicit FormField(WebKit::WebFormControlElement element);
+#endif
   FormField(const string16& label,
             const string16& name,
             const string16& value,
