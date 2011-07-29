@@ -45,7 +45,13 @@ LOCAL_SRC_FILES := \
     app/sql/meta_table.cc \
     app/sql/statement.cc \
     app/sql/transaction.cc \
-    \
+
+ifeq ($(TARGET_ARCH),x86)
+LOCAL_SRC_FILES += \
+    base/atomicops_internals_x86_gcc.cc
+endif
+
+LOCAL_SRC_FILES += \
     base/at_exit.cc \
     base/base64.cc \
     base/environment.cc \
