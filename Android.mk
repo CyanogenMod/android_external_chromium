@@ -474,6 +474,8 @@ LOCAL_C_INCLUDES := \
 LOCAL_WHOLE_STATIC_LIBRARIES += libevent modp_b64 dmg_fp libcutils
 LOCAL_SHARED_LIBRARIES = libstlport libexpat libcrypto libssl libz libicuuc libicui18n libsqlite libcutils libdl
 
+LOCAL_PRELINK_MODULE := false
+
 # Including this will modify the include path
 include external/stlport/libstlport.mk
 
