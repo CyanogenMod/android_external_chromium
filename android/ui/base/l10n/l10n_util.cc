@@ -54,9 +54,10 @@ JNIHelper::JNIHelper()
 
 JNIHelper::~JNIHelper()
 {
-    JNIEnv* currentEnv = android::jni::GetJNIEnv();
-    if (currentEnv)
-        currentEnv->DeleteGlobalRef(mClassRef);
+    if (!mInited)
+        return;
+
+    android::jni::GetJNIEnv()->DeleteGlobalRef(mClassRef);
 }
 
 string16 JNIHelper::getLocalisedString(int message_id)

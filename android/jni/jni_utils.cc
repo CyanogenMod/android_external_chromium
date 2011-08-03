@@ -8,7 +8,7 @@
 #include "jni.h"
 
 namespace {
-JavaVM* sVM;
+JavaVM* sVM = NULL;
 
 JavaVM* getJavaVM() {
   return sVM;
@@ -18,7 +18,9 @@ JavaVM* getJavaVM() {
 namespace android {
 namespace jni {
 
-void SetJavaVM(JavaVM* vm) {
+// All JNI code assumes this has previously been called with a valid VM
+void SetJavaVM(JavaVM* vm)
+{
   sVM = vm;
 }
 
