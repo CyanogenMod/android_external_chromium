@@ -26,8 +26,8 @@ URLRequestContext::URLRequestContext()
       http_transaction_factory_(NULL),
       ftp_transaction_factory_(NULL)
 #ifdef ANDROID
-      valid_uid_(false),
-      calling_uid_(0),
+      , valid_uid_(false),
+      calling_uid_(0)
 #endif
       {}
 
