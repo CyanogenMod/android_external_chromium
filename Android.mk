@@ -11,7 +11,7 @@ include $(CLEAR_VARS)
 LOCAL_CPP_EXTENSION := .cc
 
 LOCAL_MODULE := libchromium_net
-LOCAL_MODULE_CLASS := SHARED_LIBRARIES
+LOCAL_MODULE_CLASS := STATIC_LIBRARIES
 INTERMEDIATES := $(call local-intermediates-dir)
 
 LOCAL_SRC_FILES := \
@@ -485,4 +485,4 @@ LOCAL_PRELINK_MODULE := false
 # Including this will modify the include path
 include external/stlport/libstlport.mk
 
-include $(BUILD_SHARED_LIBRARY)
+include $(BUILD_STATIC_LIBRARY)
