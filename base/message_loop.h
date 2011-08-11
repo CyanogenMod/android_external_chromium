@@ -516,7 +516,12 @@ class BASE_API MessageLoopForUI : public MessageLoop {
   // Returns the MessageLoopForUI of the current thread.
   static MessageLoopForUI* current() {
     MessageLoop* loop = MessageLoop::current();
+#ifdef ANDROID
+    DCHECK_EQ(static_cast<int>(MessageLoop::TYPE_UI),
+              static_cast<int>(loop->type()));
+#else
     DCHECK_EQ(MessageLoop::TYPE_UI, loop->type());
+#endif
     return static_cast<MessageLoopForUI*>(loop);
   }
 
@@ -590,7 +595,12 @@ class BASE_API MessageLoopForIO : public MessageLoop {
   // Returns the MessageLoopForIO of the current thread.
   static MessageLoopForIO* current() {
     MessageLoop* loop = MessageLoop::current();
+#ifdef ANDROID
+    DCHECK_EQ(static_cast<int>(MessageLoop::TYPE_IO),
+              static_cast<int>(loop->type()));
+#else
     DCHECK_EQ(MessageLoop::TYPE_IO, loop->type());
+#endif
     return static_cast<MessageLoopForIO*>(loop);
   }
 

@@ -552,8 +552,13 @@ class URLRequest : public base::NonThreadSafe {
   // Returns the priority level for this request.
   RequestPriority priority() const { return priority_; }
   void set_priority(RequestPriority priority) {
+#ifdef ANDROID
+    DCHECK_GE(static_cast<int>(priority), static_cast<int>(HIGHEST));
+    DCHECK_LT(static_cast<int>(priority), static_cast<int>(NUM_PRIORITIES));
+#else
     DCHECK_GE(priority, HIGHEST);
     DCHECK_LT(priority, NUM_PRIORITIES);
+#endif
     priority_ = priority;
   }
 
