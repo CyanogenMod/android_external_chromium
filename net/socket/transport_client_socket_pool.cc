@@ -63,7 +63,11 @@ TransportSocketParams::TransportSocketParams(
     const GURL& referrer,
     bool disable_resolver_cache,
     bool ignore_limits)
-    : destination_(host_port_pair), ignore_limits_(ignore_limits) {
+    : destination_(host_port_pair), ignore_limits_(ignore_limits)
+#ifdef ANDROID
+    , valid_uid_(false), calling_uid_(0)
+#endif
+    {
   Initialize(priority, referrer, disable_resolver_cache);
 }
 
