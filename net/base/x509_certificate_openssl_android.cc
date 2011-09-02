@@ -37,6 +37,12 @@ int X509Certificate::Verify(const std::string& hostname,
     cert_bytes.push_back(GetDEREncodedBytes(*it));
   }
 
+
+  if (IsPublicKeyBlacklisted(verify_result->public_key_hashes)) {
+    verify_result->cert_status |= CERT_STATUS_AUTHORITY_INVALID;
+    return MapCertStatusToNetError(verify_result->cert_status);
+  }
+
   // TODO(joth): Fetch the authentication type from SSL rather than hardcode.
   AndroidNetworkLibrary::VerifyResult result =
       lib->VerifyX509CertChain(cert_bytes, hostname, "RSA");

@@ -477,6 +477,11 @@ int X509Certificate::Verify(const std::string& hostname,
     verify_result->public_key_hashes.push_back(hash);
   }
 
+  if (IsPublicKeyBlacklisted(verify_result->public_key_hashes)) {
+    verify_result->cert_status |= CERT_STATUS_AUTHORITY_INVALID;
+    return MapCertStatusToNetError(verify_result->cert_status);
+  }
+
   // Currently we only ues OpenSSL's default root CA paths, so treat all
   // correctly verified certs as being from a known root. TODO(joth): if the
   // motivations described in http://src.chromium.org/viewvc/chrome?view=rev&revision=80778
