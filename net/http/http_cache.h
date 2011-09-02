@@ -178,6 +178,9 @@ class HttpCache : public HttpTransactionFactory,
   // immediately, but they will not be reusable. This is for debugging.
   void CloseAllConnections();
 
+  // Close all idle connections. Will close all sockets not in active use.
+  void CloseIdleConnections();
+
   // HttpTransactionFactory implementation:
   virtual int CreateTransaction(scoped_ptr<HttpTransaction>* trans);
   virtual HttpCache* GetCache();

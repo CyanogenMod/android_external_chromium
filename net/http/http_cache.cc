@@ -459,6 +459,14 @@ void HttpCache::CloseAllConnections() {
     session->CloseAllConnections();
 }
 
+void HttpCache::CloseIdleConnections() {
+  net::HttpNetworkLayer* network =
+      static_cast<net::HttpNetworkLayer*>(network_layer_.get());
+  HttpNetworkSession* session = network->GetSession();
+  if (session)
+    session->CloseIdleConnections();
+}
+
 int HttpCache::CreateTransaction(scoped_ptr<HttpTransaction>* trans) {
   // Do lazy initialization of disk cache if needed.
   if (!disk_cache_.get())
