@@ -74,13 +74,23 @@ bool SSLSocketParams::getUID(uid_t *uid) const {
   bool answer = false;
   switch (proxy_) {
     case ProxyServer::SCHEME_DIRECT:
+      DCHECK(transport_params_.get() != NULL);
+      DCHECK(http_proxy_params_.get() == NULL);
+      DCHECK(socks_params_.get() == NULL);
+      answer = transport_params_->getUID(uid);
       break;
     case ProxyServer::SCHEME_HTTP:
     case ProxyServer::SCHEME_HTTPS:
+      DCHECK(transport_params_.get() == NULL);
+      DCHECK(http_proxy_params_.get() != NULL);
+      DCHECK(socks_params_.get() == NULL);
       answer = http_proxy_params_->getUID(uid);
       break;
     case ProxyServer::SCHEME_SOCKS4:
     case ProxyServer::SCHEME_SOCKS5:
+      DCHECK(transport_params_.get() == NULL);
+      DCHECK(http_proxy_params_.get() == NULL);
+      DCHECK(socks_params_.get() != NULL);
       answer = socks_params_->getUID(uid);
       break;
     default:
@@ -326,7 +336,7 @@ int SSLConnectJob::DoSSLConnect() {
 
 #ifdef ANDROID
   uid_t calling_uid = 0;
-  bool valid_uid = params_->transport_params()->getUID(&calling_uid);
+  bool valid_uid = params_->getUID(&calling_uid);
 #endif
 
   return ssl_socket_->Connect(&callback_
