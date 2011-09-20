@@ -528,7 +528,12 @@ int TCPClientSocketLibevent::SetupSocket() {
   // This mirrors the behaviour on Windows. See the comment in
   // tcp_client_socket_win.cc after searching for "NODELAY".
   DisableNagle(socket_);  // If DisableNagle fails, we don't care.
+
+  // ANDROID: Disable TCP keep-alive for bug 5226268
+  // [Browser] http keep-alive packets are sent too frequently to network
+#ifndef ANDROID
   SetTCPKeepAlive(socket_);
+#endif
 
 #ifdef ANDROID
   if (valid_uid_)
