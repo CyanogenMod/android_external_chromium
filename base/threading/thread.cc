@@ -73,7 +73,12 @@ bool Thread::StartWithOptions(const Options& options) {
 
   if (!PlatformThread::Create(options.stack_size, this, &thread_)) {
     DLOG(ERROR) << "failed to create thread";
+#if defined(ANDROID)
+    // For debugging. See http://b/5244039
+    startup_data_ = reinterpret_cast<StartupData*>(0xdeadd00d);
+#else
     startup_data_ = NULL;
+#endif
     return false;
   }
 
@@ -81,7 +86,12 @@ bool Thread::StartWithOptions(const Options& options) {
   startup_data.event.Wait();
 
   // set it to NULL so we don't keep a pointer to some object on the stack.
+#if defined(ANDROID)
+  // For debugging. See http://b/5244039
+  startup_data_ = reinterpret_cast<StartupData*>(0xbbadbeef);
+#else
   startup_data_ = NULL;
+#endif
   started_ = true;
 
   DCHECK(message_loop_);
