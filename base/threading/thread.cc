@@ -69,6 +69,12 @@ bool Thread::StartWithOptions(const Options& options) {
   SetThreadWasQuitProperly(false);
 
   StartupData startup_data(options);
+#if defined(ANDROID)
+  // For debugging. See http://b/5244039
+  LOG(INFO) << "StartWithOptions() created startup_data, this=" << this
+      << ", startup_data.event.IsSignaled()="
+      << startup_data.event.IsSignaled();
+#endif
   startup_data_ = &startup_data;
 
   if (!PlatformThread::Create(options.stack_size, this, &thread_)) {
@@ -83,11 +89,20 @@ bool Thread::StartWithOptions(const Options& options) {
   }
 
   // Wait for the thread to start and initialize message_loop_
+#if defined(ANDROID)
+  // For debugging. See http://b/5244039
+  LOG(INFO) << "StartWithOptions() waiting for thread to start, this=" << this
+      << ", startup_data.event.IsSignaled()="
+      << startup_data.event.IsSignaled();
+#endif
   startup_data.event.Wait();
 
   // set it to NULL so we don't keep a pointer to some object on the stack.
 #if defined(ANDROID)
   // For debugging. See http://b/5244039
+  LOG(INFO) << "StartWithOptions() clearing startup_data_, this=" << this
+      << ", startup_data.event.IsSignaled()="
+      << startup_data.event.IsSignaled();
   startup_data_ = reinterpret_cast<StartupData*>(0xbbadbeef);
 #else
   startup_data_ = NULL;
@@ -152,6 +167,12 @@ bool Thread::GetThreadWasQuitProperly() {
 
 void Thread::ThreadMain() {
   {
+#if defined(ANDROID)
+    // For debugging. See http://b/5244039
+    LOG(INFO) << "ThreadMain() starting, this=" << this
+        << ", startup_data_->event.IsSignaled()="
+        << startup_data_->event.IsSignaled();
+#endif
     // The message loop for this thread.
     MessageLoop message_loop(startup_data_->options.message_loop_type);
 
@@ -167,6 +188,12 @@ void Thread::ThreadMain() {
     // Let's do this before signaling we are started.
     Init();
 
+#if defined(ANDROID)
+    // For debugging. See http://b/5244039
+    LOG(INFO) << "ThreadMain() signalling, this=" << this
+        << ", startup_data_->event.IsSignaled()="
+        << startup_data_->event.IsSignaled();
+#endif
     startup_data_->event.Signal();
     // startup_data_ can't be touched anymore since the starting thread is now
     // unlocked.

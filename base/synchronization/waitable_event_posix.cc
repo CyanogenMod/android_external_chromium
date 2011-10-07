@@ -150,7 +150,16 @@ class SyncWaiter : public WaitableEvent::Waiter {
 };
 
 bool WaitableEvent::Wait() {
+#if defined(ANDROID)
+  // For debugging. See http://b/5244039
+  bool result = TimedWait(TimeDelta::FromSeconds(-1));
+  if (!result) {
+    LOG(INFO) << "TimedWait() with infinite timeout should never fail!";
+  }
+  return result;
+#else
   return TimedWait(TimeDelta::FromSeconds(-1));
+#endif
 }
 
 bool WaitableEvent::TimedWait(const TimeDelta& max_time) {
