@@ -53,6 +53,10 @@ Thread::Thread(const char* name)
       message_loop_(NULL),
       thread_id_(kInvalidThreadId),
       name_(name) {
+#if defined(ANDROID)
+  // For debugging. See http://b/5244039
+  is_starting_ = false;
+#endif
 }
 
 Thread::~Thread() {
@@ -60,11 +64,24 @@ Thread::~Thread() {
 }
 
 bool Thread::Start() {
+#if defined(ANDROID)
+  // For debugging. See http://b/5244039
+  LOG(INFO) << "Start(), this=" << this << ", name_=" << name_;
+#endif
   return StartWithOptions(Options());
 }
 
 bool Thread::StartWithOptions(const Options& options) {
   DCHECK(!message_loop_);
+
+#if defined(ANDROID)
+  // For debugging. See http://b/5244039
+  LOG(INFO) << "StartWithOptions(), this=" << this << ", name_=" << name_;
+  is_starting_lock_.Acquire();
+  CHECK(!is_starting_);
+  is_starting_ = true;
+  is_starting_lock_.Release();
+#endif
 
   SetThreadWasQuitProperly(false);
 
@@ -72,19 +89,13 @@ bool Thread::StartWithOptions(const Options& options) {
 #if defined(ANDROID)
   // For debugging. See http://b/5244039
   LOG(INFO) << "StartWithOptions() created startup_data, this=" << this
-      << ", startup_data.event.IsSignaled()="
-      << startup_data.event.IsSignaled();
+      << ", name_=" << name_;
 #endif
   startup_data_ = &startup_data;
 
   if (!PlatformThread::Create(options.stack_size, this, &thread_)) {
     DLOG(ERROR) << "failed to create thread";
-#if defined(ANDROID)
-    // For debugging. See http://b/5244039
-    startup_data_ = reinterpret_cast<StartupData*>(0xdeadd00d);
-#else
     startup_data_ = NULL;
-#endif
     return false;
   }
 
@@ -92,8 +103,7 @@ bool Thread::StartWithOptions(const Options& options) {
 #if defined(ANDROID)
   // For debugging. See http://b/5244039
   LOG(INFO) << "StartWithOptions() waiting for thread to start, this=" << this
-      << ", startup_data.event.IsSignaled()="
-      << startup_data.event.IsSignaled();
+      << ", name_=" << name_;
 #endif
   startup_data.event.Wait();
 
@@ -101,19 +111,29 @@ bool Thread::StartWithOptions(const Options& options) {
 #if defined(ANDROID)
   // For debugging. See http://b/5244039
   LOG(INFO) << "StartWithOptions() clearing startup_data_, this=" << this
-      << ", startup_data.event.IsSignaled()="
-      << startup_data.event.IsSignaled();
+      << ", name_=" << name_;
   startup_data_ = reinterpret_cast<StartupData*>(0xbbadbeef);
 #else
   startup_data_ = NULL;
 #endif
   started_ = true;
 
+#if defined(ANDROID)
+  // For debugging. See http://b/5244039
+  is_starting_lock_.Acquire();
+  is_starting_ = false;
+  is_starting_lock_.Release();
+#endif
+
   DCHECK(message_loop_);
   return true;
 }
 
 void Thread::Stop() {
+#if defined(ANDROID)
+  // For debugging. See http://b/5244039
+  LOG(INFO) << "Stop(), this=" << this << ", name_=" << name_;
+#endif
   if (!thread_was_started())
     return;
 
@@ -133,6 +153,10 @@ void Thread::Stop() {
   started_ = false;
 
   stopping_ = false;
+#if defined(ANDROID)
+  // For debugging. See http://b/5244039
+  LOG(INFO) << "Stop() done, this=" << this << ", name_=" << name_;
+#endif
 }
 
 void Thread::StopSoon() {
@@ -170,8 +194,7 @@ void Thread::ThreadMain() {
 #if defined(ANDROID)
     // For debugging. See http://b/5244039
     LOG(INFO) << "ThreadMain() starting, this=" << this
-        << ", startup_data_->event.IsSignaled()="
-        << startup_data_->event.IsSignaled();
+        << ", name_=" << name_;
 #endif
     // The message loop for this thread.
     MessageLoop message_loop(startup_data_->options.message_loop_type);
@@ -191,8 +214,7 @@ void Thread::ThreadMain() {
 #if defined(ANDROID)
     // For debugging. See http://b/5244039
     LOG(INFO) << "ThreadMain() signalling, this=" << this
-        << ", startup_data_->event.IsSignaled()="
-        << startup_data_->event.IsSignaled();
+        << ", name_=" << name_;
 #endif
     startup_data_->event.Signal();
     // startup_data_ can't be touched anymore since the starting thread is now
