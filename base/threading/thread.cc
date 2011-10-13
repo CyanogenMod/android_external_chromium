@@ -53,10 +53,6 @@ Thread::Thread(const char* name)
       message_loop_(NULL),
       thread_id_(kInvalidThreadId),
       name_(name) {
-#if defined(ANDROID)
-  // For debugging. See http://b/5244039
-  is_starting_ = false;
-#endif
 }
 
 Thread::~Thread() {
@@ -64,33 +60,15 @@ Thread::~Thread() {
 }
 
 bool Thread::Start() {
-#if defined(ANDROID)
-  // For debugging. See http://b/5244039
-  LOG(INFO) << "Start(), this=" << this << ", name_=" << name_;
-#endif
   return StartWithOptions(Options());
 }
 
 bool Thread::StartWithOptions(const Options& options) {
   DCHECK(!message_loop_);
 
-#if defined(ANDROID)
-  // For debugging. See http://b/5244039
-  LOG(INFO) << "StartWithOptions(), this=" << this << ", name_=" << name_;
-  is_starting_lock_.Acquire();
-  CHECK(!is_starting_);
-  is_starting_ = true;
-  is_starting_lock_.Release();
-#endif
-
   SetThreadWasQuitProperly(false);
 
   StartupData startup_data(options);
-#if defined(ANDROID)
-  // For debugging. See http://b/5244039
-  LOG(INFO) << "StartWithOptions() created startup_data, this=" << this
-      << ", name_=" << name_;
-#endif
   startup_data_ = &startup_data;
 
   if (!PlatformThread::Create(options.stack_size, this, &thread_)) {
@@ -100,40 +78,17 @@ bool Thread::StartWithOptions(const Options& options) {
   }
 
   // Wait for the thread to start and initialize message_loop_
-#if defined(ANDROID)
-  // For debugging. See http://b/5244039
-  LOG(INFO) << "StartWithOptions() waiting for thread to start, this=" << this
-      << ", name_=" << name_;
-#endif
   startup_data.event.Wait();
 
   // set it to NULL so we don't keep a pointer to some object on the stack.
-#if defined(ANDROID)
-  // For debugging. See http://b/5244039
-  LOG(INFO) << "StartWithOptions() clearing startup_data_, this=" << this
-      << ", name_=" << name_;
-  startup_data_ = reinterpret_cast<StartupData*>(0xbbadbeef);
-#else
   startup_data_ = NULL;
-#endif
   started_ = true;
-
-#if defined(ANDROID)
-  // For debugging. See http://b/5244039
-  is_starting_lock_.Acquire();
-  is_starting_ = false;
-  is_starting_lock_.Release();
-#endif
 
   DCHECK(message_loop_);
   return true;
 }
 
 void Thread::Stop() {
-#if defined(ANDROID)
-  // For debugging. See http://b/5244039
-  LOG(INFO) << "Stop(), this=" << this << ", name_=" << name_;
-#endif
   if (!thread_was_started())
     return;
 
@@ -153,10 +108,6 @@ void Thread::Stop() {
   started_ = false;
 
   stopping_ = false;
-#if defined(ANDROID)
-  // For debugging. See http://b/5244039
-  LOG(INFO) << "Stop() done, this=" << this << ", name_=" << name_;
-#endif
 }
 
 void Thread::StopSoon() {
@@ -191,11 +142,6 @@ bool Thread::GetThreadWasQuitProperly() {
 
 void Thread::ThreadMain() {
   {
-#if defined(ANDROID)
-    // For debugging. See http://b/5244039
-    LOG(INFO) << "ThreadMain() starting, this=" << this
-        << ", name_=" << name_;
-#endif
     // The message loop for this thread.
     MessageLoop message_loop(startup_data_->options.message_loop_type);
 
@@ -211,11 +157,6 @@ void Thread::ThreadMain() {
     // Let's do this before signaling we are started.
     Init();
 
-#if defined(ANDROID)
-    // For debugging. See http://b/5244039
-    LOG(INFO) << "ThreadMain() signalling, this=" << this
-        << ", name_=" << name_;
-#endif
     startup_data_->event.Signal();
     // startup_data_ can't be touched anymore since the starting thread is now
     // unlocked.
