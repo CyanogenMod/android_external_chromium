@@ -28,10 +28,11 @@
 
 #include "base/message_loop_proxy.h"
 #include "base/threading/thread.h"
+#include "net/base/net_export.h"
 #include "net/url_request/url_request_context_getter.h"
 #include "net/url_request/url_request_context.h"
 
-class AndroidURLRequestContextGetter : public net::URLRequestContextGetter {
+class NET_EXPORT AndroidURLRequestContextGetter : public net::URLRequestContextGetter {
 public:
   AndroidURLRequestContextGetter(net::URLRequestContext* context, base::Thread* ioThread)
     : context_(context)
