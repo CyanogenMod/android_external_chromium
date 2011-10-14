@@ -42,7 +42,7 @@ class CookieList;
 //
 // TODO(deanm) Implement CookieMonster, the cookie database.
 //  - Verify that our domain enforcement and non-dotted handling is correct
-class CookieMonster : public CookieStore {
+class NET_EXPORT CookieMonster : public CookieStore {
  public:
   class CanonicalCookie;
   class Delegate;
@@ -526,7 +526,7 @@ class CookieMonster : public CookieStore {
   DISALLOW_COPY_AND_ASSIGN(CookieMonster);
 };
 
-class CookieMonster::CanonicalCookie {
+class NET_EXPORT CookieMonster::CanonicalCookie {
  public:
 
   // These constructors do no validation or canonicalization of their inputs;
@@ -643,7 +643,7 @@ class CookieMonster::CanonicalCookie {
   bool has_expires_;
 };
 
-class CookieMonster::Delegate
+class NET_EXPORT CookieMonster::Delegate
     : public base::RefCountedThreadSafe<CookieMonster::Delegate> {
  public:
   // The publicly relevant reasons a cookie might be changed.
@@ -680,7 +680,7 @@ class CookieMonster::Delegate
   virtual ~Delegate() {}
 };
 
-class CookieMonster::ParsedCookie {
+class NET_EXPORT CookieMonster::ParsedCookie {
  public:
   typedef std::pair<std::string, std::string> TokenValuePair;
   typedef std::vector<TokenValuePair> PairList;
@@ -803,7 +803,7 @@ class CookieMonster::PersistentCookieStore
   DISALLOW_COPY_AND_ASSIGN(PersistentCookieStore);
 };
 
-class CookieList : public std::vector<CookieMonster::CanonicalCookie> {
+class NET_EXPORT CookieList : public std::vector<CookieMonster::CanonicalCookie> {
 };
 
 }  // namespace net

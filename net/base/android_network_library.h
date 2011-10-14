@@ -10,10 +10,11 @@
 #include <vector>
 
 #include "base/basictypes.h"
+#include "net/base/net_export.h"
 
 namespace net {
 
-class AndroidNetworkLibrary {
+class NET_EXPORT AndroidNetworkLibrary {
  public:
   static void RegisterSharedInstance(AndroidNetworkLibrary* lib);
   static void UnregisterSharedInstance();

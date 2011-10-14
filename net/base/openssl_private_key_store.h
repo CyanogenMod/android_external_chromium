@@ -7,6 +7,7 @@
 #pragma once
 
 #include "base/basictypes.h"
+#include "net/base/net_export.h"
 
 typedef struct evp_pkey_st EVP_PKEY;
 
@@ -21,7 +22,11 @@ namespace net {
 // system location, and be available to the SSLClientSocketOpenSSL when using a
 // client certificate created against the associated public key for client
 // authentication.
-class OpenSSLPrivateKeyStore {
+class
+#ifdef ANDROID
+NET_EXPORT
+#endif
+OpenSSLPrivateKeyStore {
  public:
   // Platforms must define this factory function as appropriate.
   static OpenSSLPrivateKeyStore* GetInstance();

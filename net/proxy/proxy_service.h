@@ -14,6 +14,7 @@
 #include "base/synchronization/waitable_event.h"
 #include "base/threading/non_thread_safe.h"
 #include "net/base/completion_callback.h"
+#include "net/base/net_export.h"
 #include "net/base/net_log.h"
 #include "net/base/network_change_notifier.h"
 #include "net/proxy/proxy_config_service.h"
@@ -34,7 +35,7 @@ class URLRequestContext;
 // This class can be used to resolve the proxy server to use when loading a
 // HTTP(S) URL.  It uses the given ProxyResolver to handle the actual proxy
 // resolution.  See ProxyResolverV8 for example.
-class ProxyService : public base::RefCounted<ProxyService>,
+class NET_EXPORT ProxyService : public base::RefCounted<ProxyService>,
                      public NetworkChangeNotifier::IPAddressObserver,
                      public ProxyConfigService::Observer,
                      public base::NonThreadSafe {

@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "base/file_path.h"
+#include "net/base/net_export.h"
 
 namespace net {
 
@@ -20,7 +21,7 @@ bool GetMimeTypeFromExtension(const FilePath::StringType& ext,
 
 // Get the mime type (if any) that is associated with the given file.  Returns
 // true if a corresponding mime type exists.
-bool GetMimeTypeFromFile(const FilePath& file_path, std::string* mime_type);
+NET_EXPORT bool GetMimeTypeFromFile(const FilePath& file_path, std::string* mime_type);
 
 // Get the preferred extension (if any) associated with the given mime type.
 // Returns true if a corresponding file extension exists.  The extension is
