@@ -12,6 +12,9 @@
 #include "base/basictypes.h"
 #include "base/file_path.h"
 #include "base/file_util.h"
+#ifdef ANDROID
+#include "base/lazy_instance.h"
+#endif
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
@@ -26,26 +29,37 @@
 #include "googleurl/src/gurl.h"
 
 #ifdef ANDROID
-base::Thread* getDbThread()
-{
-  static base::Thread* dbThread = NULL;
-  if (dbThread && dbThread->IsRunning())
-    return dbThread;
+namespace {
 
-  if (!dbThread)
-    dbThread = new base::Thread("db");
+// This class is used by CookieMonster, which is threadsafe, so this class must
+// be threadsafe too.
+base::LazyInstance<base::Lock> db_thread_lock(base::LINKER_INITIALIZED);
 
-  if (!dbThread)
+base::Thread* getDbThread() {
+  base::AutoLock lock(*db_thread_lock.Pointer());
+
+  // FIXME: We should probably be using LazyInstance here.
+  static base::Thread* db_thread = NULL;
+
+  if (db_thread && db_thread->IsRunning())
+    return db_thread;
+
+  if (!db_thread)
+    db_thread = new base::Thread("db");
+
+  if (!db_thread)
     return NULL;
 
   base::Thread::Options options;
   options.message_loop_type = MessageLoop::TYPE_DEFAULT;
-  if (!dbThread->StartWithOptions(options)) {
-    delete dbThread;
-    dbThread = NULL;
+  if (!db_thread->StartWithOptions(options)) {
+    delete db_thread;
+    db_thread = NULL;
   }
-  return dbThread;
+  return db_thread;
 }
+
+}  // namespace
 #endif
 
 using base::Time;
