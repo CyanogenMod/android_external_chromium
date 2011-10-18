@@ -465,8 +465,8 @@ $(GEN):
 	perl $(SCRIPT) $@ "public/WebString.h"
 LOCAL_GENERATED_SOURCES += $(GEN)
 
-LOCAL_CFLAGS := -DHAVE_CONFIG_H -DANDROID -DEXPAT_RELATIVE_PATH -DALLOW_QUOTED_COOKIE_VALUES
-LOCAL_CPPFLAGS := -Wno-sign-promo -Wno-missing-field-initializers
+LOCAL_CFLAGS := -DHAVE_CONFIG_H -DANDROID -DEXPAT_RELATIVE_PATH -DALLOW_QUOTED_COOKIE_VALUES -DCOMPONENT_BUILD -DGURL_DLL
+LOCAL_CPPFLAGS := -Wno-sign-promo -Wno-missing-field-initializers -fvisibility=hidden -fvisibility-inlines-hidden
 
 # Just a few definitions not provided by bionic.
 LOCAL_CFLAGS += -include "android/prefix.h"
@@ -478,7 +478,7 @@ LOCAL_C_INCLUDES := \
 	$(LOCAL_C_INCLUDES)
 
 LOCAL_WHOLE_STATIC_LIBRARIES += libevent modp_b64 dmg_fp libcutils
-LOCAL_SHARED_LIBRARIES = libstlport libexpat libcrypto libssl libz libicuuc libicui18n libsqlite libcutils libdl
+LOCAL_SHARED_LIBRARIES := libstlport libexpat libcrypto libssl libz libicuuc libicui18n libsqlite libcutils libdl
 
 LOCAL_PRELINK_MODULE := false
 
