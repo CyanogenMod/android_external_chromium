@@ -12,6 +12,9 @@
 #include <string>
 #include <vector>
 
+#ifdef ANDROID
+#include "base/base_api.h"
+#endif
 #include "base/string16.h"
 #include "chrome/browser/autofill/address.h"
 #include "chrome/browser/autofill/autofill_type.h"
@@ -25,7 +28,11 @@
 // implements the FormGroup interface so that owners of this object can request
 // form information from the profile, and the profile will delegate the request
 // to the requested form group type.
-class AutofillProfile : public FormGroup {
+class
+#ifdef ANDROID
+BASE_API
+#endif
+AutofillProfile : public FormGroup {
  public:
   explicit AutofillProfile(const std::string& guid);
 

@@ -8,6 +8,9 @@
 #define CHROME_BROWSER_PROFILES_PROFILE_H_
 #pragma once
 
+#ifdef ANDROID
+#include "base/base_api.h"
+#endif
 #include "base/basictypes.h"
 #include "base/logging.h"
 #ifndef ANDROID
@@ -118,7 +121,11 @@ class URLRequestContextGetter;
 
 typedef intptr_t ProfileId;
 
-class Profile {
+class
+#ifdef ANDROID
+BASE_API
+#endif
+Profile {
  public:
   // Profile services are accessed with the following parameter. This parameter
   // defines what the caller plans to do with the service.
