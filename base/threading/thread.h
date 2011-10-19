@@ -185,12 +185,6 @@ class BASE_API Thread : PlatformThread::Delegate {
   // The name of the thread.  Used for debugging purposes.
   std::string name_;
 
-#if defined(ANDROID)
-  // For debugging. See http://b/5244039
-  Lock is_starting_lock_;
-  bool is_starting_;
-#endif
-
   friend class ThreadQuitTask;
 
   DISALLOW_COPY_AND_ASSIGN(Thread);
