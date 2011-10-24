@@ -13,8 +13,9 @@
 #include <vector>
 
 #include "net/base/android_network_library.h"
+#include "net/base/net_export.h"
 
-class AndroidNetworkLibraryImpl : public net::AndroidNetworkLibrary {
+class NET_EXPORT AndroidNetworkLibraryImpl : public net::AndroidNetworkLibrary {
  public:
   static void InitWithApplicationContext(JNIEnv* env, jobject context);
 

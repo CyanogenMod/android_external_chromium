@@ -5,6 +5,7 @@
 
 #include <string>
 
+#include "base/base_api.h"
 #include "base/string16.h"
 #include "nativehelper/jni.h"
 
@@ -12,7 +13,7 @@ namespace android {
 
 namespace jni { // To avoid name conflict with similar functions in webkit
 
-void SetJavaVM(JavaVM* vm);
+void BASE_API SetJavaVM(JavaVM* vm);
 
 // Get the JNI environment for the current thread.
 JNIEnv* GetJNIEnv();
