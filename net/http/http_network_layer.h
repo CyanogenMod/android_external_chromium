@@ -11,6 +11,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/threading/non_thread_safe.h"
+#include "net/base/net_export.h"
 #include "net/http/http_transaction_factory.h"
 
 namespace net {
@@ -29,8 +30,8 @@ class SpdySessionPool;
 class SSLConfigService;
 class SSLHostInfoFactory;
 
-class HttpNetworkLayer : public HttpTransactionFactory,
-                         public base::NonThreadSafe {
+class NET_EXPORT HttpNetworkLayer : public HttpTransactionFactory,
+                                    public base::NonThreadSafe {
  public:
   // Construct a HttpNetworkLayer with an existing HttpNetworkSession which
   // contains a valid ProxyService.
