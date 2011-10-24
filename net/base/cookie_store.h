@@ -15,6 +15,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/time.h"
 #include "net/base/cookie_options.h"
+#include "net/base/net_export.h"
 
 class GURL;
 
@@ -24,7 +25,7 @@ class CookieMonster;
 
 // An interface for storing and retrieving cookies. Implementations need to
 // be thread safe as its methods can be accessed from IO as well as UI threads.
-class CookieStore : public base::RefCountedThreadSafe<CookieStore> {
+class NET_EXPORT CookieStore : public base::RefCountedThreadSafe<CookieStore> {
  public:
   // Sets a single cookie.  Expects a cookie line, like "a=1; domain=b.com".
   virtual bool SetCookieWithOptions(const GURL& url,

@@ -15,10 +15,11 @@
 #include <vector>
 #include "base/basictypes.h"
 #include "base/string_piece.h"
+#include "net/base/net_export.h"
 
 namespace net {
 
-class HttpRequestHeaders {
+class NET_EXPORT HttpRequestHeaders {
  public:
   struct HeaderKeyValuePair {
     HeaderKeyValuePair();

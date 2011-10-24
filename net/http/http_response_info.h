@@ -8,6 +8,7 @@
 
 #include "base/time.h"
 #include "net/base/host_port_pair.h"
+#include "net/base/net_export.h"
 #include "net/base/ssl_info.h"
 #include "net/http/http_vary_data.h"
 
@@ -20,7 +21,7 @@ class HttpResponseHeaders;
 class IOBufferWithSize;
 class SSLCertRequestInfo;
 
-class HttpResponseInfo {
+class NET_EXPORT HttpResponseInfo {
  public:
   HttpResponseInfo();
   HttpResponseInfo(const HttpResponseInfo& rhs);

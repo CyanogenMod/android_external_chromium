@@ -13,6 +13,7 @@
 #include "net/base/address_family.h"
 #include "net/base/completion_callback.h"
 #include "net/base/host_port_pair.h"
+#include "net/base/net_export.h"
 #include "net/base/request_priority.h"
 
 namespace net {
@@ -32,11 +33,11 @@ class NetLog;
 // request at a time is to create a SingleRequestHostResolver wrapper around
 // HostResolver (which will automatically cancel the single request when it
 // goes out of scope).
-class HostResolver {
+class NET_EXPORT HostResolver {
  public:
   // The parameters for doing a Resolve(). A hostname and port are required,
   // the rest are optional (and have reasonable defaults).
-  class RequestInfo {
+  class NET_EXPORT RequestInfo {
    public:
     explicit RequestInfo(const HostPortPair& host_port_pair);
 
@@ -196,7 +197,7 @@ class HostResolver {
 // This class represents the task of resolving a hostname (or IP address
 // literal) to an AddressList object.  It wraps HostResolver to resolve only a
 // single hostname at a time and cancels this request when going out of scope.
-class SingleRequestHostResolver {
+class NET_EXPORT SingleRequestHostResolver {
  public:
   // |resolver| must remain valid for the lifetime of |this|.
   explicit SingleRequestHostResolver(HostResolver* resolver);
@@ -240,9 +241,9 @@ class SingleRequestHostResolver {
 // underlying system, |max_concurrent_resolves| is how many resolve
 // requests will be allowed to run in parallel. Pass
 // HostResolver::kDefaultParallelism to choose a default value.
-HostResolver* CreateSystemHostResolver(size_t max_concurrent_resolves,
-                                       HostResolverProc* resolver_proc,
-                                       NetLog* net_log);
+NET_EXPORT HostResolver* CreateSystemHostResolver(size_t max_concurrent_resolves,
+                                                  HostResolverProc* resolver_proc,
+                                                  NetLog* net_log);
 
 }  // namespace net
 

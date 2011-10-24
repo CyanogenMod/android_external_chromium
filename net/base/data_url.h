@@ -10,6 +10,8 @@
 
 class GURL;
 
+#include "net/base/net_export.h"
+
 namespace net {
 
 // See RFC 2397 for a complete description of the 'data' URL scheme.
@@ -26,7 +28,7 @@ namespace net {
 // If <mediatype> is omitted, it defaults to text/plain;charset=US-ASCII.  As a
 // shorthand, "text/plain" can be omitted but the charset parameter supplied.
 //
-class DataURL {
+class NET_EXPORT DataURL {
  public:
   // This method can be used to parse a 'data' URL into its component pieces.
   //

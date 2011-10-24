@@ -23,6 +23,7 @@
 #include "base/basictypes.h"
 #include "base/string16.h"
 #include "net/base/escape.h"
+#include "net/base/net_export.h"
 
 struct addrinfo;
 class FilePath;
@@ -204,7 +205,7 @@ std::string GetFileNameFromCD(const std::string& header,
 // an offset points past the end of |host| or into the middle of a punycode
 // sequence, the offending offset will be set to std::wstring::npos.
 // |offset[s]_for_adjustment| may be NULL.
-std::wstring IDNToUnicode(const char* host,
+NET_EXPORT std::wstring IDNToUnicode(const char* host,
                           size_t host_len,
                           const std::wstring& languages,
                           size_t* offset_for_adjustment);

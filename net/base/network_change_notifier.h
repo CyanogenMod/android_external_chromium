@@ -8,15 +8,16 @@
 
 #include "base/basictypes.h"
 #include "base/observer_list_threadsafe.h"
+#include "net/base/net_export.h"
 
 namespace net {
 
 // NetworkChangeNotifier monitors the system for network changes, and notifies
 // registered observers of those events.  Observers may register on any thread,
 // and will be called back on the thread from which they registered.
-class NetworkChangeNotifier {
+class NET_EXPORT NetworkChangeNotifier {
  public:
-  class IPAddressObserver {
+  class NET_EXPORT IPAddressObserver {
    public:
     virtual ~IPAddressObserver() {}
 
@@ -31,7 +32,7 @@ class NetworkChangeNotifier {
     DISALLOW_COPY_AND_ASSIGN(IPAddressObserver);
   };
 
-  class OnlineStateObserver {
+  class NET_EXPORT OnlineStateObserver {
    public:
     virtual ~OnlineStateObserver() {}
 

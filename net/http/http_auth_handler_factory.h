@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "base/memory/scoped_ptr.h"
+#include "net/base/net_export.h"
 #include "net/http/http_auth.h"
 #include "net/http/url_security_manager.h"
 
@@ -26,7 +27,7 @@ class HttpAuthHandlerRegistryFactory;
 // An HttpAuthHandlerFactory is used to create HttpAuthHandler objects.
 // The HttpAuthHandlerFactory object _must_ outlive any of the HttpAuthHandler
 // objects that it creates.
-class HttpAuthHandlerFactory {
+class NET_EXPORT HttpAuthHandlerFactory {
  public:
   enum CreateReason {
     CREATE_CHALLENGE,     // Create a handler in response to a challenge.
@@ -125,7 +126,8 @@ class HttpAuthHandlerFactory {
 
 // The HttpAuthHandlerRegistryFactory dispatches create requests out
 // to other factories based on the auth scheme.
-class HttpAuthHandlerRegistryFactory : public HttpAuthHandlerFactory {
+class NET_EXPORT HttpAuthHandlerRegistryFactory 
+    : public HttpAuthHandlerFactory {
  public:
   HttpAuthHandlerRegistryFactory();
   virtual ~HttpAuthHandlerRegistryFactory();
