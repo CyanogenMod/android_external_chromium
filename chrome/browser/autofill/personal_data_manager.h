@@ -9,6 +9,9 @@
 #include <set>
 #include <vector>
 
+#ifdef ANDROID
+#include "base/base_api.h"
+#endif
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/scoped_vector.h"
@@ -28,7 +31,11 @@ class Profile;
 // Handles loading and saving Autofill profile information to the web database.
 // This class also stores the profiles loaded from the database for use during
 // Autofill.
-class PersonalDataManager
+class
+#ifdef ANDROID
+BASE_API
+#endif
+PersonalDataManager
     : public WebDataServiceConsumer,
       public ProfileSyncServiceObserver,
       public base::RefCountedThreadSafe<PersonalDataManager> {
@@ -36,7 +43,11 @@ class PersonalDataManager
   // An interface the PersonalDataManager uses to notify its clients (observers)
   // when it has finished loading personal data from the web database.  Register
   // the observer via PersonalDataManager::SetObserver.
-  class Observer {
+  class
+#ifdef ANDROID
+BASE_API
+#endif
+  Observer {
    public:
     // Notifies the observer that the PersonalDataManager has finished loading.
     // TODO: OnPersonalDataLoaded should be nuked in favor of only

@@ -11,6 +11,9 @@
 #include <string>
 #include <vector>
 
+#ifdef ANDROID
+#include "base/base_api.h"
+#endif
 #include "base/basictypes.h"
 #include "base/compiler_specific.h"
 #include "base/gtest_prod_util.h"
@@ -51,7 +54,11 @@ struct FormField;
 
 // Manages saving and restoring the user's personal information entered into web
 // forms.
-class AutofillManager : public TabContentsObserver,
+class
+#ifdef ANDROID
+BASE_API
+#endif
+AutofillManager : public TabContentsObserver,
                         public AutofillDownloadManager::Observer {
  public:
   explicit AutofillManager(TabContents* tab_contents);

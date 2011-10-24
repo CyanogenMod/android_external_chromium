@@ -7,6 +7,9 @@
 
 #include <vector>
 
+#ifdef ANDROID
+#include "base/base_api.h"
+#endif
 #include "base/string_util.h"
 #include "googleurl/src/gurl.h"
 #include "webkit/glue/form_field.h"
@@ -14,7 +17,11 @@
 namespace webkit_glue {
 
 // Holds information about a form to be filled and/or submitted.
-struct FormData {
+struct 
+#ifdef ANDROID
+BASE_API
+#endif
+FormData {
   // The name of the form.
   string16 name;
   // GET or POST.

@@ -11,6 +11,9 @@
 #include <string>
 #include <vector>
 
+#ifdef ANDROID
+#include "base/base_api.h"
+#endif
 #include "base/memory/ref_counted.h"
 #include "net/base/cookie_monster.h"
 
@@ -19,7 +22,11 @@ class FilePath;
 // Implements the PersistentCookieStore interface in terms of a SQLite database.
 // For documentation about the actual member functions consult the documentation
 // of the parent class |net::CookieMonster::PersistentCookieStore|.
-class SQLitePersistentCookieStore
+class
+#ifdef ANDROID
+BASE_API
+#endif
+SQLitePersistentCookieStore
     : public net::CookieMonster::PersistentCookieStore {
  public:
   explicit SQLitePersistentCookieStore(const FilePath& path);

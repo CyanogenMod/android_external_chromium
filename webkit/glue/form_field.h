@@ -7,6 +7,9 @@
 
 #include <vector>
 
+#ifdef ANDROID
+#include "base/base_api.h"
+#endif
 #include "base/string16.h"
 #ifndef ANDROID
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebFormControlElement.h"
@@ -15,7 +18,11 @@
 namespace webkit_glue {
 
 // Stores information about a field in a form.
-struct FormField {
+struct
+#ifdef ANDROID
+BASE_API
+#endif
+FormField {
   FormField();
 #ifndef ANDROID
   explicit FormField(WebKit::WebFormControlElement element);
