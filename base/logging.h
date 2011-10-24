@@ -460,6 +460,9 @@ const LogSeverity LOG_0 = LOG_ERROR;
 // be out of line, while the "Impl" code should be inline.  Caller
 // takes ownership of the returned string.
 template<class t1, class t2>
+#ifdef ANDROID
+BASE_API
+#endif
 std::string* MakeCheckOpString(const t1& v1, const t2& v2, const char* names) {
   std::ostringstream ss;
   ss << names << " (" << v1 << " vs. " << v2 << ")";

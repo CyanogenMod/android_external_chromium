@@ -60,6 +60,9 @@ typedef pthread_mutex_t* MutexHandle;
 
 namespace logging {
 
+#ifdef ANDROID
+BASE_API
+#endif
 DcheckState g_dcheck_state = DISABLE_DCHECK_FOR_NON_OFFICIAL_RELEASE_BUILDS;
 VlogInfo* g_vlog_info = NULL;
 
