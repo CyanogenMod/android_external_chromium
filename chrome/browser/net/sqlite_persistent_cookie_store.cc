@@ -31,33 +31,17 @@
 #ifdef ANDROID
 namespace {
 
+class DbThread : public base::Thread {
+ public:
+  DbThread() : base::Thread("android-db") {
+    bool started = Start();
+    CHECK(started);
+  }
+};
+
 // This class is used by CookieMonster, which is threadsafe, so this class must
 // be threadsafe too.
-base::LazyInstance<base::Lock> db_thread_lock(base::LINKER_INITIALIZED);
-
-base::Thread* getDbThread() {
-  base::AutoLock lock(*db_thread_lock.Pointer());
-
-  // FIXME: We should probably be using LazyInstance here.
-  static base::Thread* db_thread = NULL;
-
-  if (db_thread && db_thread->IsRunning())
-    return db_thread;
-
-  if (!db_thread)
-    db_thread = new base::Thread("db");
-
-  if (!db_thread)
-    return NULL;
-
-  base::Thread::Options options;
-  options.message_loop_type = MessageLoop::TYPE_DEFAULT;
-  if (!db_thread->StartWithOptions(options)) {
-    delete db_thread;
-    db_thread = NULL;
-  }
-  return db_thread;
-}
+base::LazyInstance<DbThread> g_db_thread(base::LINKER_INITIALIZED);
 
 }  // namespace
 #endif
@@ -409,9 +393,7 @@ void SQLitePersistentCookieStore::Backend::BatchOperation(
   }
 
 #ifdef ANDROID
-  if (!getDbThread())
-    return;
-  MessageLoop* loop = getDbThread()->message_loop();
+  MessageLoop* loop = g_db_thread.Get().message_loop();
 #endif
 
   if (num_pending == 1) {
@@ -552,15 +534,9 @@ void SQLitePersistentCookieStore::Backend::Commit() {
 
 void SQLitePersistentCookieStore::Backend::Flush(Task* completion_task) {
 #if defined(ANDROID)
-    if (!getDbThread()) {
-      if (completion_task)
-        MessageLoop::current()->PostTask(FROM_HERE, completion_task);
-      return;
-    }
-
-    MessageLoop* loop = getDbThread()->message_loop();
-    loop->PostTask(FROM_HERE, NewRunnableMethod(
-        this, &Backend::Commit, completion_task));
+  MessageLoop* loop = g_db_thread.Get().message_loop();
+  loop->PostTask(FROM_HERE, NewRunnableMethod(
+      this, &Backend::Commit, completion_task));
 #else
   DCHECK(!BrowserThread::CurrentlyOn(BrowserThread::DB));
   BrowserThread::PostTask(
@@ -583,10 +559,7 @@ void SQLitePersistentCookieStore::Backend::Close() {
 #endif
 
 #ifdef ANDROID
-  if (!getDbThread())
-    return;
-
-  MessageLoop* loop = getDbThread()->message_loop();
+  MessageLoop* loop = g_db_thread.Get().message_loop();
   loop->PostTask(FROM_HERE,
       NewRunnableMethod(this, &Backend::InternalBackgroundClose));
 #else
