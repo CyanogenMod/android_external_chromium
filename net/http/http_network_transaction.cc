@@ -1203,7 +1203,11 @@ int HttpNetworkTransaction::HandleIOError(int error) {
       if (ShouldResendRequest(error)) {
         ResetConnectionAndRequestForResend();
         error = OK;
-      }
+       }
+       break;
+    case ERR_SPDY_PING_FAILED:
+      ResetConnectionAndRequestForResend();
+      error = OK;
       break;
   }
   return error;
