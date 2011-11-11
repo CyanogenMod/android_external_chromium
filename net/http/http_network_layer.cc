@@ -41,6 +41,7 @@ void HttpNetworkLayer::EnableSpdy(const std::string& mode) {
   static const char kOff[] = "off";
   static const char kSSL[] = "ssl";
   static const char kDisableSSL[] = "no-ssl";
+  static const char kDisablePing[] = "no-ping";
   static const char kExclude[] = "exclude";  // Hosts to exclude
   static const char kDisableCompression[] = "no-compress";
   static const char kDisableAltProtocols[] = "no-alt-protocols";
@@ -98,6 +99,8 @@ void HttpNetworkLayer::EnableSpdy(const std::string& mode) {
     } else if (option == kSSL) {
       HttpStreamFactory::set_force_spdy_over_ssl(true);
       HttpStreamFactory::set_force_spdy_always(true);
+    } else if (option == kDisablePing) {
+      SpdySession::set_enable_ping_based_connection_checking(false);
     } else if (option == kExclude) {
       HttpStreamFactory::add_forced_spdy_exclusion(value);
     } else if (option == kDisableCompression) {

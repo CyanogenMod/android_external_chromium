@@ -444,6 +444,9 @@ NET_ERROR(RESPONSE_HEADERS_MULTIPLE_CONTENT_LENGTH, -346)
 // headers are missing, so we're expecting additional frames to complete them.
 NET_ERROR(INCOMPLETE_SPDY_HEADERS, -347)
 
+// SPDY server didn't respond to the PING message.
+NET_ERROR(SPDY_PING_FAILED, -352)
+
 // The cache does not have the requested entry.
 NET_ERROR(CACHE_MISS, -400)
 
