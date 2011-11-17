@@ -72,13 +72,7 @@ int HttpBasicStream::ReadResponseBody(IOBuffer* buf, int buf_len,
 }
 
 void HttpBasicStream::Close(bool not_reusable) {
-#ifdef ANDROID
-  // Disable connection reuse for bug 5226268
-  // [Browser] http keep-alive packets are sent too frequently to network
-  parser_->Close(true);
-#else
   parser_->Close(not_reusable);
-#endif
 }
 
 HttpStream* HttpBasicStream::RenewStreamForAuth() {
