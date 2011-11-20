@@ -1,4 +1,5 @@
 // Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright (c) 2012, Code Aurora Forum. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -33,7 +34,7 @@ int HttpBasicStream::InitializeStream(const HttpRequestInfo* request_info,
   DCHECK(!parser_.get());
   request_info_ = request_info;
   parser_.reset(new HttpStreamParser(connection_.get(), request_info,
-                                     read_buf_, net_log));
+                                     read_buf_, net_log, using_proxy_));
   return OK;
 }
 

@@ -1,4 +1,5 @@
 // Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011, 2012 Code Aurora Forum. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -54,6 +55,7 @@
 #include "net/spdy/spdy_http_stream.h"
 #include "net/spdy/spdy_session.h"
 #include "net/spdy/spdy_session_pool.h"
+#include <cutils/log.h>
 
 using base::Time;
 
@@ -245,8 +247,17 @@ int HttpNetworkTransaction::RestartWithAuth(
 
 void HttpNetworkTransaction::PrepareForAuthRestart(HttpAuth::Target target) {
   DCHECK(HaveAuth(target));
-  DCHECK(!stream_request_.get());
+  PrepareForRetry(true);
+}
 
+void HttpNetworkTransaction::PrepareForGetZipRetry()
+{
+  PrepareForRetry(false);
+}
+
+void HttpNetworkTransaction::PrepareForRetry(bool isForAuthentication)
+{
+  DCHECK(!stream_request_.get());
   bool keep_alive = false;
   // Even if the server says the connection is keep-alive, we have to be
   // able to find the end of each response in order to reuse the connection.
@@ -254,8 +265,10 @@ void HttpNetworkTransaction::PrepareForAuthRestart(HttpAuth::Target target) {
       stream_->CanFindEndOfResponse()) {
     // If the response body hasn't been completely read, we need to drain
     // it first.
+    // goes to drain body first!!!
     if (!stream_->IsResponseBodyComplete()) {
-      next_state_ = STATE_DRAIN_BODY_FOR_AUTH_RESTART;
+      next_state_ = isForAuthentication ? STATE_DRAIN_BODY_FOR_AUTH_RESTART:
+                                          STATE_DRAIN_BODY_FOR_GETZIP_RETRY;
       read_buf_ = new IOBuffer(kDrainBodyBufferSize);  // A bit bucket.
       read_buf_len_ = kDrainBodyBufferSize;
       return;
@@ -265,35 +278,58 @@ void HttpNetworkTransaction::PrepareForAuthRestart(HttpAuth::Target target) {
 
   // We don't need to drain the response body, so we act as if we had drained
   // the response body.
-  DidDrainBodyForAuthRestart(keep_alive);
+  isForAuthentication ?
+      DidDrainBodyForAuthRestart(keep_alive):
+      DidDrainBodyForGetZipRetry(keep_alive);
 }
 
-void HttpNetworkTransaction::DidDrainBodyForAuthRestart(bool keep_alive) {
-  DCHECK(!stream_request_.get());
+void HttpNetworkTransaction::DidDrainBodyForAuthRestart( bool keep_alive )
+  {
 
-  if (stream_.get()) {
+    DidDrainBodyForRetry( keep_alive );
+    // Reset the other member variables.
+    ResetStateForAuthRestart();
+  }
+
+void HttpNetworkTransaction::DidDrainBodyForGetZipRetry( bool keep_alive )
+{
+  DidDrainBodyForRetry( keep_alive );
+  read_buf_ = NULL;
+  read_buf_len_ = 0;
+  headers_valid_ = false;
+  request_headers_.Clear();
+  response_ = HttpResponseInfo();
+}
+
+void HttpNetworkTransaction::DidDrainBodyForRetry( bool keep_alive )
+{
+  DCHECK( !stream_request_.get() );
+
+  if ( stream_.get() )
+  {
     HttpStream* new_stream = NULL;
-    if (keep_alive && stream_->IsConnectionReusable()) {
+    if ( keep_alive && stream_->IsConnectionReusable() )
+    {
       // We should call connection_->set_idle_time(), but this doesn't occur
       // often enough to be worth the trouble.
       stream_->SetConnectionReused();
       new_stream = stream_->RenewStreamForAuth();
     }
 
-    if (!new_stream) {
+    if ( !new_stream )
+    {
       // Close the stream and mark it as not_reusable.  Even in the
       // keep_alive case, we've determined that the stream_ is not
       // reusable if new_stream is NULL.
-      stream_->Close(true);
+      stream_->Close( true );
       next_state_ = STATE_CREATE_STREAM;
-    } else {
+    }
+    else
+    {
       next_state_ = STATE_INIT_STREAM;
     }
-    stream_.reset(new_stream);
+    stream_.reset( new_stream );
   }
-
-  // Reset the other member variables.
-  ResetStateForAuthRestart();
 }
 
 bool HttpNetworkTransaction::IsReadyToRestartForAuth() {
@@ -558,6 +594,13 @@ int HttpNetworkTransaction::DoLoop(int result) {
         rv = DoReadBodyComplete(rv);
         net_log_.EndEventWithNetErrorCode(
             NetLog::TYPE_HTTP_TRANSACTION_READ_BODY, rv);
+        break;
+      case STATE_DRAIN_BODY_FOR_GETZIP_RETRY:
+        DCHECK_EQ(OK, rv);
+        rv = DoDrainBodyForGetZipRetry();
+        break;
+      case STATE_DRAIN_BODY_FOR_GETZIP_RETRY_COMPLETE:
+        rv = DoDrainBodyForGetZipRetryComplete(rv);
         break;
       case STATE_DRAIN_BODY_FOR_AUTH_RESTART:
         DCHECK_EQ(OK, rv);
@@ -963,9 +1006,28 @@ int HttpNetworkTransaction::DoDrainBodyForAuthRestart() {
   return rv;
 }
 
+int HttpNetworkTransaction::DoDrainBodyForGetZipRetry() {
+  int rv = DoReadBody();
+  DCHECK(next_state_ == STATE_READ_BODY_COMPLETE);
+  next_state_ = STATE_DRAIN_BODY_FOR_GETZIP_RETRY_COMPLETE;
+  return rv;
+}
+
+int HttpNetworkTransaction::DoDrainBodyForGetZipRetryComplete(int result) {
+  DoDrainBodyForRetryComplete( result, false );
+  return OK;
+}
+
 // TODO(wtc): This method and the DoReadBodyComplete method are almost
 // the same.  Figure out a good way for these two methods to share code.
 int HttpNetworkTransaction::DoDrainBodyForAuthRestartComplete(int result) {
+  DoDrainBodyForRetryComplete( result, true );
+  return OK;
+}
+
+void HttpNetworkTransaction::DoDrainBodyForRetryComplete( int result,
+    bool isForAuthentication )
+{
   // keep_alive defaults to true because the very reason we're draining the
   // response body is to reuse the connection for auth restart.
   bool done = false, keep_alive = true;
@@ -978,13 +1040,15 @@ int HttpNetworkTransaction::DoDrainBodyForAuthRestartComplete(int result) {
   }
 
   if (done) {
-    DidDrainBodyForAuthRestart(keep_alive);
+    isForAuthentication ?
+        DidDrainBodyForAuthRestart(keep_alive):
+        DidDrainBodyForGetZipRetry(keep_alive);
   } else {
     // Keep draining.
-    next_state_ = STATE_DRAIN_BODY_FOR_AUTH_RESTART;
+    next_state_ = isForAuthentication ?
+        STATE_DRAIN_BODY_FOR_AUTH_RESTART :
+        STATE_DRAIN_BODY_FOR_GETZIP_RETRY ;
   }
-
-  return OK;
 }
 
 void HttpNetworkTransaction::LogTransactionConnectedMetrics() {
@@ -1190,8 +1254,12 @@ int HttpNetworkTransaction::HandleIOError(int error) {
   // cause SSL handshake errors to be delayed until the first or second Write
   // (Snap Start) or the first Read (False & Snap Start) on the underlying
   // connection.
-  error = HandleSSLHandshakeError(error);
-
+  if(error != ERR_GETZIP)
+    error = HandleSSLHandshakeError(error);
+  else
+  {
+    SLOGD("%s:%s:: SHUTR protocol failure", __FILE__, __FUNCTION__);
+  }
   switch (error) {
     // If we try to reuse a connection that the server is in the process of
     // closing, we may end up successfully writing out our request (or a
@@ -1207,6 +1275,10 @@ int HttpNetworkTransaction::HandleIOError(int error) {
        break;
     case ERR_SPDY_PING_FAILED:
       ResetConnectionAndRequestForResend();
+      error = OK;
+      break;
+    case ERR_GETZIP:
+      PrepareForGetZipRetry();
       error = OK;
       break;
   }
@@ -1338,6 +1410,8 @@ std::string HttpNetworkTransaction::DescribeState(State state) {
     STATE_CASE(STATE_READ_HEADERS_COMPLETE);
     STATE_CASE(STATE_READ_BODY);
     STATE_CASE(STATE_READ_BODY_COMPLETE);
+    STATE_CASE(STATE_DRAIN_BODY_FOR_GETZIP_RETRY);
+    STATE_CASE(STATE_DRAIN_BODY_FOR_GETZIP_RETRY_COMPLETE);
     STATE_CASE(STATE_DRAIN_BODY_FOR_AUTH_RESTART);
     STATE_CASE(STATE_DRAIN_BODY_FOR_AUTH_RESTART_COMPLETE);
     STATE_CASE(STATE_NONE);

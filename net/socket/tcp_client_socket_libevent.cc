@@ -1,4 +1,5 @@
 // Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2012, Code Aurora Forum. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,6 +27,7 @@
 #include "net/base/net_log.h"
 #include "net/base/net_util.h"
 #include "net/base/network_change_notifier.h"
+#include "net/http/http_getzip_factory.h"
 #if defined(USE_SYSTEM_LIBEVENT)
 #include <event.h>
 #else
@@ -125,6 +127,7 @@ TCPClientSocketLibevent::TCPClientSocketLibevent(
       , calling_uid_(0)
 #endif
 {
+  HttpGetZipFactory::GetGETZipManager()->OpenGetZipConnection( ((ClientSocket*)this) );
   scoped_refptr<NetLog::EventParameters> params;
   if (source.is_valid())
     params = new NetLogSourceParameter("source_dependency", source);
@@ -135,6 +138,7 @@ TCPClientSocketLibevent::TCPClientSocketLibevent(
 }
 
 TCPClientSocketLibevent::~TCPClientSocketLibevent() {
+  HttpGetZipFactory::GetGETZipManager()->StopGetZipConnection( ((ClientSocket*)this) );
   Disconnect();
   net_log_.EndEvent(NetLog::TYPE_SOCKET_ALIVE, NULL);
 }
