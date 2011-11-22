@@ -53,7 +53,10 @@ void SplitString(const string16& str,
 void SplitString(const std::string& str,
                  char c,
                  std::vector<std::string>* r) {
-  DCHECK(c >= 0 && c < 0x7F);
+#if CHAR_MIN < 0
+  DCHECK(c >= 0);
+#endif
+  DCHECK(c < 0x7F);
   SplitStringT(str, c, true, r);
 }
 
@@ -164,7 +167,10 @@ void SplitStringDontTrim(const std::string& str,
                          char c,
                          std::vector<std::string>* r) {
   DCHECK(IsStringUTF8(str));
-  DCHECK(c >= 0 && c < 0x7F);
+#if CHAR_MIN < 0
+  DCHECK(c >= 0);
+#endif
+  DCHECK(c < 0x7F);
   SplitStringT(str, c, false, r);
 }
 
