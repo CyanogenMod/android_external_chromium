@@ -552,10 +552,13 @@ void TCPClientSocketLibevent::LogConnectCompletion(int net_error) {
     return;
   }
 
-  struct sockaddr_storage source_address;
+  union {
+    struct sockaddr_storage source_address;
+    struct sockaddr source_address_generic;
+  };
   socklen_t addrlen = sizeof(source_address);
   int rv = getsockname(
-      socket_, reinterpret_cast<struct sockaddr*>(&source_address), &addrlen);
+      socket_, &source_address_generic, &addrlen);
   if (rv != 0) {
     PLOG(ERROR) << "getsockname() [rv: " << rv << "] error: ";
     NOTREACHED();
@@ -565,7 +568,7 @@ void TCPClientSocketLibevent::LogConnectCompletion(int net_error) {
 
   const std::string source_address_str =
       NetAddressToStringWithPort(
-          reinterpret_cast<const struct sockaddr*>(&source_address),
+          &source_address_generic,
           sizeof(source_address));
   net_log_.EndEvent(NetLog::TYPE_TCP_CONNECT,
                     make_scoped_refptr(new NetLogStringParameter(
@@ -684,12 +687,14 @@ int TCPClientSocketLibevent::GetLocalAddress(IPEndPoint* address) const {
   if (!IsConnected())
     return ERR_SOCKET_NOT_CONNECTED;
 
-  struct sockaddr_storage addr_storage;
+  union {
+    struct sockaddr_storage addr_storage;
+    struct sockaddr addr;
+  };
   socklen_t addr_len = sizeof(addr_storage);
-  struct sockaddr* addr = reinterpret_cast<struct sockaddr*>(&addr_storage);
-  if (getsockname(socket_, addr, &addr_len))
+  if (getsockname(socket_, &addr, &addr_len))
     return MapSystemError(errno);
-  if (!address->FromSockAddr(addr, addr_len))
+  if (!address->FromSockAddr(&addr, addr_len))
     return ERR_FAILED;
 
   return OK;

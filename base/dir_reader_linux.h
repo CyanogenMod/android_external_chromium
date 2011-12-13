@@ -49,7 +49,11 @@ class DirReaderLinux {
   // Move to the next entry returning false if the iteration is complete.
   bool Next() {
     if (size_) {
-      linux_dirent* dirent = reinterpret_cast<linux_dirent*>(&buf_[offset_]);
+      union {
+        const unsigned char *bufp;
+        const linux_dirent* dirent;
+      };
+      bufp = &buf_[offset_];
       offset_ += dirent->d_reclen;
     }
 
@@ -72,8 +76,11 @@ class DirReaderLinux {
     if (!size_)
       return NULL;
 
-    const linux_dirent* dirent =
-        reinterpret_cast<const linux_dirent*>(&buf_[offset_]);
+    union {
+      const unsigned char *bufp;
+      const linux_dirent* dirent;
+    };
+    bufp = &buf_[offset_];
     return dirent->d_name;
   }
 

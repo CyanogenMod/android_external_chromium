@@ -1033,18 +1033,22 @@ size_t SpdyFramer::ProcessControlFramePayload(const char* data, size_t len) {
       if (remaining_control_payload_)
         break;
     }
-    SpdyControlFrame control_frame(current_frame_buffer_, false);
-    visitor_->OnControl(&control_frame);
+    union {
+      SpdyControlFrame *control_frame;
+      SpdySynReplyControlFrame *control_frame_synreply;
+    };
+    control_frame=new SpdyControlFrame(current_frame_buffer_, false);
+    visitor_->OnControl(control_frame);
 
     // If this is a FIN, tell the caller.
-    if (control_frame.type() == SYN_REPLY &&
-        control_frame.flags() & CONTROL_FLAG_FIN) {
-      visitor_->OnStreamFrameData(reinterpret_cast<SpdySynReplyControlFrame*>(
-                                      &control_frame)->stream_id(),
+    if (control_frame->type() == SYN_REPLY &&
+        control_frame->flags() & CONTROL_FLAG_FIN) {
+      visitor_->OnStreamFrameData(control_frame_synreply->stream_id(),
                                   NULL, 0);
     }
 
     CHANGE_STATE(SPDY_IGNORE_REMAINING_PAYLOAD);
+    delete control_frame;
   } while (false);
   return original_len - len;
 }
