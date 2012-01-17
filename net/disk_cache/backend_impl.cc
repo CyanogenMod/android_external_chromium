@@ -1484,7 +1484,13 @@ void BackendImpl::PrepareForRestart() {
     new_eviction_ = false;
 
   disabled_ = true;
-  data_->header.crash = 0;
+#ifdef ANDROID
+  if (data_) {
+#endif
+    data_->header.crash = 0;
+#ifdef ANDROID
+  }
+#endif
   index_ = NULL;
   data_ = NULL;
   block_files_.CloseFiles();
