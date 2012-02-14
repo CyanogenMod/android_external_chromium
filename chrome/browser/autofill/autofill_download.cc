@@ -30,6 +30,9 @@
 #define AUTO_FILL_UPLOAD_SERVER_REQUEST_URL \
     "http://toolbarqueries.clients.google.com:80/tbproxy/af/upload"
 #define AUTO_FILL_QUERY_SERVER_NAME_START_IN_HEADER "GFE/"
+#ifdef ANDROID
+#define ANDROID_AUTOFILL_CLIENT_PARAM "?client=AndroidBrowser"
+#endif
 
 namespace {
 const size_t kMaxFormCacheSize = 16;
@@ -225,6 +228,8 @@ bool AutofillDownloadManager::StartRequest(
     request_url = android::AutofillRequestUrl::GetQueryUrl();
     if (request_url.empty())
       return false;
+    request_url += ANDROID_AUTOFILL_CLIENT_PARAM;
+
   }
 #endif
 
