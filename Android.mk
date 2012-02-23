@@ -352,6 +352,8 @@ LOCAL_SRC_FILES += \
     sdch/open-vcdiff/src/vcdecoder.cc \
     sdch/open-vcdiff/src/vcdiffengine.cc \
     sdch/open-vcdiff/src/vcencoder.cc \
+    \
+    ui/gfx/point.cc \
 
 # AutoFill++ source files.
 LOCAL_SRC_FILES += \

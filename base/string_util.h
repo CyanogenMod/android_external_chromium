@@ -172,8 +172,8 @@ BASE_API const std::string& EmptyString();
 BASE_API const std::wstring& EmptyWString();
 BASE_API const string16& EmptyString16();
 
-extern const wchar_t kWhitespaceWide[];
-extern const char16 kWhitespaceUTF16[];
+BASE_API extern const wchar_t kWhitespaceWide[];
+BASE_API extern const char16 kWhitespaceUTF16[];
 extern const char kWhitespaceASCII[];
 
 extern const char kUtf8ByteOrderMark[];

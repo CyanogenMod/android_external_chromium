@@ -11,6 +11,7 @@
 
 #include "base/basictypes.h"
 #include "base/string16.h"
+#include "net/base/net_export.h"
 
 // Escaping --------------------------------------------------------------------
 
@@ -127,7 +128,7 @@ string16 UnescapeForHTML(const string16& text);
 // This is basically the same as encodeURIComponent in javascript.
 // For the string16 version, we do a conversion to charset before encoding the
 // string.  If the charset doesn't exist, we return false.
-std::string EscapeQueryParamValue(const std::string& text, bool use_plus);
+NET_EXPORT std::string EscapeQueryParamValue(const std::string& text, bool use_plus);
 bool EscapeQueryParamValue(const string16& text, const char* codepage,
                            bool use_plus, string16* escaped);
 

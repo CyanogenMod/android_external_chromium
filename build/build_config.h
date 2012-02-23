@@ -54,6 +54,7 @@
 #define USE_OPENSSL 1
 #define USE_SYSTEM_ZLIB 1
 #define USE_SYSTEM_SQLITE 1
+#define OS_ANDROID 1
 #endif
 
 #if !defined(USE_OPENSSL)
@@ -143,6 +144,15 @@
 // Single define to trigger whether CrOS fonts have BCI on.
 // In that case font sizes/deltas should be adjusted.
 //define CROS_FONTS_USING_BCI
+#endif
+
+#if defined(OS_ANDROID)
+// The compiler thinks std::string::const_iterator and "const char*" are
+// equivalent types.
+#define STD_STRING_ITERATOR_IS_CHAR_POINTER
+// The compiler thinks base::string16::const_iterator and "char16*" are
+// equivalent types.
+#define BASE_STRING16_ITERATOR_IS_CHAR16_POINTER
 #endif
 
 #endif  // BUILD_BUILD_CONFIG_H_
