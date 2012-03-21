@@ -42,6 +42,11 @@ const size_t kMaxRecvBufferSize = 4096;
 const int kSessionCacheTimeoutSeconds = 60 * 60;
 const size_t kSessionCacheMaxEntires = 1024;
 
+#if OPENSSL_VERSION_NUMBER < 0x1000100fL
+// This method was first included in OpenSSL 1.0.1.
+unsigned long SSL_CIPHER_get_id(const SSL_CIPHER* cipher) { return cipher->id; }
+#endif
+
 // Used for encoding the |connection_status| field of an SSLInfo object.
 int EncodeSSLConnectionStatus(int cipher_suite,
                               int compression,
