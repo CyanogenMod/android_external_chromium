@@ -447,6 +447,12 @@ bool SSLClientSocketOpenSSL::Init() {
   options.ConfigureFlag(SSL_OP_NO_SSLv2, true);
   options.ConfigureFlag(SSL_OP_NO_SSLv3, !ssl_config_.ssl3_enabled);
   options.ConfigureFlag(SSL_OP_NO_TLSv1, !ssl_config_.tls1_enabled);
+#ifdef SSL_OP_NO_TLSv1_1
+  options.ConfigureFlag(SSL_OP_NO_TLSv1_1, true);
+#endif
+#ifdef SSL_OP_NO_TLSv1_2
+  options.ConfigureFlag(SSL_OP_NO_TLSv1_2, true);
+#endif
 
 #if defined(SSL_OP_NO_COMPRESSION)
   // If TLS was disabled also disable compression, to provide maximum site
