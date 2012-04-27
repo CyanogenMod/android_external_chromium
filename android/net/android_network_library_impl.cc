@@ -105,6 +105,11 @@ AndroidNetworkLibraryImpl::VerifyResult
       }
       env->DeleteLocalRef(error);
     }
+  } else {
+    // an uncaught exception has happened in java code, clear it and return
+    // a proper error
+    env->ExceptionClear();
+    result = VERIFY_INVOCATION_ERROR;
   }
   // TODO(joth): This balances the GetJNIEnv call; we need to detach as
   // currently this method is called in chrome from a worker pool thread that
