@@ -155,7 +155,11 @@ void StackDumpSignalHandler(int signal, siginfo_t* info, ucontext_t* context) {
   write(STDERR_FILENO, buf, std::min(len, sizeof(buf) - 1));
 #endif  // ARCH_CPU_32_BITS
 #endif  // defined(OS_MACOSX)
+#ifdef ANDROID
+  abort();
+#else
   _exit(1);
+#endif
 }
 
 void ResetChildSignalHandlersToDefaults() {
@@ -529,14 +533,22 @@ bool LaunchAppImpl(
     int null_fd = HANDLE_EINTR(open("/dev/null", O_RDONLY));
     if (null_fd < 0) {
       RAW_LOG(ERROR, "Failed to open /dev/null");
+#ifdef ANDROID
+      abort();
+#else
       _exit(127);
+#endif
     }
 
     file_util::ScopedFD null_fd_closer(&null_fd);
     int new_fd = HANDLE_EINTR(dup2(null_fd, STDIN_FILENO));
     if (new_fd != STDIN_FILENO) {
       RAW_LOG(ERROR, "Failed to dup /dev/null for stdin");
+#ifdef ANDROID
+      abort();
+#else
       _exit(127);
+#endif
     }
 
     if (start_new_process_group) {
@@ -544,7 +556,11 @@ bool LaunchAppImpl(
       // starts off a new process group with pgid equal to its process ID.
       if (setpgid(0, 0) < 0) {
         RAW_LOG(ERROR, "setpgid failed");
+#ifdef ANDROID
+        abort();
+#else
         _exit(127);
+#endif
       }
     }
 #if defined(OS_MACOSX)
@@ -575,7 +591,11 @@ bool LaunchAppImpl(
 
     // fd_shuffle1 is mutated by this call because it cannot malloc.
     if (!ShuffleFileDescriptors(&fd_shuffle1))
+#ifdef ANDROID
+      abort();
+#else
       _exit(127);
+#endif
 
     CloseSuperfluousFds(fd_shuffle2);
 
@@ -585,7 +605,11 @@ bool LaunchAppImpl(
     execvp(argv_cstr[0], argv_cstr.get());
     RAW_LOG(ERROR, "LaunchApp: failed to execvp:");
     RAW_LOG(ERROR, argv_cstr[0]);
+#ifdef ANDROID
+    abort();
+#else
     _exit(127);
+#endif
   } else {
     // Parent process
     if (wait) {
@@ -891,7 +915,11 @@ static bool GetAppOutputInternal(const CommandLine& cl, char* const envp[],
         // in the child.
         int dev_null = open("/dev/null", O_WRONLY);
         if (dev_null < 0)
+#ifdef ANDROID
+          abort();
+#else
           _exit(127);
+#endif
 
         fd_shuffle1.push_back(InjectionArc(pipe_fd[1], STDOUT_FILENO, true));
         fd_shuffle1.push_back(InjectionArc(dev_null, STDERR_FILENO, true));
@@ -903,7 +931,11 @@ static bool GetAppOutputInternal(const CommandLine& cl, char* const envp[],
                   std::back_inserter(fd_shuffle2));
 
         if (!ShuffleFileDescriptors(&fd_shuffle1))
+#ifdef ANDROID
+          abort();
+#else
           _exit(127);
+#endif
 
         CloseSuperfluousFds(fd_shuffle2);
 
@@ -914,7 +946,11 @@ static bool GetAppOutputInternal(const CommandLine& cl, char* const envp[],
           execvp(argv_cstr[0], argv_cstr.get());
         else
           execve(argv_cstr[0], argv_cstr.get(), envp);
+#ifdef ANDROID
+        abort();
+#else
         _exit(127);
+#endif
       }
     default:  // parent
       {

@@ -71,9 +71,13 @@ void TerminateSelf() {
   // Windows does more work on _exit() than we would like, so we force exit.
   TerminateProcess(GetCurrentProcess(), 0);
 #elif defined(OS_POSIX)
+#if defined(ANDROID)
+  abort();
+#else
   // On POSIX, _exit() will terminate the process with minimal cleanup,
   // and it is cleaner than killing.
   _exit(0);
+#endif
 #endif
 }
 #endif  // NDEBUG
