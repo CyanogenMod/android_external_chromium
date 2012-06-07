@@ -137,7 +137,7 @@ class NET_EXPORT X509Certificate : public base::RefCountedThreadSafe<X509Certifi
   // cache isn't caching the corresponding intermediate CA certificates yet
   // (http://crbug.com/7065).
   // The returned pointer must be stored in a scoped_refptr<X509Certificate>.
-  static X509Certificate* CreateFromHandle(OSCertHandle cert_handle,
+  static scoped_refptr<X509Certificate> CreateFromHandle(OSCertHandle cert_handle,
                                            Source source,
                                            const OSCertHandles& intermediates);
 
@@ -147,14 +147,14 @@ class NET_EXPORT X509Certificate : public base::RefCountedThreadSafe<X509Certifi
   // certificates. See the comment for |CreateFromHandle| about the |source|
   // argument.
   // The returned pointer must be stored in a scoped_refptr<X509Certificate>.
-  static X509Certificate* CreateFromDERCertChain(
+  static scoped_refptr<X509Certificate> CreateFromDERCertChain(
       const std::vector<base::StringPiece>& der_certs);
 
   // Create an X509Certificate from the DER-encoded representation.
   // Returns NULL on failure.
   //
   // The returned pointer must be stored in a scoped_refptr<X509Certificate>.
-  static X509Certificate* CreateFromBytes(const char* data, int length);
+  static scoped_refptr<X509Certificate> CreateFromBytes(const char* data, int length);
 
   // Create an X509Certificate from the representation stored in the given
   // pickle.  The data for this object is found relative to the given
@@ -162,7 +162,7 @@ class NET_EXPORT X509Certificate : public base::RefCountedThreadSafe<X509Certifi
   // Returns NULL on failure.
   //
   // The returned pointer must be stored in a scoped_refptr<X509Certificate>.
-  static X509Certificate* CreateFromPickle(const Pickle& pickle,
+  static scoped_refptr<X509Certificate> CreateFromPickle(const Pickle& pickle,
                                            void** pickle_iter,
                                            PickleType type);
 
@@ -192,7 +192,7 @@ class NET_EXPORT X509Certificate : public base::RefCountedThreadSafe<X509Certifi
   // 2. Self-signed certificates cannot be revoked.
   //
   // Use this certificate only after the above risks are acknowledged.
-  static X509Certificate* CreateSelfSigned(crypto::RSAPrivateKey* key,
+  static scoped_refptr<X509Certificate> CreateSelfSigned(crypto::RSAPrivateKey* key,
                                            const std::string& subject,
                                            uint32 serial_number,
                                            base::TimeDelta valid_duration);
