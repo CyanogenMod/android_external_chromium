@@ -385,7 +385,7 @@ X509Certificate::OSCertHandles X509Certificate::CreateOSCertHandlesFromBytes(
 }
 
 // static
-X509Certificate* X509Certificate::CreateSelfSigned(
+scoped_refptr<X509Certificate> X509Certificate::CreateSelfSigned(
     crypto::RSAPrivateKey* key,
     const std::string& subject,
     uint32 serial_number,

@@ -54,14 +54,14 @@ const char kPKCS7Header[] = "PKCS7";
 // will be holding dead pointers to the objects).
 // TODO(rsleevi): There exists a chance of a use-after-free, due to a race
 // between Find() and Remove(). See http://crbug.com/49377
+// ANDROID: we removed Remove(), to attempt to fix this. See http://b/6508448
 class X509CertificateCache {
  public:
   void Insert(X509Certificate* cert);
-  void Remove(X509Certificate* cert);
-  X509Certificate* Find(const SHA1Fingerprint& fingerprint);
+  scoped_refptr<X509Certificate> Find(const SHA1Fingerprint& fingerprint);
 
  private:
-  typedef std::map<SHA1Fingerprint, X509Certificate*, SHA1FingerprintLessThan>
+  typedef std::map<SHA1Fingerprint, scoped_refptr<X509Certificate>, SHA1FingerprintLessThan>
       CertMap;
 
   // Obtain an instance of X509CertificateCache via a LazyInstance.
@@ -90,23 +90,29 @@ void X509CertificateCache::Insert(X509Certificate* cert) {
 
   DCHECK(!IsNullFingerprint(cert->fingerprint())) <<
       "Only insert certs with real fingerprints.";
+  // Sanity test: never cache more than 50 certs
+  while (cache_.size() >= 50)
+    cache_.erase(cache_.begin());
+
   cache_[cert->fingerprint()] = cert;
-};
 
-// Remove |cert| from the cache.  The cache does not assume that |cert| is
-// already in the cache.
-void X509CertificateCache::Remove(X509Certificate* cert) {
-  base::AutoLock lock(lock_);
+  // Trim the cache if there are unused certs remaining. Aim to hold between
+  // 10 and 20 certs in the cache in normal usage.
+  if (cache_.size() <= 20)  // high water mark
+    return;
 
-  CertMap::iterator pos(cache_.find(cert->fingerprint()));
-  if (pos == cache_.end())
-    return;  // It is not an error to remove a cert that is not in the cache.
-  cache_.erase(pos);
+  for (CertMap::iterator it = cache_.begin(); it != cache_.end(); ++it) {
+    if (it->second->HasOneRef()) {
+      cache_.erase(it);
+      if (cache_.size() <= 10)  // low water mark
+        return;
+    }
+  }
 };
 
 // Find a certificate in the cache with the given fingerprint.  If one does
 // not exist, this method returns NULL.
-X509Certificate* X509CertificateCache::Find(
+scoped_refptr<X509Certificate> X509CertificateCache::Find(
     const SHA1Fingerprint& fingerprint) {
   base::AutoLock lock(lock_);
 
@@ -148,7 +154,7 @@ X509Certificate::X509Certificate(const std::string& subject,
 }
 
 // static
-X509Certificate* X509Certificate::CreateFromHandle(
+scoped_refptr<X509Certificate> X509Certificate::CreateFromHandle(
     OSCertHandle cert_handle,
     Source source,
     const OSCertHandles& intermediates) {
@@ -157,7 +163,7 @@ X509Certificate* X509Certificate::CreateFromHandle(
 
   // Check if we already have this certificate in memory.
   X509CertificateCache* cache = g_x509_certificate_cache.Pointer();
-  X509Certificate* cached_cert =
+  scoped_refptr<X509Certificate> cached_cert =
       cache->Find(CalculateFingerprint(cert_handle));
   if (cached_cert) {
     DCHECK(cached_cert->source_ != SOURCE_UNUSED);
@@ -172,8 +178,8 @@ X509Certificate* X509Certificate::CreateFromHandle(
   }
 
   // Otherwise, allocate and cache a new object.
-  X509Certificate* cert = new X509Certificate(cert_handle, source,
-                                              intermediates);
+  scoped_refptr<X509Certificate> cert = new X509Certificate(cert_handle, source,
+                                                            intermediates);
   cache->Insert(cert);
   return cert;
 }
@@ -195,7 +201,7 @@ static X509Certificate::OSCertHandle CreateOSCert(base::StringPiece der_cert) {
 #endif
 
 // static
-X509Certificate* X509Certificate::CreateFromDERCertChain(
+scoped_refptr<X509Certificate> X509Certificate::CreateFromDERCertChain(
     const std::vector<base::StringPiece>& der_certs) {
   if (der_certs.empty())
     return NULL;
@@ -209,7 +215,7 @@ X509Certificate* X509Certificate::CreateFromDERCertChain(
 
   OSCertHandle handle = CreateOSCert(der_certs[0]);
   DCHECK(handle);
-  X509Certificate* cert =
+  scoped_refptr<X509Certificate> cert =
       CreateFromHandle(handle, SOURCE_FROM_NETWORK, intermediate_ca_certs);
   FreeOSCertHandle(handle);
   for (size_t i = 0; i < intermediate_ca_certs.size(); i++)
@@ -219,13 +225,13 @@ X509Certificate* X509Certificate::CreateFromDERCertChain(
 }
 
 // static
-X509Certificate* X509Certificate::CreateFromBytes(const char* data,
+scoped_refptr<X509Certificate> X509Certificate::CreateFromBytes(const char* data,
                                                   int length) {
   OSCertHandle cert_handle = CreateOSCertHandleFromBytes(data, length);
   if (!cert_handle)
     return NULL;
 
-  X509Certificate* cert = CreateFromHandle(cert_handle,
+  scoped_refptr<X509Certificate> cert = CreateFromHandle(cert_handle,
                                            SOURCE_LONE_CERT_IMPORT,
                                            OSCertHandles());
   FreeOSCertHandle(cert_handle);
@@ -233,7 +239,7 @@ X509Certificate* X509Certificate::CreateFromBytes(const char* data,
 }
 
 // static
-X509Certificate* X509Certificate::CreateFromPickle(const Pickle& pickle,
+scoped_refptr<X509Certificate> X509Certificate::CreateFromPickle(const Pickle& pickle,
                                                    void** pickle_iter,
                                                    PickleType type) {
   OSCertHandle cert_handle = ReadCertHandleFromPickle(pickle, pickle_iter);
@@ -268,7 +274,7 @@ X509Certificate* X509Certificate::CreateFromPickle(const Pickle& pickle,
 
   if (!cert_handle)
     return NULL;
-  X509Certificate* cert = CreateFromHandle(cert_handle, SOURCE_FROM_CACHE,
+  scoped_refptr<X509Certificate> cert = CreateFromHandle(cert_handle, SOURCE_FROM_CACHE,
                                            intermediates);
   FreeOSCertHandle(cert_handle);
   for (size_t i = 0; i < intermediates.size(); ++i)
@@ -346,7 +352,7 @@ CertificateList X509Certificate::CreateCertificateListFromBytes(
 
   for (OSCertHandles::iterator it = certificates.begin();
        it != certificates.end(); ++it) {
-    X509Certificate* result = CreateFromHandle(*it, SOURCE_LONE_CERT_IMPORT,
+    scoped_refptr<X509Certificate> result = CreateFromHandle(*it, SOURCE_LONE_CERT_IMPORT,
                                                OSCertHandles());
     results.push_back(scoped_refptr<X509Certificate>(result));
     FreeOSCertHandle(*it);
@@ -539,7 +545,6 @@ X509Certificate::X509Certificate(OSCertHandle cert_handle,
 
 X509Certificate::~X509Certificate() {
   // We might not be in the cache, but it is safe to remove ourselves anyway.
-  g_x509_certificate_cache.Get().Remove(this);
   if (cert_handle_)
     FreeOSCertHandle(cert_handle_);
   for (size_t i = 0; i < intermediate_ca_certs_.size(); ++i)
