@@ -457,7 +457,11 @@ bool SSLClientSocketOpenSSL::Init() {
 #if defined(SSL_OP_NO_COMPRESSION)
   // If TLS was disabled also disable compression, to provide maximum site
   // compatibility in the case of protocol fallback. See http://crbug.com/31628
+#ifdef ANDROID
+  options.ConfigureFlag(SSL_OP_NO_COMPRESSION, true);
+#else
   options.ConfigureFlag(SSL_OP_NO_COMPRESSION, !ssl_config_.tls1_enabled);
+#endif
 #endif
 
   // TODO(joth): Set this conditionally, see http://crbug.com/55410
