@@ -58,7 +58,6 @@ LOCAL_SRC_FILES += \
     base/file_descriptor_shuffle.cc \
     base/file_path.cc \
     base/file_util.cc \
-    base/file_util_android.cc \
     base/file_util_posix.cc \
     base/lazy_instance.cc \
     base/logging.cc \
