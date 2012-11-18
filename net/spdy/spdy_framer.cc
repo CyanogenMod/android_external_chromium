@@ -27,7 +27,11 @@ namespace {
 // The following compression setting are based on Brian Olson's analysis. See
 // https://groups.google.com/group/spdy-dev/browse_thread/thread/dfaf498542fac792
 // for more details.
+#ifdef ANDROID
+const int kCompressorLevel = 0;
+#else
 const int kCompressorLevel = 9;
+#endif
 const int kCompressorWindowSizeInBits = 11;
 const int kCompressorMemLevel = 1;
 
