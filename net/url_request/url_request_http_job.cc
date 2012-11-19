@@ -1,6 +1,4 @@
 // Copyright (c) 2011 The Chromium Authors. All rights reserved.
-// Copyright (c) 2011, Code Aurora Forum. All rights reserved
-
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -42,7 +40,6 @@
 #include "net/url_request/url_request_redirect_job.h"
 #include "net/url_request/url_request_throttler_header_adapter.h"
 #include "net/url_request/url_request_throttler_manager.h"
-#include "net/disk_cache/stat_hub_api.h"
 
 static const char kAvailDictionaryHeader[] = "Avail-Dictionary";
 
@@ -288,9 +285,6 @@ void URLRequestHttpJob::NotifyHeadersComplete() {
 
 void URLRequestHttpJob::NotifyDone(const URLRequestStatus& status) {
   RecordCompressionHistograms();
-  GURL& url = request_info_.url;
-  unsigned short url_len = url.spec().length();
-  StatHubCmd(INPUT_CMD_CH_URL_REQUEST_DONE, (void*)url.spec().c_str(), url_len+1, NULL, 0);
   URLRequestJob::NotifyDone(status);
 }
 
@@ -300,11 +294,6 @@ void URLRequestHttpJob::DestroyTransaction() {
   transaction_.reset();
   response_info_ = NULL;
   context_ = NULL;
-}
-
-static void updateUrlRequest(const GURL& url, const std::string& headers) {
-    unsigned short url_len = url.spec().length();
-    StatHubCmd(INPUT_CMD_CH_URL_REQUEST, (void*)url.spec().c_str(), url_len+1, (void*)headers.c_str(), headers.length()+1);
 }
 
 void URLRequestHttpJob::StartTransaction() {
@@ -328,7 +317,6 @@ void URLRequestHttpJob::StartTransaction() {
     if (rv == OK) {
       if (!URLRequestThrottlerManager::GetInstance()->enforce_throttling() ||
           !throttling_entry_->IsDuringExponentialBackoff()) {
-        updateUrlRequest(request_info_.url, request_info_.extra_headers.ToString().c_str());
         rv = transaction_->Start(
             &request_info_, &start_callback_, request_->net_log());
       } else {

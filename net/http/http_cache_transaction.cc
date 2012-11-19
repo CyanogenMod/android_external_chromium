@@ -1,5 +1,4 @@
 // Copyright (c) 2011 The Chromium Authors. All rights reserved.
-// Copyright (c) 2011, 2012 Code Aurora Forum. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -35,8 +34,6 @@
 #include "net/http/http_transaction.h"
 #include "net/http/http_util.h"
 #include "net/http/partial_data.h"
-#include "net/http/preconnect.h"
-#include "net/http/net-plugin-bridge.h"
 
 using base::Time;
 
@@ -1646,17 +1643,13 @@ bool HttpCache::Transaction::RequiresValidation() {
     return true;
 
   if (response_.headers->RequiresValidation(
-      response_.request_time, response_.response_time, Time::Now())) {
-    ObserveRevalidation(&response_, request_, cache_);
+          response_.request_time, response_.response_time, Time::Now()))
     return true;
-  }
 
   // Since Vary header computation is fairly expensive, we save it for last.
   if (response_.vary_data.is_valid() &&
-      !response_.vary_data.MatchesRequest(*request_, *response_.headers)) {
-    ObserveRevalidation(&response_, request_, cache_);
+      !response_.vary_data.MatchesRequest(*request_, *response_.headers))
     return true;
-  }
 
   return false;
 }

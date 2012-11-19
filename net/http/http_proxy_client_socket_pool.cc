@@ -1,5 +1,4 @@
 // Copyright (c) 2011 The Chromium Authors. All rights reserved.
-// Copyright (c) 2011, 2012 Code Aurora Forum. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -426,8 +425,7 @@ HttpProxyClientSocketPool::HttpProxyClientSocketPool(
     HostResolver* host_resolver,
     TransportClientSocketPool* transport_pool,
     SSLClientSocketPool* ssl_pool,
-    NetLog* net_log,
-    HttpNetworkSession *network_session)
+    NetLog* net_log)
     : transport_pool_(transport_pool),
       ssl_pool_(ssl_pool),
       base_(max_sockets, max_sockets_per_group, histograms,
@@ -437,8 +435,7 @@ HttpProxyClientSocketPool::HttpProxyClientSocketPool(
             new HttpProxyConnectJobFactory(transport_pool,
                                            ssl_pool,
                                            host_resolver,
-                                           net_log),
-            network_session) {}
+                                           net_log)) {}
 
 HttpProxyClientSocketPool::~HttpProxyClientSocketPool() {}
 

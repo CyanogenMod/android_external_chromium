@@ -1,5 +1,4 @@
 // Copyright (c) 2010 The Chromium Authors. All rights reserved.
-// Copyright (c) 2012, Code Aurora Forum. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -444,9 +443,6 @@ NET_ERROR(RESPONSE_HEADERS_MULTIPLE_CONTENT_LENGTH, -346)
 // SPDY Headers have been received, but not all of them - status or version
 // headers are missing, so we're expecting additional frames to complete them.
 NET_ERROR(INCOMPLETE_SPDY_HEADERS, -347)
-
-// GETzip failure - server advices to retry the HTTP request
-NET_ERROR(GETZIP, -348)
 
 // SPDY server didn't respond to the PING message.
 NET_ERROR(SPDY_PING_FAILED, -352)

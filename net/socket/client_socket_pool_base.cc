@@ -1,5 +1,4 @@
 // Copyright (c) 2011 The Chromium Authors. All rights reserved.
-// Copyright (c) 2011,2012, Code Aurora Forum. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,15 +15,6 @@
 #include "net/base/net_log.h"
 #include "net/base/net_errors.h"
 #include "net/socket/client_socket_handle.h"
-#include "net/http/http_network_session.h"
-#include "net/http/preconnect.h"
-#include "net/http/tcp-connections-bridge.h"
-#include "googleurl/src/gurl.h"
-#include <cutils/properties.h>
-#include <cutils/log.h>
-
-// Define Log Tag for this source file.
-#define LOG_TAG "Socket_Pool"
 
 using base::TimeDelta;
 
@@ -44,22 +34,11 @@ bool g_cleanup_timer_enabled = true;
 // Note: It's important to close idle sockets that have received data as soon
 // as possible because the received data may cause BSOD on Windows XP under
 // some conditions.  See http://crbug.com/4606.
-int kCleanupInterval = 2;  // DO NOT INCREASE THIS TIMEOUT.
+const int kCleanupInterval = 10;  // DO NOT INCREASE THIS TIMEOUT.
 
 // Indicate whether or not we should establish a new transport layer connection
 // after a certain timeout has passed without receiving an ACK.
 bool g_connect_backup_jobs_enabled = true;
-
-// Indicate whether or not we should close the unused sockets in the next run
-// of the reaper cleanup thread.
-bool g_close_unused_sockets = false;
-
-// Called to inform that we should close the unused sockets that resides in
-// the idle pool.
-extern "C" void SetCloseUnUsedSocketsFlag()
-{
-  g_close_unused_sockets = true;
-}
 
 }  // namespace
 
@@ -187,8 +166,7 @@ ClientSocketPoolBaseHelper::ClientSocketPoolBaseHelper(
     int max_sockets_per_group,
     base::TimeDelta unused_idle_socket_timeout,
     base::TimeDelta used_idle_socket_timeout,
-    ConnectJobFactory* connect_job_factory,
-    HttpNetworkSession *network_session)
+    ConnectJobFactory* connect_job_factory)
     : idle_socket_count_(0),
       connecting_socket_count_(0),
       handed_out_socket_count_(0),
@@ -205,31 +183,6 @@ ClientSocketPoolBaseHelper::ClientSocketPoolBaseHelper(
   DCHECK_LE(max_sockets_per_group, max_sockets);
 
   NetworkChangeNotifier::AddIPAddressObserver(this);
-
-  network_session_ = network_session;
-
-  tcp_fin_aggregation = net::TCPFinAggregationFactory::GetTCPFinFactoryInstance(this)->GetTCPFinAggregation();
-  if (NULL == tcp_fin_aggregation) {
-    SLOGD("Failed to create TCP Fin Aggregation interface.");
-  } else {
-    int new_cleanup_interval = tcp_fin_aggregation->GetCleanupInterval(kCleanupInterval);
-    kCleanupInterval = new_cleanup_interval;
-  }
-
-  close_unused_sockets_enabled = false;
-  char netCloseUnusedSocketsSystemProperty[PROPERTY_VALUE_MAX];
-  if(property_get("net.close.unused.sockets",
-                  netCloseUnusedSocketsSystemProperty, "1")) {
-    close_unused_sockets_enabled = (bool)atoi(netCloseUnusedSocketsSystemProperty);
-  }
-  SLOGD("netstack: CloseUnusedSockets is %s", close_unused_sockets_enabled?"ON":"OFF");
-
-  char net_statistics_enabled_sys_property[PROPERTY_VALUE_MAX];
-  if(property_get("net.statistics",
-                  net_statistics_enabled_sys_property, "0")) {
-    net_statistics_enabled = (bool)atoi(net_statistics_enabled_sys_property);
-    SLOGD("netstack: system net.statistics value: %d", net_statistics_enabled);
-  }
 }
 
 ClientSocketPoolBaseHelper::~ClientSocketPoolBaseHelper() {
@@ -276,9 +229,8 @@ int ClientSocketPoolBaseHelper::RequestSocket(
   CHECK(request->handle());
 
   // Cleanup any timed-out idle sockets if no timer is used.
-  if ((!use_cleanup_timer_) && ((NULL == tcp_fin_aggregation) || (((NULL != tcp_fin_aggregation) && !tcp_fin_aggregation->IsEnabled())))) {
+  if (!use_cleanup_timer_)
     CleanupIdleSockets(false);
-  }
 
   request->net_log().BeginEvent(NetLog::TYPE_SOCKET_POOL, NULL);
   Group* group = GetOrCreateGroup(group_name);
@@ -290,9 +242,6 @@ int ClientSocketPoolBaseHelper::RequestSocket(
     delete request;
   } else {
     InsertRequestIntoQueue(request, group->mutable_pending_requests());
-    if (net_statistics_enabled) {
-      SLOGD("insertRequestToQueue Host = %s Size = %d", group_name.c_str(), group->mutable_pending_requests()->size());
-    }
   }
   return rv;
 }
@@ -305,9 +254,8 @@ void ClientSocketPoolBaseHelper::RequestSockets(
   DCHECK(!request.handle());
 
   // Cleanup any timed out idle sockets if no timer is used.
-  if ((!use_cleanup_timer_) && ((NULL == tcp_fin_aggregation) || (((NULL != tcp_fin_aggregation) && !tcp_fin_aggregation->IsEnabled())))) {
+  if (!use_cleanup_timer_)
     CleanupIdleSockets(false);
-  }
 
   if (num_sockets > max_sockets_per_group_) {
     num_sockets = max_sockets_per_group_;
@@ -325,7 +273,7 @@ void ClientSocketPoolBaseHelper::RequestSockets(
 
   int rv = OK;
   for (int num_iterations_left = num_sockets;
-       group->NumActiveSocketSlots() <= num_sockets &&
+       group->NumActiveSocketSlots() < num_sockets &&
        num_iterations_left > 0 ; num_iterations_left--) {
     rv = RequestSocketInternal(group_name, &request);
     if (rv < 0 && rv != ERR_IO_PENDING) {
@@ -434,20 +382,6 @@ int ClientSocketPoolBaseHelper::RequestSocketInternal(
     }
   }
 
-  if (!preconnecting) {
-      std::string url;
-      const int ssl_sockets_groupname_prefix_length_ = 4;
-      if (0 == group_name.compare(0, ssl_sockets_groupname_prefix_length_ , "ssl/")) {
-        url.append("https://");
-      }else {
-        url.append("http://");
-      }
-      url.append(group_name);
-      GURL gurl = GURL(url);
-
-      ObserveConnections(network_session_, gurl);
-  }
-
   return rv;
 }
 
@@ -486,7 +420,7 @@ bool ClientSocketPoolBaseHelper::AssignIdleSocketToGroup(
   if (idle_socket_it != idle_sockets->end()) {
     DecrementIdleCount();
     base::TimeDelta idle_time =
-        base::Time::Now() - idle_socket_it->start_time;
+        base::TimeTicks::Now() - idle_socket_it->start_time;
     IdleSocket idle_socket = *idle_socket_it;
     idle_sockets->erase(idle_socket_it);
     HandOutSocket(
@@ -537,9 +471,6 @@ void ClientSocketPoolBaseHelper::CancelRequest(
       scoped_ptr<const Request> req(RemoveRequestFromQueue(it, group));
       req->net_log().AddEvent(NetLog::TYPE_CANCELLED, NULL);
       req->net_log().EndEvent(NetLog::TYPE_SOCKET_POOL, NULL);
-      if (net_statistics_enabled) {
-        SLOGD("removeRequestFromQueue Host = %s Size = %d", group_name.c_str(), group->mutable_pending_requests()->size());
-      }
 
       // We let the job run, unless we're at the socket limit.
       if (group->jobs().size() && ReachedMaxSocketsLimit()) {
@@ -664,8 +595,8 @@ DictionaryValue* ClientSocketPoolBaseHelper::GetInfoAsValue(
   return dict;
 }
 
-bool IdleSocket::ShouldCleanup(
-    base::Time now,
+bool ClientSocketPoolBaseHelper::IdleSocket::ShouldCleanup(
+    base::TimeTicks now,
     base::TimeDelta timeout) const {
   bool timed_out = (now - start_time) >= timeout;
   if (timed_out)
@@ -676,13 +607,12 @@ bool IdleSocket::ShouldCleanup(
 }
 
 void ClientSocketPoolBaseHelper::CleanupIdleSockets(bool force) {
-  if (idle_socket_count_ == 0) {
+  if (idle_socket_count_ == 0)
     return;
-  }
 
   // Current time value. Retrieving it once at the function start rather than
   // inside the inner loop, since it shouldn't change by any meaningful amount.
-  base::Time now = base::Time::Now();
+  base::TimeTicks now = base::TimeTicks::Now();
 
   GroupMap::iterator i = group_map_.begin();
   while (i != group_map_.end()) {
@@ -693,8 +623,7 @@ void ClientSocketPoolBaseHelper::CleanupIdleSockets(bool force) {
       base::TimeDelta timeout =
           j->socket->WasEverUsed() ?
           used_idle_socket_timeout_ : unused_idle_socket_timeout_;
-      if (force || j->ShouldCleanup(now, timeout) ||
-          ((true == close_unused_sockets_enabled) && (true == g_close_unused_sockets) && !j->socket->WasEverUsed())) {
+      if (force || j->ShouldCleanup(now, timeout)) {
         delete j->socket;
         j = group->mutable_idle_sockets()->erase(j);
         DecrementIdleCount();
@@ -756,21 +685,8 @@ void ClientSocketPoolBaseHelper::IncrementIdleCount() {
 }
 
 void ClientSocketPoolBaseHelper::DecrementIdleCount() {
-  if (--idle_socket_count_ == 0) {
+  if (--idle_socket_count_ == 0)
     timer_.Stop();
-  }
-}
-
-void ClientSocketPoolBaseHelper::OnCleanupTimerFired()
-{
-  if((NULL != tcp_fin_aggregation) &&
-     (tcp_fin_aggregation->IsEnabled())) {
-    tcp_fin_aggregation->ReaperCleanup(g_close_unused_sockets);
-  }
-  else {
-    CleanupIdleSockets(false);
-  }
-  g_close_unused_sockets = false;
 }
 
 // static
@@ -898,9 +814,6 @@ void ClientSocketPoolBaseHelper::OnConnectJobComplete(
           base::TimeDelta(), group, r->net_log());
       r->net_log().EndEvent(NetLog::TYPE_SOCKET_POOL, NULL);
       InvokeUserCallbackLater(r->handle(), r->callback(), result);
-      if (net_statistics_enabled) {
-        SLOGD("removeRequestFromQueue Host = %s Size = %d", group_name.c_str(), group->mutable_pending_requests()->size());
-      }
     } else {
       AddIdleSocket(socket.release(), group);
       OnAvailableSocketSlot(group_name, group);
@@ -924,9 +837,6 @@ void ClientSocketPoolBaseHelper::OnConnectJobComplete(
       r->net_log().EndEventWithNetErrorCode(NetLog::TYPE_SOCKET_POOL,
                                             result);
       InvokeUserCallbackLater(r->handle(), r->callback(), result);
-      if (net_statistics_enabled) {
-        SLOGD("removeRequestFromQueue Host = %s Size = %d", group_name.c_str(), group->mutable_pending_requests()->size());
-      }
     } else {
       RemoveConnectJob(job, group);
     }
@@ -987,9 +897,6 @@ void ClientSocketPoolBaseHelper::ProcessPendingRequest(
 
     request->net_log().EndEventWithNetErrorCode(NetLog::TYPE_SOCKET_POOL, rv);
     InvokeUserCallbackLater(request->handle(), request->callback(), rv);
-    if (net_statistics_enabled) {
-      SLOGD("removeRequestFromQueue Host = %s Size = %d", group_name.c_str(), group->mutable_pending_requests()->size());
-    }
   }
 }
 
@@ -1026,7 +933,7 @@ void ClientSocketPoolBaseHelper::AddIdleSocket(
   DCHECK(socket);
   IdleSocket idle_socket;
   idle_socket.socket = socket;
-  idle_socket.start_time = base::Time::Now();
+  idle_socket.start_time = base::TimeTicks::Now();
 
   group->mutable_idle_sockets()->push_back(idle_socket);
   IncrementIdleCount();

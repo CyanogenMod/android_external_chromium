@@ -1,5 +1,4 @@
 // Copyright (c) 2011 The Chromium Authors. All rights reserved.
-// Copyright (c) 2011, Code Aurora Forum. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,8 +15,6 @@
 #include "net/base/host_port_pair.h"
 #include "net/base/net_export.h"
 #include "net/base/request_priority.h"
-
-class MessageLoop;
 
 namespace net {
 
@@ -127,13 +124,6 @@ class NET_EXPORT HostResolver {
     virtual void OnCancelResolution(int id, const RequestInfo& info) = 0;
   };
 
-  class HostnameResolverExt {
-  public:
-      virtual ~HostnameResolverExt() {}
-      virtual void Resolve()=0;
-  };
-
-  virtual void SetResolverExt(HostnameResolverExt* preresolver) {};
   // Opaque type used to cancel a request.
   typedef void* RequestHandle;
 
@@ -255,12 +245,6 @@ NET_EXPORT HostResolver* CreateSystemHostResolver(size_t max_concurrent_resolves
                                                   HostResolverProc* resolver_proc,
                                                   NetLog* net_log);
 
-// If specified |net_notification_messageloop| provides a message loop
-// to be used for network notifications.
-HostResolver* CreateSystemHostResolver(size_t max_concurrent_resolves,
-                                       HostResolverProc* resolver_proc,
-                                       NetLog* net_log,
-                                       MessageLoop* net_notification_messageloop);
 }  // namespace net
 
 #endif  // NET_BASE_HOST_RESOLVER_H_

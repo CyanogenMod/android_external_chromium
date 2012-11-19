@@ -1,5 +1,4 @@
 // Copyright (c) 2011 The Chromium Authors. All rights reserved.
-// Copyright (c) 2012, Code Aurora Forum. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -37,9 +36,7 @@ class HttpStreamParser  : public ChunkCallback {
   HttpStreamParser(ClientSocketHandle* connection,
                    const HttpRequestInfo* request,
                    GrowableIOBuffer* read_buffer,
-                   const BoundNetLog& net_log,
-                   bool using_proxy = false);
-
+                   const BoundNetLog& net_log);
   ~HttpStreamParser();
 
   // These functions implement the interface described in HttpStream with
@@ -188,10 +185,6 @@ class HttpStreamParser  : public ChunkCallback {
 
   // The underlying socket.
   ClientSocketHandle* const connection_;
-
-  bool using_proxy_;
-
-  bool has_to_retry_;
 
   BoundNetLog net_log_;
 

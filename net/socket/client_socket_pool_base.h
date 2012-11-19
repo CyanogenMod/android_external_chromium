@@ -1,5 +1,4 @@
 // Copyright (c) 2011 The Chromium Authors. All rights reserved.
-// Copyright (c) 2011,2012 Code Aurora Forum. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -19,6 +18,7 @@
 // implementing ConnectJob::ConnectInternal().  They can control the parameters
 // passed to each new ConnectJob instance via their ConnectJobFactory subclass
 // and templated SocketParams parameter.
+//
 #ifndef NET_SOCKET_CLIENT_SOCKET_POOL_BASE_H_
 #define NET_SOCKET_CLIENT_SOCKET_POOL_BASE_H_
 #pragma once
@@ -44,15 +44,10 @@
 #include "net/base/request_priority.h"
 #include "net/socket/client_socket.h"
 #include "net/socket/client_socket_pool.h"
-#include "net/base/host_resolver.h"
-#include "tcp_fin_aggregation.h"
-#include "tcp_fin_aggregation_factory.h"
 
 namespace net {
 
 class ClientSocketHandle;
-class HttpNetworkSession;
-class ITCPFinAggregation;
 
 // ConnectJob provides an abstract interface for "connecting" a socket.
 // The connection may involve host resolution, tcp connection, ssl connection,
@@ -154,29 +149,6 @@ class ConnectJob {
 
 namespace internal {
 
-  // Entry for a persistent socket which became idle at time |start_time|.
-  class IdleSocket {
-  public:
-    IdleSocket() : socket(NULL) {}
-    ClientSocket* socket;
-    base::Time start_time;
-
-    // An idle socket should be removed if it can't be reused, or has been idle
-    // for too long. |now| is the current time value (TimeTicks::Now()).
-    // |timeout| is the length of time to wait before timing out an idle socket.
-    //
-    // An idle socket can't be reused if it is disconnected or has received
-    // data unexpectedly (hence no longer idle).  The unread data would be
-    // mistaken for the beginning of the next response if we were to reuse the
-    // socket for a new request.
-    bool ShouldCleanup(base::Time now, base::TimeDelta timeout) const;
-
-    base::Time StartTime() const
-    {
-      return start_time;
-    }
-  };
-
 // ClientSocketPoolBaseHelper is an internal class that implements almost all
 // the functionality from ClientSocketPoolBase without using templates.
 // ClientSocketPoolBase adds templated definitions built on top of
@@ -252,8 +224,7 @@ class ClientSocketPoolBaseHelper
       int max_sockets_per_group,
       base::TimeDelta unused_idle_socket_timeout,
       base::TimeDelta used_idle_socket_timeout,
-      ConnectJobFactory* connect_job_factory,
-      HttpNetworkSession *network_session);
+      ConnectJobFactory* connect_job_factory);
 
   ~ClientSocketPoolBaseHelper();
 
@@ -286,18 +257,6 @@ class ClientSocketPoolBaseHelper
   int idle_socket_count() const {
     return idle_socket_count_;
   }
-
-  // Called when the number of idle sockets changes.
-  void IncrementIdleCount();
-  void DecrementIdleCount();
-
-  class Group;
-  typedef std::map<std::string, Group*> GroupMap;
-
-  void RemoveGroup(const std::string& group_name);
-  void RemoveGroup(GroupMap::iterator it);
-
-  GroupMap group_map_;
 
   // See ClientSocketPool::IdleSocketCountInGroup() for documentation on this
   // function.
@@ -354,9 +313,29 @@ class ClientSocketPoolBaseHelper
   // NetworkChangeNotifier::IPAddressObserver methods:
   virtual void OnIPAddressChanged();
 
-  typedef std::deque<const Request* > RequestQueue;
+ private:
+  friend class base::RefCounted<ClientSocketPoolBaseHelper>;
 
-  HttpNetworkSession *network_session_;
+  // Entry for a persistent socket which became idle at time |start_time|.
+  struct IdleSocket {
+    IdleSocket() : socket(NULL) {}
+
+    // An idle socket should be removed if it can't be reused, or has been idle
+    // for too long. |now| is the current time value (TimeTicks::Now()).
+    // |timeout| is the length of time to wait before timing out an idle socket.
+    //
+    // An idle socket can't be reused if it is disconnected or has received
+    // data unexpectedly (hence no longer idle).  The unread data would be
+    // mistaken for the beginning of the next response if we were to reuse the
+    // socket for a new request.
+    bool ShouldCleanup(base::TimeTicks now, base::TimeDelta timeout) const;
+
+    ClientSocket* socket;
+    base::TimeTicks start_time;
+  };
+
+  typedef std::deque<const Request* > RequestQueue;
+  typedef std::map<const ClientSocketHandle*, const Request*> RequestMap;
 
   // A Group is allocated per group_name when there are idle sockets or pending
   // requests.  Otherwise, the Group object is removed from the map.
@@ -431,10 +410,7 @@ class ClientSocketPoolBaseHelper
     ScopedRunnableMethodFactory<Group> method_factory_;
   };
 
-  private:
-  friend class base::RefCounted<ClientSocketPoolBaseHelper>;
-
-  typedef std::map<const ClientSocketHandle*, const Request*> RequestMap;
+  typedef std::map<std::string, Group*> GroupMap;
 
   typedef std::set<ConnectJob*> ConnectJobSet;
 
@@ -456,6 +432,12 @@ class ClientSocketPoolBaseHelper
                                                Group* group);
 
   Group* GetOrCreateGroup(const std::string& group_name);
+  void RemoveGroup(const std::string& group_name);
+  void RemoveGroup(GroupMap::iterator it);
+
+  // Called when the number of idle sockets changes.
+  void IncrementIdleCount();
+  void DecrementIdleCount();
 
   // Start cleanup timer for idle sockets.
   void StartIdleSocketTimer();
@@ -468,7 +450,9 @@ class ClientSocketPoolBaseHelper
 
   // Called when timer_ fires.  This method scans the idle sockets removing
   // sockets that timed out or can't be reused.
-  void OnCleanupTimerFired();
+  void OnCleanupTimerFired() {
+    CleanupIdleSockets(false);
+  }
 
   // Removes |job| from |connect_job_set_|.  Also updates |group| if non-NULL.
   void RemoveConnectJob(ConnectJob* job, Group* group);
@@ -542,6 +526,8 @@ class ClientSocketPoolBaseHelper
   // in |pending_callback_map_|.
   void InvokeUserCallback(ClientSocketHandle* handle);
 
+  GroupMap group_map_;
+
   // Map of the ClientSocketHandles for which we have a pending Task to invoke a
   // callback.  This is necessary since, before we invoke said callback, it's
   // possible that the request is cancelled.
@@ -566,21 +552,8 @@ class ClientSocketPoolBaseHelper
   // The maximum number of sockets kept per group.
   const int max_sockets_per_group_;
 
-  // Pointer to ITCPFinAggregation interface that implements
-  // TCP Fin Aggregation feature.
-  ITCPFinAggregation* tcp_fin_aggregation;
-
-  // TCP Fin Aggregation feature
-  bool net_tcp_fin_aggr_feature_enabled_sys_property_;
-
   // Whether to use timer to cleanup idle sockets.
   bool use_cleanup_timer_;
-
-  // Whether statistics is enabled.
-  bool net_statistics_enabled;
-
-  // Whether unused sockets are closed after page load fnished
-  bool close_unused_sockets_enabled;
 
   // The time to wait until closing idle sockets.
   const base::TimeDelta unused_idle_socket_timeout_;
@@ -665,13 +638,11 @@ class ClientSocketPoolBase {
       ClientSocketPoolHistograms* histograms,
       base::TimeDelta unused_idle_socket_timeout,
       base::TimeDelta used_idle_socket_timeout,
-      ConnectJobFactory* connect_job_factory,
-      HttpNetworkSession *network_session)
+      ConnectJobFactory* connect_job_factory)
       : histograms_(histograms),
         helper_(max_sockets, max_sockets_per_group,
                 unused_idle_socket_timeout, used_idle_socket_timeout,
-                new ConnectJobFactoryAdaptor(connect_job_factory),
-                network_session) {}
+                new ConnectJobFactoryAdaptor(connect_job_factory)) {}
 
   virtual ~ClientSocketPoolBase() {}
 

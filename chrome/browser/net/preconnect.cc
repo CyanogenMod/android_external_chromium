@@ -1,5 +1,4 @@
 // Copyright (c) 2011 The Chromium Authors. All rights reserved.
-// Copyright (c) 2011, 2012 Code Aurora Forum. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -33,11 +32,12 @@ void PreconnectOnUIThread(
   return;
 }
 
+
 void PreconnectOnIOThread(
     const GURL& url,
     UrlInfo::ResolutionMotivation motivation,
     int count) {
-  URLRequestContextGetter* getter = Profile::GetDefaultRequestContext();
+  net::URLRequestContextGetter* getter = Profile::GetDefaultRequestContext();
   if (!getter)
     return;
   if (!BrowserThread::CurrentlyOn(BrowserThread::IO)) {
@@ -53,9 +53,26 @@ void PreconnectOnIOThread(
   net::HttpTransactionFactory* factory = context->http_transaction_factory();
   net::HttpNetworkSession* session = factory->GetSession();
 
+  net::HttpRequestInfo request_info;
+  request_info.url = url;
+  request_info.method = "GET";
+  request_info.extra_headers.SetHeader(net::HttpRequestHeaders::kUserAgent,
+                                       context->GetUserAgent(url));
+  // It almost doesn't matter whether we use net::LOWEST or net::HIGHEST
+  // priority here, as we won't make a request, and will surrender the created
+  // socket to the pool as soon as we can.  However, we would like to mark the
+  // speculative socket as such, and IF we use a net::LOWEST priority, and if
+  // a navigation asked for a socket (after us) then it would get our socket,
+  // and we'd get its later-arriving socket, which might make us record that
+  // the speculation didn't help :-/.  By using net::HIGHEST, we ensure that
+  // a socket is given to us if "we asked first" and this allows us to mark it
+  // as speculative, and better detect stats (if it gets used).
+  // TODO(jar): histogram to see how often we accidentally use a previously-
+  // unused socket, when a previously used socket was available.
+  request_info.priority = net::HIGHEST;
+
   // Translate the motivation from UrlRequest motivations to HttpRequest
   // motivations.
-  net::HttpRequestInfo::RequestMotivation motivation_;
   switch (motivation) {
     case UrlInfo::OMNIBOX_MOTIVATED:
       request_info.motivation = net::HttpRequestInfo::OMNIBOX_MOTIVATED;
@@ -73,7 +90,18 @@ void PreconnectOnIOThread(
       break;
   }
 
-  net::Preconnect::DoPreconnect(session, url, count, motivation_);
+  // Setup the SSL Configuration.
+  net::SSLConfig ssl_config;
+  session->ssl_config_service()->GetSSLConfig(&ssl_config);
+  if (session->http_stream_factory()->next_protos())
+    ssl_config.next_protos = *session->http_stream_factory()->next_protos();
+
+  // All preconnects should perform EV certificate verification.
+  ssl_config.verify_ev_cert = true;
+
+  net::HttpStreamFactory* http_stream_factory = session->http_stream_factory();
+  http_stream_factory->PreconnectStreams(
+      count, request_info, ssl_config, net::BoundNetLog());
 }
 
 }  // namespace chrome_browser_net

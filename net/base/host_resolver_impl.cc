@@ -1,5 +1,4 @@
 // Copyright (c) 2010 The Chromium Authors. All rights reserved.
-// Copyright (c) 2011, Code Aurora Forum. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -36,6 +35,7 @@
 #include "net/base/net_errors.h"
 #include "net/base/net_log.h"
 #include "net/base/net_util.h"
+
 #if defined(OS_WIN)
 #include "net/base/winsock_init.h"
 #endif
@@ -74,17 +74,6 @@ HostCache* CreateDefaultCache() {
 HostResolver* CreateSystemHostResolver(size_t max_concurrent_resolves,
                                        HostResolverProc* resolver_proc,
                                        NetLog* net_log) {
-return CreateSystemHostResolver(max_concurrent_resolves,
-                                resolver_proc,
-                                net_log,
-                                NULL);
-}
-
-HostResolver* CreateSystemHostResolver(size_t max_concurrent_resolves,
-                                       HostResolverProc* resolver_proc,
-                                       NetLog* net_log,
-                                       MessageLoop* net_notification_messageloop
-                                       ) {
   // Maximum of 8 concurrent resolver threads.
   // Some routers (or resolvers) appear to start to provide host-not-found if
   // too many simultaneous resolutions are pending.  This number needs to be
@@ -96,7 +85,7 @@ HostResolver* CreateSystemHostResolver(size_t max_concurrent_resolves,
 
   HostResolverImpl* resolver =
       new HostResolverImpl(resolver_proc, CreateDefaultCache(),
-                           max_concurrent_resolves, net_log,net_notification_messageloop);
+                           max_concurrent_resolves, net_log);
 
   return resolver;
 }
@@ -915,9 +904,7 @@ HostResolverImpl::HostResolverImpl(
     HostResolverProc* resolver_proc,
     HostCache* cache,
     size_t max_jobs,
-    NetLog* net_log,
-    MessageLoop* net_notification_messageloop
-    )
+    NetLog* net_log)
     : cache_(cache),
       max_jobs_(max_jobs),
       next_request_id_(0),
@@ -927,10 +914,7 @@ HostResolverImpl::HostResolverImpl(
       shutdown_(false),
       ipv6_probe_monitoring_(false),
       additional_resolver_flags_(0),
-      net_log_(net_log),
-      net_notification_messageloop_(net_notification_messageloop),
-      resolverext_(NULL)
-{
+      net_log_(net_log) {
   DCHECK_GT(max_jobs, 0u);
 
   // It is cumbersome to expose all of the constraints in the constructor,
@@ -944,17 +928,7 @@ HostResolverImpl::HostResolverImpl(
   if (HaveOnlyLoopbackAddresses())
     additional_resolver_flags_ |= HOST_RESOLVER_LOOPBACK_ONLY;
 #endif
-
-  //register to network notifications via the current thread message loop (if exsits)
-  //or use the message loop provided in the constructor parameter
-  if (NULL==net_notification_messageloop_)  {
-      net_notification_messageloop_ = MessageLoop::current();
-  }
-  //add this class as observer for NetworkChangeNotifier
-  if (net_notification_messageloop_)  {
-      net_notification_messageloop_->PostTask(FROM_HERE,
-              NewRunnableFunction( &NetworkChangeNotifier::AddIPAddressObserver,this));
-  }
+  NetworkChangeNotifier::AddIPAddressObserver(this);
 }
 
 HostResolverImpl::~HostResolverImpl() {
@@ -968,10 +942,7 @@ HostResolverImpl::~HostResolverImpl() {
   if (cur_completing_job_)
     cur_completing_job_->Cancel();
 
-  if (net_notification_messageloop_)  {
-      net_notification_messageloop_->PostTask(FROM_HERE,
-              NewRunnableFunction( &NetworkChangeNotifier::RemoveIPAddressObserver,this));
-  }
+  NetworkChangeNotifier::RemoveIPAddressObserver(this);
 
   // Delete the job pools.
   for (size_t i = 0u; i < arraysize(job_pools_); ++i)
@@ -1500,14 +1471,6 @@ void HostResolverImpl::OnIPAddressChanged() {
 #endif
   AbortAllInProgressJobs();
   // |this| may be deleted inside AbortAllInProgressJobs().
-
-  if (resolverext_)  {
-      resolverext_->Resolve();
-  }
 }
 
-void HostResolverImpl::SetResolverExt(HostnameResolverExt* resolverext) {
-      LOG(INFO)<<"HostResolverImpl::SetPreresolver preresolver:"<<resolverext;
-      resolverext_ = resolverext;
-  }
 }  // namespace net

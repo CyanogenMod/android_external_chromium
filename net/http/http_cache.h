@@ -1,6 +1,4 @@
 // Copyright (c) 2011 The Chromium Authors. All rights reserved.
-// Copyright (c) 2011, Code Aurora Forum. All rights reserved
-
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -90,8 +88,7 @@ class NET_EXPORT HttpCache : public HttpTransactionFactory,
     // |callback| because the object can be deleted from within the callback.
     virtual int CreateBackend(NetLog* net_log,
                               disk_cache::Backend** backend,
-                              CompletionCallback* callback,
-                              FilePath** stat_db_path) = 0;
+                              CompletionCallback* callback) = 0;
   };
 
   // A default backend factory for the common use cases.
@@ -110,8 +107,7 @@ class NET_EXPORT HttpCache : public HttpTransactionFactory,
     // BackendFactory implementation.
     virtual int CreateBackend(NetLog* net_log,
                               disk_cache::Backend** backend,
-                              CompletionCallback* callback,
-                              FilePath** stat_db_path);
+                              CompletionCallback* callback);
 
    private:
     CacheType type_;
@@ -381,8 +377,6 @@ class NET_EXPORT HttpCache : public HttpTransactionFactory,
   ScopedRunnableMethodFactory<HttpCache> task_factory_;
 
   scoped_ptr<PlaybackCacheMap> playback_cache_map_;
-
-  FilePath* stat_db_path_;
 
   DISALLOW_COPY_AND_ASSIGN(HttpCache);
 };
