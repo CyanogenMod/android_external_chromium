@@ -335,6 +335,7 @@ LOCAL_SRC_FILES += \
     \
     net/url_request/https_prober.cc \
     net/url_request/url_request.cc \
+    net/url_request/video_url_caching_bridge.cc \
     net/url_request/url_request_context.cc \
     net/url_request/url_request_context_getter.cc \
     net/url_request/url_request_file_job.cc \
