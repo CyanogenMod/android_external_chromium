@@ -72,9 +72,6 @@ friend class test_case_name##_##test_name##_Test
 //#define F_LOCK 1
 //inline int lockf(int fd, int cmd, off_t len) { return -1; }
 
-// We have posix monotonic clocks but don't define this...
-#define _POSIX_MONOTONIC_CLOCK 1
-
 // Disable langinfo in icu
 #define U_GAVE_NL_LANGINFO_CODESET 0
 
