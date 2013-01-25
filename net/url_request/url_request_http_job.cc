@@ -1,5 +1,5 @@
 // Copyright (c) 2011 The Chromium Authors. All rights reserved.
-// Copyright (c) 2011, 2012 The Linux Foundation. All rights reserved
+// Copyright (c) 2011-2013 The Linux Foundation. All rights reserved
 
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
@@ -697,14 +697,6 @@ void URLRequestHttpJob::OnStartCompleted(int result) {
 
   if (result == OK) {
     SaveCookiesAndNotifyHeadersComplete();
-    if(response_info_!=NULL && request_!=NULL) {
-        StatHubCmd* cmd = StatHubCmdCreate(SH_CMD_CH_URL_REQUEST, SH_ACTION_DID_START);
-        if (NULL!=cmd) {
-            StatHubCmdAddParamAsString(cmd, request_->url().spec().c_str());
-            StatHubCmdAddParamAsBuf(cmd, response_info_->headers->raw_headers().data(), response_info_->headers->raw_headers().size());
-            StatHubCmdCommit(cmd);
-        }
-    }
   } else if (ShouldTreatAsCertificateError(result)) {
     // We encountered an SSL certificate error.  Ask our delegate to decide
     // what we should do.
