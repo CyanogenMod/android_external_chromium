@@ -229,8 +229,10 @@ int TransportConnectJob::DoResolveHost() {
 }
 
 int TransportConnectJob::DoResolveHostComplete(int result) {
-  if (result == OK)
+  if (result == OK) {
+    NotifyDelegateOfResolution(result, &addresses_, true /* allow reorder */);
     next_state_ = STATE_TRANSPORT_CONNECT;
+  }
   return result;
 }
 
@@ -384,6 +386,8 @@ void TransportConnectJob::DoIPv6FallbackTransportConnectComplete(int result) {
         base::TimeDelta::FromMinutes(10),
         100);
     set_socket(fallback_transport_socket_.release());
+    // address tag has changed since original resolution, so notify again. too late to reorder
+    NotifyDelegateOfResolution(result, fallback_addresses_.get(), false /* do not allow reorder */);
     next_state_ = STATE_NONE;
     transport_socket_.reset();
   } else {

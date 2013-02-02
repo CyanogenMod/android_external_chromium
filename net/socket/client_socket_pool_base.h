@@ -53,6 +53,8 @@ namespace net {
 class ClientSocketHandle;
 class HttpNetworkSession;
 class ITCPFinAggregation;
+class IClientSocketPoolExtend;
+class ClientSocketPoolExtendBridge;
 
 // ConnectJob provides an abstract interface for "connecting" a socket.
 // The connection may involve host resolution, tcp connection, ssl connection,
@@ -66,6 +68,10 @@ class ConnectJob {
 
     // Alerts the delegate that the connection completed.
     virtual void OnConnectJobComplete(int result, ConnectJob* job) = 0;
+
+    // Alerts the delegate that the connection resolved its address.
+    // if |allow_reorder| then delegate may change order of addresses in address list
+    virtual void OnConnectJobResolved(int result, ConnectJob* job, AddressList* addrlist, bool allow_reorder) = 0;
 
    private:
     DISALLOW_COPY_AND_ASSIGN(Delegate);
@@ -121,6 +127,7 @@ class ConnectJob {
   void set_socket(ClientSocket* socket);
   ClientSocket* socket() { return socket_.get(); }
   void NotifyDelegateOfCompletion(int rv);
+  void NotifyDelegateOfResolution(int rv, AddressList* address, bool allow_reorder);
   void ResetTimer(base::TimeDelta remainingTime);
 
  private:
@@ -350,6 +357,7 @@ class ClientSocketPoolBaseHelper
 
   // ConnectJob::Delegate methods:
   virtual void OnConnectJobComplete(int result, ConnectJob* job);
+  virtual void OnConnectJobResolved(int result, ConnectJob* job, AddressList *addrlist, bool allow_reorder);
 
   // NetworkChangeNotifier::IPAddressObserver methods:
   virtual void OnIPAddressChanged();
@@ -431,8 +439,9 @@ class ClientSocketPoolBaseHelper
     ScopedRunnableMethodFactory<Group> method_factory_;
   };
 
-  private:
+ private:
   friend class base::RefCounted<ClientSocketPoolBaseHelper>;
+  friend class net::ClientSocketPoolExtendBridge;
 
   typedef std::map<const ClientSocketHandle*, const Request*> RequestMap;
 
@@ -466,6 +475,12 @@ class ClientSocketPoolBaseHelper
   // having highest priority.
   bool FindTopStalledGroup(Group** group, std::string* group_name);
 
+
+  // Compare the |TopPendingPriority| of two groups
+  // Empty pending request queue is worst priority
+  // returns |true| if group has better priority than other
+  bool IsGroupBetterPriority(Group* group, Group* other_group);
+
   // Called when timer_ fires.  This method scans the idle sockets removing
   // sockets that timed out or can't be reused.
   void OnCleanupTimerFired();
@@ -478,6 +493,9 @@ class ClientSocketPoolBaseHelper
 
   // Process a pending socket request for a group.
   void ProcessPendingRequest(const std::string& group_name, Group* group);
+
+  // Dequeue a pending request that just got processed
+  void RemoveProcessedPendingRequest(const std::string& group_name, Group* group, int rv);
 
   // Assigns |socket| to |handle| and updates |group|'s counters appropriately.
   void HandOutSocket(ClientSocket* socket,
@@ -507,9 +525,10 @@ class ClientSocketPoolBaseHelper
   int RequestSocketInternal(const std::string& group_name,
                             const Request* request);
 
-  // Assigns an idle socket for the group to the request.
+  // Assigns an idle socket from the group to the request.
+  // Optionally, only assigns never-used idle sockets.
   // Returns |true| if an idle socket is available, false otherwise.
-  bool AssignIdleSocketToGroup(const Request* request, Group* group);
+  bool AssignIdleSocketToGroup(const Request* request, Group* group, bool allow_used_sockets = true);
 
   static void LogBoundConnectJobToRequest(
       const NetLog::Source& connect_job_source, const Request* request);
@@ -565,6 +584,9 @@ class ClientSocketPoolBaseHelper
 
   // The maximum number of sockets kept per group.
   const int max_sockets_per_group_;
+
+  // interface to connection sharing manager
+  IClientSocketPoolExtend* pool_extend_;
 
   // Pointer to ITCPFinAggregation interface that implements
   // TCP Fin Aggregation feature.
@@ -751,6 +773,10 @@ class ClientSocketPoolBase {
 
   virtual void OnConnectJobComplete(int result, ConnectJob* job) {
     return helper_.OnConnectJobComplete(result, job);
+  }
+
+  virtual void OnConnectJobResolved(int result, ConnectJob* job, AddressList* addrlist, bool allow_reorder) {
+    return helper_.OnConnectJobResolved(result, job, addrlist, allow_reorder);
   }
 
   int NumConnectJobsInGroup(const std::string& group_name) const {
