@@ -1,4 +1,5 @@
 // Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright (c) 2012, The Linux Foundation. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -167,6 +168,13 @@ class HttpStreamFactory {
                                  const HttpRequestInfo& info,
                                  const SSLConfig& ssl_config,
                                  const BoundNetLog& net_log) = 0;
+
+  // Requests that enough connections for |num_streams| be opened.
+  virtual int PreconnectStreams(int num_streams,
+                                 const HttpRequestInfo& info,
+                                 const SSLConfig& ssl_config,
+                                 const BoundNetLog& net_log,
+                                 CompletionCallback* callback) = 0;
 
   virtual void AddTLSIntolerantServer(const HostPortPair& server) = 0;
   virtual bool IsTLSIntolerantServer(const HostPortPair& server) const = 0;

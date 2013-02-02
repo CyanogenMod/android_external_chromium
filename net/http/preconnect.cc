@@ -1,10 +1,9 @@
 // Copyright (c) 2010 The Chromium Authors. All rights reserved.
-// Copyright (c) 2012, Code Aurora Forum. All rights reserved.
+// Copyright (c) 2012, The Linux Foundation. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "net/http/preconnect.h"
-
 #include "base/logging.h"
 #include "net/proxy/proxy_info.h"
 #include "net/http/http_stream_factory.h"
@@ -59,8 +58,11 @@ void Preconnect::Connect(const GURL& url, int count,
 
   proxy_info_.reset(new ProxyInfo());
   HttpStreamFactory* stream_factory = session_->http_stream_factory();
-  stream_factory->PreconnectStreams(count, *(request_info_.get()),
-      *(ssl_config_.get()), net_log_);
+
+  int rv = stream_factory->PreconnectStreams(count, (*request_info_.get()),
+    (*ssl_config_.get()), net_log_, &io_callback_);
+  if (rv != ERR_IO_PENDING)
+    delete this;
 }
 
 void Preconnect::OnPreconnectComplete(int error_code) {
