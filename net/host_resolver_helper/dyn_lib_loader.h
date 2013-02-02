@@ -1,5 +1,5 @@
 /** ---------------------------------------------------------------------------
- Copyright (c) 2011, Code Aurora Forum. All rights reserved.
+ Copyright (c) 2011, 2012 The Linux Foundation. All rights reserved.
 
  Redistribution and use in source and binary forms, with or without
  modification, are permitted provided that the following conditions are
@@ -10,7 +10,7 @@
        copyright notice, this list of conditions and the following
        disclaimer in the documentation and/or other materials provided
        with the distribution.
-     * Neither the name of Code Aurora Forum, Inc. nor the names of its
+     * Neither the name of The Linux Foundation nor the names of its
        contributors may be used to endorse or promote products derived
        from this software without specific prior written permission.
 
@@ -59,13 +59,20 @@ public:
 
     typedef void* MODULE_HANDLE_TYPE;
     template<class RET_TYPE>
-    static RET_TYPE* GetFunctionPtr(const char* libname, const char* symbol) {
-        return static_cast<RET_TYPE*>(GetInstance()->GetSymbolInternal(libname,
-                symbol));
+    static RET_TYPE* GetFunctionPtr(const char* libname, const char* symbol, bool optional=false) {
+        return static_cast<RET_TYPE*>(GetInstance()->GetSymbolInternal(libname, symbol, optional));
+    }
+
+    static void* GetLibrarySymbol(const MODULE_HANDLE_TYPE& lh, const std::string& symname, bool optional=false) {
+        return GetInstance()->LoadLibrarySymbol(lh, symname, optional);
     }
 
     static MODULE_HANDLE_TYPE GetLibraryHandle(const char* libname) {
         return GetInstance()->GetLibraryHandleInternal(libname);
+    }
+
+    static int ReleaseLibraryHandle(const char* libname) {
+        return GetInstance()->ReleaseLibraryHandleInternal(libname);
     }
 
 private:
@@ -73,16 +80,33 @@ private:
     class LibHandleType {
     public:
         LibHandleType() :
-                handle(NULL) {
+                handle(NULL),
+                refcount(0) {
         }
+
         LibHandleType(MODULE_HANDLE_TYPE h) :
                 handle(h) {
         }
+
         operator MODULE_HANDLE_TYPE() {
             return handle;
         }
+
+        int IncRefCount () {
+            refcount++;
+            return refcount;
+        }
+
+        int DecRefCount () {
+            if (!refcount) {
+                refcount--;
+            }
+            return refcount;
+        }
+
     private:
         MODULE_HANDLE_TYPE handle;
+        int refcount;
     };
 
     typedef LibHandleType<MODULE_HANDLE_TYPE> LibHandle;
@@ -91,9 +115,10 @@ private:
     static LibraryManager* GetInstance();
     LibraryManager() {}
     ~LibraryManager();
-    void* GetSymbolInternal(const std::string& libname,    const std::string& symbol);
+    void* GetSymbolInternal(const std::string& libname,    const std::string& symbol, bool optional);
     MODULE_HANDLE_TYPE GetLibraryHandleInternal(const std::string& libname);
-    void * LoadLibrarySymbol(const MODULE_HANDLE_TYPE& lh, const std::string& symname);
+    int ReleaseLibraryHandleInternal(const std::string& libname);
+    void * LoadLibrarySymbol(const MODULE_HANDLE_TYPE& lh, const std::string& symname, bool optional);
     MODULE_HANDLE_TYPE LoadLibraryModule(const std::string& libname);
     void ReleaseLibraryModule(const MODULE_HANDLE_TYPE& lh);
 

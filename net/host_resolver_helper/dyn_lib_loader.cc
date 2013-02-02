@@ -1,5 +1,5 @@
 /** ---------------------------------------------------------------------------
- Copyright (c) 2011, Code Aurora Forum. All rights reserved.
+ Copyright (c) 2011, 2012 The Linux Foundation. All rights reserved.
 
  Redistribution and use in source and binary forms, with or without
  modification, are permitted provided that the following conditions are
@@ -10,7 +10,7 @@
        copyright notice, this list of conditions and the following
        disclaimer in the documentation and/or other materials provided
        with the distribution.
-     * Neither the name of Code Aurora Forum, Inc. nor the names of its
+     * Neither the name of The Linux Foundation nor the names of its
        contributors may be used to endorse or promote products derived
        from this software without specific prior written permission.
 
@@ -27,6 +27,7 @@
  IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  -----------------------------------------------------------------------------**/
 #include "dyn_lib_loader.h"
+#include <cutils/log.h>
 
 LibraryManager* LibraryManager::GetInstance() {
     static LibraryManager mgr;
@@ -34,8 +35,7 @@ LibraryManager* LibraryManager::GetInstance() {
 }
 
 LibraryManager::~LibraryManager() {
-    for (LibDictionary::iterator it = libdict.begin(); it != libdict.end();
-            it++) {
+    for (LibDictionary::iterator it = libdict.begin(); it != libdict.end(); it++) {
         if (it->second) {
             ReleaseLibraryModule(it->second);
         }
@@ -47,19 +47,48 @@ LibraryManager::MODULE_HANDLE_TYPE LibraryManager::GetLibraryHandleInternal(cons
     if (NULL == handle) {
         //load module
         handle = LoadLibraryModule(libname);
+        if (NULL == handle) {
+            SLOGE("netstack: LIB_MGR - Error loading lib %s", libname.c_str());
+            return handle;
+        }
+        SLOGI("netstack: LIB_MGR - Lib loaded: %s", libname.c_str());
     }
+    handle.IncRefCount();
     return handle;
 }
 
-void* LibraryManager::GetSymbolInternal(const std::string& libname,    const std::string& symbol) {
-    return LoadLibrarySymbol(GetLibraryHandleInternal(libname), symbol);
+int LibraryManager::ReleaseLibraryHandleInternal(const std::string& libname) {
+    int refcount = 0;
+    LibHandle& handle = libdict[libname];
+    if (NULL != handle) {
+        refcount = handle.DecRefCount();
+        if (0 == refcount) {
+            //release module
+            ReleaseLibraryModule(handle);
+            SLOGI("netstack: LIB_MGR - Lib %s unloaded", libname.c_str());
+            libdict.erase(libname);
+        }
+    }
+    return refcount;
 }
 
-void * LibraryManager::LoadLibrarySymbol(const MODULE_HANDLE_TYPE& lh,
-        const std::string& symname) {
+void* LibraryManager::GetSymbolInternal(const std::string& libname,    const std::string& symbol, bool optional) {
+    return LoadLibrarySymbol(GetLibraryHandleInternal(libname), symbol, optional);
+}
+
+void* LibraryManager::LoadLibrarySymbol(const MODULE_HANDLE_TYPE& lh, const std::string& symname, bool optional) {
     void* symptr = NULL;
     if (lh) {
+        const char *error;
+
+        dlerror(); //see man dlopen
         symptr = dlsym(lh, symname.c_str());
+        if (NULL != (error = dlerror())) {
+            symptr = NULL;
+            if (!optional) {
+                SLOGE("netstack: LIB_MGR - Failed to load symbol %s", symname.c_str());
+            }
+        }
     }
     return symptr;
 }
