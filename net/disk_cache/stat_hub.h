@@ -1,5 +1,5 @@
 /** ---------------------------------------------------------------------------
-Copyright (c) 2011, 2012 Code Aurora Forum. All rights reserved.
+Copyright (c) 2011, 2012 The Linux Foundation. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are
@@ -10,7 +10,7 @@ met:
       copyright notice, this list of conditions and the following
       disclaimer in the documentation and/or other materials provided
       with the distribution.
-    * Neither the name of Code Aurora Forum, Inc. nor the names of its
+    * Neither the name of The Linux Foundation nor the names of its
       contributors may be used to endorse or promote products derived
       from this software without specific prior written permission.
 
@@ -34,6 +34,7 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "googleurl/src/gurl.h"
 #include "app/sql/connection.h"
 #include "app/sql/init_status.h"
+#include "net/host_resolver_helper/dyn_lib_loader.h"
 #include <dlfcn.h>
 
 #include "stat_hub_api.h"
@@ -45,9 +46,11 @@ namespace base {
     class Thread;
 }
 
-namespace stat_hub {
+namespace net {
+    class HttpRequestInfo;
+}
 
-extern const char* kEnabledAppName;
+namespace stat_hub {
 
 typedef void(* event_cb)(int fd, short event, void* arg);
 
@@ -60,12 +63,12 @@ virtual ~StatProcessor() {
     }
 
     //Events
-virtual bool OnInit(sql::Connection* db, MessageLoop* message_loop)=0;
+virtual bool OnInit(sql::Connection* db)=0;
 virtual bool OnFetchDb(sql::Connection* db)=0;
 virtual bool OnFlushDb(sql::Connection* db)=0;
 virtual bool OnClearDb(sql::Connection* db)=0;
-virtual bool OnCmd(StatHubTimeStamp timestamp, unsigned short cmd, void* param1, int sizeofparam1, void* param2, int sizeofparam2) {return false;}
-virtual bool OnGetProcName(std::string& name)=0;
+virtual bool OnCmd(StatHubCmd* cmd) {return false;}
+virtual bool OnGetProcInfo(std::string& name, std::string& version)=0;
 virtual bool OnGetCmdMask(unsigned int& cmd_mask)=0;
 
 private:
@@ -110,12 +113,12 @@ private:
     Do##name = NULL;
 
 #define STAT_PLUGIN_IMPORT(handle, name) \
-    *(void **)(&Do##name) = dlsym(handle, #name);
+    *(void **)(&Do##name) = LibraryManager::GetLibrarySymbol(handle, #name, true);
 
 class StatProcessorGenericPlugin : public StatProcessor {
 public:
     StatProcessorGenericPlugin(const char* name) :
-        initialized_(false) {
+        initialized_(false), fh_(NULL) {
         if (NULL!=name) {
             name_ = name;
         }
@@ -124,25 +127,28 @@ public:
         STAT_PLUGIN_IF_DEFINE(OnFlushDb)
         STAT_PLUGIN_IF_DEFINE(OnClearDb)
         STAT_PLUGIN_IF_DEFINE(OnCmd)
-        STAT_PLUGIN_IF_DEFINE(OnGetProcName)
+        STAT_PLUGIN_IF_DEFINE(OnGetProcInfo)
         STAT_PLUGIN_IF_DEFINE(OnGetCmdMask)
     }
 
 virtual ~StatProcessorGenericPlugin() {
+        if (!name_.empty() && initialized_) {
+            LibraryManager::ReleaseLibraryHandle(name_.c_str());
+        }
     }
 
-    STAT_PLUGIN_METHOD_2(OnInit, bool, sql::Connection*, db, MessageLoop*, message_loop)
+    STAT_PLUGIN_METHOD_1(OnInit, bool, sql::Connection*, db)
     STAT_PLUGIN_METHOD_1(OnFetchDb, bool, sql::Connection*, db)
     STAT_PLUGIN_METHOD_1(OnFlushDb, bool, sql::Connection*, db)
     STAT_PLUGIN_METHOD_1(OnClearDb, bool, sql::Connection*, db)
-    STAT_PLUGIN_METHOD_6(OnCmd, bool, StatHubTimeStamp, timestamp, unsigned short, cmd, void*, param1, int, sizeofparam1, void*, param2, int, sizeofparam2)
-    STAT_PLUGIN_METHOD_1(OnGetProcName, bool, std::string&, name)
+    STAT_PLUGIN_METHOD_1(OnCmd, bool, StatHubCmd*, cmd)
+    STAT_PLUGIN_METHOD_2(OnGetProcInfo, bool, std::string&, name, std::string&, version)
     STAT_PLUGIN_METHOD_1(OnGetCmdMask, bool, unsigned int&, cmd_mask)
 
-    bool OpenPlugin(void* fh=NULL) {
+    void* OpenPlugin(void* fh=NULL) {
         if (!initialized_) {
             if (NULL==fh && !name_.empty()) {
-                fh = dlopen(name_.c_str(), RTLD_NOW);
+                fh = LibraryManager::GetLibraryHandle(name_.c_str());
             }
             if (fh) {
                 initialized_ = true;
@@ -151,21 +157,18 @@ virtual ~StatProcessorGenericPlugin() {
                 STAT_PLUGIN_IMPORT(fh, OnFlushDb)
                 STAT_PLUGIN_IMPORT(fh, OnClearDb)
                 STAT_PLUGIN_IMPORT(fh, OnCmd)
-                STAT_PLUGIN_IMPORT(fh, OnGetProcName)
+                STAT_PLUGIN_IMPORT(fh, OnGetProcInfo)
                 STAT_PLUGIN_IMPORT(fh, OnGetCmdMask)
             }
-            else {
-                if(!name_.empty()) {
-                LOG(INFO) << "Failed to open plugin:" << name_.c_str();
-                }
-            }
+            fh_ = fh;
         }
-        return initialized_;
+        return fh_;
     }
 
 private:
     bool initialized_;
     std::string name_;
+    void* fh_;
 };
 
 class StatHub {
@@ -175,17 +178,14 @@ virtual ~StatHub();
 
 static StatHub* GetInstance();
 
-    void RegisterProcessor(StatProcessor* processor);
+    bool RegisterProcessor(StatProcessor* processor);
     StatProcessor* DeleteProcessor(StatProcessor* processor);
 
-    bool Init(const std::string& db_path, MessageLoop* message_loop, net::HttpCache* http_cache);
+    bool Init();
     void Release();
-    bool LoadPlugin(const char* name);
+    void* LoadPlugin(const char* name);
 
-    void UpdateMainUrl(const char* url);
-    void UpdateSubUrl(const char* main_url,const char* sub_url);
-    void MainUrlLoaded(const char* url);
-    void Cmd(StatHubTimeStamp timestamp, unsigned short cmd, void* param1, int sizeofparam1, void* param2, int sizeofparam2);
+    void Cmd(StatHubCmd* cmd);
 
     void FlushDBrequest();
     bool FlushDB();
@@ -193,37 +193,70 @@ static StatHub* GetInstance();
     bool GetDBmetaData(const char* key, std::string& val);
     bool SetDBmetaData(const char* key, const char* val);
 
-    bool IsReady() {
+inline bool IsReady() {
         return ready_;
     }
+
     bool IsProcReady(const char *name);
-    MessageLoop* GetMessageLoop() {
+    bool IsProcRegistered(const char* name);
+
+inline void SetIoMessageLoop(MessageLoop* message_loop) {
+        message_loop_ = message_loop;
+    }
+
+inline MessageLoop* GetIoMessageLoop() {
         return message_loop_;
     }
 
-    net::HttpCache* GetHttpCache() {
+inline void SetHttpCache(net::HttpCache* http_cache) {
+        http_cache_ =  http_cache;
+    }
+
+inline net::HttpCache* GetHttpCache() {
         return http_cache_;
     }
 
-    sql::Connection* GetDb() {
+inline sql::Connection* GetDb() {
         return db_;
     }
 
-    base::Thread* GetThread() {
+inline base::Thread* GetThread() {
         return thread_;
     }
 
-    bool IsVerboseEnabled() {
+inline bool IsVerboseEnabled() {
         return (verbose_level_!=STAT_HUB_VERBOSE_LEVEL_DISABLED);
     }
 
-    StatHubVerboseLevel GetVerboseLevel() {
+inline StatHubVerboseLevel GetVerboseLevel() {
         return verbose_level_;
     }
 
-    unsigned int GetCmdMask() {
+inline unsigned int GetCmdMask() {
         return cmd_mask_;
     }
+
+inline bool IsPerfEnabled() {
+        return performance_enabled_;
+    }
+
+inline void SetPerfTimeStamp(StatHubTimeStamp time_stamp) {
+        perf_time_stamp_ = time_stamp;
+    }
+
+inline StatHubTimeStamp& GetPerfTimeStamp() {
+        return perf_time_stamp_;
+    }
+
+    STAT_PLUGIN_METHOD_1(FetchGetRequestInfo, net::HttpRequestInfo*, void*, cookie)
+    STAT_PLUGIN_METHOD_3(FetchStartComplete, bool, void*, cookie, const net::HttpResponseInfo*, response_info, int, error_code)
+    STAT_PLUGIN_METHOD_3(FetchReadComplete, bool, void*, cookie, const char* , buf, int, bytes_to_read)
+    STAT_PLUGIN_METHOD_2(FetchDone, bool, void*, cookie, int, error_code)
+
+    STAT_PLUGIN_METHOD_1(IsInDC, bool, const char*, url)
+    STAT_PLUGIN_METHOD_4(IsPreloaded, bool, const char*, url, std::string&, headers, char*&, data, int&, size)
+    STAT_PLUGIN_METHOD_1(ReleasePreloaded, bool, const char*, url)
+    STAT_PLUGIN_METHOD_0(IsPreloaderEnabled, bool)
 
  private:
 
@@ -238,6 +271,10 @@ static StatHub* GetInstance();
     // Creates tables, returning true if the table already exists
     // or was successfully created.
     bool InitTables();
+
+    void UpdateMainUrl(const char* url);
+    void UpdateSubUrl(const char* main_url,const char* sub_url);
+    void MainUrlLoaded(const char* url);
 
     sql::Connection* db_;
 
@@ -259,8 +296,13 @@ static StatHub* GetInstance();
     int flush_delay_;
     StatHubVerboseLevel verbose_level_;
 
-    DISALLOW_COPY_AND_ASSIGN(StatHub);
     unsigned int    cmd_mask_;
+    bool clear_enabled_;
+    unsigned int under_construction_;
+    bool performance_enabled_;
+    StatHubTimeStamp perf_time_stamp_;
+
+    DISALLOW_COPY_AND_ASSIGN(StatHub);
 };
 
 }  // namespace stat_hub

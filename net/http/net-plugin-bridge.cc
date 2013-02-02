@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011, 2012 Code Aurora Forum. All rights reserved.
+* Copyright (c) 2011, 2012 The Linux Foundation. All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or without
 * modification, are permitted provided that the following conditions are
@@ -10,7 +10,7 @@
 *       copyright notice, this list of conditions and the following
 *       disclaimer in the documentation and/or other materials provided
 *       with the distribution.
-*     * Neither the name of Code Aurora Forum, Inc. nor the names of its
+*     * Neither the name of The Linux Foundation nor the names of its
 *       contributors may be used to endorse or promote products derived
 *       from this software without specific prior written permission.
 *
@@ -41,8 +41,8 @@
 
 #include "net/http/net-plugin-bridge.h"
 #include "net/http/net-plugin-bridge-exports.h"
+#include "net/host_resolver_helper/dyn_lib_loader.h"
 #include <dlfcn.h>
-#include <cutils/log.h>
 
 static void (*DoObserveRevalidation)(const net::HttpResponseInfo* resp,
     const net::HttpRequestInfo* req, net::HttpCache* cache) = NULL;
@@ -51,18 +51,9 @@ static void InitOnce() {
   static bool initialized = false;
   if (!initialized) {
       initialized = true;
-      void* fh = dlopen("qnet-plugin.so", RTLD_LAZY);
+      void* fh = LibraryManager::GetLibraryHandle("qnet-plugin.so");
       if (fh) {
-          const char *error;
-
-          dlerror(); //see man dlopen
-          *(void **)(&DoObserveRevalidation) = dlsym(fh, "DoObserveRevalidation");
-          if (NULL != (error = dlerror())) {
-              DoObserveRevalidation = NULL;
-          }
-      }
-      if (NULL == DoObserveRevalidation) {
-          SLOGD("Failed to load DoObserveRevalidation symbol in qnet-plugin.so");
+          *(void **)(&DoObserveRevalidation) = LibraryManager::GetLibrarySymbol(fh, "DoObserveRevalidation");
       }
   }
 }
@@ -74,7 +65,6 @@ void ObserveRevalidation(const net::HttpResponseInfo* resp,
       DoObserveRevalidation(resp, req, cache);
   }
 }
-
 
 bool HeadersIsRedirect(const net::HttpResponseHeaders* headers,
     std::string& location) {

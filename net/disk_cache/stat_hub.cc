@@ -1,5 +1,5 @@
 /** ---------------------------------------------------------------------------
-Copyright (c) 2011, 2012 Code Aurora Forum. All rights reserved.
+Copyright (c) 2011, 2012 The Linux Foundation. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are
@@ -10,7 +10,7 @@ met:
       copyright notice, this list of conditions and the following
       disclaimer in the documentation and/or other materials provided
       with the distribution.
-    * Neither the name of Code Aurora Forum, Inc. nor the names of its
+    * Neither the name of The Linux Foundation nor the names of its
       contributors may be used to endorse or promote products derived
       from this software without specific prior written permission.
 
@@ -38,6 +38,7 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <sys/time.h>
 #include <sys/prctl.h>
 #include <cutils/properties.h>
+#include <cutils/log.h>
 
 #include "app/sql/statement.h"
 #include "app/sql/transaction.h"
@@ -52,6 +53,8 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "stat_hub.h"
 
+#define STAT_HUB_DYNAMIC_BIND_ON
+
 namespace stat_hub {
 
 #define FLUSH_DB_TIMEOUT_THRESHOLD_DEF  30000
@@ -64,14 +67,17 @@ typedef enum {
     INPUT_STATE_READ_INT32,
 } InputState;
 
-const char* kPropNameEnabled = "stathub.enabled";
-const char* kPropNameDbpath = "stathub.dbpath";
-const char* kPropNameVerbose = "stathub.verbose";
-const char* kPropNameFlushDelay = "stathub.flushdelay";
-const char* kPropNameEnabledAppName = "stathub.appname";
-const char* kPropNamePlugin = "stathub.plugin";
+const char* kPropNameEnabled = "net.sh.enabled";
+const char* kPropNameDbpath = "net.sh.dbpath";
+const char* kPropNameVerbose = "net.sh.verbose";
+const char* kPropNameFlushDelay = "net.sh.flushdelay";
+const char* kPropNameEnabledAppName = "net.sh.appname";
+const char* kPropNamePlugin = "net.sh.plugin";
+const char* kPropNameClearEnabled = "net.sh.clrenablde";
+const char* kPropNamePerfEnabled = "net.sh.prfenabled";
 
 const char* kEnabledAppName = "com.android.browser";
+const char* kDefaultDbPath = "/data/data/com.android.browser/databases/db.sql";
 
 void DoFlushDB(StatHub* database) {
     database->FlushDBrequest();
@@ -81,51 +87,91 @@ void DoFlushDB(StatHub* database) {
 static const int kCurrentVersionNumber = 1;
 static const int kCompatibleVersionNumber = 1;
 
+//=========================================================================
 StatHub* StatHub::GetInstance() {
     static StatHub hub;
+    if (!hub.IsReady() && 0==hub.under_construction_) {
+        hub.under_construction_ = 1;
+        hub.Init();
+        hub.under_construction_ = 2;
+    }
     return &hub;
 }
 
+//=========================================================================
 StatHub::StatHub() :
     db_(NULL),
     ready_(false),
     flush_db_required_(false),
     flush_db_scheduled_(false),
+    message_loop_(NULL),
+    http_cache_(NULL),
     first_processor_(NULL),
     thread_(NULL),
     flush_delay_(FLUSH_DB_TIMEOUT_THRESHOLD_DEF),
-    verbose_level_(STAT_HUB_VERBOSE_LEVEL_DISABLED) {
+    verbose_level_(STAT_HUB_VERBOSE_LEVEL_DISABLED),
+    clear_enabled_(true),
+    under_construction_(0),
+    performance_enabled_(false)
+{
+    STAT_PLUGIN_IF_DEFINE(FetchGetRequestInfo)
+    STAT_PLUGIN_IF_DEFINE(FetchStartComplete)
+    STAT_PLUGIN_IF_DEFINE(FetchReadComplete)
+    STAT_PLUGIN_IF_DEFINE(FetchDone)
 
-    cmd_mask_ |= (1<<INPUT_CMD_WK_MMC_CLEAR);
-    cmd_mask_ |= (1<<INPUT_CMD_WK_MAIN_URL_LOADED);
+    STAT_PLUGIN_IF_DEFINE(IsInDC)
+    STAT_PLUGIN_IF_DEFINE(IsPreloaded)
+    STAT_PLUGIN_IF_DEFINE(ReleasePreloaded)
+    STAT_PLUGIN_IF_DEFINE(IsPreloaderEnabled)
+
+    cmd_mask_ |= (1<<SH_CMD_WK_MEMORY_CACHE);
+    cmd_mask_ |= (1<<SH_CMD_WK_MAIN_URL);
 }
 
 StatHub::~StatHub() {
     Release();
 }
 
-bool StatHub::LoadPlugin(const char* name) {
+//=========================================================================
+void* StatHub::LoadPlugin(const char* name) {
     if (IsVerboseEnabled()) {
-        LOG(INFO) << "StatHub::Init - Load plugin: " << name;
+        SLOGI("netstack: STAT_HUB - Loading plugin: %s", name);
     }
     StatProcessorGenericPlugin* plugin = new StatProcessorGenericPlugin(name);
-    if( plugin->OpenPlugin()) {
-        RegisterProcessor(plugin);
-        LOG(INFO) << "netstack: succeeded to load StatHub plugin: " << name;
+    void* fh = plugin->OpenPlugin();
+    if (NULL!=fh) {
+        if (RegisterProcessor(plugin)) {
+            SLOGI("netstack: STAT_HUB - Succeeded to load plugin: %s", name);
+            return fh;
+        }
+    }
+    delete plugin;
+    SLOGE("netstack: STAT_HUB - Failed to load plugin: %s", name);
+    return NULL;
+}
+
+//=========================================================================
+bool StatHub::RegisterProcessor(StatProcessor* processor) {
+    if (NULL!=processor) {
+        std::string proc_name;
+        std::string proc_version;
+
+        if (!processor->OnGetProcInfo(proc_name, proc_version)) {
+            SLOGE("netstack: STAT_HUB - Processor name is undefined");
+            return false;
+        }
+        if (IsProcRegistered(proc_name.c_str())) {
+            SLOGE("netstack: STAT_HUB - Processor %s already registered", proc_name.c_str());
+            return false;
+        }
+        processor->next_ = first_processor_;
+        first_processor_ = processor;
         return true;
     }
-
-    LOG(INFO) << "netstack: failed to load StatHub plugin: " << name;
     return false;
 }
 
-void StatHub::RegisterProcessor(StatProcessor* processor) {
-    if (NULL!=processor) {
-        processor->next_ = first_processor_;
-        first_processor_ = processor;
-    }
-}
-
+//=========================================================================
 StatProcessor* StatHub::DeleteProcessor(StatProcessor* processor) {
     if (NULL!=processor) {
         StatProcessor* next = processor->next_;
@@ -146,17 +192,34 @@ StatProcessor* StatHub::DeleteProcessor(StatProcessor* processor) {
     return NULL;
 }
 
+//=========================================================================
+bool StatHub::IsProcRegistered(const char* name) {
+    std::string proc_name;
+    std::string proc_version;
+
+    for (StatProcessor* processor=first_processor_; processor!=NULL; processor=processor->next_) {
+        if (processor->OnGetProcInfo(proc_name, proc_version)) {
+            if (proc_name==name) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+//=========================================================================
 bool StatHub::IsProcReady(const char* name) {
     if (IsReady()) {
         std::string proc_name;
+        std::string proc_version;
 
         for (StatProcessor* processor=first_processor_; processor!=NULL; processor=processor->next_) {
-            if (processor->OnGetProcName(proc_name)) {
-                //if (proc_name==name) {
-                size_t found = proc_name.find(name);
-                if (found != std::string::npos) {
-                    if (IsVerboseEnabled()) {
-                        LOG(INFO) << "StatHub::IsProcReady:(true) for:" << name;
+            if (processor->OnGetProcInfo(proc_name, proc_version)) {
+                if (proc_name==name) {
+                //size_t found = proc_name.find(name);
+                //if (found != std::string::npos) {
+                    if (STAT_HUB_IS_VERBOSE_LEVEL_DEBUG) {
+                        SLOGD("netstack: STAT_HUB - Processor %s is ready", name);
                     }
                     return true;
                 }
@@ -164,34 +227,60 @@ bool StatHub::IsProcReady(const char* name) {
         }
     }
     if (IsVerboseEnabled()) {
-        LOG(INFO) << "StatHub::(false) for:" << name;
+        SLOGI("netstack: STAT_HUB - Processor %s is NOT ready", name);
     }
     return false;
 }
 
-bool StatHub::Init(const std::string& db_path, MessageLoop* message_loop, net::HttpCache* http_cache) {
+//=========================================================================
+bool StatHub::Init() {
     char value[PROPERTY_VALUE_MAX] = {'\0'};
 
     if (ready_) {
-        LOG(INFO) << "StatHub::Init - Already initializes";
+        SLOGE("netstack: STAT_HUB - Already initialized");
         return false;
     }
 
-    if (db_path.empty() || NULL==message_loop) {
-        LOG(ERROR) << "StatHub::Init - Bad parameters";
-        return false;
+    //load mandatory plugins
+    LoadPlugin("libdnshostprio.so");
+    void* fh = LoadPlugin("spl_proc_plugin.so");
+    if (fh) {
+        STAT_PLUGIN_IMPORT(fh, FetchGetRequestInfo);
+        STAT_PLUGIN_IMPORT(fh, FetchStartComplete);
+        STAT_PLUGIN_IMPORT(fh, FetchReadComplete);
+        STAT_PLUGIN_IMPORT(fh, FetchDone);
+
+        STAT_PLUGIN_IMPORT(fh, IsInDC);
+        STAT_PLUGIN_IMPORT(fh, IsPreloaded);
+        STAT_PLUGIN_IMPORT(fh, ReleasePreloaded);
+        STAT_PLUGIN_IMPORT(fh, IsPreloaderEnabled);
     }
+    stat_hub::StatHub::GetInstance()->LoadPlugin("pp_proc_plugin.so");
+    //        stat_hub::StatHub::GetInstance()->LoadPlugin("pageload_proc_plugin.so");
 
     property_get(kPropNameEnabled, value, "1"); //!!!!!!!!! ENABLED by default !!!!!!!!!
     if (!atoi(value)) {
-        LOG(INFO) << "StatHub::Init - Disabled";
+        SLOGW("netstack: STAT_HUB - Disabled");
         return false;
     }
 
     property_get(kPropNameVerbose, value, "0"); //STAT_HUB_VERBOSE_LEVEL_DISABLED - 0
     verbose_level_ = (StatHubVerboseLevel)atoi(value);
     if (IsVerboseEnabled()) {
-        LOG(INFO) << "StatHub::Init - Verbose Level: " << verbose_level_;
+        SLOGI("netstack: STAT_HUB - Verbose Level: %d", verbose_level_);
+    }
+
+    property_get(kPropNameClearEnabled, value, "1");
+    if (!atoi(value)) {
+        clear_enabled_ = false;
+        SLOGI("netstack: STAT_HUB - Cache Clear Disabled");
+    }
+
+    property_get(kPropNamePerfEnabled, value, "0");
+    if (atoi(value)) {
+        performance_enabled_ = true;
+        SetPerfTimeStamp(StatHubGetSystemTime());
+        SLOGI("netstack: STAT_HUB - Performance Piggyback Enabled");
     }
 
     //Check application restriction
@@ -210,10 +299,10 @@ bool StatHub::Init(const std::string& db_path, MessageLoop* message_loop, net::H
     close(fd);
 
     if(IsVerboseEnabled()) {
-        LOG(INFO) << "CacheDatabase::Init - Prc Name: " << path << "(" << (int)pid << ")";
+        SLOGI("netstack: STAT_HUB - Prc Name: %s (%d)", path ,(int)pid);
     }
     if (strcmp(path, enabled_app_name_.c_str())) {
-        LOG(ERROR) << "StatHub::Init - App " << path << " isn't supported.";
+        SLOGE("netstack:  STAT_HUB - App %s isn't supported", path);
         return false;
     }
 
@@ -225,20 +314,15 @@ bool StatHub::Init(const std::string& db_path, MessageLoop* message_loop, net::H
         flush_delay_ = FLUSH_DB_TIMEOUT_THRESHOLD_DEF;
     }
     if(IsVerboseEnabled()) {
-        LOG(INFO) << "StatHub::Init - Flush delay: "  << flush_delay_;
+        SLOGI("netstack: STAT_HUB - Flush delay: %d", flush_delay_);
     }
 
-    std::string db_path_def = db_path + "/db.sql";
-    property_get(kPropNameDbpath, value, db_path_def.c_str());
+    property_get(kPropNameDbpath, value, kDefaultDbPath);
     db_path_ = value;
 
     if(IsVerboseEnabled()) {
-        LOG(INFO) << "StatHub::Init - DB path: "  << db_path.c_str();
-        LOG(INFO) << "StatHub::Init - Finale DB path: "  << db_path_.c_str();
+        SLOGI("netstack: STAT_HUB - DB path: %s", db_path_.c_str());
     }
-
-    message_loop_ = message_loop;
-    http_cache_ = http_cache;
 
     #if defined(NOT_NOW)
         db_->set_page_size(2048);
@@ -249,28 +333,24 @@ bool StatHub::Init(const std::string& db_path, MessageLoop* message_loop, net::H
     #endif //defined(NOT_NOW)
     db_ = new sql::Connection();
     if (!db_->Open(FilePath(db_path_.c_str()))) {
-        LOG(ERROR) << "StatHub::Init - Unable to open DB " << db_path_.c_str();
+        SLOGE("netstack: STAT_HUB - Unable to open DB %s", db_path_.c_str());
         Release();
         return false;
     }
 
     // Scope initialization in a transaction so we can't be partially initialized.
     if (!StatHubBeginTransaction(db_)) {
-        LOG(ERROR) << "StatHub::Init - Unable to start transaction";
+        SLOGE("netstack: STAT_HUB - Unable to start transaction");
         Release();
         return false;
     }
 
     // Create tables.
     if (!InitTables()) {
-        LOG(ERROR) << "StatHub::Init - Unable to initialize DB tables";
+        SLOGE("netstack: STAT_HUB - Unable to initialize DB tables");
         Release();
         return false;
     }
-
-    //load mandatory plugins
-    LoadPlugin("pp_proc_plugin.so");
-    LoadPlugin("pageload_proc_plugin.so");
 
 #ifdef STAT_HUB_DYNAMIC_BIND_ON
     //load arbitrary plugins
@@ -286,16 +366,17 @@ bool StatHub::Init(const std::string& db_path, MessageLoop* message_loop, net::H
     }
 #endif // STAT_HUB_DYNAMIC_BIND_ON
 
-    std::string proc_name;
     for (StatProcessor* processor=first_processor_; processor!=NULL;) {
-        if (!processor->OnGetProcName(proc_name)) {
-            proc_name = "Undefined";
-        }
-        if(!processor->OnInit(db_, message_loop_)) {
-            LOG(INFO) << "StatHub::Init - processor " << proc_name.c_str() << " initialization failed!";
+        std::string proc_name = "Undefined";
+        std::string proc_version ="0.0.0";
+        processor->OnGetProcInfo(proc_name, proc_version);
+        if(!processor->OnInit(db_)) {
+            SLOGE("netstack: STAT_HUB - Processor %s (v%s) initialization failed",
+                proc_name.c_str(), proc_version.c_str());
             processor = DeleteProcessor(processor);
         } else {
-            LOG(INFO) << "StatHub::Init - processor " << proc_name.c_str() << " is ready.";
+            SLOGI("netstack: STAT_HUB - Processor %s (v%s) is ready",
+                proc_name.c_str(), proc_version.c_str());
             unsigned int cmd_mask;
             if (processor->OnGetCmdMask(cmd_mask)) {
                 cmd_mask_ |= cmd_mask;
@@ -306,7 +387,7 @@ bool StatHub::Init(const std::string& db_path, MessageLoop* message_loop, net::H
 
     // Initialization is complete.
     if (!StatHubCommitTransaction(db_)) {
-        LOG(ERROR) << "StatHub::Init - Unable to commist transaction";
+        SLOGE("netstack: STAT_HUB - Unable to commit transaction");
         Release();
         return false;
     }
@@ -317,23 +398,24 @@ bool StatHub::Init(const std::string& db_path, MessageLoop* message_loop, net::H
 
     thread_ = new base::Thread("event_handler");
     if (!thread_->StartWithOptions(base::Thread::Options(MessageLoop::TYPE_IO, 0))) {
-        LOG(ERROR) << "StatHub::Init event thread start error";
+        SLOGE("netstack: STAT_HUB - Event thread start error");
         Release();
         return false;
     }
 
     ready_ = true;
     if(IsVerboseEnabled()) {
-        LOG(INFO) << "StatHub::Init: Init DB Time: " << StatHubGetTimeDeltaInMs(start, StatHubGetSystemTime());
+        SLOGI("netstack: STAT_HUB - Init DB Time: %d" ,StatHubGetTimeDeltaInMs(start, StatHubGetSystemTime()));
     }
 
-    LOG(INFO) << "netstack: StatHub was initialized";
+    SLOGI("netstack: STAT_HUB - Initialized");
     return true;
 }
 
+//=========================================================================
 void StatHub::Release() {
     if(IsVerboseEnabled()) {
-        LOG(INFO) << "StatHub::Release";
+        SLOGI("netstack: STAT_HUB - Release");
     }
 
     //thread
@@ -363,6 +445,7 @@ void StatHub::Release() {
     ready_ = false;
 }
 
+//=========================================================================
 bool StatHub::InitTables() {
     if (!StatHubDoesTableExist(db_, "meta")) {
         if (!StatHubExecute(db_, "CREATE TABLE meta ("
@@ -375,6 +458,7 @@ bool StatHub::InitTables() {
     return true;
 }
 
+//=========================================================================
 bool StatHub::GetDBmetaData(const char* key, std::string& val) {
     bool ret = false;
 
@@ -389,6 +473,7 @@ bool StatHub::GetDBmetaData(const char* key, std::string& val) {
     return ret;
 }
 
+//=========================================================================
 bool StatHub::SetDBmetaData(const char* key, const char* val) {
     bool ret = true;
 
@@ -403,46 +488,75 @@ bool StatHub::SetDBmetaData(const char* key, const char* val) {
     return ret;
 }
 
+//=========================================================================
 void StatHub::MainUrlLoaded(const char* url) {
     flush_db_request_time_ = StatHubGetSystemTime();
     flush_db_required_ = true;
     if (!flush_db_scheduled_) {
         flush_db_scheduled_ = true;
         if(IsVerboseEnabled()) {
-            LOG(INFO) << "CacheDatabase::MainUrlLoaded : Request DB flush (" << flush_delay_ << ")";
+            SLOGI("netstack: STAT_HUB - Request DB flush (%d)", flush_delay_ );
         }
-        message_loop_->PostDelayedTask(FROM_HERE, NewRunnableFunction(&DoFlushDB, this), flush_delay_);
+        thread_->message_loop()->PostDelayedTask(FROM_HERE, NewRunnableFunction(&DoFlushDB, this), flush_delay_);
     }
 }
 
-void StatHub::Cmd(StatHubTimeStamp timestamp, unsigned short cmd, void* param1, int sizeofparam1, void* param2, int sizeofparam2) {
-    switch (cmd) {
-        case INPUT_CMD_WK_MMC_CLEAR:
+//=========================================================================
+void StatHub::Cmd(StatHubCmd* cmd) {
+    if(NULL!=cmd) {
+        if (IsPerfEnabled()) {
+            StatHubTimeStamp time_stamp = StatHubGetSystemTime();
+            if (StatHubGetTimeDeltaInMs(stat_hub::StatHub::GetInstance()->GetPerfTimeStamp(), time_stamp)>=50)
+            {
+                SetPerfTimeStamp(time_stamp);
+                //pID
+                char path[512] = {'\0'};
+                pid_t pid = getpid();
+                //stat
+                snprintf(path, sizeof(path), "/proc/%d/stat", pid);
+                int fd = open(path, O_RDONLY);
+                if (-1!=fd) {
+                    int rd_len = read(fd, path , sizeof(path)-1);
+                    if (0 > rd_len) {
+                        rd_len = 0;
+                    }
+                    path[rd_len] = 0;
+                    cmd->SetStat(path);
+                    close(fd);
+                }
+            }
+        }
+        StatHubCmdType cmd_id = cmd->GetCmd();
+        StatHubActionType action_id = cmd->GetAction();
+        if (STAT_HUB_IS_VERBOSE_LEVEL_DEBUG && STAT_HUB_DEV_LOG_ENABLED) {
+            SLOGD("netstack: STAT_HUB - StatHub::Cmd CMD:%d Action:%d", cmd->GetCmd(), cmd->GetAction());
+        }
+        if (clear_enabled_ && SH_CMD_WK_MEMORY_CACHE==cmd_id && SH_ACTION_CLEAR==action_id) {
             for (StatProcessor* processor=first_processor_; processor!=NULL; processor=processor->next_ ) {
                 processor->OnClearDb(db_);
             }
-            break;
-        default:
-            for (StatProcessor* processor=first_processor_; processor!=NULL; processor=processor->next_ ) {
-                processor->OnCmd(timestamp, cmd, param1, sizeofparam1, param2, sizeofparam2);
-            }
-            break;
-    }
-    if (INPUT_CMD_WK_MAIN_URL_LOADED==cmd) {
-        MainUrlLoaded((const char*)param1);
+        }
+        for (StatProcessor* processor=first_processor_; processor!=NULL; processor=processor->next_ ) {
+            processor->OnCmd(cmd);
+        }
+        if (SH_CMD_WK_MAIN_URL==cmd_id && SH_ACTION_DID_FINISH==action_id) {
+            const char* url = cmd->GetParamAsString(0);
+            MainUrlLoaded(url);
+        }
     }
 }
 
+//=========================================================================
 void StatHub::FlushDBrequest() {
     if(IsVerboseEnabled()) {
-        LOG(INFO) << "StatHub::FlushDBrequest : Start";
+        SLOGD("netstack: StatHub::FlushDBrequest : Start.");
     }
 
     int delta = StatHubGetTimeDeltaInMs(flush_db_request_time_, StatHubGetSystemTime());
     flush_db_scheduled_ = false;
     if (flush_db_required_) {
         if(IsVerboseEnabled()) {
-            LOG(INFO) << "StatHub::FlushDBrequest : Flush - " << delta;
+            SLOGI("netstack: STAT_HUB -  Flush: %d", delta);
         }
 
         if (delta>=flush_delay_) {
@@ -452,7 +566,7 @@ void StatHub::FlushDBrequest() {
             if (!flush_db_scheduled_) {
                flush_db_scheduled_ = true;
                if(IsVerboseEnabled()) {
-                   LOG(INFO) << "StatHub::FlushDBrequest : Restart - " << flush_delay_ - delta;
+                   SLOGI("netstack: STAT_HUB - Restart in: %d", flush_delay_ - delta);
                }
                thread_->message_loop()->PostDelayedTask(FROM_HERE, NewRunnableFunction(&DoFlushDB, this), flush_delay_ - delta);
             }
@@ -460,9 +574,10 @@ void StatHub::FlushDBrequest() {
     }
 }
 
+//=========================================================================
 bool StatHub::FlushDB() {
     if(IsVerboseEnabled()) {
-        LOG(INFO) << "StatHub::FlushDB: Begin";
+        SLOGD("netstack: StatHub::FlushDB: Begin.");
     }
     base::Time start(StatHubGetSystemTime());
 
@@ -471,7 +586,7 @@ bool StatHub::FlushDB() {
     }
 
     if(IsVerboseEnabled()) {
-        LOG(INFO) << "StatHub::FlushDB time :" << StatHubGetTimeDeltaInMs(start, StatHubGetSystemTime());
+        SLOGD("netstack: StatHub::FlushDB time : %d", StatHubGetTimeDeltaInMs(start, StatHubGetSystemTime()));
     }
     return true;
 }

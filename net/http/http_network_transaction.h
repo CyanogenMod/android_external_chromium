@@ -1,5 +1,5 @@
 // Copyright (c) 2011 The Chromium Authors. All rights reserved.
-// Copyright (c) 2012, Code Aurora Forum. All rights reserved.
+// Copyright (c) 2012 The Linux Foundation. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -294,6 +294,8 @@ class HttpNetworkTransaction : public HttpTransaction,
   // True when the tunnel is in the process of being established - we can't
   // read from the socket until the tunnel is done.
   bool establishing_tunnel_;
+
+  bool report_to_stathub_;
 
   DISALLOW_COPY_AND_ASSIGN(HttpNetworkTransaction);
 };

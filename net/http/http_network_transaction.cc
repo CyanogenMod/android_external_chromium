@@ -1,5 +1,5 @@
 // Copyright (c) 2011 The Chromium Authors. All rights reserved.
-// Copyright (c) 2011, 2012 Code Aurora Forum. All rights reserved.
+// Copyright (c) 2011, 2012 The Linux Foundation. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -55,6 +55,7 @@
 #include "net/spdy/spdy_http_stream.h"
 #include "net/spdy/spdy_session.h"
 #include "net/spdy/spdy_session_pool.h"
+#include "net/disk_cache/stat_hub_api.h"
 #include <cutils/log.h>
 
 using base::Time;
@@ -93,6 +94,19 @@ bool IsClientCertificateError(int error) {
   }
 }
 
+static void StatHubNotifyDone(HttpNetworkTransaction* trans,
+        const HttpRequestInfo* request, bool& report_to_stathub) {
+    if (NULL != request && report_to_stathub) {
+        StatHubCmd* cmd = StatHubCmdCreate(SH_CMD_CH_TRANS_NET, SH_ACTION_DID_FINISH);
+        if (NULL!=cmd) {
+            StatHubCmdAddParamAsString(cmd, request->url.spec().c_str());
+            StatHubCmdAddParamAsUint32(cmd, (unsigned int)trans);
+            StatHubCmdCommit(cmd);
+            report_to_stathub = false;
+        }
+    }
+}
+
 }  // namespace
 
 //-----------------------------------------------------------------------------
@@ -112,13 +126,15 @@ HttpNetworkTransaction::HttpNetworkTransaction(HttpNetworkSession* session)
       request_headers_(),
       read_buf_len_(0),
       next_state_(STATE_NONE),
-      establishing_tunnel_(false) {
+      establishing_tunnel_(false),
+      report_to_stathub_(false){
   session->ssl_config_service()->GetSSLConfig(&ssl_config_);
   if (session->http_stream_factory()->next_protos())
     ssl_config_.next_protos = *session->http_stream_factory()->next_protos();
 }
 
 HttpNetworkTransaction::~HttpNetworkTransaction() {
+  StatHubNotifyDone(this, request_, report_to_stathub_);
   if (stream_.get()) {
     HttpResponseHeaders* headers = GetResponseHeaders();
     // TODO(mbelshe): The stream_ should be able to compute whether or not the
@@ -163,6 +179,15 @@ int HttpNetworkTransaction::Start(const HttpRequestInfo* request_info,
   net_log_ = net_log;
   request_ = request_info;
   start_time_ = base::Time::Now();
+
+  StatHubCmd* cmd = StatHubCmdCreate(SH_CMD_CH_TRANS_NET, SH_ACTION_WILL_START);
+  if (NULL!=cmd) {
+      StatHubCmdAddParamAsString(cmd, request_info->url.spec().c_str());
+      StatHubCmdAddParamAsString(cmd, request_info->extra_headers.ToString().c_str());
+      StatHubCmdAddParamAsUint32(cmd, (unsigned int)this);
+      StatHubCmdCommit(cmd);
+      report_to_stathub_ = true;
+  }
 
   next_state_ = STATE_CREATE_STREAM;
   int rv = DoLoop(OK);
@@ -987,6 +1012,8 @@ int HttpNetworkTransaction::DoReadBodyComplete(int result) {
     // again in ~HttpNetworkTransaction.  Clean that up.
 
     // The next Read call will return 0 (EOF).
+
+    StatHubNotifyDone(this, request_, report_to_stathub_);
   }
 
   // Clear these to avoid leaving around old state.

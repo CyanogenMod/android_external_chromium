@@ -1,5 +1,5 @@
 // Copyright (c) 2011 The Chromium Authors. All rights reserved.
-// Copyright (c) 2011, Code Aurora Forum. All rights reserved
+// Copyright (c) 2011, 2012 The Linux Foundation. All rights reserved
 
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
@@ -288,9 +288,11 @@ void URLRequestHttpJob::NotifyHeadersComplete() {
 
 void URLRequestHttpJob::NotifyDone(const URLRequestStatus& status) {
   RecordCompressionHistograms();
-  GURL& url = request_info_.url;
-  unsigned short url_len = url.spec().length();
-  StatHubCmd(INPUT_CMD_CH_URL_REQUEST_DONE, (void*)url.spec().c_str(), url_len+1, NULL, 0);
+  StatHubCmd* cmd = StatHubCmdCreate(SH_CMD_CH_URL_REQUEST, SH_ACTION_DID_FINISH);
+  if (NULL!=cmd) {
+      StatHubCmdAddParamAsString(cmd, request_->url().spec().c_str());
+      StatHubCmdCommit(cmd);
+  }
   URLRequestJob::NotifyDone(status);
 }
 
@@ -302,9 +304,15 @@ void URLRequestHttpJob::DestroyTransaction() {
   context_ = NULL;
 }
 
-static void updateUrlRequest(const GURL& url, const std::string& headers) {
-    unsigned short url_len = url.spec().length();
-    StatHubCmd(INPUT_CMD_CH_URL_REQUEST, (void*)url.spec().c_str(), url_len+1, (void*)headers.c_str(), headers.length()+1);
+static void updateUrlRequest(URLRequest& request, net::HttpRequestInfo& request_info) {
+    StatHubCmd* cmd = StatHubCmdCreate(SH_CMD_CH_URL_REQUEST, SH_ACTION_WILL_START);
+    if (NULL!=cmd) {
+        StatHubCmdAddParamAsString(cmd, request_info.url.spec().c_str());
+        StatHubCmdAddParamAsString(cmd, request_info.extra_headers.ToString().c_str());
+        StatHubCmdAddParamAsBool(cmd, false);
+        StatHubCmdAddParamAsUint32(cmd, (uint32)request.context());
+        StatHubCmdCommit(cmd);
+    }
 }
 
 void URLRequestHttpJob::StartTransaction() {
@@ -323,12 +331,15 @@ void URLRequestHttpJob::StartTransaction() {
     DCHECK(request_->context());
     DCHECK(request_->context()->http_transaction_factory());
 
+    if (StatHubIsInDC(request_info_.url.spec().c_str())) {
+        request_info_.load_flags |=  net::LOAD_PREFERRING_CACHE;
+    }
     rv = request_->context()->http_transaction_factory()->CreateTransaction(
         &transaction_);
     if (rv == OK) {
       if (!URLRequestThrottlerManager::GetInstance()->enforce_throttling() ||
           !throttling_entry_->IsDuringExponentialBackoff()) {
-        updateUrlRequest(request_info_.url, request_info_.extra_headers.ToString().c_str());
+        updateUrlRequest(*request_, request_info_);
         rv = transaction_->Start(
             &request_info_, &start_callback_, request_->net_log());
       } else {
@@ -686,6 +697,14 @@ void URLRequestHttpJob::OnStartCompleted(int result) {
 
   if (result == OK) {
     SaveCookiesAndNotifyHeadersComplete();
+    if(response_info_!=NULL && request_!=NULL) {
+        StatHubCmd* cmd = StatHubCmdCreate(SH_CMD_CH_URL_REQUEST, SH_ACTION_DID_START);
+        if (NULL!=cmd) {
+            StatHubCmdAddParamAsString(cmd, request_->url().spec().c_str());
+            StatHubCmdAddParamAsBuf(cmd, response_info_->headers->raw_headers().data(), response_info_->headers->raw_headers().size());
+            StatHubCmdCommit(cmd);
+        }
+    }
   } else if (ShouldTreatAsCertificateError(result)) {
     // We encountered an SSL certificate error.  Ask our delegate to decide
     // what we should do.

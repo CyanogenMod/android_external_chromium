@@ -1,5 +1,5 @@
 // Copyright (c) 2011 The Chromium Authors. All rights reserved.
-// Copyright (c) 2011, 2012, Code Aurora Forum. All rights reserved.
+// Copyright (c) 2011, 2012 The Linux Foundation. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -36,8 +36,7 @@
 #include "net/http/http_util.h"
 #include "net/socket/ssl_host_info.h"
 
-#include "net/disk_cache/stat_hub.h"
-#include "net/disk_cache/hostres_plugin_bridge.h"
+#include "net/disk_cache/stat_hub_api.h"
 
 namespace net {
 
@@ -94,8 +93,7 @@ int HttpCache::DefaultBackend::CreateBackend(NetLog* net_log,
   DCHECK_GE(max_bytes_, 0);
   (*stat_db_path) = NULL;
   if (type_ == net::DISK_CACHE) {
-    std::string dataPath = "/data/data/";
-    (*stat_db_path) = new FilePath(dataPath + stat_hub::kEnabledAppName + "/databases");
+    (*stat_db_path) = new FilePath(path_);
   }
   return disk_cache::CreateCacheBackend(type_, path_, max_bytes_, true,
                                         thread_, net_log, backend, callback);
@@ -1161,15 +1159,11 @@ void HttpCache::OnBackendCreated(int result, PendingOp* pending_op) {
   if (!item->DoCallback(result, backend)) {
     item->NotifyTransaction(result, NULL);
     if (NULL!=stat_db_path_) {
-        if(!stat_hub::StatHub::GetInstance()->IsReady()) {
-            stat_hub::StatProcessor* hp = StatHubCreateHostResPlugin();
-            if (NULL!=hp) {
-                stat_hub::StatHub::GetInstance()->RegisterProcessor(hp);
-                LOG(INFO) << "HttpCache::OnBackendCreated HostStat created";
-            }
-            if(stat_hub::StatHub::GetInstance()->Init(stat_db_path_->value(), MessageLoop::current(), this)) {
-                LOG(INFO) << "HttpCache::OnBackendCreated : StatHub is ready.";
-            }
+        if (NULL==StatHubGetIoMessageLoop()) {
+            StatHubSetIoMessageLoop(MessageLoop::current());
+        }
+        if (NULL==StatHubGetHttpCache()) {
+            StatHubSetHttpCache(this);
         }
     }
   }
