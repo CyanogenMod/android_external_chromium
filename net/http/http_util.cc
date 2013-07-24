@@ -439,12 +439,19 @@ std::string HttpUtil::Quote(const std::string& str) {
 int HttpUtil::LocateStartOfStatusLine(const char* buf, int buf_len) {
   const int slop = 4;
   const int http_len = 4;
+#ifdef ANDROID
+  const int icy_len = 3;
+#endif
 
   if (buf_len >= http_len) {
     int i_max = std::min(buf_len - http_len, slop);
     for (int i = 0; i <= i_max; ++i) {
       if (LowerCaseEqualsASCII(buf + i, buf + i + http_len, "http"))
         return i;
+#ifdef ANDROID
+      if (LowerCaseEqualsASCII(buf + i, buf + i + icy_len, "icy"))
+        return i;
+#endif
     }
   }
   return -1;  // Not found
