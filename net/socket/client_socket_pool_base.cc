@@ -16,16 +16,15 @@
 #include "net/base/net_log.h"
 #include "net/base/net_errors.h"
 #include "net/socket/client_socket_handle.h"
-#include "net/socket/client_socket_pool_extend_factory.h"
 #include "net/http/http_network_session.h"
 #include "net/http/preconnect.h"
 #include "net/http/tcp-connections-bridge.h"
 #include "googleurl/src/gurl.h"
 #include <cutils/properties.h>
-
-#define LOG_TAG "Socket_Pool"
 #include <cutils/log.h>
 
+// Define Log Tag for this source file.
+#define LOG_TAG "Socket_Pool"
 
 using base::TimeDelta;
 
@@ -133,11 +132,6 @@ void ConnectJob::NotifyDelegateOfCompletion(int rv) {
   delegate->OnConnectJobComplete(rv, this);
 }
 
-void ConnectJob::NotifyDelegateOfResolution(int rv, AddressList* addrlist, bool allow_reorder) {
-  CHECK(delegate_);
-  delegate_->OnConnectJobResolved(rv, this, addrlist, allow_reorder);
-}
-
 void ConnectJob::ResetTimer(base::TimeDelta remaining_time) {
   timer_.Stop();
   timer_.Start(remaining_time, this, &ConnectJob::OnTimeout);
@@ -213,20 +207,6 @@ ClientSocketPoolBaseHelper::ClientSocketPoolBaseHelper(
   NetworkChangeNotifier::AddIPAddressObserver(this);
 
   network_session_ = network_session;
-
-  ClientSocketPoolExtendFactory* pool_extend_factory = net::ClientSocketPoolExtendFactory::GetInstance();
-  if (!pool_extend_factory) {
-    SLOGE("ERROR: Could not get ClientSocketPoolExtendFactory");
-  }
-  IClientSocketPoolExtendManager* pool_extend_manager = pool_extend_factory->GetManager();
-  if (!pool_extend_manager) {
-    SLOGE("ERROR: Could not get ClientSocketPoolExtendManager");
-  }
-  IClientSocketPoolExtend* pool_extend = pool_extend_manager->GetClientSocketPoolExtend(this);
-  if (!pool_extend) {
-    SLOGE("ERROR: Could not get ClientSocketPoolExtend");
-  }
-  pool_extend_ = pool_extend;
 
   tcp_fin_aggregation = net::TCPFinAggregationFactory::GetTCPFinFactoryInstance(this)->GetTCPFinAggregation();
   if (NULL == tcp_fin_aggregation) {
@@ -384,8 +364,6 @@ int ClientSocketPoolBaseHelper::RequestSocketInternal(
     // Try to reuse a socket.
     if (AssignIdleSocketToGroup(request, group))
       return OK;
-    if (pool_extend_->AssignIdleSocketToGroup(request, group_name, group))
-        return OK;
   }
 
   if (!preconnecting && group->TryToUsePreconnectConnectJob())
@@ -474,19 +452,14 @@ int ClientSocketPoolBaseHelper::RequestSocketInternal(
 }
 
 bool ClientSocketPoolBaseHelper::AssignIdleSocketToGroup(
-    const Request* request,
-    Group* group,
-    bool allow_used_sockets) {
+    const Request* request, Group* group) {
   std::list<IdleSocket>* idle_sockets = group->mutable_idle_sockets();
   std::list<IdleSocket>::iterator idle_socket_it = idle_sockets->end();
-  std::list<IdleSocket>::iterator used_socket_it = idle_sockets->end();
-  std::list<IdleSocket>::iterator unused_socket_it = idle_sockets->end();
-  bool found_socket = false;
 
   // Iterate through the idle sockets forwards (oldest to newest)
   //   * Delete any disconnected ones.
-  //   * If |allow_used_sockets| we find the newest used idle socket and set used_socket_it
-  //   * Otherwise, we find the oldest unused idle socket and set unused_socket_it
+  //   * If we find a used idle socket, assign to |idle_socket|.  At the end,
+  //   the |idle_socket_it| will be set to the newest used idle socket.
   for (std::list<IdleSocket>::iterator it = idle_sockets->begin();
        it != idle_sockets->end();) {
     if (!it->socket->IsConnectedAndIdle()) {
@@ -496,44 +469,37 @@ bool ClientSocketPoolBaseHelper::AssignIdleSocketToGroup(
       continue;
     }
 
-    if (allow_used_sockets) {
-      if (it->socket->WasEverUsed()) {
-        // We found one we can reuse!; prefer newest so update
-        used_socket_it = it;
-        found_socket = true;
-      }
-    } else {
-      if (!found_socket && !it->socket->WasEverUsed()) {
-        // We found an unused one we can reuse!; prefer oldest so update only first time
-        unused_socket_it = it;
-        found_socket = true;
-      }
+    if (it->socket->WasEverUsed()) {
+      // We found one we can reuse!
+      idle_socket_it = it;
     }
+
     ++it;
   }
 
-  if (!found_socket) {
-    if (allow_used_sockets && !idle_sockets->empty()) { //fallback to the oldest (unused) idle socket
-      used_socket_it = idle_sockets->begin();
-    } else {
-      return false;
-    }
-  }
-  idle_socket_it = (allow_used_sockets ? used_socket_it : unused_socket_it);
+  // If we haven't found an idle socket, that means there are no used idle
+  // sockets.  Pick the oldest (first) idle socket (FIFO).
 
-  DecrementIdleCount();
-  base::TimeDelta idle_time =
-      base::Time::Now() - idle_socket_it->start_time;
-  IdleSocket idle_socket = *idle_socket_it;
-  idle_sockets->erase(idle_socket_it);
-  HandOutSocket(
-      idle_socket.socket,
-      idle_socket.socket->WasEverUsed(),
-      request->handle(),
-      idle_time,
-      group,
-      request->net_log());
-  return true;
+  if (idle_socket_it == idle_sockets->end() && !idle_sockets->empty())
+    idle_socket_it = idle_sockets->begin();
+
+  if (idle_socket_it != idle_sockets->end()) {
+    DecrementIdleCount();
+    base::TimeDelta idle_time =
+        base::Time::Now() - idle_socket_it->start_time;
+    IdleSocket idle_socket = *idle_socket_it;
+    idle_sockets->erase(idle_socket_it);
+    HandOutSocket(
+        idle_socket.socket,
+        idle_socket.socket->WasEverUsed(),
+        request->handle(),
+        idle_time,
+        group,
+        request->net_log());
+    return true;
+  }
+
+  return false;
 }
 
 // static
@@ -764,7 +730,6 @@ void ClientSocketPoolBaseHelper::RemoveGroup(const std::string& group_name) {
 }
 
 void ClientSocketPoolBaseHelper::RemoveGroup(GroupMap::iterator it) {
-  pool_extend_->RemoveGroup(it->first, it->second);
   delete it->second;
   group_map_.erase(it);
 }
@@ -828,8 +793,7 @@ void ClientSocketPoolBaseHelper::StartIdleSocketTimer() {
 void ClientSocketPoolBaseHelper::ReleaseSocket(const std::string& group_name,
                                                ClientSocket* socket,
                                                int id) {
-  const std::string& real_group_name = pool_extend_->ReleaseSocket(socket, group_name);
-  GroupMap::iterator i = group_map_.find(real_group_name);
+  GroupMap::iterator i = group_map_.find(group_name);
   CHECK(i != group_map_.end());
 
   Group* group = i->second;
@@ -845,7 +809,7 @@ void ClientSocketPoolBaseHelper::ReleaseSocket(const std::string& group_name,
   if (can_reuse) {
     // Add it to the idle list.
     AddIdleSocket(socket, group);
-    OnAvailableSocketSlot(real_group_name, group);
+    OnAvailableSocketSlot(group_name, group);
   } else {
     delete socket;
   }
@@ -908,22 +872,6 @@ bool ClientSocketPoolBaseHelper::FindTopStalledGroup(Group** group,
     *group_name = *top_group_name;
   }
   return has_stalled_group;
-}
-
-void ClientSocketPoolBaseHelper::OnConnectJobResolved(
-  int result, ConnectJob* job, AddressList* addrlist, bool allow_reorder) {
-  if (OK != result) { // UNREACHABLE; caller should have checked
-    SLOGD("%s: ERROR: result != OK, ignoring", __FUNCTION__);
-    return;
-  }
-  const std::string group_name = job->group_name();
-  GroupMap::iterator group_it = group_map_.find(group_name);
-  if (group_it == group_map_.end()) { // UNREACHABLE
-    SLOGD("%s: ERROR: no group named %s, ignoring", __FUNCTION__, group_name.c_str());
-    return;
-  }
-  Group* group = group_it->second;
-  pool_extend_->OnConnectJobResolved(result, group_name, group, addrlist, allow_reorder);
 }
 
 void ClientSocketPoolBaseHelper::OnConnectJobComplete(
@@ -1025,7 +973,6 @@ void ClientSocketPoolBaseHelper::OnAvailableSocketSlot(
     RemoveGroup(group_name);
   else if (!group->pending_requests().empty())
     ProcessPendingRequest(group_name, group);
-  else pool_extend_->ProcessPendingRequest(group_name, group);
 }
 
 void ClientSocketPoolBaseHelper::ProcessPendingRequest(
@@ -1033,35 +980,16 @@ void ClientSocketPoolBaseHelper::ProcessPendingRequest(
   int rv = RequestSocketInternal(group_name,
                                  *group->pending_requests().begin());
   if (rv != ERR_IO_PENDING) {
-    RemoveProcessedPendingRequest(group_name, group, rv);
-  }
-}
+    scoped_ptr<const Request> request(RemoveRequestFromQueue(
+          group->mutable_pending_requests()->begin(), group));
+    if (group->IsEmpty())
+      RemoveGroup(group_name);
 
-void ClientSocketPoolBaseHelper::RemoveProcessedPendingRequest(
-    const std::string& group_name,
-    Group* group,
-    int rv) {
-
-  if (NULL == group) {
-    GroupMap::iterator it = group_map_.find(group_name);
-    if (it == group_map_.end()) {
-        return;
+    request->net_log().EndEventWithNetErrorCode(NetLog::TYPE_SOCKET_POOL, rv);
+    InvokeUserCallbackLater(request->handle(), request->callback(), rv);
+    if (net_statistics_enabled) {
+      SLOGD("removeRequestFromQueue Host = %s Size = %d", group_name.c_str(), group->mutable_pending_requests()->size());
     }
-    group = it->second;
-  }
-  scoped_ptr<const Request> request(RemoveRequestFromQueue(group->mutable_pending_requests()->begin(), group));
-  if (group->pending_requests().empty() && !group->jobs().empty() && ReachedMaxSocketsLimit()) {
-      // cancel one pre-connect job since we just got processed and limit was reached
-      RemoveConnectJob(*group->jobs().begin(), group);
-      CheckForStalledSocketGroups();
-  }
-  if (group->IsEmpty())
-    RemoveGroup(group_name);
-
-  request->net_log().EndEventWithNetErrorCode(NetLog::TYPE_SOCKET_POOL, rv);
-  InvokeUserCallbackLater(request->handle(), request->callback(), rv);
-  if (net_statistics_enabled) {
-    SLOGD("removeRequestFromQueue Host = %s Size = %d", group_name.c_str(), group->mutable_pending_requests()->size());
   }
 }
 
