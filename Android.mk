@@ -478,7 +478,7 @@ LOCAL_C_INCLUDES := \
 	$(LOCAL_PATH)/android \
 	$(LOCAL_C_INCLUDES)
 
-LOCAL_WHOLE_STATIC_LIBRARIES += libevent modp_b64 dmg_fp libcutils
+LOCAL_STATIC_LIBRARIES := libevent modp_b64 dmg_fp
 LOCAL_SHARED_LIBRARIES := libstlport libexpat libcrypto libssl libz libicuuc libicui18n libsqlite libcutils liblog libdl
 
 LOCAL_PRELINK_MODULE := false
