@@ -1,4 +1,5 @@
 // Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright (c) 2013, The Linux Foundation. All rights reserved
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,6 +25,7 @@
 #include "net/url_request/url_request_job_manager.h"
 #include "net/url_request/url_request_netlog_params.h"
 #include "net/url_request/url_request_redirect_job.h"
+#include "net/url_request/video_url_caching_bridge.h"
 
 using base::Time;
 using std::string;
@@ -375,6 +377,10 @@ void URLRequest::Start() {
     }
   }
 
+  if (UrlCachingState()) {
+      ObserveStart(url_chain_);
+  }
+
   StartInternal();
 }
 
@@ -521,6 +527,11 @@ void URLRequest::ResponseStarted() {
 
   URLRequestJob* job =
       URLRequestJobManager::GetInstance()->MaybeInterceptResponse(this);
+
+  if (UrlCachingState()) {
+      ObserveResponseStarted(url_chain_);
+  }
+
   if (job) {
     RestartWithJob(job);
   } else {

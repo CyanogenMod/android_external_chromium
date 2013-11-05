@@ -1,4 +1,5 @@
 // Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright (c) 2012 The Linux Foundation. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -194,7 +195,8 @@ class SSLClientSocketPool : public ClientSocketPool,
       SOCKSClientSocketPool* socks_pool,
       HttpProxyClientSocketPool* http_proxy_pool,
       SSLConfigService* ssl_config_service,
-      NetLog* net_log);
+      NetLog* net_log,
+      HttpNetworkSession *network_session);
 
   virtual ~SSLClientSocketPool();
 

@@ -1,4 +1,5 @@
 // Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011, 2012 The Linux Foundation. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -34,6 +35,8 @@
 #include "net/http/http_response_info.h"
 #include "net/http/http_util.h"
 #include "net/socket/ssl_host_info.h"
+
+#include "net/disk_cache/stat_hub_api.h"
 
 namespace net {
 
@@ -85,8 +88,13 @@ HttpCache::BackendFactory* HttpCache::DefaultBackend::InMemory(int max_bytes) {
 
 int HttpCache::DefaultBackend::CreateBackend(NetLog* net_log,
                                              disk_cache::Backend** backend,
-                                             CompletionCallback* callback) {
+                                             CompletionCallback* callback,
+                                             FilePath** stat_db_path) {
   DCHECK_GE(max_bytes_, 0);
+  (*stat_db_path) = NULL;
+  if (type_ == net::DISK_CACHE) {
+    (*stat_db_path) = new FilePath(path_);
+  }
   return disk_cache::CreateCacheBackend(type_, path_, max_bytes_, true,
                                         thread_, net_log, backend, callback);
 }
@@ -339,7 +347,8 @@ HttpCache::HttpCache(HostResolver* host_resolver,
                   http_auth_handler_factory,
                   network_delegate,
                   net_log))),
-      ALLOW_THIS_IN_INITIALIZER_LIST(task_factory_(this)) {
+      ALLOW_THIS_IN_INITIALIZER_LIST(task_factory_(this))
+      , stat_db_path_(NULL) {
 }
 
 
@@ -407,6 +416,10 @@ HttpCache::~HttpCache() {
     STLDeleteElements(&pending_op->pending_queue);
     if (delete_pending_op)
       delete pending_op;
+  }
+
+  if (NULL!=stat_db_path_) {
+      delete stat_db_path_;
   }
 }
 
@@ -518,7 +531,7 @@ int HttpCache::CreateBackend(disk_cache::Backend** backend,
   pending_op->callback = my_callback;
 
   int rv = backend_factory_->CreateBackend(net_log_, &pending_op->backend,
-                                           my_callback);
+                                           my_callback, &stat_db_path_ );
   if (rv != ERR_IO_PENDING) {
     pending_op->writer->ClearCallback();
     my_callback->Run(rv);
@@ -1143,8 +1156,17 @@ void HttpCache::OnBackendCreated(int result, PendingOp* pending_op) {
   }
 
   // The cache may be gone when we return from the callback.
-  if (!item->DoCallback(result, backend))
+  if (!item->DoCallback(result, backend)) {
     item->NotifyTransaction(result, NULL);
+    if (NULL!=stat_db_path_) {
+        if (NULL==StatHubGetIoMessageLoop()) {
+            StatHubSetIoMessageLoop(MessageLoop::current());
+        }
+        if (NULL==StatHubGetHttpCache()) {
+            StatHubSetHttpCache(this);
+        }
+    }
+  }
 }
 
 }  // namespace net

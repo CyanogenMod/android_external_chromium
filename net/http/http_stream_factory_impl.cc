@@ -1,4 +1,5 @@
 // Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2012, The Linux Foundation. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -106,6 +107,35 @@ void HttpStreamFactoryImpl::PreconnectStreams(
   job->Preconnect(num_streams);
 }
 
+int HttpStreamFactoryImpl::PreconnectStreams(
+    int num_streams,
+    const HttpRequestInfo& request_info,
+    const SSLConfig& ssl_config,
+    const BoundNetLog& net_log,
+    CompletionCallback* callback) {
+  GURL alternate_url;
+  bool has_alternate_protocol =
+      GetAlternateProtocolRequestFor(request_info.url, &alternate_url);
+  Job* job = NULL;
+  if (has_alternate_protocol) {
+    HttpRequestInfo alternate_request_info = request_info;
+    alternate_request_info.url = alternate_url;
+    job = new Job(this, session_, alternate_request_info, ssl_config, net_log);
+    job->MarkAsAlternate(request_info.url);
+  } else {
+    job = new Job(this, session_, request_info, ssl_config, net_log);
+  }
+  preconnect_job_set_.insert(job);
+  int rv = job->Preconnect(num_streams);
+  if(ERR_IO_PENDING != rv) {
+      callback->Run(rv);
+  }
+  else
+      request_callback_map_[job] = callback;
+
+  return rv;
+}
+
 void HttpStreamFactoryImpl::AddTLSIntolerantServer(const HostPortPair& server) {
   tls_intolerant_servers_.insert(server);
 }
@@ -200,6 +230,13 @@ void HttpStreamFactoryImpl::OnOrphanedJobComplete(const Job* job) {
 }
 
 void HttpStreamFactoryImpl::OnPreconnectsComplete(const Job* job) {
+
+  RequestCallbackMap::iterator it = request_callback_map_.find(job);
+  DCHECK(it != request_callback_map_.end());
+  CompletionCallback* callback = it->second;
+  request_callback_map_.erase(it);
+  callback->Run(0);
+
   preconnect_job_set_.erase(job);
   delete job;
   OnPreconnectsCompleteInternal();

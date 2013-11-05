@@ -1,4 +1,6 @@
 // Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright (c) 2012 The Linux Foundation. All rights reserved.
+
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -362,6 +364,8 @@ class HttpCache::Transaction : public HttpTransaction {
   scoped_refptr<CancelableCompletionCallback<Transaction> > cache_callback_;
   scoped_refptr<CancelableCompletionCallback<Transaction> >
       write_headers_callback_;
+
+  bool report_to_stathub_;
 };
 
 }  // namespace net

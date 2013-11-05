@@ -1,4 +1,5 @@
 // Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011, The Linux Foundation. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -80,7 +81,9 @@ class HostResolverImpl : public HostResolver,
   HostResolverImpl(HostResolverProc* resolver_proc,
                    HostCache* cache,
                    size_t max_jobs,
-                   NetLog* net_log);
+                   NetLog* net_log,
+                   MessageLoop* net_notification_messageloop=NULL
+                   );
 
   // If any completion callbacks are pending when the resolver is destroyed,
   // the host resolutions are cancelled, and the completion callbacks will not
@@ -128,6 +131,7 @@ class HostResolverImpl : public HostResolver,
   // TODO(eroman): hack for http://crbug.com/15513
   virtual void Shutdown();
 
+  virtual void SetResolverExt(HostnameResolverExt* preresolver);
  private:
   class Job;
   class JobPool;
@@ -276,6 +280,9 @@ class HostResolverImpl : public HostResolver,
   HostResolverFlags additional_resolver_flags_;
 
   NetLog* net_log_;
+
+  MessageLoop* net_notification_messageloop_;
+  HostnameResolverExt* resolverext_;
 
   DISALLOW_COPY_AND_ASSIGN(HostResolverImpl);
 };

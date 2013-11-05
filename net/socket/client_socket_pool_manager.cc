@@ -1,4 +1,5 @@
 // Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011, 2012 The Linux Foundation. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -253,7 +254,8 @@ ClientSocketPoolManager::ClientSocketPoolManager(
     DnsCertProvenanceChecker* dns_cert_checker,
     SSLHostInfoFactory* ssl_host_info_factory,
     ProxyService* proxy_service,
-    SSLConfigService* ssl_config_service)
+    SSLConfigService* ssl_config_service,
+    HttpNetworkSession *network_session)
     : net_log_(net_log),
       socket_factory_(socket_factory),
       host_resolver_(host_resolver),
@@ -269,7 +271,8 @@ ClientSocketPoolManager::ClientSocketPoolManager(
           &transport_pool_histograms_,
           host_resolver,
           socket_factory_,
-          net_log)),
+          net_log,
+          network_session)),
       ssl_pool_histograms_("SSL2"),
       ssl_socket_pool_(new SSLClientSocketPool(
           g_max_sockets, g_max_sockets_per_group,
@@ -284,7 +287,8 @@ ClientSocketPoolManager::ClientSocketPoolManager(
           NULL /* no socks proxy */,
           NULL /* no http proxy */,
           ssl_config_service,
-          net_log)),
+          net_log,
+          network_session)),
       transport_for_socks_pool_histograms_("TCPforSOCKS"),
       socks_pool_histograms_("SOCK"),
       transport_for_http_proxy_pool_histograms_("TCPforHTTPProxy"),
@@ -417,7 +421,8 @@ SOCKSClientSocketPool* ClientSocketPoolManager::GetSocketPoolForSOCKSProxy(
                   &transport_for_socks_pool_histograms_,
                   host_resolver_,
                   socket_factory_,
-                  net_log_)));
+                  net_log_,
+                  NULL)));
   DCHECK(tcp_ret.second);
 
   std::pair<SOCKSSocketPoolMap::iterator, bool> ret =
@@ -427,7 +432,8 @@ SOCKSClientSocketPool* ClientSocketPoolManager::GetSocketPoolForSOCKSProxy(
               &socks_pool_histograms_,
               host_resolver_,
               tcp_ret.first->second,
-              net_log_)));
+              net_log_,
+              NULL)));
 
   return ret.first->second;
 }
@@ -456,7 +462,8 @@ HttpProxyClientSocketPool* ClientSocketPoolManager::GetSocketPoolForHTTPProxy(
                   &transport_for_http_proxy_pool_histograms_,
                   host_resolver_,
                   socket_factory_,
-                  net_log_)));
+                  net_log_,
+                  NULL)));
   DCHECK(tcp_http_ret.second);
 
   std::pair<TransportSocketPoolMap::iterator, bool> tcp_https_ret =
@@ -468,7 +475,8 @@ HttpProxyClientSocketPool* ClientSocketPoolManager::GetSocketPoolForHTTPProxy(
                   &transport_for_https_proxy_pool_histograms_,
                   host_resolver_,
                   socket_factory_,
-                  net_log_)));
+                  net_log_,
+                  NULL)));
   DCHECK(tcp_https_ret.second);
 
   std::pair<SSLSocketPoolMap::iterator, bool> ssl_https_ret =
@@ -487,7 +495,8 @@ HttpProxyClientSocketPool* ClientSocketPoolManager::GetSocketPoolForHTTPProxy(
                   tcp_https_ret.first->second /* https proxy */,
                   NULL /* no socks proxy */,
                   NULL /* no http proxy */,
-                  ssl_config_service_, net_log_)));
+                  ssl_config_service_, net_log_,
+                  NULL)));
   DCHECK(tcp_https_ret.second);
 
   std::pair<HTTPProxySocketPoolMap::iterator, bool> ret =
@@ -500,7 +509,8 @@ HttpProxyClientSocketPool* ClientSocketPoolManager::GetSocketPoolForHTTPProxy(
                   host_resolver_,
                   tcp_http_ret.first->second,
                   ssl_https_ret.first->second,
-                  net_log_)));
+                  net_log_,
+                  NULL)));
 
   return ret.first->second;
 }
@@ -525,7 +535,8 @@ SSLClientSocketPool* ClientSocketPoolManager::GetSocketPoolForSSLWithProxy(
       GetSocketPoolForSOCKSProxy(proxy_server),
       GetSocketPoolForHTTPProxy(proxy_server),
       ssl_config_service_,
-      net_log_);
+      net_log_,
+      NULL);
 
   std::pair<SSLSocketPoolMap::iterator, bool> ret =
       ssl_socket_pools_for_proxies_.insert(std::make_pair(proxy_server,
